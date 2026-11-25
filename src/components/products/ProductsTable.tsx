@@ -31,7 +31,7 @@ import {
 import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template-client";
 import { formatEUR } from "@/lib/money";
 
-const COLUMN_COUNT = 6;
+const BASE_COLUMN_COUNT = 6;
 
 function formatDateOnly(value: string | null) {
   const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -97,6 +97,9 @@ type ProductsTableProps = {
   onToggleArchive: (product: ProductRecord) => void;
   /** Draft -> validated; the server refuses a draft that lacks a required field. */
   onValidate: (product: ProductRecord) => void;
+  /** Articles of this page chosen for an action on several at once (TI-711); the column shows when given. */
+  selectedIds?: ReadonlySet<string>;
+  onSelectionChange?: (ids: ReadonlySet<string>) => void;
 };
 
 export function ProductsTable({
@@ -111,12 +114,30 @@ export function ProductsTable({
   onReviewPrice,
   onToggleArchive,
   onValidate,
+  selectedIds,
+  onSelectionChange,
 }: ProductsTableProps) {
+  const selectable = onSelectionChange !== undefined;
+  const selection = selectedIds ?? new Set<string>();
+  const COLUMN_COUNT = BASE_COLUMN_COUNT + (selectable ? 1 : 0);
+  const allSelected = products.length > 0 && products.every((product) => selection.has(product.id));
   return (
     <div className="relative overflow-x-auto" role="region" aria-label="Produits" tabIndex={0}>
       <table className="data-table product-catalogue-table table-fixed md:table-auto">
         <thead>
           <tr>
+            {selectable ? (
+              <th className="w-10" scope="col">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-primary"
+                  aria-label="Sélectionner les articles de cette page"
+                  checked={allSelected}
+                  disabled={products.length === 0}
+                  onChange={(event) => onSelectionChange(event.currentTarget.checked ? new Set(products.map((product) => product.id)) : new Set())}
+                />
+              </th>
+            ) : null}
             <th className="hidden w-36 lg:table-cell" scope="col">
               Référence
             </th>
@@ -190,6 +211,22 @@ export function ProductsTable({
 
               return (
                 <tr key={product.id} className={product.is_active ? undefined : "opacity-60"}>
+                  {selectable ? (
+                    <td>
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        aria-label={`Sélectionner ${product.designation}`}
+                        checked={selection.has(product.id)}
+                        onChange={(event) => {
+                          const next = new Set(selection);
+                          if (event.currentTarget.checked) next.add(product.id);
+                          else next.delete(product.id);
+                          onSelectionChange(next);
+                        }}
+                      />
+                    </td>
+                  ) : null}
                   <td className="hidden lg:table-cell">
                     <span className="break-all font-mono text-xs text-foreground-secondary">
                       {product.reference || "Sans référence"}

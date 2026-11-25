@@ -5,6 +5,7 @@ import {
   mapSupabaseError,
   notFound,
 } from "@/lib/http/api-response";
+import { readAllRows } from "@/lib/supabase/read-all";
 import type { Database } from "@/types/database";
 
 import { getCatalogueWriterClient, readCatalogueAccess } from "./access-server";
@@ -44,13 +45,12 @@ async function supplierWriteRefusal(writer: WriterClient, supplierId: string) {
   return notFound("Fournisseur introuvable.");
 }
 
-export async function listSuppliers() {
-  const { supabase } = await getAuthenticatedTenantContext();
-  const { data, error } = await supabase
-    .from("suppliers")
-    .select("*")
-    .eq("is_active", true)
-    .order("name", { ascending: true });
+export async function listSuppliers(scope?: "active") {
+  const { supabase, tenantId } = await getAuthenticatedTenantContext();
+  const { data, error } = scope === "active"
+    ? await readAllRows(() => supabase.from("suppliers")
+      .select("*", { count: "exact" }).eq("tenant_id", tenantId).eq("is_active", true).order("name"))
+    : await supabase.from("suppliers").select("*").eq("is_active", true).order("name", { ascending: true });
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les fournisseurs.");

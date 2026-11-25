@@ -52,7 +52,7 @@ function row(values: Record<string, Cell>): Cell[] {
 function workbook(sheets: Record<string, XLSX.WorkSheet>, bookType: XLSX.BookType = "xlsx"): ArrayBuffer {
   const book = XLSX.utils.book_new();
   for (const [name, sheet] of Object.entries(sheets)) XLSX.utils.book_append_sheet(book, sheet, name);
-  return XLSX.write(book, { bookType, type: "array" }) as ArrayBuffer;
+  return XLSX.write(book, { bookType, type: "array", sheetStubs: true }) as ArrayBuffer;
 }
 
 // `origin` places the rows away from A1, as a sheet whose used range starts lower down.
@@ -87,6 +87,18 @@ describe("readCostingWorkbookFile", () => {
     expect(read.supplierReferenceOccurrences).toMatchObject([{
       article_reference: "0031", supplier_sku: "004205",
     }]);
+  });
+
+  it.each(["Fiche produit", "", null])("keeps a linked product page with the Excel display value %j", async (label) => {
+    const source = sheet([HEADERS, row({
+      ID: "TUBE-1", Type_ligne: "Art", Caractéristique: "Tube", Matériau: "Inox",
+      F1_nom: "Atlas", F1_ref: "A-1", F1_URL: label,
+    })]);
+    const cell = XLSX.utils.encode_cell({ r: 1, c: HEADERS.indexOf("F1_URL") });
+    if (label === null) source[cell] = { t: "z", v: "" };
+    source[cell].l = { Target: "https://example.test/products/A-1" };
+    const read = readCostingWorkbookRows(await readCostingWorkbookFile(workbook({ All_data: source })));
+    expect(read.supplierReferenceOccurrences[0].product_url).toBe("https://example.test/products/A-1");
   });
 
   it("refuses in one sentence naming the sheet a workbook without it (1)", async () => {

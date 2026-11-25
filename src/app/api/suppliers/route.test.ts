@@ -5,6 +5,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import { GET, POST } from "@/app/api/suppliers/route";
+import { createFakeSupabase, fakeMembership } from "@/lib/material-requests/server.test-utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -276,6 +277,31 @@ describe("/api/suppliers", () => {
       expect(response.status).toBe(200);
       expect(body.data.access).toEqual({ user_id: USER_ID, ...expected });
     });
+  });
+
+  it("scopes the workbook directory to the active tenant for a member of two tenants", async () => {
+    const otherTenant = "33333333-3333-4333-8333-333333333334";
+    const otherSupplier = "22222222-2222-4222-8222-222222222223";
+    const fake = createFakeSupabase({
+      userId: USER_ID,
+      tables: {
+        tenant_memberships: [
+          fakeMembership(USER_ID, TENANT_ID, "admin"),
+          { ...fakeMembership(USER_ID, otherTenant, "admin"), is_default: false },
+        ],
+        suppliers: [
+          { id: SUPPLIER_ID, tenant_id: TENANT_ID, name: "Atlas", is_active: true },
+          { id: otherSupplier, tenant_id: otherTenant, name: "Atlas", is_active: true },
+        ],
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(fake.supabase as never);
+
+    const scoped = await GET(new Request("http://localhost/api/suppliers?scope=active"));
+    const general = await GET(new Request("http://localhost/api/suppliers"));
+    expect(scoped.status).toBe(200);
+    expect((await scoped.json()).data.items.map(({ id }: { id: string }) => id)).toEqual([SUPPLIER_ID]);
+    expect((await general.json()).data.items.map(({ id }: { id: string }) => id)).toEqual([SUPPLIER_ID, otherSupplier]);
   });
 
   it("POST does not report success when an archive affects no row", async () => {

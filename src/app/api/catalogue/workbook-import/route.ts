@@ -1,6 +1,6 @@
 import {
   COSTING_WORKBOOK_MAX_BODY_BYTES,
-  costingWorkbookImportSchema,
+  costingWorkbookArticlesSchema,
 } from "@/lib/catalogue/costing-workbook-contract";
 import { importCostingWorkbook } from "@/lib/catalogue/costing-workbook-server";
 import { ok, toErrorResponse } from "@/lib/http/api-response";
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
       maxBytes: COSTING_WORKBOOK_MAX_BODY_BYTES,
       tooLargeMessage: "Cet onglet est trop volumineux pour être importé en une fois (4 Mo au plus).",
     });
-    return ok(await importCostingWorkbook(costingWorkbookImportSchema.parse(body)));
+    return ok(await importCostingWorkbook(costingWorkbookArticlesSchema.parse(body)));
   } catch (error) {
     return toErrorResponse(error);
   }

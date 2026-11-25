@@ -8593,6 +8593,179 @@
         }
       }
     },
+    "/api/catalogue/import-batches": {
+      "get": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Lister les imports récents du classeur de chiffrage",
+        "description": "Les dix derniers imports de l’entreprise active, avec ce qu’ils ont créé qui existe encore (total) et ce qui reste à valider ou à vérifier (open). can_undo dit si l’appelant peut annuler l’import.",
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalogue/import-batches/{batchId}/undo": {
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Annuler un import du classeur de chiffrage",
+        "description": "Supprime ce que l’import a créé et que personne n’a touché depuis : brouillons non validés et non utilisés, références encore à vérifier. Le reste est conservé et compté. Réservé à un administrateur ou à l’auteur de l’import.",
+        "parameters": [
+          {
+            "name": "batchId",
+            "in": "path",
+            "description": "Identifiant UUID de l’import.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UndoCatalogueImportBatchBatchIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/catalogue/reference-price": {
       "get": {
         "tags": [
@@ -8913,6 +9086,487 @@
           },
           "503": {
             "description": "Migration de référence non activée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalogue/supplier-aliases": {
+      "get": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Lister les noms associés aux fournisseurs",
+        "description": "Noms que le classeur de chiffrage écrit pour un fournisseur du catalogue (TI-711). Lisible par tout membre de l’entreprise active.",
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Associer un nom du classeur à un fournisseur",
+        "description": "Mémorise le nom que le classeur écrit pour un fournisseur actif de l’entreprise : les aperçus suivants le lisent comme ce fournisseur, y compris entre des fournisseurs homonymes. Redemander la même association répond celle qui existe ; un nom déjà associé à un autre fournisseur est refusé (409). Réservé aux administrateurs et aux ingénieurs.",
+        "requestBody": {
+          "description": "Fournisseur et nom à lui associer.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSupplierAliasRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Association mémorisée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalogue/supplier-aliases/{aliasId}": {
+      "delete": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Retirer un nom associé à un fournisseur",
+        "description": "Un administrateur retire toute association ; un ingénieur, celles qu’il a créées.",
+        "parameters": [
+          {
+            "name": "aliasId",
+            "in": "path",
+            "description": "Identifiant UUID de l’association.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/DeleteSupplierAliasAliasIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalogue/supplier-references": {
+      "get": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Lister les références fournisseur à vérifier",
+        "description": "Références importées et pas encore vérifiées, les plus récentes d’abord, avec leur article et leur fournisseur. can_review dit si l’appelant peut vérifier la référence (droits de modification de l’article).",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page, à partir de 1.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListPendingSupplierReferencesPageParameter"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Références par page.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListPendingSupplierReferencesSizeParameter"
+            }
+          },
+          {
+            "name": "supplier_id",
+            "in": "query",
+            "description": "Références de ce fournisseur.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListPendingSupplierReferencesSupplierIdParameter"
+            }
+          },
+          {
+            "name": "import_batch_id",
+            "in": "query",
+            "description": "Références de cet import.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListPendingSupplierReferencesImportBatchIdParameter"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Partie du code fournisseur.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListPendingSupplierReferencesQParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Vérifier des références fournisseur ensemble",
+        "description": "Valide (elles servent alors aux achats telles qu’importées) ou retire les références nommées, ou toutes celles à vérifier que le filtre désigne. Ce que l’appelant ne peut pas vérifier (article d’un autre pour un ingénieur sans la base partagée, article ou fournisseur archivé) est laissé en attente et compté dans skipped. Réservé aux administrateurs et aux ingénieurs.",
+        "requestBody": {
+          "description": "Action et références nommées, ou filtre accompagné du nombre confirmé.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewSupplierReferencesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Le nombre de références a changé depuis la confirmation. Actualisez la liste.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9296,9 +9950,9 @@
           "Catalogue"
         ],
         "summary": "Importer le classeur de chiffrage en articles brouillons",
-        "description": "Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, 6000 au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture est celui de l’entreprise qui a le code proposé, jamais créé. Les références fournisseur des nouveaux articles sont comptées. La reprise des références a sa propre action. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report (ce qui a été créé). Relancer le même classeur crée le reste.",
+        "description": "Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, 6000 au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture peut être choisi par ligne (supply_type_rows), par famille du classeur (supply_type_families), ou par code inféré (supply_types), dans cet ordre. Par défaut, il reçoit le type de l’entreprise qui porte le code inféré. L’aperçu donne les types de fourniture de l’entreprise et les articles déjà présents dont le prix de référence ou l’unité diffère du classeur (catalogue_differences), sans les modifier. Les références fournisseur des nouveaux articles sont comptées. La reprise des références a sa propre action. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report (ce qui a été créé). Relancer le même classeur crée le reste.",
         "requestBody": {
-          "description": "Lignes de l’onglet All_data et confirmation.",
+          "description": "Lignes de l’onglet All_data, confirmation et types de fourniture choisis à l’écran.",
           "required": true,
           "content": {
             "application/json": {
@@ -9340,7 +9994,7 @@
             }
           },
           "403": {
-            "description": "Administrateur ou ingénieur requis, ou lot refusé par les droits du catalogue (COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report quand des lots précédents ont créé des brouillons).",
+            "description": "Administrateur ou ingénieur requis, entreprise active différente de celle de l’import, ou bloc refusé par les droits du catalogue (COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report quand des blocs précédents ont créé des brouillons).",
             "content": {
               "application/json": {
                 "schema": {
@@ -9360,7 +10014,7 @@
             }
           },
           "409": {
-            "description": "Un article du classeur a été ajouté au catalogue entre-temps, ou un calcul de devis est en cours (COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report quand des lots précédents ont créé des brouillons).",
+            "description": "Un article du classeur a été ajouté entre-temps, l’annulation de cet import a commencé, l’entreprise prévue a changé ou ne correspond pas au lot d’import, ou un calcul de devis est en cours (COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report quand des blocs précédents ont créé des brouillons).",
             "content": {
               "application/json": {
                 "schema": {
@@ -9380,7 +10034,178 @@
             }
           },
           "422": {
-            "description": "Onglet d’une autre forme que celle du classeur de chiffrage (COSTING_WORKBOOK_FORMAT).",
+            "description": "Onglet d’une autre forme que celle du classeur de chiffrage (COSTING_WORKBOOK_FORMAT), ou type de fourniture choisi absent de l’entreprise (COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalogue/workbook-import/suggestions": {
+      "get": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Lire les sources d’IA disponibles pour les propositions de l’import",
+        "description": "Dit lesquelles des sources (forfait ChatGPT, clé API OpenAI personnelle, API Decisions) ce membre peut interroger ici. Aucun fournisseur d’IA n’est appelé.",
+        "responses": {
+          "200": {
+            "description": "Disponibilité des sources de propositions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiCostingWorkbookSuggestionProviders"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Proposer des corrections pour l’import du classeur de chiffrage",
+        "description": "Propose, pour une tâche (fournisseurs, articles, types de fourniture, colonnes, codes fournisseur), ce que les règles trouvent ; avec provider, la source d’IA choisie arbitre seulement ce que les règles laissent indécis, parmi leurs candidats ou « aucun ». Rien n’est écrit : une proposition s’applique quand le bureau la retient à l’écran. Aucun repli d’une source vers une autre. Réservé aux administrateurs et aux ingénieurs.",
+        "requestBody": {
+          "description": "Tâche, éléments à proposer et source d’IA éventuelle.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestForWorkbookImportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Propositions pour la tâche demandée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiCostingWorkbookSuggestions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9408,7 +10233,7 @@
           "Catalogue"
         ],
         "summary": "Reprendre les références fournisseur du classeur de chiffrage",
-        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. L’aperçu donne une cellule source par référence proposée. Le rapport donne les lignes à examiner et leur motif, dont les sources de prix écartées des références à reprendre. Les liaisons existantes et les prix sont conservés.",
+        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. L’aperçu donne une cellule source par référence proposée ; après confirmation, la même liste est celle des références importées. Le rapport donne les lignes à examiner et leur motif, avec ce que le catalogue détient (code déjà enregistré, fiches homonymes), dont les sources de prix écartées des références à reprendre et les références d’articles que l’import des brouillons du même onglet crée (article_to_create). Si plusieurs adresses produit accompagnent le même code, la référence est importée sans lien et le rapport signale product_url_omitted. Si un nom est associé à un fournisseur archivé, le rapport indique le fournisseur et le droit de retirer cette association dans archived_supplier_alias. Les liaisons existantes et les prix sont conservés.",
         "requestBody": {
           "description": "Lignes de l’onglet All_data et empreinte de l’aperçu à la confirmation.",
           "required": true,
@@ -25989,6 +26814,98 @@
         }
       }
     },
+    "/api/products/bulk": {
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Valider des brouillons ou donner un type de fourniture à plusieurs articles",
+        "description": "validate : valide les brouillons complets parmi les articles nommés ou ceux d’un import (réservé aux administrateurs) ; un brouillon incomplet reste un brouillon et est compté. assign-supply-type : donne un type de fourniture de l’entreprise aux articles nommés que l’appelant peut modifier.",
+        "requestBody": {
+          "description": "Action sur plusieurs articles.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkUpdateProductsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/products/reference-suggestion": {
       "get": {
         "tags": [
@@ -27411,6 +28328,15 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/ListSuppliersViewParameter"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Restreint la liste aux fournisseurs de l’entreprise active.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListSuppliersScopeParameter"
             }
           },
           {
@@ -55923,6 +56849,11 @@
           }
         ]
       },
+      "UndoCatalogueImportBatchBatchIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
       "ReferencePriceProductId": {
         "type": "string",
         "format": "uuid",
@@ -56630,6 +57561,140 @@
         ],
         "additionalProperties": false
       },
+      "CreateSupplierAliasRequest": {
+        "type": "object",
+        "properties": {
+          "supplier_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "alias": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "supplier_id",
+          "alias"
+        ],
+        "additionalProperties": false
+      },
+      "DeleteSupplierAliasAliasIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ListPendingSupplierReferencesPageParameter": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      },
+      "ListPendingSupplierReferencesSizeParameter": {
+        "anyOf": [
+          {
+            "type": "number",
+            "const": 25
+          },
+          {
+            "type": "number",
+            "const": 50
+          },
+          {
+            "type": "number",
+            "const": 100
+          }
+        ]
+      },
+      "ListPendingSupplierReferencesSupplierIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ListPendingSupplierReferencesImportBatchIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ListPendingSupplierReferencesQParameter": {
+        "type": "string",
+        "maxLength": 100
+      },
+      "ReviewSupplierReferencesRequest": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "validate",
+                  "withdraw"
+                ]
+              },
+              "ids": {
+                "minItems": 1,
+                "maxItems": 5000,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "required": [
+              "action",
+              "ids"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "validate",
+                  "withdraw"
+                ]
+              },
+              "filter": {
+                "type": "object",
+                "properties": {
+                  "supplier_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "import_batch_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "q": {
+                    "type": "string",
+                    "maxLength": 100
+                  }
+                },
+                "additionalProperties": false
+              },
+              "expected_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "action",
+              "filter",
+              "expected_count"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
       "CreateSupplyTypeRequest": {
         "type": "object",
         "properties": {
@@ -56975,6 +58040,78 @@
           },
           "confirm": {
             "type": "boolean"
+          },
+          "source_name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "supply_types": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "enum": [
+                "tube",
+                "raccord",
+                "vanne",
+                "robinetterie",
+                "support",
+                "calorifuge",
+                "divers"
+              ]
+            },
+            "additionalProperties": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "supply_type_families": {
+            "maxItems": 6000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "family_code": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                },
+                "supply_type_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "required": [
+                "family_code",
+                "supply_type_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "supply_type_rows": {
+            "maxItems": 6000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "row": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "supply_type_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "required": [
+                "row",
+                "supply_type_id"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -57006,6 +58143,18 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
+              "import_batch_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "proposed_articles": {
                 "type": "array",
                 "items": {
@@ -57023,6 +58172,67 @@
                   "required": [
                     "row",
                     "without_supply_type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "supply_types": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "code",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "catalogue_differences": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "row": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "product_id": {
+                      "type": "string"
+                    },
+                    "unit_price_cents": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "is_active": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "row",
+                    "product_id",
+                    "unit_price_cents",
+                    "unit",
+                    "is_active"
                   ],
                   "additionalProperties": false
                 }
@@ -57101,6 +58311,1039 @@
         ],
         "additionalProperties": false
       },
+      "ApiCostingWorkbookSuggestionProviders": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "providers": {
+                "type": "object",
+                "properties": {
+                  "chatgpt_plan": {
+                    "type": "object",
+                    "properties": {
+                      "available": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "available",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "personal_api_key": {
+                    "type": "object",
+                    "properties": {
+                      "available": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "available",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "decisions": {
+                    "type": "object",
+                    "properties": {
+                      "available": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "available",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "chatgpt_plan",
+                  "personal_api_key",
+                  "decisions"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "providers"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "SuggestForWorkbookImportRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "task": {
+                "type": "string",
+                "const": "suppliers"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "chatgpt_plan",
+                  "personal_api_key",
+                  "decisions"
+                ]
+              },
+              "names": {
+                "minItems": 1,
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                }
+              }
+            },
+            "required": [
+              "task",
+              "names"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "task": {
+                "type": "string",
+                "const": "articles"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "chatgpt_plan",
+                  "personal_api_key",
+                  "decisions"
+                ]
+              },
+              "lines": {
+                "minItems": 1,
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 40
+                    },
+                    "reference": {
+                      "type": "string",
+                      "maxLength": 255
+                    },
+                    "wording": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "material": {
+                      "type": "string",
+                      "maxLength": 255
+                    },
+                    "dimension": {
+                      "type": "string",
+                      "maxLength": 255
+                    },
+                    "unit": {
+                      "type": "string",
+                      "maxLength": 40
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "reference",
+                    "wording",
+                    "material",
+                    "dimension",
+                    "unit"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "task",
+              "lines"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "task": {
+                "type": "string",
+                "const": "supply_types"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "chatgpt_plan",
+                  "personal_api_key",
+                  "decisions"
+                ]
+              },
+              "groups": {
+                "minItems": 1,
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "family_code": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "product_type": {
+                      "type": "string",
+                      "maxLength": 255
+                    },
+                    "material": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 255
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "samples": {
+                      "maxItems": 3,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 255
+                      }
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "family_code",
+                    "product_type",
+                    "material",
+                    "samples",
+                    "count"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "task",
+              "groups"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "task": {
+                "type": "string",
+                "const": "columns"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "chatgpt_plan",
+                  "personal_api_key",
+                  "decisions"
+                ]
+              },
+              "missing": {
+                "minItems": 1,
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "ID",
+                    "Caractéristique",
+                    "Matériau",
+                    "Type_ligne",
+                    "Fiabilité (/10)",
+                    "Dimension",
+                    "Précision",
+                    "norme",
+                    "Unité",
+                    "PR. FO",
+                    "Type FO",
+                    "F1_nom",
+                    "F1_ref",
+                    "F1_URL",
+                    "F2_nom",
+                    "F2_ref",
+                    "F2_URL",
+                    "F3_nom",
+                    "F3_ref",
+                    "F3_URL"
+                  ]
+                }
+              },
+              "headers": {
+                "maxItems": 60,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 16383
+                    },
+                    "text": {
+                      "type": "string",
+                      "maxLength": 255
+                    },
+                    "samples": {
+                      "maxItems": 3,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 255
+                      }
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "text",
+                    "samples"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "task",
+              "missing",
+              "headers"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "task": {
+                "type": "string",
+                "const": "supplier_codes"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "chatgpt_plan",
+                  "personal_api_key",
+                  "decisions"
+                ]
+              },
+              "values": {
+                "minItems": 1,
+                "maxItems": 300,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                }
+              }
+            },
+            "required": [
+              "task",
+              "values"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ApiCostingWorkbookSuggestions": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "const": "suppliers"
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key",
+                          "decisions"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic",
+                      "available",
+                      "partial",
+                      "unavailable",
+                      "failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "candidates": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "supplier_id": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "score": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "supplier_id",
+                              "label",
+                              "score"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "suggestion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "supplier_id": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "confidence": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "enum": [
+                                    "match",
+                                    "ai"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "supplier_id",
+                                "confidence",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "candidates",
+                        "suggestion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "task",
+                  "provider",
+                  "model",
+                  "status",
+                  "message",
+                  "items"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "const": "articles"
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key",
+                          "decisions"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic",
+                      "available",
+                      "partial",
+                      "unavailable",
+                      "failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "candidates": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "product_id": {
+                                "type": "string"
+                              },
+                              "reference": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "designation": {
+                                "type": "string"
+                              },
+                              "score": {
+                                "type": "number"
+                              },
+                              "reasons": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "warnings": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "product_id",
+                              "reference",
+                              "designation",
+                              "score",
+                              "reasons",
+                              "warnings"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "suggestion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "product_id": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "confidence": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "enum": [
+                                    "match",
+                                    "ai"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "product_id",
+                                "confidence",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "candidates",
+                        "suggestion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "task",
+                  "provider",
+                  "model",
+                  "status",
+                  "message",
+                  "items"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "const": "supply_types"
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key",
+                          "decisions"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic",
+                      "available",
+                      "partial",
+                      "unavailable",
+                      "failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "suggestion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "supply_type_id": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "confidence": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "enum": [
+                                    "catalogue",
+                                    "ai"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "supply_type_id",
+                                "confidence",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "suggestion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "task",
+                  "provider",
+                  "model",
+                  "status",
+                  "message",
+                  "items"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "const": "columns"
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key",
+                          "decisions"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic",
+                      "available",
+                      "partial",
+                      "unavailable",
+                      "failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "column": {
+                          "type": "string"
+                        },
+                        "suggestion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "index": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "confidence": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "enum": [
+                                    "match",
+                                    "ai"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "index",
+                                "confidence",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "column",
+                        "suggestion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "task",
+                  "provider",
+                  "model",
+                  "status",
+                  "message",
+                  "items"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "const": "supplier_codes"
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key",
+                          "decisions"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic",
+                      "available",
+                      "partial",
+                      "unavailable",
+                      "failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "string"
+                        },
+                        "suggestion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "code",
+                                    "price_source",
+                                    "none"
+                                  ]
+                                },
+                                "confidence": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "const": "ai"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "confidence",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "value",
+                        "suggestion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "task",
+                  "provider",
+                  "model",
+                  "status",
+                  "message",
+                  "items"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "CostingWorkbookSupplierReferences": {
         "type": "object",
         "properties": {
@@ -57132,6 +59375,10 @@
           },
           "confirm": {
             "type": "boolean"
+          },
+          "source_name": {
+            "type": "string",
+            "maxLength": 255
           },
           "preview_token": {
             "type": "string",
@@ -57183,6 +59430,12 @@
                   "null"
                 ]
               },
+              "import_batch_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "proposed": {
                 "type": "array",
                 "items": {
@@ -57203,6 +59456,12 @@
                     },
                     "supplier_name": {
                       "type": "string"
+                    },
+                    "product_id": {
+                      "type": "string"
+                    },
+                    "product_url_omitted": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -57233,6 +59492,7 @@
                       "type": "string",
                       "enum": [
                         "invalid_article_reference",
+                        "article_to_create",
                         "article_not_found",
                         "ambiguous_article",
                         "invalid_supplier_name",
@@ -57245,6 +59505,58 @@
                         "withdrawn_reference",
                         "conflicting_workbook_references"
                       ]
+                    },
+                    "product_id": {
+                      "type": "string"
+                    },
+                    "supplier_id": {
+                      "type": "string"
+                    },
+                    "archived_supplier_alias": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "supplier_name": {
+                          "type": "string"
+                        },
+                        "can_remove": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "supplier_name",
+                        "can_remove"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "existing_supplier_sku": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "candidates": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -97868,6 +100180,83 @@
         ],
         "additionalProperties": false
       },
+      "BulkUpdateProductsRequest": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "validate"
+              },
+              "ids": {
+                "minItems": 1,
+                "maxItems": 5000,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "required": [
+              "action",
+              "ids"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "validate"
+              },
+              "import_batch_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "action",
+              "import_batch_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "assign-supply-type"
+              },
+              "ids": {
+                "minItems": 1,
+                "maxItems": 5000,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "supply_type_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "action",
+              "ids",
+              "supply_type_id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
       "ProductReferenceSuggestionResponse": {
         "type": "object",
         "properties": {
@@ -98800,6 +101189,10 @@
           "list",
           "usage"
         ]
+      },
+      "ListSuppliersScopeParameter": {
+        "type": "string",
+        "const": "active"
       },
       "ListSuppliersIdParameter": {
         "type": "string",

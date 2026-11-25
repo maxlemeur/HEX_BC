@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CostingWorkbookFormatError,
+  inspectCostingWorkbookColumns,
   readCostingWorkbookRows,
   workbookReferenceKey,
 } from "./costing-workbook";
@@ -52,6 +53,15 @@ import {
  *     « #VALEUR! »…) becomes a reference, a designation, a material, a size, a unit or a family; an error in a
  *     secondary column is dropped without a word; a reference or a precision that merely starts with « # » is
  *     taken for an error.
+ * 21. (TI-711, measured on the reader) A renamed optional header (« PR FO » for « PR. FO ») imports every article
+ *     at 0 € without a word: the screen has nothing to show the office which column is missing, which header of
+ *     the sheet is not read, nor where the header row is.
+ * 22. (TI-711) Free text in a supplier reference column is proposed as a product code: a price source written
+ *     without « n° » (« Devis 70102 », « voir devis », « Tarif 2025 »), a word that says there is no code
+ *     (« idem », « N/C ») or a mark (« ? », « - »). A real code that starts like one (« DEVIS-DN40 »,
+ *     « DOC 42 », « BL 20x30 ») must stay a code.
+ * 23. (TI-711) A draft takes a default (« u » without unit, « divers » without classification) that the screen
+ *     cannot tell from a value the workbook gives.
  */
 
 const HEADERS = [
@@ -201,6 +211,75 @@ describe("readCostingWorkbookRows", () => {
     })));
 
     expect(supplierReferenceOccurrences.map((entry) => [entry.supplier_sku, entry.price_source_kind])).toEqual(entries);
+  });
+
+  it("reads free text that names a price source, and refuses words that say there is no code (22)", () => {
+    const entries = [
+      ["Devis 70102", "quote", true],
+      ["Devis du 12/03/2025", "quote", true],
+      ["voir devis", "quote", true],
+      ["Offre 2025-11", "quote", true],
+      ["Cde n° 4412", "order", true],
+      ["bon de commande n° 12", "order", true],
+      ["BL du 02/04/2025", "document", true],
+      ["Facture n° 2291", "document", true],
+      ["Tarif 2025", "document", true],
+      ["Prix catalogue 2024", "document", true],
+      // Codes that only start like a source.
+      ["DOC 42", null, true],
+      ["BL 20x30", null, true],
+      ["BC 1234", null, true],
+      ["TARIF-A12", null, true],
+      // No code at all.
+      ["idem", null, false],
+      ["N/C", null, false],
+      ["à définir", null, false],
+    ] as const;
+    const { supplierReferenceOccurrences } = read(...entries.map(([value]) => article({
+      "ID": "TEST.1", "Caractéristique": "Tube", "F1_nom": "Fournisseur fictif", "F1_ref": value,
+    })));
+    expect(supplierReferenceOccurrences.map((entry) => [entry.supplier_sku, entry.price_source_kind, entry.supplier_sku_valid])).toEqual(entries);
+
+    // A mark is an empty cell: no occurrence, and nothing counted for the draft.
+    const marks = read(...["?", "-", " / ", "..."].map((value, index) => article({
+      "ID": `MARK.${index}`, "Caractéristique": "Tube", "F1_nom": "Fournisseur fictif", "F1_ref": value,
+    })));
+    expect(marks.supplierReferenceOccurrences).toEqual([]);
+    const [draft] = read(article({
+      "ID": "A.1", "Caractéristique": "Tube", "F1_nom": "Fournisseur fictif", "F1_ref": "Devis 70102",
+      "F2_nom": "Fournisseur fictif", "F2_ref": "idem", "F3_nom": "Fournisseur fictif", "F3_ref": "R-1",
+    })).articles;
+    expect(draft.supplier_references.map((reference) => reference.supplier_sku)).toEqual(["R-1"]);
+  });
+
+  it("says which columns it found, which it misses and which headers it does not read (21)", () => {
+    const headers = ["Bible de chiffrage"];
+    const renamed = HEADERS.map((header) => (header === "PR. FO" ? "PR FO" : header));
+    const inspection = inspectCostingWorkbookColumns([headers, renamed, article({ "ID": "A.1", "Caractéristique": "Tube" })]);
+    expect(inspection.headerRow).toBe(2);
+    expect(inspection.missingRequired).toEqual([]);
+    expect(inspection.missingOptional).toEqual(["PR. FO"]);
+    expect(inspection.unrecognised).toContainEqual({ index: renamed.indexOf("PR FO"), text: "PR FO" });
+    expect(inspection.unrecognised.map(({ text }) => text)).not.toContain("ID");
+    expect(inspection.found.find(({ column }) => column === "ID")).toEqual({ column: "ID", index: 1 });
+
+    // A sheet of another shape: nothing is refused here, the row with the most labels is the header row.
+    const other = inspectCostingWorkbookColumns([["Tarif 2025"], ["Réf", "Désignation", "Matériau", "Prix"], ["A", "B", "C", 1]]);
+    expect(other).toMatchObject({ headerRow: 2, missingRequired: ["ID", "Caractéristique", "Type_ligne"] });
+    expect(other.unrecognised).toEqual([{ index: 0, text: "Réf" }, { index: 1, text: "Désignation" }, { index: 3, text: "Prix" }]);
+    expect(inspectCostingWorkbookColumns([])).toMatchObject({ headerRow: null, found: [], unrecognised: [] });
+  });
+
+  it("marks a unit or a supply type the workbook does not give (23)", () => {
+    const result = read(
+      article({ "ID": "A.1", "Caractéristique": "Tube", "Matériau": "Inox 304L soudé", "Type FO": "I4L", "Unité": "ml" }),
+      article({ "ID": "A.2", "Caractéristique": "Vase expansion à membrane", "Matériau": "Divers", "Unité": "" }),
+      // Consumables are « divers » by their family: a classification, not a default.
+      article({ "ID": "A.3", "Caractéristique": "Ruban téflon", "Matériau": "Consommables", "Type FO": "CONS" }),
+    );
+    expect(result.articles.map((entry) => [entry.supply_type_code, entry.supply_type_defaulted, entry.unit_defaulted])).toEqual([
+      ["tube", false, false], ["divers", true, true], ["divers", false, false],
+    ]);
   });
 
   it("keeps the grade of a stainless material (10)", () => {

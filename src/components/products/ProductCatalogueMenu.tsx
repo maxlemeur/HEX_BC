@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   BookOpenIcon,
+  ListChecksIcon,
   DownloadIcon,
   EllipsisIcon,
   FileSpreadsheetIcon,
@@ -108,6 +109,10 @@ export function ProductCatalogueMenu({
           <DropdownMenuItem className="min-h-10 px-2" render={<Link href={workbookImportHref} />}>
             <BookOpenIcon aria-hidden="true" />
             Importer le classeur de chiffrage
+          </DropdownMenuItem>
+          <DropdownMenuItem className="min-h-10 px-2" render={<Link href="/dashboard/products/supplier-references" />}>
+            <ListChecksIcon aria-hidden="true" />
+            Références fournisseur à vérifier
           </DropdownMenuItem>
           <DropdownMenuItem className="min-h-10 px-2" render={<a download href={TEMPLATE_FILE_URL} />}>
             <DownloadIcon aria-hidden="true" />

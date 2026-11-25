@@ -13,6 +13,8 @@ import {
   COSTING_WORKBOOK_FORMAT,
   COSTING_WORKBOOK_IMPORT_INCOMPLETE,
   COSTING_WORKBOOK_REPORTED_ISSUES,
+  COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN,
+  type CostingWorkbookArticlesInput,
   type CostingWorkbookImportIncompleteDetails,
   type CostingWorkbookImportInput,
   type CostingWorkbookImportReport,
@@ -35,8 +37,9 @@ import type { Database } from "@/types/database";
  *  - an article whose reference the company already holds (any status, active or archived, or under an earlier
  *    import's « DB_<sheet>__ » prefix: workbookReferenceKey) is skipped and never modified, so running the same
  *    workbook again creates nothing;
- *  - its supply type is the company's own with the code the reader proposes, or none (counted): supply types
- *    carry the estimate's FO provision and are never created here;
+ *  - its supply type is the one the office chose in the screen for the code the reader proposes, else the
+ *    company's own with that code, else none (counted): supply types carry the estimate's FO provision and are
+ *    never created here;
  *  - the draft import only counts supplier references. Supplier references have their own confirmed import;
  *    supplier prices are undated and never written by either action.
  * Whoever may add articles to the catalogue imports (TI-689); the drafts are written with their own client, so
@@ -55,12 +58,23 @@ const REFERENCE_ADDED_MEANWHILE =
 
 type PlannedDraft = { article: CostingWorkbookArticle; supplyTypeId: string | null };
 
-type Plan = { read: CostingWorkbookReadResult; drafts: PlannedDraft[] };
+const IMPORT_NOT_STARTED = "L’import n’a pas pu être ouvert. Réessayez dans un instant.";
+const IMPORT_TENANT_REFUSAL = "Vérifiez l’entreprise sélectionnée et vos droits, puis relancez l’import du classeur.";
+const IMPORT_UNDO_STARTED = "L’import s’est arrêté car son annulation est en cours ou terminée. Terminez toute annulation en cours avant de relancer l’import du classeur.";
+
+type CatalogueArticle = { id: string; unit_price_cents: number; unit: string | null; is_active: boolean };
+type SupplyType = { id: string; code: string; name: string };
+type Difference = NonNullable<Report["catalogue_differences"]>[number];
+
+type Plan = { read: CostingWorkbookReadResult; drafts: PlannedDraft[]; supplyTypes: SupplyType[]; differences: Difference[] };
 
 type Company = {
-  references: ReadonlySet<string>;
-  supplyTypeIdOf: ReadonlyMap<string, string>;
+  /** By compared reference; the first article read when an earlier import left a prefixed twin. */
+  articles: ReadonlyMap<string, CatalogueArticle>;
+  supplyTypes: SupplyType[];
 };
+
+const UNKNOWN_SUPPLY_TYPE = "Un type de fourniture choisi n’existe plus dans l’entreprise. Actualisez l’aperçu, puis choisissez-le à nouveau.";
 
 export function readCostingWorkbookImportSheet(rows: CostingWorkbookImportInput["rows"]): CostingWorkbookReadResult {
   try {
@@ -75,28 +89,73 @@ export function readCostingWorkbookImportSheet(rows: CostingWorkbookImportInput[
 
 async function readCompany({ supabase, tenantId }: AuthenticatedTenantContext): Promise<Company> {
   const [products, supplyTypes] = await Promise.all([
-    readAllRows(() => supabase.from("products").select("id, reference", { count: "exact" })
+    readAllRows(() => supabase.from("products").select("id, reference, unit_price_cents, unit, is_active", { count: "exact" })
       .eq("tenant_id", tenantId).not("reference", "is", null), { concurrency: 4 }),
-    readAllRows(() => supabase.from("supply_types").select("id, code", { count: "exact" }).eq("tenant_id", tenantId)),
+    readAllRows(() => supabase.from("supply_types").select("id, code, name", { count: "exact" }).eq("tenant_id", tenantId)),
   ]);
   if (products.error) throw mapSupabaseError(products.error, "Impossible de lire les articles du catalogue.");
   if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de lire les types de fourniture.");
+  const articles = new Map<string, CatalogueArticle>();
+  for (const product of products.data ?? []) {
+    if (!product.reference) continue;
+    const key = workbookReferenceKey(product.reference);
+    const known = articles.get(key);
+    // An active article speaks for its reference before an archived twin.
+    if (!known || (!known.is_active && product.is_active)) {
+      articles.set(key, { id: product.id, unit_price_cents: product.unit_price_cents, unit: product.unit, is_active: product.is_active });
+    }
+  }
   return {
-    references: new Set((products.data ?? []).flatMap((product) => product.reference ? [workbookReferenceKey(product.reference)] : [])),
-    supplyTypeIdOf: new Map((supplyTypes.data ?? []).map((supplyType) => [supplyType.code, supplyType.id])),
+    articles,
+    supplyTypes: [...(supplyTypes.data ?? [])].sort((left, right) => left.name.localeCompare(right.name, "fr")),
   };
 }
 
-function planImport(read: CostingWorkbookReadResult, company: Company): Plan {
-  const drafts = read.articles
-    .filter((article) => !company.references.has(workbookReferenceKey(article.reference)))
-    .map((article) => ({ article, supplyTypeId: company.supplyTypeIdOf.get(article.supply_type_code) ?? null }));
-  return { read, drafts };
+const unitKey = (unit: string | null) => (unit ?? "").trim().toLocaleLowerCase("fr-FR");
+
+function planImport(
+  read: CostingWorkbookReadResult,
+  company: Company,
+  { supply_types: chosen, supply_type_families: families = [], supply_type_rows: chosenRows = [] }: Pick<CostingWorkbookArticlesInput, "supply_types" | "supply_type_families" | "supply_type_rows">,
+): Plan {
+  const known = new Set(company.supplyTypes.map((supplyType) => supplyType.id));
+  if ([...Object.values(chosen ?? {}), ...families.map((choice) => choice.supply_type_id), ...chosenRows.map((choice) => choice.supply_type_id)].some((id) => !known.has(id))) {
+    throw unprocessableEntity(UNKNOWN_SUPPLY_TYPE, undefined, COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN);
+  }
+  const ofFamily = new Map(families.map((choice) => [choice.family_code, choice.supply_type_id]));
+  const ofRow = new Map(chosenRows.map((choice) => [choice.row, choice.supply_type_id]));
+  const ownByCode = new Map(company.supplyTypes.map((supplyType) => [supplyType.code, supplyType.id]));
+  const drafts: PlannedDraft[] = [];
+  const differences: Difference[] = [];
+  for (const article of read.articles) {
+    const existing = company.articles.get(workbookReferenceKey(article.reference));
+    if (!existing) {
+      drafts.push({
+        article,
+        supplyTypeId: ofRow.get(article.row)
+          ?? (article.family_code ? ofFamily.get(article.family_code) : undefined)
+          ?? chosen?.[article.supply_type_code]
+          ?? ownByCode.get(article.supply_type_code) ?? null,
+      });
+      continue;
+    }
+    // An empty workbook price says nothing about the catalogue's; a defaulted unit neither.
+    const priceDiffers = article.unit_price_cents > 0 && article.unit_price_cents !== existing.unit_price_cents;
+    const unitDiffers = !article.unit_defaulted && unitKey(article.unit) !== unitKey(existing.unit);
+    if (priceDiffers || unitDiffers) {
+      differences.push({
+        row: article.row, product_id: existing.id, unit_price_cents: existing.unit_price_cents, unit: existing.unit,
+        is_active: existing.is_active,
+      });
+    }
+  }
+  return { read, drafts, supplyTypes: company.supplyTypes, differences };
 }
 
-function reportOf(plan: Plan, confirmed: boolean, drafts: readonly PlannedDraft[]): Report {
+function reportOf(plan: Plan, confirmed: boolean, drafts: readonly PlannedDraft[], batchId: string | null = null): Report {
   return {
     confirmed,
+    ...(confirmed ? { import_batch_id: drafts.length > 0 ? batchId : null } : {}),
     articles: plan.read.articles.length,
     new_articles: drafts.length,
     ...(!confirmed ? {
@@ -104,6 +163,8 @@ function reportOf(plan: Plan, confirmed: boolean, drafts: readonly PlannedDraft[
         row: article.row,
         without_supply_type: supplyTypeId === null,
       })),
+      supply_types: plan.supplyTypes,
+      catalogue_differences: plan.differences,
     } : {}),
     already_in_catalogue: plan.read.articles.length - plan.drafts.length,
     without_supply_type: drafts.filter((draft) => draft.supplyTypeId === null).length,
@@ -114,8 +175,10 @@ function reportOf(plan: Plan, confirmed: boolean, drafts: readonly PlannedDraft[
   };
 }
 
-function productRow({ article, supplyTypeId }: PlannedDraft): ProductInsert {
+function productRow({ article, supplyTypeId }: PlannedDraft, tenantId: string, batchId: string): ProductInsert {
   return {
+    tenant_id: tenantId,
+    import_batch_id: batchId,
     reference: article.reference,
     designation: article.designation,
     category: article.category,
@@ -137,43 +200,62 @@ function productRow({ article, supplyTypeId }: PlannedDraft): ProductInsert {
  * Not one transaction (Supabase REST): drafts are written in chunks of WRITE_CHUNK, one statement each. A refused
  * chunk writes nothing and stops the import; the chunks before it stand, and the error says how many drafts they
  * created. Running the same workbook again completes the rest, since it skips what exists.
+ *
+ * Every draft carries the import it comes from (TI-711): the office validates the drafts of an import together,
+ * or undoes the import while its drafts are untouched.
  */
-async function writeDrafts({ supabase }: AuthenticatedTenantContext, plan: Plan): Promise<Report> {
+async function writeDrafts({ supabase, tenantId }: AuthenticatedTenantContext, plan: Plan, sourceName: string | undefined): Promise<Report> {
   const created: PlannedDraft[] = [];
+  if (plan.drafts.length === 0) return reportOf(plan, true, created);
+
+  const batch = await supabase.rpc("start_workbook_article_import", { p_tenant_id: tenantId, p_source_name: sourceName ?? null });
+  if (batch.error?.code === "42501") {
+    throw forbidden(`L’import n’a pas pu être ouvert dans l’entreprise prévue. ${IMPORT_TENANT_REFUSAL}`);
+  }
+  if (batch.error || !batch.data) throw mapSupabaseError(batch.error ?? { code: "XX000", message: IMPORT_NOT_STARTED }, IMPORT_NOT_STARTED);
+  const batchId = batch.data;
 
   const stopped = (error: SupabaseErrorLike) => {
-    const mapped = error.code === "42501"
+    let batchFailure: string | null = null;
+    if (error.code === "23514" && error.message === "PRODUCT_IMPORT_BATCH_INVALID") {
+      batchFailure = IMPORT_UNDO_STARTED;
+    } else if (error.code === "23503" && error.message.includes('"products_import_batch_fkey"')) {
+      batchFailure = `L’import s’est arrêté car le lot et les articles ne sont pas rattachés à la même entreprise. ${IMPORT_TENANT_REFUSAL}`;
+    } else if (error.code === "42501" && error.message === "Tenant access denied.") {
+      batchFailure = `L’import s’est arrêté car l’entreprise prévue n’est plus accessible. ${IMPORT_TENANT_REFUSAL}`;
+    }
+    const mapped = batchFailure ? conflict(batchFailure) : error.code === "42501"
       ? forbidden(PRODUCT_WRITE_REFUSAL)
       // A reference of the chunk was added between the read and the write: the whole statement failed.
       : error.code === "23505" ? conflict(REFERENCE_ADDED_MEANWHILE) : mapSupabaseError(error, "Impossible de créer les articles du classeur.");
     if (created.length === 0) return mapped;
     const count = (value: number) => value.toLocaleString("fr-FR");
-    const details: CostingWorkbookImportIncompleteDetails = { report: reportOf(plan, true, created) };
+    const details: CostingWorkbookImportIncompleteDetails = { report: reportOf(plan, true, created, batchId) };
     return new ApiError({
       status: mapped.status,
       code: COSTING_WORKBOOK_IMPORT_INCOMPLETE,
-      message: `L’import s’est arrêté : ${count(created.length)} brouillons créés sur ${count(plan.drafts.length)}. `
-        + "Relancez l’import du même classeur : il ne crée que les articles qui manquent encore au catalogue.",
+      message: batchFailure ?? (`L’import s’est arrêté : ${count(created.length)} brouillons créés sur ${count(plan.drafts.length)}. `
+        + "Relancez l’import du même classeur : il ne crée que les articles qui manquent encore au catalogue."),
       details,
     });
   };
 
   for (let start = 0; start < plan.drafts.length; start += WRITE_CHUNK) {
     const chunk = plan.drafts.slice(start, start + WRITE_CHUNK);
-    const { error } = await supabase.from("products").insert(chunk.map(productRow));
+    const { error } = await supabase.from("products").insert(chunk.map((draft) => productRow(draft, tenantId, batchId)));
     if (error) throw stopped(error);
     created.push(...chunk);
   }
-  return reportOf(plan, true, created);
+  return reportOf(plan, true, created, batchId);
 }
 
-export async function importCostingWorkbook(input: CostingWorkbookImportInput): Promise<Report> {
+export async function importCostingWorkbook(input: CostingWorkbookArticlesInput): Promise<Report> {
   const context = await getAuthenticatedTenantContext();
   if (!canAddToCatalogue(context.tenantRole)) throw forbidden(PRODUCT_WRITE_REFUSAL);
 
   // The sheet first: a sheet of another shape is refused without reading the catalogue.
   const read = readCostingWorkbookImportSheet(input.rows);
-  const plan = planImport(read, await readCompany(context));
+  const plan = planImport(read, await readCompany(context), input);
   if (!input.confirm) return reportOf(plan, false, plan.drafts);
-  return writeDrafts(context, plan);
+  return writeDrafts(context, plan, input.source_name);
 }

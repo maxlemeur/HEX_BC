@@ -13,6 +13,7 @@ import { z, type ZodTypeAny } from "zod";
 import { driveIdSchema,driveRequestSchema,driveConnectionRequestSchema,driveConnectionStateSchema,drivePurposeSchema } from "@/lib/affaires/google-drive/contracts";
 import { purchaseOrderItemsResponseSchema } from "@/lib/purchase-orders/schemas";
 import { createSupplyTypeSchema } from "@/lib/catalogue/supply-types";
+import { catalogueImportContracts } from "@/lib/openapi/route-contracts-catalogue-import";
 
 import {
   productActionSchema,
@@ -1047,6 +1048,7 @@ const directoryAndOrdersContracts: RouteContract[] = [
     tags: ["Catalogue"],
     queryParameters: [
       { name: "view", schema: z.enum(["list", "usage"]), description: "Vue liste ou usage." },
+      { name: "scope", schema: z.literal("active"), description: "Restreint la liste aux fournisseurs de l’entreprise active." },
       { name: "id", schema: uuidSchema, description: "Identifiant fournisseur pour la vue usage." },
     ],
   },
@@ -1147,5 +1149,6 @@ export const baseAdditionalOpenApiOperationsRegistry: OpenApiOperationDefinition
   ...administrationContracts,
   ...importAndMembershipContracts,
   ...directoryAndOrdersContracts,
+  ...catalogueImportContracts,
   ...estimateEmailDispatchContracts,
 ].map(buildOpenApiRouteOperation);

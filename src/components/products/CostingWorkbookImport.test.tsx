@@ -93,6 +93,7 @@ function renderImport() {
     catalogueHref: "/dashboard/products?size=100",
     draftsHref: "/dashboard/products?catalogue_status=draft&size=100",
     onImported: vi.fn(),
+    onImportRecorded: vi.fn(),
   };
   const view = render(<CostingWorkbookImport {...props} />);
   return { ...view, props };
@@ -157,7 +158,11 @@ describe("CostingWorkbookImport", () => {
     expect(importButton).toBeDisabled();
     expect(fileInput()).toBeDisabled();
     expect(screen.getByRole("button", { name: "Changer de fichier Excel" })).toBeDisabled();
-    expect(sentBodies()).toEqual([{ rows: SHEET_ROWS, confirm: false }, { rows: SHEET_ROWS, confirm: true }]);
+    // The file's name travels with the confirmation only: the import is recorded under it.
+    expect(sentBodies()).toEqual([
+      { rows: SHEET_ROWS, confirm: false },
+      { rows: SHEET_ROWS, confirm: true, source_name: "bible-chiffrage.xlsm" },
+    ]);
     expect(props.onImported).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -280,6 +285,7 @@ describe("CostingWorkbookImport", () => {
 
     expect(await within(importPage()).findByRole("alert")).toHaveTextContent(stopped);
     expect(props.onImported).toHaveBeenCalledTimes(1);
+    expect(props.onImportRecorded).toHaveBeenCalledTimes(1);
     expect(within(importPage()).queryByText("1 842 nouveaux articles en brouillon")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: IMPORT_1842 })).not.toBeInTheDocument();
 

@@ -1,3 +1,6 @@
+import Ajv from "ajv";
+
+import openapi from "../../../../../openapi.json";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -9,11 +12,12 @@ import {
   COSTING_WORKBOOK_FORMAT,
   COSTING_WORKBOOK_IMPORT_INCOMPLETE,
   COSTING_WORKBOOK_MAX_BODY_BYTES,
+  COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN,
   type CostingWorkbookImportIncompleteDetails,
   type CostingWorkbookImportReport,
 } from "@/lib/catalogue/costing-workbook-contract";
 import { PRODUCT_WRITE_REFUSAL } from "@/lib/catalogue/product-writes";
-import { createFakeSupabase, fakeMembership, type FakeRow } from "@/lib/material-requests/server.test-utils";
+import { createFakeSupabase, fakeMembership, type FakeRow, type FakeRpcHandler } from "@/lib/material-requests/server.test-utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
@@ -37,6 +41,14 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     added meanwhile answers a bare conflict; a re-run does not complete the rest.
  * 11. More than one chunk of rows is sent in one statement, or a chunk boundary loses or repeats an article.
  * 12. The report carries every issue of a long sheet.
+ * 13. (TI-711) A supply type chosen in the screen is ignored, replaces the type of another code, is accepted
+ *     although it belongs to another company, or the preview does not list the company's types to choose from.
+ * 14. (TI-711) An article the catalogue already holds with another reference price or unit is modified, or the
+ *     preview does not say the gap; an empty workbook price or a defaulted unit is reported as a gap.
+ * 15. (TI-711) The drafts do not carry the import they come from (nothing to validate together or to undo), an
+ *     import is opened for a preview or for nothing to create, or a refused opening still writes drafts.
+ * 16. (TI-711) The supply type the office gave to the articles of given rows is ignored, or does not come before
+ *     the family's.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -46,6 +58,7 @@ const ENGINEER = "20000000-0000-4000-8000-000000000002";
 const VIEWER = "20000000-0000-4000-8000-000000000003";
 const DIRECTOR = "20000000-0000-4000-8000-000000000004";
 const ALPHA = "40000000-0000-4000-8000-000000000001";
+const BATCH = "b0000000-0000-4000-8000-000000000001";
 const PLAIN = "90000000-0000-4000-8000-000000000001";
 const PREFIXED = "90000000-0000-4000-8000-000000000002";
 const ARCHIVED = "90000000-0000-4000-8000-000000000003";
@@ -131,11 +144,17 @@ type Role = "admin" | "engineer" | "viewer" | "director";
 function seed(
   actor: string,
   role: Role,
-  overrides: { supplyTypes?: FakeRow[]; refuseInsert?: (table: string, values: unknown) => string | false } = {},
+  overrides: {
+    supplyTypes?: FakeRow[];
+    refuseInsert?: Parameters<typeof createFakeSupabase>[0]["refuseInsert"];
+    startImport?: FakeRpcHandler;
+  } = {},
 ) {
   const fake = createFakeSupabase({
     userId: actor,
     refuseInsert: overrides.refuseInsert,
+    // The database opens the import (pgTAP proves its rights): here it only answers its identifier.
+    rpc: { start_workbook_article_import: overrides.startImport ?? (() => ({ data: BATCH })) },
     tables: {
       tenant_memberships: [fakeMembership(actor, TENANT, role)],
       supply_types: [...(overrides.supplyTypes ?? supplyTypes(TENANT)), ...supplyTypes(OTHER_TENANT)],
@@ -190,6 +209,16 @@ describe("POST /api/catalogue/workbook-import", () => {
     vi.clearAllMocks();
   });
 
+  it("conforms to the published report schema in preview, confirmation and an empty confirmation", async () => {
+    seed(ADMIN, "admin");
+    const validate = new Ajv().compile(openapi.components.schemas.ApiCostingWorkbookImportReport);
+    for (const confirm of [false, true, true]) {
+      const answer = await importSheet(SHEET, confirm);
+      expect(answer.status).toBe(200);
+      expect(validate({ ok: true, data: answer.data }), JSON.stringify(validate.errors)).toBe(true);
+    }
+  });
+
   it("previews the import with its counts and writes nothing (2, 7, 8)", async () => {
     const fake = seed(ADMIN, "admin");
 
@@ -200,7 +229,124 @@ describe("POST /api/catalogue/workbook-import", () => {
       confirmed: false,
       ...SHEET_REPORT,
       proposed_articles: [6, 7, 8, 9].map((row) => ({ row, without_supply_type: false })),
+      // The company's own types, by name, for the screen's choice (13).
+      supply_types: [...SUPPLY_KINDS].sort().map((code) => ({ id: supplyTypeId(TENANT, code), code, name: code })),
+      // The three articles already held give no price, and the catalogue's unit: no gap (14).
+      catalogue_differences: [],
     });
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("keeps two tube families independent through preview and confirmation", async () => {
+    const fake = seed(ADMIN, "admin");
+    const rows = [
+      ["ID", "Caractéristique", "Matériau", "Type FO", "Type_ligne"],
+      ["TUBE-4", "Tube", "Inox", "I4L", "Art"],
+      ["TUBE-6", "Tube", "Inox", "I6L", "Art"],
+    ];
+    const supply_type_families = [{ family_code: "I4L", supply_type_id: supplyTypeId(TENANT, "support") }];
+    const preview = await send({ rows, confirm: false, supply_type_families });
+    expect(preview.data).toMatchObject({ new_articles: 2, without_supply_type: 0 });
+    expect(fake.writes).toEqual([]);
+    expect((await send({ rows, confirm: true, supply_type_families })).status).toBe(200);
+    expect(draftsOf(fake).get("TUBE-4")?.supply_type_id).toBe(supplyTypeId(TENANT, "support"));
+    expect(draftsOf(fake).get("TUBE-6")?.supply_type_id).toBe(supplyTypeId(TENANT, "tube"));
+  });
+
+  it("gives a code the supply type chosen in the screen, and refuses one of another company (13)", async () => {
+    const fake = seed(ADMIN, "admin", { supplyTypes: supplyTypes(TENANT, ["tube", "raccord", "vanne", "robinetterie", "support"]) });
+    const chosen = { calorifuge: supplyTypeId(TENANT, "support"), vanne: supplyTypeId(TENANT, "robinetterie") };
+
+    const preview = await send({ rows: SHEET, confirm: false, supply_types: chosen });
+    expect(preview.data).toMatchObject({ new_articles: 4, without_supply_type: 1 });
+    expect(preview.data?.proposed_articles).toEqual([
+      { row: 6, without_supply_type: false }, { row: 7, without_supply_type: false },
+      { row: 8, without_supply_type: false }, { row: 9, without_supply_type: true },
+    ]);
+
+    const answer = await send({ rows: SHEET, confirm: true, supply_types: chosen });
+    expect(answer.status).toBe(200);
+    const drafts = draftsOf(fake);
+    expect(drafts.get("Coq.K.25")?.supply_type_id).toBe(supplyTypeId(TENANT, "support"));
+    // A chosen type replaces the company's own with the code; a code without choice keeps its own.
+    expect(drafts.get("Van.X.50")?.supply_type_id).toBe(supplyTypeId(TENANT, "robinetterie"));
+    expect(drafts.get("Tub.X4so.25")?.supply_type_id).toBe(supplyTypeId(TENANT, "tube"));
+    expect(drafts.get("Div.1")?.supply_type_id).toBeNull();
+
+    const foreign = seed(ADMIN, "admin");
+    const refused = await send({ rows: SHEET, confirm: true, supply_types: { tube: supplyTypeId(OTHER_TENANT, "tube") } });
+    expect(refused.status).toBe(422);
+    expect(refused.error?.code).toBe(COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN);
+    expect(foreign.writes).toEqual([]);
+    expect((await send({ rows: SHEET, confirm: false, supply_types: { autre: supplyTypeId(TENANT, "tube") } })).status).toBe(400);
+  });
+
+  it("opens an import for drafts to create only, under the file's name, and writes nothing when it is refused (15)", async () => {
+    const fake = seed(ADMIN, "admin");
+    await importSheet(SHEET, false);
+    expect(fake.rpcCalls).toEqual([]);
+
+    await send({ rows: SHEET, confirm: true, source_name: "bible-chiffrage.xlsm" });
+    expect(fake.rpcArgs).toEqual([{
+      name: "start_workbook_article_import",
+      args: { p_tenant_id: TENANT, p_source_name: "bible-chiffrage.xlsm" },
+    }]);
+    // The same workbook again creates nothing: no import to open, none answered.
+    const again = await importSheet(SHEET, true);
+    expect(again.data).toMatchObject({ new_articles: 0, import_batch_id: null });
+    expect(fake.rpcCalls).toHaveLength(1);
+
+    const refused = seed(ENGINEER, "engineer", {
+      startImport: () => ({ data: null, error: { code: "42501", message: "CATALOGUE_IMPORT_EDITORS_ONLY" } }),
+    });
+    const answer = await importSheet(SHEET, true);
+    expect(answer.status).toBe(403);
+    expect(answer.error?.message).toContain("Vérifiez l’entreprise sélectionnée et vos droits");
+    expect(refused.rpcArgs[0].args).toMatchObject({ p_tenant_id: TENANT });
+    expect(refused.writes).toEqual([]);
+  });
+
+  it("gives the articles of given rows their own supply type, before the family's (16)", async () => {
+    const fake = seed(ADMIN, "admin");
+    const rows = [{ row: 9, supply_type_id: supplyTypeId(TENANT, "robinetterie") }, { row: 6, supply_type_id: supplyTypeId(TENANT, "raccord") }];
+
+    const answer = await send({ rows: SHEET, confirm: true, supply_types: { tube: supplyTypeId(TENANT, "support") }, supply_type_rows: rows });
+    expect(answer.status).toBe(200);
+    const drafts = draftsOf(fake);
+    expect(drafts.get("Div.1")?.supply_type_id).toBe(supplyTypeId(TENANT, "robinetterie"));
+    // The row's own choice comes before the one made for its family.
+    expect(drafts.get("Tub.X4so.25")?.supply_type_id).toBe(supplyTypeId(TENANT, "raccord"));
+    expect(drafts.get("Coq.K.25")?.supply_type_id).toBe(supplyTypeId(TENANT, "calorifuge"));
+
+    const foreign = seed(ADMIN, "admin");
+    const refused = await send({ rows: SHEET, confirm: true, supply_type_rows: [{ row: 9, supply_type_id: supplyTypeId(OTHER_TENANT, "divers") }] });
+    expect(refused.status).toBe(422);
+    expect(foreign.writes).toEqual([]);
+  });
+
+  it("lists the articles already held whose price or unit differs, and leaves them unchanged (14)", async () => {
+    const fake = seed(ADMIN, "admin");
+    const sheet = [
+      HEADERS,
+      // Another price than the catalogue's 7,00 €, in its own unit.
+      article({ "ID": "Tub.X4so.20", "Caractéristique": "Tube", "Matériau": "Inox 304L soudé", "Type FO": "I4L", "PR. FO": 8.4 }),
+      // The same price in another unit; the archived twin is named as archived.
+      article({ "ID": "Bri.X.50", "Caractéristique": "Bride plate", "Matériau": "Inox 304L soudé", "Unité": "ml", "PR. FO": 7 }),
+      // No price and no unit in the workbook: nothing to compare.
+      article({ "ID": "Cou.X4so.20", "Caractéristique": "Coude 90°", "Matériau": "Inox 304L soudé", "Unité": "" }),
+    ];
+
+    const preview = await importSheet(sheet, false);
+    expect(preview.data).toMatchObject({ new_articles: 0, already_in_catalogue: 3 });
+    expect(preview.data?.catalogue_differences).toEqual([
+      { row: 2, product_id: PLAIN, unit_price_cents: 700, unit: "u", is_active: true },
+      { row: 3, product_id: ARCHIVED, unit_price_cents: 700, unit: "u", is_active: false },
+    ]);
+
+    const before = structuredClone(fake.tables.products);
+    const confirmed = await importSheet(sheet, true);
+    expect(confirmed.data?.catalogue_differences).toBeUndefined();
+    expect(fake.tables.products).toEqual(before);
     expect(fake.writes).toEqual([]);
   });
 
@@ -210,10 +356,14 @@ describe("POST /api/catalogue/workbook-import", () => {
     const answer = await importSheet(SHEET, true);
 
     expect(answer.status).toBe(200);
-    expect(answer.data).toEqual({ confirmed: true, ...SHEET_REPORT });
+    expect(answer.data).toEqual({ confirmed: true, ...SHEET_REPORT, import_batch_id: BATCH });
     const drafts = draftsOf(fake);
     expect([...drafts.keys()]).toEqual(["Tub.X4so.25", "Van.X.50", "Coq.K.25", "Div.1"]);
-    const common = { tenant_id: TENANT, catalogue_status: "draft", is_active: true, created_from_material_request: false, created_by: ADMIN };
+    // Every draft carries the import opened for it (15).
+    const common = {
+      tenant_id: TENANT, catalogue_status: "draft", is_active: true, created_from_material_request: false, created_by: ADMIN,
+      import_batch_id: BATCH,
+    };
     expect(drafts.get("Tub.X4so.25")).toMatchObject({
       ...common, designation: "Tube — Inox 304L soudé DN25", product_type: "Tube", material: "Inox 304L soudé",
       grade: "304L", dimensions: "DN25", standard: "EN 10217-7", category: "Tuyauterie", unit: "ml",
@@ -232,8 +382,9 @@ describe("POST /api/catalogue/workbook-import", () => {
       supply_type_id: supplyTypeId(TENANT, "divers"),
     });
 
-    // One statement of drafts; no supplier, supplier reference, price or supply type is read or written.
-    expect(fake.events).toEqual(["insert products"]);
+    // The import is opened, then one statement of drafts; no supplier, supplier reference, price or supply type
+    // is read or written.
+    expect(fake.events).toEqual(["rpc start_workbook_article_import", "insert products"]);
     expect(fake.reads.filter((table) => table.startsWith("supplier"))).toEqual([]);
     expect([fake.tables.supplier_catalog_items, fake.tables.supplier_pricebook]).toEqual([[], []]);
   });
@@ -259,6 +410,7 @@ describe("POST /api/catalogue/workbook-import", () => {
     expect(again.status).toBe(200);
     expect(again.data).toEqual({
       ...SHEET_REPORT, confirmed: true, new_articles: 0, already_in_catalogue: 7, supplier_references_not_imported: 0,
+      import_batch_id: null,
     });
     expect(fake.writes).toHaveLength(writes);
   });
@@ -336,13 +488,24 @@ describe("POST /api/catalogue/workbook-import", () => {
   });
 
   it("writes 1,001 drafts in chunks of 500, one statement each (11)", async () => {
-    const fake = seed(ADMIN, "admin");
+    const plannedTenants = new Set<unknown>();
+    const fake = seed(ADMIN, "admin", {
+      refuseInsert: (table, values) => {
+        if (table === "products" && Array.isArray(values)) {
+          values.forEach((row: FakeRow) => plannedTenants.add(row.tenant_id));
+        }
+        return false;
+      },
+    });
 
     const answer = await importSheet(generatedSheet(1001), true);
 
     expect(answer.data).toMatchObject({ confirmed: true, articles: 1001, new_articles: 1001, supplier_references_not_imported: 1001 });
     expect(productInsertsOf(fake).map((write) => write.ids.length)).toEqual([500, 500, 1]);
-    expect(fake.events).toEqual(["insert products", "insert products", "insert products"]);
+    expect(plannedTenants).toEqual(new Set([TENANT]));
+    // One import for the three statements: its drafts are validated or undone together.
+    expect(fake.events).toEqual(["rpc start_workbook_article_import", "insert products", "insert products", "insert products"]);
+    expect(new Set(fake.tables.products.filter((entry) => !SEEDED_IDS.has(String(entry.id))).map((entry) => entry.import_batch_id))).toEqual(new Set([BATCH]));
     const drafts = draftsOf(fake);
     expect(drafts.size).toBe(1001);
     expect([1, 500, 501, 1000, 1001].map((index) => drafts.get(`Gen.${index}`)?.unit_price_cents)).toEqual(
@@ -374,6 +537,45 @@ describe("POST /api/catalogue/workbook-import", () => {
 
     expect(rerun.data).toMatchObject({ new_articles: 501, already_in_catalogue: 500 });
     expect(draftsOf(fake).size).toBe(1001);
+  });
+
+  it.each([1, 2])("explains the undo that refuses chunk %i and stops further writes", async (refusedChunk) => {
+    let chunks = 0;
+    const fake = seed(ADMIN, "admin", {
+      refuseInsert: (table) => table === "products" && ++chunks === refusedChunk
+        ? { code: "23514", message: "PRODUCT_IMPORT_BATCH_INVALID" }
+        : false,
+    });
+
+    const stopped = await importSheet(generatedSheet(1001), true);
+
+    expect(stopped.status).toBe(409);
+    expect(stopped.error?.message).toContain("Terminez toute annulation en cours avant de relancer l’import du classeur.");
+    expect(chunks).toBe(refusedChunk);
+    expect(draftsOf(fake).size).toBe((refusedChunk - 1) * 500);
+    if (refusedChunk === 2) {
+      expect(stopped.error?.code).toBe(COSTING_WORKBOOK_IMPORT_INCOMPLETE);
+      expect((stopped.error?.details as CostingWorkbookImportIncompleteDetails).report.new_articles).toBe(500);
+    }
+  });
+
+  it.each([
+    {
+      code: "23503",
+      message: 'insert or update on table "products" violates foreign key constraint "products_import_batch_fkey"',
+      expected: "le lot et les articles ne sont pas rattachés à la même entreprise",
+    },
+    { code: "42501", message: "Tenant access denied.", expected: "l’entreprise prévue n’est plus accessible" },
+  ])("explains the tenant refusal $code and leaves no drafts", async ({ code, message, expected }) => {
+    const fake = seed(ADMIN, "admin", {
+      refuseInsert: (table) => table === "products" ? { code, message } : false,
+    });
+
+    const stopped = await importSheet(SHEET, true);
+
+    expect(stopped.status).toBe(409);
+    expect(stopped.error?.message).toContain(expected);
+    expect(draftsOf(fake).size).toBe(0);
   });
 
   it("says so when an article of the workbook was added meanwhile, and a re-run skips it (10)", async () => {
