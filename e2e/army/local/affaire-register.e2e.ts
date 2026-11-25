@@ -44,7 +44,8 @@ async function insertEntries(owner: { projectId: string; tenantId: string; userI
   );
 }
 
-armyTest("REG01 compact register reveals details, filters and exports without changing its decisions", options, async (ui) => {
+armyTest("REG01 compact register reveals details, filters and exports without changing its decisions", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const f = await fixture(ui);
   const path = "/dashboard/affaires/" + f.projectId + "?view=register";
   await ui.browser.setViewport({ width: 805, height: 954 });
@@ -141,7 +142,8 @@ armyTest("REG01 compact register reveals details, filters and exports without ch
   await recordEvidence(ui.army, "register-compact", { ...f, downloads: downloads.map((d) => d.path), screenshots: { desktopShot, menuShot, mobileShot }, persistedStatus: status, mobileOverflow: false });
 });
 
-armyTest("REG02 blocking register includes old client decisions and revalidations before pagination", options, async (ui) => {
+armyTest("REG02 blocking register includes old client decisions and revalidations before pagination", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const f = await fixture(ui);
   const old = "2026-01-01T12:00:00.000Z";
   const extra: Entry[] = Array.from({ length: 12 }, (_, index) => ({

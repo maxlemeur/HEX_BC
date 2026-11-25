@@ -11,8 +11,8 @@ import { localClient } from "../takeoff/native-ui";
 
 armyTest("CAD01 accepts DWG DXF RVT originals without claiming extraction", {
   session: "army", trace: "off", tags: ["critical", "intake-cad", "local"], timeout: 180_000,
-}, async (ui) => {
-  const { army, app, browser, screen } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-CAD01`, title: "Originaux CAO/BIM" }, army);
   const { client } = await localClient();
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
@@ -87,8 +87,8 @@ const FICTIONAL_PLAN = dxfBytes({
 
 armyTest("CAD02 reads a DXF of the dossier: layers, quantities and a scaled PDF for the métré", {
   session: "army", trace: "off", tags: ["critical", "intake-cad", "local"], timeout: 240_000,
-}, async (ui) => {
-  const { army, app, browser, screen } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-CAD02`, title: "Plan DXF fictif" }, army);
   const { client } = await localClient();
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
@@ -162,8 +162,8 @@ armyTest("CAD02 reads a DXF of the dossier: layers, quantities and a scaled PDF 
 
 armyTest("CAD03 converts a DWG of the dossier and reads it: layers, quantities and a scaled PDF for the métré", {
   session: "army", trace: "off", tags: ["critical", "intake-cad", "local"], timeout: 300_000,
-}, async (ui) => {
-  const { army, app, browser, screen } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-CAD03`, title: "Plan DWG" }, army);
   const { client } = await localClient();
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
@@ -295,8 +295,8 @@ const FICTIONAL_THUMBNAIL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAA
 
 armyTest("CAD04 reads a FreeCAD model of the dossier: objects with their dimensions, sketches measured and plotted", {
   session: "army", trace: "off", tags: ["critical", "intake-cad", "local"], timeout: 300_000,
-}, async (ui) => {
-  const { army, app, browser, screen } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-CAD04`, title: "Maquette FreeCAD fictive" }, army);
   const { client } = await localClient();
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
@@ -403,8 +403,8 @@ armyTest("CAD04 reads a FreeCAD model of the dossier: objects with their dimensi
 
 armyTest("CAD05 reads an IFC model of the dossier: 3D view, quantities by class, type and storey, CSV", {
   session: "army", trace: "off", tags: ["critical", "intake-cad", "local"], timeout: 300_000,
-}, async (ui) => {
-  const { army, app, browser, screen } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-CAD05`, title: "Maquette IFC fictive" }, army);
   const { client } = await localClient();
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);

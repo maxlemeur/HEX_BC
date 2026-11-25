@@ -631,8 +631,8 @@ rollback;`);
 const reasonOf = (verdict: string) => /"reason": "([a-z_]+)"/.exec(verdict)?.[1] ?? (verdict === "ok" ? "ok" : verdict.slice(0, 80));
 
 armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows is accepted by the database, and every refusal it can raise has a situation", options,
-  async (ui) => {
-    const { browser, army } = ui;
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const reasons = await refusalReasons();
     const base = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY contrat des pages" }, army);
     const fixture = await localTakeoffFixture(army, base);
@@ -796,8 +796,8 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
 // DN 22 » (reference 20 ml) the reconciliation links by its title: the first takeoff feeds it from page 1 (12.4 ml), the
 // second from page 2 (10.2 ml), its run seeded as drawn again over 2.5 m of the first one's (zone_overlap). Fictional.
 armyTest("TKD04 a DPGF line two takeoffs of two pages feed holds their sum, shown in the reconciliation, the confirmation and the client export",
-  options, async (ui) => {
-    const { browser, army } = ui;
+  options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const base = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY cumul DPGF" }, army);
     const { versionId, sectionId, target: helper } = await engineThreeVersion(army, browser, base.projectId, base.versionId, true,
       { title: "EF cuivre DN 22", reference: 20 });
@@ -915,8 +915,8 @@ commit;`);
 // reload. An engine 3 version whose DPGF line « EF cuivre DN 22 » (reference 20 ml) the reconciliation links by its
 // title. Fictional plans and quantities.
 armyTest("TKD05 a DPGF line whose part per page is unknown names its ways out, and the pages read again and replaced together take it out whole",
-  options, async (ui) => {
-    const { browser, army } = ui;
+  options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const base = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY part DPGF inconnue" }, army);
     const { versionId, sectionId } = await engineThreeVersion(army, browser, base.projectId, base.versionId, true,
       { title: "EF cuivre DN 22", reference: 20 });
@@ -1021,8 +1021,8 @@ from public.estimate_items item where item.version_id = '${versionId}' and item.
 // (20 ml), which the reconciliation links by its title, and « Robinet de puisage » (6 u), whose detailed text keeps the
 // reconciliation from recognizing a takeoff line of its title alone. Fictional plans and quantities.
 armyTest("TKD06 a line « Fusionner » would send onto a DPGF line the application does not compose is refused, named before it is sent, and fed once the reconciliation links it",
-  options, async (ui) => {
-    const { browser, army } = ui;
+  options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const base = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY fusion DPGF" }, army);
     const { versionId, sectionId } = await engineThreeVersion(army, browser, base.projectId, base.versionId, true,
       { title: "EF cuivre DN 22", reference: 20 });
@@ -1131,8 +1131,8 @@ from public.estimate_items item where item.version_id = '${versionId}' and item.
 // deleted them without a word (until TI-726: 200, both DPGF lines gone). An engine 3 version whose deepest section holds two
 // DPGF lines beside a line typed by hand; a takeoff of two lines no DPGF line names. Fictional plan and quantities.
 armyTest("TKD07 « Remplacer la section » sent to the apply route over DPGF lines is refused, names them, and leaves them as they were",
-  options, async (ui) => {
-    const { browser, army } = ui;
+  options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const base = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY remplacement DPGF" }, army);
     const { versionId, sectionId, target } = await engineThreeVersion(army, browser, base.projectId, base.versionId, true,
       { title: "EF cuivre DN 22", reference: 20 });

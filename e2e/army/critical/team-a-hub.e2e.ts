@@ -201,8 +201,8 @@ async function generatePdfFromDialog(screen: HubUi["screen"]) {
 
 armyTest("HUB14 the affaire leads to its draft's estimate page, which names the missing PDF and lifts it", {
   session: "army", trace: "off", tags: ["critical", "hub-estimate-page"], timeout: 240_000,
-}, async (ui) => {
-  const { app, browser, screen, army } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, projectName, blockingKeys } = await pricedDraftWithoutPdf(ui, "HUB14");
 
   const estimatePage = `/dashboard/estimates/${estimate.versionId}`;
@@ -247,8 +247,8 @@ armyTest("HUB14 the affaire leads to its draft's estimate page, which names the 
 
 armyTest("HUB13 the editor names the missing PDF among the send's blockers, and its button lifts the alert", {
   session: "army", trace: "off", tags: ["critical", "hub-estimate-page"], timeout: 240_000,
-}, async (ui) => {
-  const { app, browser, screen, army } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, blockingKeys } = await pricedDraftWithoutPdf(ui, "HUB13");
   await app.open(`/dashboard/estimates/${estimate.versionId}/edit`);
   await expect(screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible({ timeout: 60_000 });

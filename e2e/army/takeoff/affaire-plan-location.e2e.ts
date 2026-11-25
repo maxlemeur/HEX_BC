@@ -61,7 +61,8 @@ async function buildSheetsPdf(sheets: string[][]) {
 
 armyTest("TKPL01 a plan's building and level show their source, are corrected once and found again on the plan, in the review and after a relaunch", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "LOC");
   const { tenantId, userId } = owner;
@@ -420,7 +421,8 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
 // Fictional PDF; the reclassification is written with the service role (no classifier runs); no AI call.
 armyTest("TKPL02 a dossier plan replaced while its location is open: the member is told, sees the current copy and what applies to it, and the earlier analysis still finds it", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "LOCD");
   const { tenantId, userId } = owner;

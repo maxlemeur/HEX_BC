@@ -62,8 +62,8 @@ async function seedStoredIntakeCopy(client: OwnedClient, input: {
 
 armyTest("DOG01 stored dossier DPGF feeds structured import and uploaded plans reconcile the dossier", {
   session: "army", trace: "off", tags: ["critical", "dpgf", "plan-center", "local"], timeout: 240_000,
-}, async (ui) => {
-  const { army, app, browser, screen } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { client, userId } = await requireOwnedApplication(ui);
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DOG01`, title: "Dossier fictif" }, army);
   const project = await client.from("estimate_projects").select("id,tenant_id,name,user_id,is_archived").eq("id", ids.projectId).single();
@@ -197,7 +197,8 @@ armyTest("DOG01 stored dossier DPGF feeds structured import and uploaded plans r
 
 armyTest("DOG02 concurrent preparation returns one canonical import plan set", {
   session: "army", trace: "off", tags: ["critical", "plan-center", "local"], timeout: 120_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await requireOwnedApplication(ui);
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-DOG02`, title: "Plans concurrents" }, ui.army);
   const result = await ui.browser.evaluate(async ({ projectId }) => {
@@ -217,7 +218,8 @@ armyTest("DOG02 concurrent preparation returns one canonical import plan set", {
 
 armyTest("DOG03 stored tabular PDF requires approval of the exact reviewed bytes", {
   session: "army", trace: "off", tags: ["critical", "dpgf", "pdf", "local"], timeout: 120_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { client, userId } = await requireOwnedApplication(ui);
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-DOG03`, title: "DPGF PDF fictive" }, ui.army);
   const project = await client.from("estimate_projects").select("id,tenant_id,name,user_id,is_archived").eq("id", ids.projectId).single();
@@ -265,7 +267,8 @@ armyTest("DOG03 stored tabular PDF requires approval of the exact reviewed bytes
 
 armyTest("DOG04 intake plan copy is recoverable and removed through its source", {
   session: "army", trace: "off", tags: ["critical", "plan-center", "local"], timeout: 120_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { client, userId } = await requireOwnedApplication(ui);
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-DOG04`, title: "Plan du dossier" }, ui.army);
   const project = await client.from("estimate_projects").select("id,tenant_id,name,user_id,is_archived").eq("id", ids.projectId).single();
@@ -315,8 +318,8 @@ armyTest("DOG04 intake plan copy is recoverable and removed through its source",
 // path a user sees, with no deep link: the affaire, its documents, « Vue d’ensemble », the Étude stage and its tools.
 armyTest("DOG05 study panel offers the import of a classified DPGF and marks it imported only afterwards", {
   session: "army", trace: "off", tags: ["critical", "dpgf", "local"], timeout: 240_000,
-}, async (ui) => {
-  const { army, app, screen, browser } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { client, userId } = await requireOwnedApplication(ui);
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DOG05`, title: "Dossier fictif" }, army);
   const project = await client.from("estimate_projects").select("id,tenant_id").eq("id", ids.projectId).single();

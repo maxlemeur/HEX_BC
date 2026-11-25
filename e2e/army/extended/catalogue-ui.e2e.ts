@@ -69,7 +69,8 @@ async function catalogue(ui: Ui) {
   return { writes, lookups };
 }
 
-armyTest("CAT01 reference suggestion preserves human input and confirms automatic allocation", options, async (ui) => {
+armyTest("CAT01 reference suggestion preserves human input and confirms automatic allocation", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { writes } = await catalogue(ui);
   await ui.app.open("/dashboard/products");
   await ui.screen.getByRole("button", "Ajouter", { exact: true }).click();
@@ -91,7 +92,8 @@ armyTest("CAT01 reference suggestion preserves human input and confirms automati
   await recordEvidence(ui.army, "catalogue-reference-ui", { writes, scope: "real page, synthetic API; no allocation SQL proof" });
 });
 
-armyTest("CAT02 one offer edit saves exact cents and supplier reference without lookup requests", options, async (ui) => {
+armyTest("CAT02 one offer edit saves exact cents and supplier reference without lookup requests", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { writes, lookups } = await catalogue(ui);
   await ui.app.open("/dashboard/prices");
   await ui.screen.getByRole("button", "Voir / modifier l’offre", { exact: true }).click();
@@ -108,7 +110,8 @@ armyTest("CAT02 one offer edit saves exact cents and supplier reference without 
   await recordEvidence(ui.army, "catalogue-single-offer-ui", { writes, lookups, databaseWrites: 0 });
 });
 
-armyTest("CAT03 repeated offer-to-product navigation releases scroll and inert state", options, async (ui) => {
+armyTest("CAT03 repeated offer-to-product navigation releases scroll and inert state", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { writes } = await catalogue(ui);
   const observations: Array<{ overflow: string; inert: boolean; scrollY: number }> = [];
   for (let index = 0; index < 3; index++) {

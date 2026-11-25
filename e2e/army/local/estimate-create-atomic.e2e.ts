@@ -194,7 +194,8 @@ async function assertExports(ui: Ui, versionId: string, lines: ArmyItem[], secti
   }
 }
 
-armyTest("CA01 each API creation immediately persists exact V2 totals, then reload and exports need no repair", options, async (ui) => {
+armyTest("CA01 each API creation immediately persists exact V2 totals, then reload and exports need no repair", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const fixture = await loadFixture();
   await ui.app.open("/dashboard/estimates");
   const owned = await newV2(ui, fixture, "ca01");
@@ -248,7 +249,8 @@ armyTest("CA01 each API creation immediately persists exact V2 totals, then relo
   }
 });
 
-armyTest("CA02 V2 and legacy V1 keep chapters, omitted draft fields and positive hours without a role", options, async (ui) => {
+armyTest("CA02 V2 and legacy V1 keep chapters, omitted draft fields and positive hours without a role", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const fixture = await loadFixture();
   await ui.app.open("/dashboard/estimates");
   const v2 = await newV2(ui, fixture, "ca02-v2");
@@ -299,7 +301,8 @@ armyTest("CA02 V2 and legacy V1 keep chapters, omitted draft fields and positive
   for (const observation of observations) assertImmediate(observation);
 });
 
-armyTest("CA03 API creation calculates from PostgreSQL quantity, coefficient and hour-majoration precision", options, async (ui) => {
+armyTest("CA03 API creation calculates from PostgreSQL quantity, coefficient and hour-majoration precision", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const fixture = await loadFixture();
   await ui.app.open("/dashboard/estimates");
   const owned = await newV2(ui, fixture, "ca03");

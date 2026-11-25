@@ -21,7 +21,8 @@ const options = { session: "army", trace: "off" as const, tags: ["critical", "ta
 /** The detail of one job (GET /api/takeoff/jobs/<id>), which the activity page must never read to decide a row. */
 const JOB_DETAIL_READ = /\/api\/takeoff\/jobs\/[0-9a-f-]{36}(?:\?[^/]*)?$/;
 
-armyTest("TKW01 a stored CSV publishes one success and applies exact quantities through the UI", options, async (ui) => {
+armyTest("TKW01 a stored CSV publishes one success and applies exact quantities through the UI", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await activateOwnedTakeoffNotices();
   const { ids, jobId, fileName } = await launchWorkerCsv(ui, "TKW01", "local");
   const collector = await startTakeoffEmailCollector({ loseFirstResponse: true });
@@ -190,7 +191,8 @@ armyTest("TKW01 a stored CSV publishes one success and applies exact quantities 
     items: after.items.map(({ id, title, quantity, source_job_id }) => ({ id, title, quantity, source_job_id })) });
 });
 
-armyTest("TKW12 a worker exit after storing the lines cannot turn success into failure", options, async (ui) => {
+armyTest("TKW12 a worker exit after storing the lines cannot turn success into failure", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await activateOwnedTakeoffNotices();
   const owner = await signUpWorkerOwner(ui, "CRASH");
   const { ids, jobId, before } = await launchWorkerCsv(ui, "TKW12", "local", owner);
@@ -210,7 +212,8 @@ armyTest("TKW12 a worker exit after storing the lines cannot turn success into f
   expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
 });
 
-armyTest("TKW02 a transient failure publishes only the later successful analysis", options, async (ui) => {
+armyTest("TKW02 a transient failure publishes only the later successful analysis", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await activateOwnedTakeoffNotices();
   const { ids, jobId } = await launchWorkerCsv(ui, "TKW02", "local");
   const failed = await startOwnedWorker(ui, ids, jobId, "transient").done;
@@ -244,7 +247,8 @@ armyTest("TKW02 a transient failure publishes only the later successful analysis
   }
 });
 
-armyTest("TKW03 cancel during the real provider boundary prevents late result persistence", options, async (ui) => {
+armyTest("TKW03 cancel during the real provider boundary prevents late result persistence", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await activateOwnedTakeoffNotices();
   const { ids, jobId, before } = await launchWorkerCsv(ui, "TKW03", "local");
   const worker = startOwnedWorker(ui, ids, jobId, "hold");
@@ -277,7 +281,8 @@ armyTest("TKW03 cancel during the real provider boundary prevents late result pe
   } finally { worker.stop(); }
 });
 
-armyTest("TKW04 a retained PDF runs the real level-B processor and exposes persisted page provenance", options, async (ui) => {
+armyTest("TKW04 a retained PDF runs the real level-B processor and exposes persisted page provenance", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, jobId, fileName } = await launchWorkerPdf(ui);
   const completed = await startOwnedWorker(ui, ids, jobId).done;
   expect(completed.outcome.status).toBe("completed");
@@ -296,7 +301,8 @@ armyTest("TKW04 a retained PDF runs the real level-B processor and exposes persi
   await recordEvidence(ui.army, "TKW04-PDF-worker-persisted", { ids, jobId, completed, replay });
 });
 
-armyTest("TKW05 terminal provider failure retains its diagnostic without extracted items or automatic retry", options, async (ui) => {
+armyTest("TKW05 terminal provider failure retains its diagnostic without extracted items or automatic retry", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await activateOwnedTakeoffNotices();
   const { ids, jobId, before } = await launchWorkerCsv(ui, "TKW05", "local");
   const collector = await startTakeoffEmailCollector();
@@ -397,7 +403,8 @@ type ActionEnvelope = {
   error?: { code: string; details?: { provider_batch_id?: string; provider_batch_state?: string } };
 };
 
-armyTest("TKW06 concurrent resubmissions cannot restart a canceled historical job", options, async (ui) => {
+armyTest("TKW06 concurrent resubmissions cannot restart a canceled historical job", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, jobId } = await launchWorkerCsv(ui, "TKW06", "historical");
   const before = await readEstimate(ui.browser, ids.versionId);
   const canceled = await apiRequest<ActionEnvelope>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/cancel`);
@@ -412,7 +419,8 @@ armyTest("TKW06 concurrent resubmissions cannot restart a canceled historical jo
     boundary: "Historical provider is blocked. LOCAL05 checks two relaunch refusals after a definitive ChatGPT end." });
 });
 
-armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", options, async (ui) => {
+armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, jobId, fileName } = await launchWorkerCsv(ui, "TKW07", "historical");
   await createLineViaApi(ui.browser, ids.versionId, `${ui.army.runPrefix} retained batch estimate line`, { quantity: 2, unit_price_ht_cents: 1250 });
   expect((await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`)).status).toBe(200);
@@ -505,7 +513,8 @@ armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", 
 // and why, from its own rows; the command reads the role and the affaire again when it is called. This application is a
 // production build, which runs no local ChatGPT analysis: before this policy it offered « Soumettre à nouveau » on a local
 // job and refused the click (422); it now says where the retry runs. The retry on the Mac is LOCAL05's and the unit tests'.
-armyTest("TKW13 the list decides the resume of several stopped analyses without reading them, and the retry command agrees", options, async (ui) => {
+armyTest("TKW13 the list decides the resume of several stopped analyses without reading them, and the retry command agrees", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const owner = await signUpWorkerOwner(ui, "RESUME");
   const { ids, jobId: localId, fileName, before } = await launchWorkerCsv(ui, "TKW13", "local", owner);
   const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId, owner.email, owner.password);
@@ -634,7 +643,8 @@ armyTest("TKW13 the list decides the resume of several stopped analyses without 
 // admission budget (10 per user and tenant in 24 h, never freed) the other takeoff journeys of the stack also spend:
 // after one earlier job in its CI shard, TKW09 was refused TAKEOFF_JOB_ADMISSION_LIMIT (it alone was the account's
 // 10th admission of the file). Each now runs as its own dedicated owner and spends none of the campaign's budget.
-armyTest("TKW08 a vector plan read at level C persists its measured networks and room, shows them in the review and stays invisible to another tenant", options, async (ui) => {
+armyTest("TKW08 a vector plan read at level C persists its measured networks and room, shows them in the review and stays invisible to another tenant", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, jobId, fileName, tenantId, planFileId, seedJob, owner: jobOwner } = await launchWorkerVectorPlan(ui);
   const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, owner: jobOwner }).done;
   expect(completed.outcome.status).toBe("completed");
@@ -800,7 +810,8 @@ ROLLBACK;\n`);
 // TI-662 (review of PR #147): a plan uploaded directly (no plan set) is measured at the page calibration confirmed in
 // its preparation, which names it `upload:<SHA-256>`; its review draws the uploaded PDF itself, signed for the
 // user's session, and says so when that file is gone. The plan prints no scale. Fictional plan, no model.
-armyTest("TKW09 a directly uploaded vector plan is measured at its confirmed calibration and its review draws the uploaded PDF", options, async (ui) => {
+armyTest("TKW09 a directly uploaded vector plan is measured at its confirmed calibration and its review draws the uploaded PDF", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, jobId, fileName, tenantId, sourcePath, sha256, client, owner } = await launchWorkerVectorUpload(ui);
   const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, owner }).done;
   expect(completed.outcome.status).toBe("completed");
@@ -870,7 +881,8 @@ armyTest("TKW09 a directly uploaded vector plan is measured at its confirmed cal
     api: denied.status });
 });
 
-armyTest("TKW11 a quantity a plan cannot show arrives excluded with its reason, and the count beside it stays preselected", options, async (ui) => {
+armyTest("TKW11 a quantity a plan cannot show arrives excluded with its reason, and the count beside it stays preselected", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, jobId } = await launchWorkerPdf(ui);
   const completed = await startOwnedWorker(ui, ids, jobId, "success", { rules: true, providerItems: [
     { designation: "Soudures inox", quantity: 48, unit: "u", source_page: 1, confidence: 0.99, evidence: "Supposées, page 1" },

@@ -41,8 +41,8 @@ export async function tabularPdfBytes() {
 for (const format of ["pdf", "xls"] as const) {
   armyTest(`IFC ${format} traverses review mapping confirmation and reload with exact business values and source provenance`, {
     session: "army", trace: "off", tags: ["critical", "import-formats", "local"], timeout: 180_000,
-  }, async (ui) => {
-    const { army, app, screen, browser } = ui;
+  }, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-IFC-${format}`, title: "Import format source" }, army);
     const rows = [...sourceRows];
     const expected = [...commonExpected];

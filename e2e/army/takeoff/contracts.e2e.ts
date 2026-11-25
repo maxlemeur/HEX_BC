@@ -146,8 +146,8 @@ for (const scenario of ["level-a", "admin-override", "excluded"] as const) {
   });
 }
 
-armyTest("TKF06 final wizard confirmation applies through the owning page session and persists exact quantities", options, async ui => {
-  const { app, browser, army } = ui;
+armyTest("TKF06 final wizard confirmation applies through the owning page session and persists exact quantities", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await browser.emulateMedia({ reducedMotion: "reduce" });
   const ids = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY UI apply session" }, army);
   const target = await createLineViaApi(browser, ids.versionId, `${army.runPrefix} existing target`);
@@ -202,8 +202,8 @@ armyTest("TKF06 final wizard confirmation applies through the owning page sessio
 // from the wizard: one coded reason and one justification written once, copied to the selection, then the whole override
 // sent; both enter the internal estimate as provisions with their reason, the admitted line stays measured. That an
 // engineer cannot force it is checked on the same job in this journey’s disposable tenant.
-armyTest("TKF07 an administrator forces each blocked line from the apply wizard with a coded reason", options, async ui => {
-  const { app, screen, browser, army } = ui;
+armyTest("TKF07 an administrator forces each blocked line from the apply wizard with a coded reason", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await browser.emulateMedia({ reducedMotion: "reduce" });
   const owner = await signUpWorkerOwner(ui, "TKFORCE");
   const ids = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY UI forced apply" }, army);
@@ -356,7 +356,8 @@ armyTest("TKF04 revision comparison exposes actual additions removals and change
 });
 
 for (const scope of ["archived", "other-tenant"] as const) {
-  armyTest(`A takeoff bookmark for an ${scope} affaire reveals no destination`, options, async ui => {
+  armyTest(`A takeoff bookmark for an ${scope} affaire reveals no destination`, options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const ids = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "ARMY accès au métré" }, ui.army);
     const fixture = await localTakeoffFixture(ui.army, ids);
     const { jobId } = await fixture.seed("A", definitions);
@@ -414,7 +415,8 @@ for (const scope of ["archived", "other-tenant"] as const) {
   });
 }
 
-armyTest("A remembered affaire and bookmarks respect the active engineer's ownership", options, async ui => {
+armyTest("A remembered affaire and bookmarks respect the active engineer's ownership", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const owner = await signUpWorkerOwner(ui, "TKOWN");
   const colleague = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "Métré du collègue" }, ui.army);
   const foreign = await localTakeoffFixture(ui.army, colleague, owner.email, owner.password);
