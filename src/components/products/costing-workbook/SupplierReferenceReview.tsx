@@ -655,16 +655,21 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
     }
   }
 
-  const conflictPairs = new Map<string, string>();
-  const conflictSources = report.for_decision.flatMap((decision) => {
-    if (decision.reason !== "conflicting_workbook_references" || !decision.product_id || !decision.supplier_id) return [];
-    const key = decisionCellKey(decision);
-    const source = sourceByCell.get(key);
-    if (!source) return [];
-    conflictPairs.set(key, JSON.stringify([decision.product_id, decision.supplier_id]));
-    return [source];
-  });
-  const conflicts = compareCostingWorkbookSupplierValues(conflictSources, (source) => conflictPairs.get(decisionCellKey(source))!);
+  // A conflict is the server's: several codes for one catalogue article and one catalogue supplier, whatever
+  // names the workbook wrote for them. Every value the workbook gives those names is shown with it, the price
+  // sources too: they say where a code may be found.
+  const writtenPairOf = (source: CostingWorkbookSupplierOccurrence) =>
+    JSON.stringify([workbookReferenceKey(source.article_reference), workbookSupplierNameKey(source.supplier_name)]);
+  const resolvedPairs = new Map<string, string>();
+  for (const decision of report.for_decision) {
+    if (decision.reason !== "conflicting_workbook_references" || !decision.product_id || !decision.supplier_id) continue;
+    const source = sourceByCell.get(decisionCellKey(decision));
+    if (source) resolvedPairs.set(writtenPairOf(source), JSON.stringify([decision.product_id, decision.supplier_id]));
+  }
+  const conflicts = compareCostingWorkbookSupplierValues(
+    [...sourceByCell.values()].filter((source) => resolvedPairs.has(writtenPairOf(source))),
+    (source) => resolvedPairs.get(writtenPairOf(source))!,
+  ).filter(({ values }) => values.filter((value) => !value.price_source_kind).length > 1);
   const priceComparisons = comparisons.filter(({ values }) => values.filter((value) => !value.price_source_kind).length < 2);
   const priceSources = report.for_decision.filter((entry) => entry.reason === "price_source_reference");
   const toCreate = report.for_decision.filter((entry) => entry.reason === "article_to_create");
