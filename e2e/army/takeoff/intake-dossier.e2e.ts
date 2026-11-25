@@ -102,7 +102,7 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   if (await confirm.isVisible()) await confirm.click();
   else await screen.getByRole("link", "Confirmer le brief", { exact: true }).first().click();
   // The confirmation is an alert dialog outside the brief region.
-  await screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true }).getByRole("button", "Oui, confirmer", { exact: true }).click();
+  await screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true }).getByRole("button", "Confirmer sans analyser", { exact: true }).click();
   await expect(brief.getByText("Brief de référence", { exact: true })).toBeVisible();
   await browser.reload();
   await expect(brief.getByText("Brief de référence", { exact: true })).toBeVisible();

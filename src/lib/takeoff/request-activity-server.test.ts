@@ -57,6 +57,10 @@ function client(scope: "member" | "service") {
       in: (column: string, values: unknown[]) => { filters.push((row) => values.includes(row[column])); return builder; },
       is: (column: string, value: unknown) => { filters.push((row) => (row[column] ?? null) === value); return builder; },
       or: (expression: string) => {
+        if (expression === "reason_code.is.null,reason_code.neq.ANALYSIS_NOT_REQUESTED") {
+          filters.push((row) => row.reason_code !== "ANALYSIS_NOT_REQUESTED");
+          return builder;
+        }
         expect(expression).toBe("status.neq.failed,next_retry_at.not.is.null");
         filters.push((row) => row.status !== "failed" || row.next_retry_at != null);
         return builder;

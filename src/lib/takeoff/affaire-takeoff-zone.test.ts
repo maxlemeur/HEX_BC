@@ -32,7 +32,7 @@ function request(overrides: Partial<AffaireTakeoffZoneRequest> = {}): AffaireTak
 }
 
 function data(overrides: Partial<AffaireTakeoffZoneData> = {}): AffaireTakeoffZoneData {
-  return { active: true, canOperate: true, confirmedBeforeActivation: false, request: null, dossierChangedSinceAnalysis: null,
+  return { active: true, canOperate: true, confirmedWithoutRequest: false, request: null, dossierChangedSinceAnalysis: null,
     latestJob: null, latestReview: null, latestEnd: null, unrequestedRunning: false,
     viewer: { tenantId: "44444444-4444-4444-8444-444444444444", userId: "55555555-5555-4555-8555-555555555555" }, ...overrides };
 }
@@ -85,8 +85,8 @@ describe("buildAffaireTakeoffZone", () => {
 
     it("offers a first analysis on an affaire whose plans have no dossier, and after a dossier confirmed before the activation", () => {
       expect(zone({ dossier: "empty" })).toMatchObject({ options: { mode: "request", predecessorJobId: null } });
-      expect(zone({ data: data({ confirmedBeforeActivation: true }) })).toMatchObject({
-        status: "Non démarré", message: "Dossier confirmé avant l’activation — options disponibles",
+      expect(zone({ data: data({ confirmedWithoutRequest: true }) })).toMatchObject({
+        status: "Métré non demandé", message: "Choisissez les plans à analyser dans les options du métré.",
         options: { mode: "request", predecessorJobId: null } });
     });
 
@@ -193,6 +193,14 @@ describe("buildAffaireTakeoffZone", () => {
   });
 
   describe("without any request", () => {
+    it("shows an unreadable running job without disclosing its name or counts to the director", () => {
+      expect(zone({ data: data({ confirmedWithoutRequest: true, unrequestedRunning: true, canOperate: false }),
+        canOperate: false, planFileCount: 0 })).toMatchObject({
+        tone: "progress", status: "En cours", live: true, message: "Une analyse de l’affaire est en cours.",
+        facts: [], pieces: [], reviews: [], gesture: null, options: null,
+      });
+    });
+
     it("shows the affaire's latest analysis, whatever its version", () => {
       expect(zone({ data: data({ active: false, latestJob: job({ status: "processing", reviewHref: null, finishedAt: null }) }) }))
         .toMatchObject({ status: "En cours", live: true });

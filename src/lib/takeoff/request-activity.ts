@@ -104,7 +104,7 @@ export type TakeoffRequestManifest = {
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const OMITTED_REASONS = new Set(["alternate", "identical_copy", "unsupported_format", "not_requested"]);
+const OMITTED_REASONS = new Set(["alternate", "identical_copy", "unsupported_format", "not_requested", "not_selected"]);
 const PUBLIC_CODES = new Set<string>(TAKEOFF_PUBLIC_FAILURE_CODES);
 const PLAN_PUBLIC_CODES = new Set<string>(TAKEOFF_PLAN_PUBLIC_FAILURE_CODES);
 
@@ -435,6 +435,10 @@ export function describeTakeoffRequestActivityCoverage(request: Pick<TakeoffRequ
     const count = request.groupedPlans.length;
     const states = units.units.map((unit) => GROUPED_STATE[unit.state]);
     return `${count > 1 ? `Analyse groupée de ${count} plans` : "Analyse groupée"} · ${states.join(", ")}`;
+  }
+  if (units.units.length === 1) {
+    const [plan] = units.units;
+    return `${plan.name} · ${describeTakeoffRequestUnitState(plan, null)}`;
   }
   return describeTakeoffCoverage(units.coverage);
 }

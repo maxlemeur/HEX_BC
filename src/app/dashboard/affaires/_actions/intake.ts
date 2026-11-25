@@ -3,6 +3,7 @@
 import { after } from "next/server";
 import { hostCanReadIntakeScans } from "@/lib/affaires/intake-payer-server";
 import { revalidatePath } from "next/cache";
+import { briefPlanSelectionSchema } from "@/lib/takeoff/brief-plan-choice";
 import { z } from "zod";
 import { deleteIntakeDocumentCopy } from "@/lib/affaires/intake-document-store";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
@@ -15,7 +16,7 @@ import {
 } from "@/lib/affaires/intake";
 import {
   confirmAffaireBrief as confirmAffaireBriefServer,
-  readAffaireBriefPayerNotice as readAffaireBriefPayerNoticeServer,
+  readAffaireBriefChoices as readAffaireBriefChoicesServer,
   updateAffaireBrief as updateAffaireBriefServer,
   resolveAffaireBriefPlanGap as resolveAffaireBriefPlanGapServer,
 } from "@/lib/affaires/intake-brief-server";
@@ -60,15 +61,16 @@ export type UpdateAffaireBriefInput = z.infer<
 const confirmAffaireBriefInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   expectedUpdatedAt: z.string().datetime({ offset: true }),
+  plans: briefPlanSelectionSchema,
   /** The digest of the payer notice the confirmation dialog showed, if it showed one. */
-  payerNotice: z.string().regex(/^[0-9a-f]{64}$/, "Mention du forfait invalide.").nullable().optional(),
-});
+  payerNotice: z.string().regex(/^[0-9a-f]{64}$/, "Mention du forfait invalide.").nullable(),
+}).refine((input) => input.plans.length > 0 || input.payerNotice === null, "Aucun forfait pour une confirmation sans analyse.");
 
 export type ConfirmAffaireBriefInput = z.infer<
   typeof confirmAffaireBriefInputSchema
 >;
 
-const readAffaireBriefPayerNoticeInputSchema = z.object({
+const readAffaireBriefChoicesInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
 });
 
@@ -196,9 +198,9 @@ export async function updateAffaireBrief(input: UpdateAffaireBriefInput) {
 }
 
 /** The payer notice the brief's confirmation dialog shows, read when it opens; it changes nothing. */
-export async function readAffaireBriefPayerNotice(input: { projectId: string }) {
-  const parsed = readAffaireBriefPayerNoticeInputSchema.parse(input);
-  return readAffaireBriefPayerNoticeServer(parsed);
+export async function readAffaireBriefChoices(input: { projectId: string }) {
+  const parsed = readAffaireBriefChoicesInputSchema.parse(input);
+  return readAffaireBriefChoicesServer(parsed);
 }
 
 export async function confirmAffaireBrief(input: ConfirmAffaireBriefInput) {

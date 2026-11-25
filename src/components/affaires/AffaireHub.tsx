@@ -1317,6 +1317,7 @@ export function AffaireHub({
               {!isFreshStartState && intakeWorkspace !== undefined && (
                 <div id="brief" hidden={activeSection !== "dossier" || !detailsOpen} className="scroll-mt-24">
                   <BriefDraftCard
+                    key={summary.project.id}
                     projectId={summary.project.id}
                     briefDraft={intakeWorkspace?.briefDraft ?? null}
                     hasPlans={Boolean(intakeWorkspace && !intakeWorkspace.missingPieces.some((piece) => piece.code === "missing_plans"))}
