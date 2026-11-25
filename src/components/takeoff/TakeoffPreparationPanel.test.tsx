@@ -72,7 +72,7 @@ beforeEach(() => {
     if (expectedRevision !== storedRevision) throw new Error("La préparation a changé.");
     if (!storedConfirmedAt) storedRevision++;
     storedConfirmedAt = "2026-10-29T12:00:00Z";
-    return success(state());
+    return success({ ...state(), retainedPlanFileIds: stored.sources.filter(s => s.active && s.kind === "plan").map(s => s.document_id) });
   });
   actions.profiles.mockResolvedValue(success([]));
   actions.triageAvailability.mockResolvedValue(success({ status: "disabled", message: "Decisions n’est pas activé pour le métré.", model: "gpt-6-luna", max_pages: 60 }));

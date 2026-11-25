@@ -61,5 +61,22 @@ export async function attestBriefPlanChoice(context: Context, projectId: string,
     if (error || !data || data.size !== file.file_size_bytes) return { message: BRIEF_PLAN_CHANGED };
     plans[id] = { version, sha256: createHash("sha256").update(new Uint8Array(await data.arrayBuffer())).digest("hex") };
   }
+  // Validate every checked copy, then reserve one representative per distinct PDF. Prefer a
+  // selected copy already read so the database can subtract it from the outstanding work.
+  if (new Set(Object.values(plans).map((plan) => plan.sha256)).size < selected.length) {
+    const { data, error } = await createServiceRoleClient().rpc("takeoff_brief_plan_options", {
+      p_tenant_id: context.tenantId, p_project_id: projectId, p_plans: plans,
+    });
+    if (error) throw new Error("Impossible de vérifier les lectures précédentes des plans.");
+    if (data.length !== selected.length) return { message: BRIEF_PLAN_CHANGED };
+    const seen = new Set<string>();
+    const read = (state: string) => state === "analysed" || state === "in_progress";
+    for (const row of [...data].sort((a, b) => Number(read(b.reading_state)) - Number(read(a.reading_state))
+      || a.plan_file_id.localeCompare(b.plan_file_id))) {
+      const hash = plans[row.plan_file_id].sha256;
+      if (seen.has(hash)) delete plans[row.plan_file_id];
+      else seen.add(hash);
+    }
+  }
   return { plans };
 }

@@ -509,7 +509,14 @@ globalThis.fetch = async (input, init) => {
     }
   }
   const output = JSON.stringify(data);
-  await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify(transportEntry("chatgpt-fixture")) + "\n");
+  const entry = transportEntry("chatgpt-fixture");
+  if (pdf) {
+    const { PDFDocument, PDFName } = await import("pdf-lib");
+    const document = await PDFDocument.load(Buffer.from(pdf.file_data.split(",")[1], "base64"));
+    const marker = document.getPages()[0]?.node.get(PDFName.of("ArmyPlanChoice"));
+    if (marker instanceof PDFName) entry.planChoice = marker.decodeText();
+  }
+  await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify(entry) + "\n");
   return new Response([
     { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: output },
     { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 24, output_tokens: 18, total_tokens: 42 } } },

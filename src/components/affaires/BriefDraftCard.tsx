@@ -699,6 +699,7 @@ export function BriefDraftCard({
                 <span className="min-w-0 break-words">{plan.name}<small className="block text-foreground-secondary">{PLAN_READING_LABELS[plan.state]}</small></span>
               </label>
             ))}
+            {checked.length > 1 && <p className="text-sm">Deux copies au contenu identique donnent lieu à une seule lecture sur votre forfait.</p>}
             {checked.length > 0 && <p className="text-sm">{choices.notice?.message ?? "Une personne habilitée pourra lancer les plans cochés avec son forfait."}</p>}
           </fieldset>
         )}

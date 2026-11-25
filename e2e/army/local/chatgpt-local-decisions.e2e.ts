@@ -2,7 +2,7 @@ import type { AnalysisProgress } from "@/lib/affaires/analysis-progress-contract
 import { activateOwnedPlanDispatch, deactivateOwnedPlanDispatch } from "../takeoff/plan-dispatch-support";
 import { launchPreparedPlanSet } from "../takeoff/prepared-takeoff";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { PDFDocument, PDFName, StandardFonts, concatTransformationMatrix, drawObject, popGraphicsState, pushGraphicsState, rgb } from "pdf-lib";
@@ -1930,13 +1930,13 @@ async function signInAs(ui: Parameters<typeof signIn>[0], email: string) {
 async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: string, name: string, email: string,
   dossier: "empty" | "opened" = "empty", until: "classified" | "classifying" = "classified",
   /** Runs on the page once it is open, before the plan is added. */
-  onOpened?: () => Promise<void>) {
+  onOpened?: () => Promise<void>, pdfBytes?: Uint8Array) {
   const { client } = await localChatGptClient(email);
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", projectId);
   await mkdir(directory, { recursive: true });
   const file = path.join(directory, name);
   // Bytes of its own for each plan (a comment after the end of the PDF): the dossier refuses a second identical copy.
-  await writeFile(file, Buffer.concat([await readFile(path.resolve("e2e/fixtures/sample-plan.pdf")), Buffer.from(`\n% ${name}\n`)]));
+  await writeFile(file, pdfBytes ?? Buffer.concat([await readFile(path.resolve("e2e/fixtures/sample-plan.pdf")), Buffer.from(`\n% ${name}\n`)]));
   if (dossier === "empty") {
     // An affaire without a dossier offers its drop surface on the page.
     await ui.app.open(`/dashboard/affaires/${projectId}`);
@@ -2120,9 +2120,22 @@ if (!existsSync(liveProbePath)) test("AUTO02 a director can confirm without anal
     expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([]);
     expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
     expect(await planReads()).toBe(readsBefore);
+    const hidden = randomUUID();
+    await querySql(`insert into public.takeoff_jobs (id,tenant_id,estimate_version_id,created_by,level,status,source_file_name)
+      select '${hidden}',p.tenant_id,'${ids.versionId}',p.user_id,'C','processing','ARMY-prive.pdf'
+      from public.estimate_projects p where p.id='${ids.projectId}'`);
+    const hiddenRead = await director.client.from("takeoff_jobs").select("id").eq("id", hidden);
+    expect(hiddenRead.error).toBeNull();
+    expect(hiddenRead.data).toEqual([]);
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
+    const zone = takeoffZone({ screen });
+    await expect(zone.getByText("Une analyse de l’affaire est en cours.", { exact: true })).toBeVisible(DEV_SERVER_WORK);
+    await expect(zone).not.toContainText("Métré non demandé");
+    await expect(zone).not.toContainText("ARMY-prive.pdf");
     expect(await forbiddenRequests()).toBe(0);
     await recordEvidence(army, "AUTO02-director-confirmation", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0],
-      jobs: 0, planReads: 0, boundary: "Fictional dossier, two owned members, ChatGPT transport fixture on an owned local backend." });
+      jobsAfterConfirmation: 0, hiddenVersionJobReportedAsRunning: true, planReads: 0,
+      boundary: "Fictional dossier, two owned members, ChatGPT transport fixture on an owned local backend." });
   } finally {
     // The next journey signs its own account in: leave no session of these owners.
     await browser.clearCookies({ domain: new URL(localOrigin).hostname });
@@ -2188,8 +2201,13 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
     const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Confirmation sans mention du forfait" }, army);
-    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
-    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-toiture.pdf`, owner.email, "opened");
+    const markedPdf = async (marker: string) => {
+      const pdf = await PDFDocument.load(await readFile("e2e/fixtures/sample-plan.pdf"));
+      pdf.getPage(0).node.set(PDFName.of("ArmyPlanChoice"), PDFName.of(marker));
+      return pdf.save();
+    };
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email, "empty", "classified", undefined, await markedPdf("A"));
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-toiture.pdf`, owner.email, "opened", "classified", undefined, await markedPdf("B"));
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
     const readsBefore = await planReads();
     const confirm = await openBriefConfirmation(ui, ids.projectId, owner.userId, false);
@@ -2217,19 +2235,123 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
     const launch = manual.getByRole("button", "Confirmer et lancer le métré", { exact: true });
     await expect(launch).toBeDisabled();
     await expect(manual.getByRole("checkbox", /plan-toiture\.pdf/)).toBeVisible();
+    const firstTab = browser.tabs().find(tab => tab.isActive())!;
+    const other = await browser.newTab();
+    await other.activate();
+    try {
+      await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
+      await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
+      await manual.getByRole("checkbox", /plan-toiture\.pdf/).check();
+      const action = await serverActionId("relaunchTakeoffAction", actionManifest());
+      const url = `**/dashboard/affaires/${ids.projectId}*`;
+      await browser.route(url, async route => {
+        if (route.request.headers["next-action"] === action) await route.abort();
+        else await route.fallback();
+      });
+      try {
+        await launch.click();
+        await expect(manual).toContainText("Impossible de lancer l'analyse.", DEV_SERVER_WORK);
+      } finally { await browser.unroute(url); }
+    } finally { await other.close(); await firstTab.activate(); }
+    await browser.reload();
+    await waitForHydration(browser);
+    await zone.getByRole("button", "Options du métré", { exact: true }).click();
     await manual.getByRole("checkbox", /plan\.pdf/).check();
+    await launch.click();
+    const discard = manual.getByRole("button", "Le mettre de côté", { exact: true });
+    await expect(discard).toBeVisible(DEV_SERVER_WORK);
+    await manual.getByRole("checkbox", /plan\.pdf/).uncheck();
+    await manual.getByRole("checkbox", /plan-toiture\.pdf/).check();
+    await discard.click();
+    await expect(launch).toBeEnabled();
+    expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([]);
     await launch.click();
     await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map((r) => [r.origin, r.payer_id, r.units_expected, r.outcome]),
       { timeout: 180_000 }).toEqual([["manual", owner.userId, 1, "success"]]);
+    const [set] = await readPlanSets(browser, ids.projectId);
+    const files = await readPlanFiles(browser, set.id);
+    const chosen = files.find(f => f.file_name.endsWith("-plan-toiture.pdf"))!.id;
+    expect((await readOwnedLaunchRequests(ids.projectId))[0].manifest_plans).toEqual([chosen]);
+    expect((await readOwnedAffaireJobs(ids.projectId)).map(j => j.launch_unit_key)).toEqual([`plan:${chosen}`]);
+    const sends = (await readFile(transportLog, "utf8")).trim().split("\n").map(line => JSON.parse(line))
+      .filter(row => row.provider === "chatgpt-fixture" && row.inputKind === "pdf").slice(readsBefore);
+    expect(sends.map(row => row.planChoice)).toEqual(["B"]);
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
+    await expect(zone).toContainText(`${prefix}-plan.pdf (non analysé dans cette demande)`, DEV_SERVER_WORK);
+    await expect(zone).not.toContainText("Dossier modifié depuis l’analyse");
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-extension.pdf`, owner.email, "opened");
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
+    await expect(zone.getByText(`Ajoutés : ${prefix}-extension.pdf`, { exact: true })).toBeVisible(DEV_SERVER_WORK);
     expect(await forbiddenRequests()).toBe(0);
     await recordEvidence(army, "AUTO04-unnotified-confirmation", { ids, requests: await readOwnedLaunchRequests(ids.projectId),
-      manualJobs: 1, automaticReads: 0, boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
+      manualJobs: 1, manualPlanId: chosen, transportPlans: sends.map(row => row.planChoice), automaticReads: 0, boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
   } finally {
     await browser.clearCookies({ domain: new URL(localOrigin).hostname });
     await deactivateOwnedPlanDispatch();
     await rm(store, { force: true });
   }
 });
+
+for (const scenario of ["AUTO08 unchecked 201-page PDF", "AUTO09 two identical checked plans"] as const) {
+  if (!existsSync(liveProbePath)) test(scenario, {
+    tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 240_000,
+  }, async ({ app, screen, browser }) => {
+    const manual = scenario.startsWith("AUTO08");
+    const owner = await createLocalChatGptOwner();
+    const store = await writePlanFixture(owner.email, null, false);
+    await activateOwnedPlanDispatch();
+    try {
+      await signInAs({ app, screen, browser }, owner.email);
+      const prefix = `ARMY-${scenario.slice(0, 6)}-${Date.now()}`;
+      const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+      const ui = hydratedUi({ app, screen, browser }, localOrigin);
+      const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Périmètre du métré" }, army);
+      const name = `${prefix}-plan.pdf`;
+      await uploadDossierPlan(ui, ids.projectId, name, owner.email);
+      await expect.poll(async () => (await ownedPlanChoices(ids.projectId)).length, DEV_SERVER_WORK).toBe(1);
+      const [set] = await readPlanSets(browser, ids.projectId);
+      const [first] = await readPlanFiles(browser, set.id);
+      const extra = manual ? "Plan-long.pdf" : "Copie.pdf";
+      const id = randomUUID();
+      const filePath = `${set.tenant_id}/${set.id}/${id}/${extra}`;
+      const pages = await PDFDocument.create();
+      if (manual) for (let i = 0; i < 201; i++) pages.addPage();
+      const bytes = manual ? await pages.save() : await readFile(path.resolve(".e2e/army/critical/artifacts/fixtures", ids.projectId, name));
+      expect((await owner.client.from("plan_files").insert({ id, tenant_id: set.tenant_id, plan_set_id: set.id,
+        file_name: extra, file_path: filePath, file_type: "application/pdf", file_size_bytes: bytes.length, page_count: null })).error).toBeNull();
+      expect((await owner.client.storage.from("plan-files").upload(filePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
+      await (await openBriefConfirmation(ui, ids.projectId, owner.userId, true)).click();
+      const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
+      await expect(dialog.getByRole("checkbox")).toHaveCount(2);
+      const before = await planReads();
+      if (manual) {
+        await dialog.getByRole("button", "Confirmer sans analyser", { exact: true }).click();
+        await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status, DEV_SERVER_WORK).toBe("confirme");
+        await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
+        await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
+        const options = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+        await expect(options.getByRole("checkbox", /Plan-long/)).not.toBeChecked();
+        await options.getByRole("checkbox", /-plan\.pdf/).check();
+        await options.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+      } else {
+        await dialog.getByRole("checkbox", /-plan\.pdf/).check();
+        await dialog.getByRole("checkbox", /Copie\.pdf/).check();
+        await expect(dialog).toContainText("Deux copies au contenu identique donnent lieu à une seule lecture sur votre forfait.");
+        await dialog.getByRole("button", "Confirmer et analyser 2 plans", { exact: true }).click();
+      }
+      await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId))[0]?.state, DEV_SERVER_WORK).toBe("closed");
+      const [request] = await readOwnedLaunchRequests(ids.projectId);
+      expect(request).toMatchObject({ outcome: "success", units_expected: 1, payer_id: owner.userId });
+      expect(request.manifest_plans).toHaveLength(1);
+      expect(manual ? [first.id] : [first.id, id]).toContain(request.manifest_plans![0]);
+      expect(await planReads() - before).toBe(1);
+    } finally {
+      await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+      await deactivateOwnedPlanDispatch();
+      await rm(store, { force: true });
+    }
+  });
+}
 
 if (!existsSync(liveProbePath)) test("AUTO05 a running dossier analysis refuses confirmation and requires a new gesture after reconnection", {
   tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 300_000,

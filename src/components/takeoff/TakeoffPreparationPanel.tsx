@@ -57,7 +57,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
   const [launchError, setLaunchError] = useState<string | null>(null);
   const availableSources = useMemo(() => record?.availableSources ?? [], [record?.availableSources]);
   const effective = useMemo(() => draft?.provenance ? resolveDeducedPlanVersions(draft) : draft, [draft]);
-  const readiness = useMemo(() => effective ? evaluateTakeoffPreparation(effective) : null, [effective]);
+
   const persistedRevision = saveState === "saved" && !record?.needsSave ? record?.revision : null;
   const preparationConfirmed = Boolean(persistedRevision && record?.confirmedAt);
   const saveLabel = {
@@ -77,19 +77,25 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
   const availablePlans = effective?.sources.filter((source) => source.active && source.kind === "plan") ?? [];
   const chosen = availablePlans.map((plan) => plan.document_id).filter((id) => planIds.includes(id));
   const emptyChoice = choosePlans && !chosen.length;
+  const readiness = useMemo(() => {
+    if (!effective || !choosePlans || !planIds.length) return effective && evaluateTakeoffPreparation(effective);
+    const chosenIds = new Set(planIds);
+    return evaluateTakeoffPreparation({ ...effective, sources: effective.sources.map(source =>
+      source.kind === "plan" && !chosenIds.has(source.document_id) ? { ...source, active: false } : source) });
+  }, [effective, choosePlans, planIds]);
   async function launch() {
     if (!readiness?.can_launch || locked || launchDisabled || emptyChoice) return;
     setConfirming(true);
     onBusyChange?.(true);
     setLaunchError(null);
     try {
-      const confirmed = await confirm();
+      const confirmed = await confirm(choosePlans ? chosen : undefined);
       if (confirmed === null) {
         setShowOptions(true);
         setStep(0);
         return;
       }
-      if (choosePlans) await onLaunch(confirmed.revision, chosen.length, chosen);
+      if (choosePlans) await onLaunch(confirmed.revision, confirmed.planFileCount, confirmed.planFileIds);
       else await onLaunch(confirmed.revision, confirmed.planFileCount);
     } catch (cause) {
       setLaunchError(cause instanceof TakeoffActionError ? cause.message : "Impossible de confirmer le lancement. Vos réponses sont conservées.");

@@ -193,6 +193,14 @@ describe("buildAffaireTakeoffZone", () => {
   });
 
   describe("without any request", () => {
+    it("shows an unreadable running job without disclosing its name or counts to the director", () => {
+      expect(zone({ data: data({ confirmedWithoutRequest: true, unrequestedRunning: true, canOperate: false }),
+        canOperate: false, planFileCount: 0 })).toMatchObject({
+        tone: "progress", status: "En cours", live: true, message: "Une analyse de l’affaire est en cours.",
+        facts: [], pieces: [], reviews: [], gesture: null, options: null,
+      });
+    });
+
     it("shows the affaire's latest analysis, whatever its version", () => {
       expect(zone({ data: data({ active: false, latestJob: job({ status: "processing", reviewHref: null, finishedAt: null }) }) }))
         .toMatchObject({ status: "En cours", live: true });

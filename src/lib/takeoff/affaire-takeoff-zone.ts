@@ -279,12 +279,16 @@ export function buildAffaireTakeoffZone(zoneInput: AffaireTakeoffZoneInput): Aff
   }
   const { request, latestJob } = data;
   const hasDossier = input.dossier !== null && input.dossier !== "empty";
-  if (!request && !latestJob && input.planFileCount === 0 && !hasDossier && !data.confirmedWithoutRequest) return null;
+  if (!request && !latestJob && !data.unrequestedRunning && input.planFileCount === 0 && !hasDossier && !data.confirmedWithoutRequest) return null;
 
   let state: RequestState;
   let pieces: TakeoffLaunchPiece[] = [];
   const links: AffaireTakeoffZoneLink[] = [];
-  if (request) {
+  if (data.unrequestedRunning) {
+    state = latestJob && isTakeoffVisibleJobInFlight(latestJob.status)
+      ? { ...describeAffaireTakeoffJob(latestJob), message: jobMessage(latestJob), facts: [] }
+      : { tone: "progress", status: "En cours", message: "Une analyse de l’affaire est en cours.", facts: [] };
+  } else if (request) {
     state = describeAffaireTakeoffRequest(request);
     pieces = request.pieces;
     links.push(...reasonLinks(request.state === "superseded" ? null : request.reason, input.canOperate));

@@ -484,7 +484,7 @@ export function planPagesPastLimit(plans: ReadonlyArray<{ document_id: string; d
 export function planSetCopiesSetAside(sources: TakeoffPreparationSnapshot["preparation"]["sources"], planSetId: string):
   TakeoffLaunchManifest["coverage"]["plans_omitted"] {
   const read = sources.filter((source) => source.kind === "plan" && source.active);
-  return sources.filter((source) => source.kind === "plan" && !source.active && source.plan_set_id === planSetId)
+  return sources.filter((source) => source.kind === "plan" && !source.active && !source.selected_in_plan_set && source.plan_set_id === planSetId)
     .map((source) => ({ id: source.document_id, name: source.document_name,
       reason: (source.alternate_of && read.some((plan) => plan.content_hash && plan.content_hash === source.content_hash)
         ? "identical_copy" : "alternate") as "alternate" | "identical_copy" }));
@@ -1031,6 +1031,16 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
   for (const plan of await readPlansAnalysedBefore(service, context.tenantId, input.projectId)) {
     if (scope.includes(plan.id) || reading.has(logicalPlanKey(plan)) || !held(plan) || omitted.has(plan.id)) continue;
     omitted.set(plan.id, { ...plan, reason: "not_requested" });
+  }
+  // At the first partial launch, every other retained copy already belongs to this dossier.
+  // Keep its name in coverage so only a genuinely new copy can appear as an addition.
+  if (named && !input.predecessorJobId) {
+    for (const source of confirmed.preparation.sources) {
+      if (source.kind === "plan" && source.plan_set_id === input.planSetId && !scope.includes(source.document_id)
+        && !omitted.has(source.document_id)) {
+        omitted.set(source.document_id, { id: source.document_id, name: source.document_name, reason: "not_selected" });
+      }
+    }
   }
   const { manifest: split, refusal: tooLarge } = await sealItemListReading(splitTakeoffLaunchManifest({ ...grouped,
     coverage: { ...grouped.coverage, plans_omitted: [...omitted.values()] } }, countedPages), async () => config, order.items);

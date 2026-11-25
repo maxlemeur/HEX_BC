@@ -1073,6 +1073,16 @@ describe("launchTakeoffRelaunch", () => {
       .toEqual(manifest.units.map((unit) => unit.key));
   });
 
+  it("records an unticked plan in a first manual request and recognises only later additions", async () => {
+    const { run, launched, rows } = planCommand({ a: 1, b: 201 }, null, undefined, null);
+    await run([PLAN_FILE]);
+    const manifest = launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toContainEqual(expect.objectContaining({ id: PLAN_B, reason: "not_selected" }));
+    expect(describeDossierChangeSinceAnalysis(manifest, rows, [])).toBeNull();
+    const added = { ...rows[0], id: "aaaaaaaa-0000-4000-8000-000000000099", file_name: "extension.pdf" };
+    expect(describeDossierChangeSinceAnalysis(manifest, [...rows, added], [])?.added).toEqual([{ id: added.id, name: added.file_name }]);
+  });
+
   // The database decides the order of its refusals (20261121193413): an automatic start that can still begin comes before
   // the affaire's existing analysis; the server never answers first.
   it("answers the database's refusal of a first analysis, in the database's order", async () => {

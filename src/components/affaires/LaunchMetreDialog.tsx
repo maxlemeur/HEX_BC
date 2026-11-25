@@ -199,8 +199,7 @@ function LaunchMetreDialogContent({
   const toast = useToast();
   const versionMode = launchMode.kind === "version";
   // The member of the page: a request launch whose answer is unknown (a timeout, a network failure, a server error) is kept
-  // for them and the affaire, across a reload and for every tab; their next click sends it again before anything new, and
-  // after an answer a new click is a new command.
+  // for them and the affaire, across reloads and tabs. A different named selection requires a new confirmation.
   const user = useOptionalUserContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const savePreparationRef = useRef<(() => Promise<number | null>) | null>(null);
@@ -217,7 +216,7 @@ function LaunchMetreDialogContent({
   const [planChoice, setPlanChoice] = useState<{ preparationRevision: number; choice: TakeoffRelaunchChoice } | null>(null);
   const [chosenPlans, setChosenPlans] = useState<Set<string>>(new Set());
   // An unanswered command of this member on the affaire (another tab's) whose content is not the plans now ticked.
-  const [otherTabCommand, setOtherTabCommand] = useState<{ outstanding: TakeoffLaunchCommand; revision: number; plans: string[] } | null>(null);
+  const [otherTabCommand, setOtherTabCommand] = useState<TakeoffLaunchCommand | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId);
   const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
     initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
@@ -404,10 +403,10 @@ function LaunchMetreDialogContent({
     // A command still unanswered is settled first, with its own content (its analysis may have finished since, and the
     // dialogue now names it): its replay answers with its receipt. Only an answered affaire offers a new command. The
     // plans the member ticks are sent as ticked: an unanswered command of other content (another tab's) is never sent in
-    // their place; the member sends it again or sets it aside first.
+    // their place. Setting it aside sends nothing. A new click confirms the selection then on screen.
     const outstanding = readOutstandingTakeoffLaunch(launchScope);
-    if (planFileIds?.length && outstanding && !isSameTakeoffLaunch(outstanding, content)) {
-      setOtherTabCommand({ outstanding, revision: preparationRevision, plans: planFileIds });
+    if (outstanding && (planFileIds?.length || outstanding.planFileIds) && !isSameTakeoffLaunch(outstanding, content)) {
+      setOtherTabCommand(outstanding);
       return;
     }
     await sendRequestCommand(outstanding ?? beginTakeoffLaunch(launchScope, content), planFileCount);
@@ -642,21 +641,14 @@ function LaunchMetreDialogContent({
               {otherTabCommand && (
                 <Alert variant="warning">
                   <AlertDescription>
-                    Un lancement envoyé depuis un autre onglet attend encore sa réponse : renvoyez-le d’abord, ou mettez-le
-                    de côté pour relancer les plans cochés.
-                    <span className="mt-2 flex flex-wrap gap-2">
-                      <Button type="button" variant="outline" size="sm" disabled={isSubmitting}
-                        onClick={() => void sendRequestCommand(otherTabCommand.outstanding, otherTabCommand.outstanding.planFileIds?.length ?? 1)}>
-                        Renvoyer ce lancement
-                      </Button>
-                      <Button type="button" variant="ghost" size="sm" disabled={isSubmitting} onClick={() => {
-                        settleTakeoffLaunch(launchScope, otherTabCommand.outstanding.intentKey);
-                        setOtherTabCommand(null);
-                        void handleRequestLaunch(otherTabCommand.revision, otherTabCommand.plans.length, otherTabCommand.plans);
-                      }}>
-                        Le mettre de côté
-                      </Button>
-                    </span>
+                    Un lancement envoyé depuis un autre onglet attend encore sa réponse. Mettez-le de côté,
+                    puis confirmez les plans que vous souhaitez lancer.
+                    <Button type="button" variant="ghost" size="sm" disabled={isSubmitting} onClick={() => {
+                      settleTakeoffLaunch(launchScope, otherTabCommand.intentKey);
+                      setOtherTabCommand(null);
+                    }}>
+                      Le mettre de côté
+                    </Button>
                   </AlertDescription>
                 </Alert>
               )}
