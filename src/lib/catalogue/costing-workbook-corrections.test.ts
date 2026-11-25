@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { workbookCorrectionRows } from "./costing-workbook-corrections";
+import * as XLSX from "xlsx";
+
+import {
+  CORRECTION_HEADERS,
+  readWorkbookCorrectionsFile,
+  workbookCorrectionRows,
+  WorkbookCorrectionsFileError,
+} from "./costing-workbook-corrections";
 import { readCostingWorkbookRows } from "./costing-workbook";
 
 const header = ["F2_ref", "F1_nom", "ID", "Caractéristique", "Matériau", "Type_ligne", "F1_ref"];
@@ -31,5 +38,60 @@ describe("workbookCorrectionRows", () => {
       { address: "", field: "F2_nom", advice: "Ajouter la colonne F2_nom au classeur et renseigner le fournisseur.", sourceCells: "A2" },
       { address: "", field: "Catalogue", sourceCells: "G2" },
     ]);
+  });
+});
+
+/**
+ * (TI-711) The corrections file is filled by the office in Excel, then read back. Failure modes:
+ *  1. A correction is applied to another cell than the one its line names.
+ *  2. A code typed with leading zeros loses them on the way back.
+ *  3. A line written for another state of the workbook (its cell no longer holds the exported value) is applied.
+ *  4. A file of another shape is read as corrections, or refused without saying which columns are expected.
+ */
+describe("readWorkbookCorrectionsFile", () => {
+  const rows = [header, ["000096", "Fournitures Exemple", "TUBE-01", "Tube", "Inox", "Art", "000042"]];
+  const file = (lines: unknown[][], sheet = "Corrections") => {
+    const book = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet(lines);
+    XLSX.utils.book_append_sheet(book, worksheet, sheet);
+    return XLSX.write(book, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+  };
+  const headers = ["Motif", CORRECTION_HEADERS.address, "Colonne", CORRECTION_HEADERS.original, CORRECTION_HEADERS.correction];
+
+  it("reads each filled line as a correction of its cell, and keeps the text as typed (1, 2)", async () => {
+    const read = await readWorkbookCorrectionsFile(file([
+      headers,
+      ["Fournisseur actif introuvable", "B2", "F1_nom", "Fournitures Exemple", "Fournitures Exemple SAS"],
+      ["Référence fournisseur illisible ou sans code", "g2", "F1_ref", "000042", "004205"],
+      ["Article actif introuvable", "C2", "ID", "TUBE-01", ""],
+    ]), rows);
+    expect(read).toEqual({
+      edits: [{ row: 2, column: 1, value: "Fournitures Exemple SAS" }, { row: 2, column: 6, value: "004205" }],
+      skipped: [],
+    });
+  });
+
+  it("leaves out a line written for another value of the cell, or without a cell (3)", async () => {
+    const read = await readWorkbookCorrectionsFile(file([
+      headers,
+      ["", "C2", "ID", "TUBE-00", "TUBE-02"],
+      ["", "", "Catalogue", "", "à voir"],
+      ["", "ZZZ9", "ID", "", "x"],
+      ["", "A2", "F2_ref", "000096", "000097"],
+    ]), rows);
+    expect(read.edits).toEqual([{ row: 2, column: 0, value: "000097" }]);
+    expect(read.skipped).toEqual([
+      { line: 2, address: "C2", reason: "changed" },
+      { line: 3, address: "", reason: "address" },
+      { line: 4, address: "ZZZ9", reason: "address" },
+    ]);
+  });
+
+  it("refuses a file that is not a corrections file, naming the columns it expects (4)", async () => {
+    await expect(readWorkbookCorrectionsFile(file([["Référence", "Prix"], ["A", 1]]), rows)).rejects.toThrow(
+      "Ce fichier n’a pas les colonnes « Cellule à vérifier » et « Correction à renseigner » d’un fichier de corrections.",
+    );
+    await expect(readWorkbookCorrectionsFile(new TextEncoder().encode("pas un classeur").buffer, rows))
+      .rejects.toBeInstanceOf(WorkbookCorrectionsFileError);
   });
 });

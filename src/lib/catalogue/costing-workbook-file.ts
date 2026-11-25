@@ -152,9 +152,17 @@ export async function readCostingWorkbookFile(input: ArrayBuffer): Promise<Costi
   return contractRows;
 }
 
-/** The JSON body of a preview (`confirm: false`) or of the import, refused before any request when too heavy. */
-export function costingWorkbookImportBody(rows: CostingWorkbookRows, confirm: boolean, previewToken?: string): string {
-  const body = JSON.stringify({ rows, confirm, preview_token: previewToken });
+/**
+ * The JSON body of a preview (`confirm: false`) or of the import, refused before any request when too heavy.
+ * `extra` carries what one of the two imports adds to the rows: the preview's fingerprint for the supplier
+ * references, the supply types chosen in the screen for the drafts. A key left undefined is not sent.
+ */
+export function costingWorkbookImportBody(
+  rows: CostingWorkbookRows,
+  confirm: boolean,
+  extra: { preview_token?: string; supply_types?: Record<string, string> } = {},
+): string {
+  const body = JSON.stringify({ rows, confirm, ...extra });
   const size = new TextEncoder().encode(body).length;
   if (size > COSTING_WORKBOOK_MAX_BODY_BYTES) {
     throw new CostingWorkbookFileError(

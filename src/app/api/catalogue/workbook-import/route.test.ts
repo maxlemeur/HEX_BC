@@ -9,6 +9,7 @@ import {
   COSTING_WORKBOOK_FORMAT,
   COSTING_WORKBOOK_IMPORT_INCOMPLETE,
   COSTING_WORKBOOK_MAX_BODY_BYTES,
+  COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN,
   type CostingWorkbookImportIncompleteDetails,
   type CostingWorkbookImportReport,
 } from "@/lib/catalogue/costing-workbook-contract";
@@ -37,6 +38,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     added meanwhile answers a bare conflict; a re-run does not complete the rest.
  * 11. More than one chunk of rows is sent in one statement, or a chunk boundary loses or repeats an article.
  * 12. The report carries every issue of a long sheet.
+ * 13. (TI-711) A supply type chosen in the screen is ignored, replaces the type of another code, is accepted
+ *     although it belongs to another company, or the preview does not list the company's types to choose from.
+ * 14. (TI-711) An article the catalogue already holds with another reference price or unit is modified, or the
+ *     preview does not say the gap; an empty workbook price or a defaulted unit is reported as a gap.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -200,7 +205,65 @@ describe("POST /api/catalogue/workbook-import", () => {
       confirmed: false,
       ...SHEET_REPORT,
       proposed_articles: [6, 7, 8, 9].map((row) => ({ row, without_supply_type: false })),
+      // The company's own types, by name, for the screen's choice (13).
+      supply_types: [...SUPPLY_KINDS].sort().map((code) => ({ id: supplyTypeId(TENANT, code), code, name: code })),
+      // The three articles already held give no price, and the catalogue's unit: no gap (14).
+      catalogue_differences: [],
     });
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("gives a code the supply type chosen in the screen, and refuses one of another company (13)", async () => {
+    const fake = seed(ADMIN, "admin", { supplyTypes: supplyTypes(TENANT, ["tube", "raccord", "vanne", "robinetterie", "support"]) });
+    const chosen = { calorifuge: supplyTypeId(TENANT, "support"), vanne: supplyTypeId(TENANT, "robinetterie") };
+
+    const preview = await send({ rows: SHEET, confirm: false, supply_types: chosen });
+    expect(preview.data).toMatchObject({ new_articles: 4, without_supply_type: 1 });
+    expect(preview.data?.proposed_articles).toEqual([
+      { row: 6, without_supply_type: false }, { row: 7, without_supply_type: false },
+      { row: 8, without_supply_type: false }, { row: 9, without_supply_type: true },
+    ]);
+
+    const answer = await send({ rows: SHEET, confirm: true, supply_types: chosen });
+    expect(answer.status).toBe(200);
+    const drafts = draftsOf(fake);
+    expect(drafts.get("Coq.K.25")?.supply_type_id).toBe(supplyTypeId(TENANT, "support"));
+    // A chosen type replaces the company's own with the code; a code without choice keeps its own.
+    expect(drafts.get("Van.X.50")?.supply_type_id).toBe(supplyTypeId(TENANT, "robinetterie"));
+    expect(drafts.get("Tub.X4so.25")?.supply_type_id).toBe(supplyTypeId(TENANT, "tube"));
+    expect(drafts.get("Div.1")?.supply_type_id).toBeNull();
+
+    const foreign = seed(ADMIN, "admin");
+    const refused = await send({ rows: SHEET, confirm: true, supply_types: { tube: supplyTypeId(OTHER_TENANT, "tube") } });
+    expect(refused.status).toBe(422);
+    expect(refused.error?.code).toBe(COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN);
+    expect(foreign.writes).toEqual([]);
+    expect((await send({ rows: SHEET, confirm: false, supply_types: { autre: supplyTypeId(TENANT, "tube") } })).status).toBe(400);
+  });
+
+  it("lists the articles already held whose price or unit differs, and leaves them unchanged (14)", async () => {
+    const fake = seed(ADMIN, "admin");
+    const sheet = [
+      HEADERS,
+      // Another price than the catalogue's 7,00 €, in its own unit.
+      article({ "ID": "Tub.X4so.20", "Caractéristique": "Tube", "Matériau": "Inox 304L soudé", "Type FO": "I4L", "PR. FO": 8.4 }),
+      // The same price in another unit; the archived twin is named as archived.
+      article({ "ID": "Bri.X.50", "Caractéristique": "Bride plate", "Matériau": "Inox 304L soudé", "Unité": "ml", "PR. FO": 7 }),
+      // No price and no unit in the workbook: nothing to compare.
+      article({ "ID": "Cou.X4so.20", "Caractéristique": "Coude 90°", "Matériau": "Inox 304L soudé", "Unité": "" }),
+    ];
+
+    const preview = await importSheet(sheet, false);
+    expect(preview.data).toMatchObject({ new_articles: 0, already_in_catalogue: 3 });
+    expect(preview.data?.catalogue_differences).toEqual([
+      { row: 2, product_id: PLAIN, unit_price_cents: 700, unit: "u", is_active: true },
+      { row: 3, product_id: ARCHIVED, unit_price_cents: 700, unit: "u", is_active: false },
+    ]);
+
+    const before = structuredClone(fake.tables.products);
+    const confirmed = await importSheet(sheet, true);
+    expect(confirmed.data?.catalogue_differences).toBeUndefined();
+    expect(fake.tables.products).toEqual(before);
     expect(fake.writes).toEqual([]);
   });
 

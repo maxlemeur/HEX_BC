@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { CostingWorkbookIssue } from "./costing-workbook";
+import { COSTING_WORKBOOK_SUPPLY_KINDS, type CostingWorkbookIssue } from "./costing-workbook";
 
 /**
  * Contract of POST /api/catalogue/workbook-import (TI-690, lot 1), shared by the catalogue screen and the route.
@@ -41,6 +41,20 @@ export const costingWorkbookImportSchema = z.object({
 
 export type CostingWorkbookImportInput = z.infer<typeof costingWorkbookImportSchema>;
 
+/** 422: a supply type chosen in the screen is not one of the company's. */
+export const COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN = "COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN";
+
+/**
+ * The draft import (POST /api/catalogue/workbook-import). `supply_types` gives, for a code the reader proposes
+ * (« tube », « calorifuge »…), the company's supply type the office chose in the screen: it replaces the type with
+ * that code, or stands in when the company has none.
+ */
+export const costingWorkbookArticlesSchema = costingWorkbookImportSchema.extend({
+  supply_types: z.partialRecord(z.enum(COSTING_WORKBOOK_SUPPLY_KINDS), z.uuid()).optional(),
+});
+
+export type CostingWorkbookArticlesInput = z.infer<typeof costingWorkbookArticlesSchema>;
+
 export type CostingWorkbookImportReport = {
   confirmed: boolean;
   /** Articles read from the sheet. */
@@ -49,6 +63,19 @@ export type CostingWorkbookImportReport = {
   new_articles: number;
   /** Workbook rows of the proposed drafts, available in the preview. */
   proposed_articles?: Array<{ row: number; without_supply_type: boolean }>;
+  /** The company's supply types, for the screen to offer one where a proposed code has none (preview only). */
+  supply_types?: Array<{ id: string; code: string; name: string }>;
+  /**
+   * Articles the catalogue already holds whose reference price or unit is not the workbook's (preview only).
+   * The import never changes them: the screen lists the gaps and opens the article, where a price is validated.
+   */
+  catalogue_differences?: Array<{
+    row: number;
+    product_id: string;
+    unit_price_cents: number;
+    unit: string | null;
+    is_active: boolean;
+  }>;
   /** Articles whose reference the catalogue already holds: skipped, unchanged. */
   already_in_catalogue: number;
   /** Among new_articles: the company has no supply type with the code the workbook proposes. */
@@ -79,6 +106,8 @@ export type CostingWorkbookSupplierReferencesInput = z.infer<typeof costingWorkb
 
 export const costingWorkbookSupplierReferenceDecision = z.enum([
   "invalid_article_reference",
+  // The article is one the draft import would create: its references wait for that import.
+  "article_to_create",
   "article_not_found",
   "ambiguous_article",
   "invalid_supplier_name",
@@ -99,17 +128,26 @@ export const costingWorkbookSupplierReferenceReportSchema = z.object({
   already_registered: z.number().int().nonnegative(),
   duplicates: z.number().int().nonnegative(),
   preview_token: z.string().nullable(),
+  /** The references to import (preview) or just imported (confirmed), one source cell each. */
   proposed: z.array(z.object({
     row: z.number().int().positive(),
     slot: z.number().int().min(1).max(3),
     article_reference: z.string(),
     supplier_name: z.string(),
+    product_id: z.string().optional(),
   })).optional(),
   for_decision: z.array(z.object({
     row: z.number().int().positive(),
     slot: z.number().int().min(1).max(3),
     // The preview resolves these coordinates against the workbook it already holds.
     reason: costingWorkbookSupplierReferenceDecision,
+    /** The catalogue article and supplier the cell was matched to, when it was. */
+    product_id: z.string().optional(),
+    supplier_id: z.string().optional(),
+    /** `different_existing_reference`: the code the catalogue holds for this article at this supplier. */
+    existing_supplier_sku: z.string().nullable().optional(),
+    /** `ambiguous_article`, `ambiguous_supplier`: the catalogue records that share the identifier or the name. */
+    candidates: z.array(z.object({ id: z.string(), label: z.string() })).max(20).optional(),
   })),
 });
 

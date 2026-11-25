@@ -9296,9 +9296,9 @@
           "Catalogue"
         ],
         "summary": "Importer le classeur de chiffrage en articles brouillons",
-        "description": "Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, 6000 au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture est celui de l’entreprise qui a le code proposé, jamais créé. Les références fournisseur des nouveaux articles sont comptées. La reprise des références a sa propre action. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report (ce qui a été créé). Relancer le même classeur crée le reste.",
+        "description": "Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, 6000 au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture est celui choisi à l’écran pour le code proposé (supply_types), sinon celui de l’entreprise qui a ce code, jamais créé. L’aperçu donne les types de fourniture de l’entreprise et les articles déjà présents dont le prix de référence ou l’unité diffère du classeur (catalogue_differences), sans les modifier. Les références fournisseur des nouveaux articles sont comptées. La reprise des références a sa propre action. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report (ce qui a été créé). Relancer le même classeur crée le reste.",
         "requestBody": {
-          "description": "Lignes de l’onglet All_data et confirmation.",
+          "description": "Lignes de l’onglet All_data, confirmation et, par code de type proposé, le type de fourniture de l’entreprise choisi à l’écran.",
           "required": true,
           "content": {
             "application/json": {
@@ -9380,7 +9380,7 @@
             }
           },
           "422": {
-            "description": "Onglet d’une autre forme que celle du classeur de chiffrage (COSTING_WORKBOOK_FORMAT).",
+            "description": "Onglet d’une autre forme que celle du classeur de chiffrage (COSTING_WORKBOOK_FORMAT), ou type de fourniture choisi absent de l’entreprise (COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN).",
             "content": {
               "application/json": {
                 "schema": {
@@ -9408,7 +9408,7 @@
           "Catalogue"
         ],
         "summary": "Reprendre les références fournisseur du classeur de chiffrage",
-        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. L’aperçu donne une cellule source par référence proposée. Le rapport donne les lignes à examiner et leur motif, dont les sources de prix écartées des références à reprendre. Les liaisons existantes et les prix sont conservés.",
+        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. L’aperçu donne une cellule source par référence proposée ; après confirmation, la même liste est celle des références importées. Le rapport donne les lignes à examiner et leur motif, avec ce que le catalogue détient (code déjà enregistré, fiches homonymes), dont les sources de prix écartées des références à reprendre et les références d’articles que l’import des brouillons du même onglet crée (article_to_create). Les liaisons existantes et les prix sont conservés.",
         "requestBody": {
           "description": "Lignes de l’onglet All_data et empreinte de l’aperçu à la confirmation.",
           "required": true,
@@ -56975,6 +56975,26 @@
           },
           "confirm": {
             "type": "boolean"
+          },
+          "supply_types": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "enum": [
+                "tube",
+                "raccord",
+                "vanne",
+                "robinetterie",
+                "support",
+                "calorifuge",
+                "divers"
+              ]
+            },
+            "additionalProperties": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
           }
         },
         "required": [
@@ -57023,6 +57043,67 @@
                   "required": [
                     "row",
                     "without_supply_type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "supply_types": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "code",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "catalogue_differences": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "row": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "product_id": {
+                      "type": "string"
+                    },
+                    "unit_price_cents": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "is_active": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "row",
+                    "product_id",
+                    "unit_price_cents",
+                    "unit",
+                    "is_active"
                   ],
                   "additionalProperties": false
                 }
@@ -57203,6 +57284,9 @@
                     },
                     "supplier_name": {
                       "type": "string"
+                    },
+                    "product_id": {
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -57233,6 +57317,7 @@
                       "type": "string",
                       "enum": [
                         "invalid_article_reference",
+                        "article_to_create",
                         "article_not_found",
                         "ambiguous_article",
                         "invalid_supplier_name",
@@ -57245,6 +57330,38 @@
                         "withdrawn_reference",
                         "conflicting_workbook_references"
                       ]
+                    },
+                    "product_id": {
+                      "type": "string"
+                    },
+                    "supplier_id": {
+                      "type": "string"
+                    },
+                    "existing_supplier_sku": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "candidates": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [

@@ -113,6 +113,16 @@ export async function fetchSupplierDirectory(signal?: AbortSignal): Promise<Supp
   return (items ?? []).map(({ id, name }) => ({ id, name, label: labels.get(id) ?? name }));
 }
 
+/** Creates an active supplier under this name (TI-711: a supplier the costing workbook names and the catalogue lacks). */
+export async function createCatalogueSupplier(name: string): Promise<{ id: string; name: string }> {
+  const answer = await requestJsonUncoordinated<{ item: { id: string; name: string } }>(
+    "/api/suppliers",
+    { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ action: "create", item: { name, is_active: true } }) },
+    "Le fournisseur n’a pas pu être créé.",
+  );
+  return answer.item;
+}
+
 /** Only a web address is turned into a link: anything else typed in the field stays text. */
 export function safeProductUrl(url: string | null | undefined): string | null {
   if (!url) return null;

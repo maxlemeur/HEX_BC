@@ -1,5 +1,5 @@
 import { parseAmountCents } from "@/lib/numeric-input/parsers";
-import { foldText } from "@/lib/text/fold";
+import { foldText, foldWords } from "@/lib/text/fold";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 
 /**
@@ -73,6 +73,10 @@ export type CostingWorkbookArticle = {
   /** The workbook's own family code (« I4L », « ROB »…), kept for the record. */
   family_code: string | null;
   supplier_references: CostingWorkbookSupplierReference[];
+  /** The sheet gives no unit for this article: « u » is a default the office checks. */
+  unit_defaulted: boolean;
+  /** Neither its family, its wording nor its material classify the article: « divers » is a default. */
+  supply_type_defaulted: boolean;
 };
 
 export type CostingWorkbookIssue = { row: number; reference: string | null; message: string };
@@ -100,6 +104,23 @@ const OPTIONAL = [
   "F1_nom", "F1_ref", "F1_URL", "F2_nom", "F2_ref", "F2_URL", "F3_nom", "F3_ref", "F3_URL",
 ] as const;
 type Column = (typeof REQUIRED)[number] | (typeof OPTIONAL)[number];
+export type CostingWorkbookColumn = Column;
+export const COSTING_WORKBOOK_REQUIRED_COLUMNS: readonly Column[] = REQUIRED;
+export const COSTING_WORKBOOK_OPTIONAL_COLUMNS: readonly Column[] = OPTIONAL;
+
+/**
+ * What the sheet's header row gives the reader, without refusing anything: the screen shows it so that a renamed
+ * column (« PR FO » for « PR. FO », every price then read as 0 €) is seen before the import, and can be pointed
+ * to its header. `headerRow` is the row the spreadsheet shows, counted from 1; null on a sheet without a row.
+ */
+export type CostingWorkbookColumnInspection = {
+  headerRow: number | null;
+  found: Array<{ column: Column; index: number }>;
+  missingRequired: Column[];
+  missingOptional: Column[];
+  /** Header cells of that row that name no column the reader knows, in sheet order. */
+  unrecognised: Array<{ index: number; text: string }>;
+};
 
 const HEADER_SEARCH_ROWS = 10;
 
@@ -166,14 +187,42 @@ export function workbookSupplierNameKey(name: string): string {
   return foldText(name).trim().replace(/\s+/g, " ");
 }
 
+/** Whole words that name where a price comes from: followed by a space or by nothing, they are never a product code. */
+const PRICE_SOURCE_WORDS: Record<string, CostingWorkbookPriceSourceKind> = {
+  devis: "quote", offre: "quote", cotation: "quote", commande: "order",
+  document: "document", facture: "document", tarif: "document", catalogue: "document", prix: "document",
+};
+/** Abbreviations that are also the start of product codes (« DOC 42 »): a source only with a number or date marker. */
+const PRICE_SOURCE_ABBREVIATIONS: Record<string, CostingWorkbookPriceSourceKind> = {
+  doc: "document", fact: "document", bl: "document", cde: "order", cmd: "order", bc: "order",
+};
+
+/**
+ * A supplier « reference » that names where a price comes from, not a product: « Devis n° 70102 », « Devis 70102 »,
+ * « voir devis », « Tarif 2025 », « Cde n° 4412 », « BL du 12/03/2025 ». The word stands alone: « DOC-0042 » and
+ * « DEVIS-DN40 » stay product references.
+ */
 function workbookPriceSource(value: string): CostingWorkbookPriceSourceKind | null {
-  const normalized = foldText(value);
-  if (/^(?:estimation\s+par\s+)?regression(?:\s|$)/.test(normalized)) return "regression";
-  // The explicit number marker distinguishes a document from product references such as DOC-0042.
-  const document = /^(devis|doc(?:ument)?|commande)\s+n\s*[°º]/.exec(normalized)?.[1];
-  if (document === "devis") return "quote";
-  if (document === "commande") return "order";
-  return document ? "document" : null;
+  const normalized = foldText(value).replace(/\s+/g, " ").trim();
+  if (/^(?:estimation par )?regression(?: |$)/.test(normalized)) return "regression";
+  const match = /^(?:voir |cf\.? |selon |suivant |sur )?(?:bon de )?([a-z]+)(?: (.*))?$/.exec(normalized);
+  if (!match) return null;
+  const [, word, rest = ""] = match;
+  if (PRICE_SOURCE_WORDS[word]) return PRICE_SOURCE_WORDS[word];
+  const marked = /^(?:n ?[°ºo.]|num|numero|du |#)/.test(rest);
+  return (marked && PRICE_SOURCE_ABBREVIATIONS[word]) || null;
+}
+
+/** Words the office writes where it has no reference: never a supplier's product code. */
+const NO_REFERENCE_WORDS = new Set([
+  "idem", "nc", "n c", "na", "n a", "neant", "aucun", "aucune", "inconnu", "inconnue", "rien", "a definir", "a voir",
+  "a completer", "a preciser", "en attente", "tbd", "x", "xx", "xxx", "sans ref", "sans reference",
+]);
+
+/** « ? », « - », « / » and the like say nothing; « idem » or « N/C » say there is no code. */
+function supplierCodeShape(value: string): "code" | "placeholder" | "word" {
+  if (!/[\p{L}\p{N}]/u.test(value)) return "placeholder";
+  return NO_REFERENCE_WORDS.has(foldWords(value)) ? "word" : "code";
 }
 
 type WorkbookSupplierValue = Pick<CostingWorkbookSupplierOccurrence, "supplier_sku" | "price_source_kind"> & {
@@ -207,8 +256,14 @@ export function compareCostingWorkbookSupplierValues(occurrences: readonly Costi
     .map(([key, pair]) => ({ ...pair, key, values: [...pair.values.values()] }));
 }
 
-function findHeader(rows: readonly Cell[][]): { index: number; columns: Map<Column, number> } {
-  let best: { index: number; columns: Map<Column, number>; missing: Column[] } | null = null;
+type HeaderScan = { index: number; columns: Map<Column, number>; missing: Column[]; labels: number };
+
+/**
+ * The first row that names every required column, else the row that names the most of them; between two such
+ * rows, the one with the most labels: a title row above the headers holds one cell.
+ */
+function scanHeader(rows: readonly Cell[][]): HeaderScan | null {
+  let best: HeaderScan | null = null;
   for (let index = 0; index < Math.min(rows.length, HEADER_SEARCH_ROWS); index += 1) {
     const keys = (rows[index] ?? []).map(headerKey);
     const columns = new Map<Column, number>();
@@ -217,13 +272,40 @@ function findHeader(rows: readonly Cell[][]): { index: number; columns: Map<Colu
       if (position >= 0) columns.set(column, position);
     }
     const missing = REQUIRED.filter((column) => !columns.has(column));
-    if (missing.length === 0) return { index, columns };
-    if (!best || missing.length < best.missing.length) best = { index, columns, missing };
+    const labels = keys.filter(Boolean).length;
+    if (missing.length === 0) return { index, columns, missing, labels };
+    if (!best || missing.length < best.missing.length || (missing.length === best.missing.length && labels > best.labels)) {
+      best = { index, columns, missing, labels };
+    }
   }
-  const missing = best?.missing ?? [...REQUIRED];
+  return best;
+}
+
+function findHeader(rows: readonly Cell[][]): { index: number; columns: Map<Column, number> } {
+  const header = scanHeader(rows);
+  if (header && header.missing.length === 0) return header;
+  const missing = header?.missing ?? [...REQUIRED];
   throw new CostingWorkbookFormatError(
     `Ce fichier n’a pas les colonnes du classeur de chiffrage (onglet « ${COSTING_WORKBOOK_SHEET} ») : ${missing.join(", ")} manquantes.`,
   );
+}
+
+export function inspectCostingWorkbookColumns(rows: readonly Cell[][]): CostingWorkbookColumnInspection {
+  const header = scanHeader(rows);
+  if (!header) {
+    return { headerRow: null, found: [], missingRequired: [...REQUIRED], missingOptional: [...OPTIONAL], unrecognised: [] };
+  }
+  const known = new Set(header.columns.values());
+  return {
+    headerRow: header.index + 1,
+    found: [...header.columns.entries()].map(([column, index]) => ({ column, index })).sort((left, right) => left.index - right.index),
+    missingRequired: header.missing,
+    missingOptional: OPTIONAL.filter((column) => !header.columns.has(column)),
+    unrecognised: (rows[header.index] ?? []).flatMap((value, index) => {
+      const label = text(value);
+      return label && !known.has(index) && !isErrorToken(label) ? [{ index, text: label }] : [];
+    }),
+  };
 }
 
 /** Reference cells are identifiers. Excel's number formatting can give them leading zeros. */
@@ -274,23 +356,24 @@ function designationOf(wording: string, material: string, dimension: string, pre
  * but consumables; a material family tells a fitting from a valve or a collar; an article of no family the reader
  * knows is classified by its material, else « divers ».
  */
-function supplyKindOf(family: string, productType: string, material: string): CostingWorkbookSupplyKind {
+function supplyKindOf(family: string, productType: string, material: string): { kind: CostingWorkbookSupplyKind; defaulted: boolean } {
+  const decided = (kind: CostingWorkbookSupplyKind) => ({ kind, defaulted: false });
   const head = foldText(productType).split(/[^a-z0-9]+/).find(Boolean) ?? "";
-  if (family === "CAL") return "calorifuge";
-  if (family === "SUP") return "support";
-  if (family === "ROB") return head === "vanne" ? "vanne" : "robinetterie";
-  if (family === "CONS") return "divers";
-  if (TUBE_WORDS.has(head)) return "tube";
+  if (family === "CAL") return decided("calorifuge");
+  if (family === "SUP") return decided("support");
+  if (family === "ROB") return decided(head === "vanne" ? "vanne" : "robinetterie");
+  if (family === "CONS") return decided("divers");
+  if (TUBE_WORDS.has(head)) return decided("tube");
   if (MATERIAL_FAMILIES.has(family)) {
-    if (head === "collier") return "support";
-    if (head === "vanne") return "vanne";
-    return "raccord";
+    if (head === "collier") return decided("support");
+    if (head === "vanne") return decided("vanne");
+    return decided("raccord");
   }
   const trade = foldText(material);
-  if (INSULATION_MATERIALS.some((word) => trade.includes(word))) return "calorifuge";
-  if (SUPPORT_MATERIALS.some((word) => trade.includes(word))) return "support";
-  if (trade.includes("robinetterie")) return head === "vanne" ? "vanne" : "robinetterie";
-  return "divers";
+  if (INSULATION_MATERIALS.some((word) => trade.includes(word))) return decided("calorifuge");
+  if (SUPPORT_MATERIALS.some((word) => trade.includes(word))) return decided("support");
+  if (trade.includes("robinetterie")) return decided(head === "vanne" ? "vanne" : "robinetterie");
+  return { kind: "divers", defaulted: true };
 }
 
 function gradeOf(material: string): string | null {
@@ -325,7 +408,7 @@ function supplierReferencesOf(cell: (column: Column) => Cell): CostingWorkbookSu
     const name = text(cell(`F${slot}_nom`));
     const sku = text(cell(`F${slot}_ref`));
     // A number alone is a placeholder of the workbook (« 1 », « 2 »), not a supplier.
-    if (!name || !sku || /^\d+$/.test(name)) continue;
+    if (!name || !sku || /^\d+$/.test(name) || supplierCodeShape(sku) !== "code" || workbookPriceSource(sku)) continue;
     const key = `${foldText(name)}|${sku.toLocaleLowerCase("fr-FR")}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -372,7 +455,8 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
       const column = columns.get(`F${slot}_ref`);
       if (column === undefined) continue;
       const sku = text(values[column]);
-      if (!sku) continue;
+      const shape = sku ? supplierCodeShape(sku) : "placeholder";
+      if (shape === "placeholder") continue;
       supplierReferenceOccurrences.push({
         row: sheetRow,
         slot,
@@ -387,7 +471,7 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
         supplier_sku: sku,
         article_reference_valid: reference.length > 0 && reference.length <= MAX_REFERENCE_LENGTH && !isErrorToken(reference),
         supplier_name_valid: Boolean(name) && !/^\d+$/.test(name) && !isErrorToken(name),
-        supplier_sku_valid: sku.length <= 255 && !isErrorToken(sku),
+        supplier_sku_valid: sku.length <= 255 && !isErrorToken(sku) && shape === "code",
         price_source_kind: workbookPriceSource(sku),
       });
     }
@@ -435,7 +519,7 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
     const precision = sizeText(secondary.get("Précision"));
     const family = secondary.get("Type FO") ?? "";
     const productType = productTypeOf(wording);
-    const supplyKind = supplyKindOf(family, productType, material);
+    const { kind: supplyKind, defaulted: supplyTypeDefaulted } = supplyKindOf(family, productType, material);
 
     const price = priceOf(cell("PR. FO"));
     if (price.unreadable) {
@@ -466,6 +550,8 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
       supply_type_code: supplyKind,
       family_code: family || null,
       supplier_references: supplierReferencesOf(cell),
+      unit_defaulted: !rawUnit,
+      supply_type_defaulted: supplyTypeDefaulted,
     });
   }
 

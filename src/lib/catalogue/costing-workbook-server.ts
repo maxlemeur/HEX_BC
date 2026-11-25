@@ -13,6 +13,8 @@ import {
   COSTING_WORKBOOK_FORMAT,
   COSTING_WORKBOOK_IMPORT_INCOMPLETE,
   COSTING_WORKBOOK_REPORTED_ISSUES,
+  COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN,
+  type CostingWorkbookArticlesInput,
   type CostingWorkbookImportIncompleteDetails,
   type CostingWorkbookImportInput,
   type CostingWorkbookImportReport,
@@ -35,8 +37,9 @@ import type { Database } from "@/types/database";
  *  - an article whose reference the company already holds (any status, active or archived, or under an earlier
  *    import's « DB_<sheet>__ » prefix: workbookReferenceKey) is skipped and never modified, so running the same
  *    workbook again creates nothing;
- *  - its supply type is the company's own with the code the reader proposes, or none (counted): supply types
- *    carry the estimate's FO provision and are never created here;
+ *  - its supply type is the one the office chose in the screen for the code the reader proposes, else the
+ *    company's own with that code, else none (counted): supply types carry the estimate's FO provision and are
+ *    never created here;
  *  - the draft import only counts supplier references. Supplier references have their own confirmed import;
  *    supplier prices are undated and never written by either action.
  * Whoever may add articles to the catalogue imports (TI-689); the drafts are written with their own client, so
@@ -55,12 +58,19 @@ const REFERENCE_ADDED_MEANWHILE =
 
 type PlannedDraft = { article: CostingWorkbookArticle; supplyTypeId: string | null };
 
-type Plan = { read: CostingWorkbookReadResult; drafts: PlannedDraft[] };
+type CatalogueArticle = { id: string; unit_price_cents: number; unit: string | null; is_active: boolean };
+type SupplyType = { id: string; code: string; name: string };
+type Difference = NonNullable<Report["catalogue_differences"]>[number];
+
+type Plan = { read: CostingWorkbookReadResult; drafts: PlannedDraft[]; supplyTypes: SupplyType[]; differences: Difference[] };
 
 type Company = {
-  references: ReadonlySet<string>;
-  supplyTypeIdOf: ReadonlyMap<string, string>;
+  /** By compared reference; the first article read when an earlier import left a prefixed twin. */
+  articles: ReadonlyMap<string, CatalogueArticle>;
+  supplyTypes: SupplyType[];
 };
+
+const UNKNOWN_SUPPLY_TYPE = "Un type de fourniture choisi n’existe plus dans l’entreprise. Actualisez l’aperçu, puis choisissez-le à nouveau.";
 
 export function readCostingWorkbookImportSheet(rows: CostingWorkbookImportInput["rows"]): CostingWorkbookReadResult {
   try {
@@ -75,23 +85,55 @@ export function readCostingWorkbookImportSheet(rows: CostingWorkbookImportInput[
 
 async function readCompany({ supabase, tenantId }: AuthenticatedTenantContext): Promise<Company> {
   const [products, supplyTypes] = await Promise.all([
-    readAllRows(() => supabase.from("products").select("id, reference", { count: "exact" })
+    readAllRows(() => supabase.from("products").select("id, reference, unit_price_cents, unit, is_active", { count: "exact" })
       .eq("tenant_id", tenantId).not("reference", "is", null), { concurrency: 4 }),
-    readAllRows(() => supabase.from("supply_types").select("id, code", { count: "exact" }).eq("tenant_id", tenantId)),
+    readAllRows(() => supabase.from("supply_types").select("id, code, name", { count: "exact" }).eq("tenant_id", tenantId)),
   ]);
   if (products.error) throw mapSupabaseError(products.error, "Impossible de lire les articles du catalogue.");
   if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de lire les types de fourniture.");
+  const articles = new Map<string, CatalogueArticle>();
+  for (const product of products.data ?? []) {
+    if (!product.reference) continue;
+    const key = workbookReferenceKey(product.reference);
+    const known = articles.get(key);
+    // An active article speaks for its reference before an archived twin.
+    if (!known || (!known.is_active && product.is_active)) {
+      articles.set(key, { id: product.id, unit_price_cents: product.unit_price_cents, unit: product.unit, is_active: product.is_active });
+    }
+  }
   return {
-    references: new Set((products.data ?? []).flatMap((product) => product.reference ? [workbookReferenceKey(product.reference)] : [])),
-    supplyTypeIdOf: new Map((supplyTypes.data ?? []).map((supplyType) => [supplyType.code, supplyType.id])),
+    articles,
+    supplyTypes: [...(supplyTypes.data ?? [])].sort((left, right) => left.name.localeCompare(right.name, "fr")),
   };
 }
 
-function planImport(read: CostingWorkbookReadResult, company: Company): Plan {
-  const drafts = read.articles
-    .filter((article) => !company.references.has(workbookReferenceKey(article.reference)))
-    .map((article) => ({ article, supplyTypeId: company.supplyTypeIdOf.get(article.supply_type_code) ?? null }));
-  return { read, drafts };
+const unitKey = (unit: string | null) => (unit ?? "").trim().toLocaleLowerCase("fr-FR");
+
+function planImport(read: CostingWorkbookReadResult, company: Company, chosen: CostingWorkbookArticlesInput["supply_types"]): Plan {
+  const known = new Set(company.supplyTypes.map((supplyType) => supplyType.id));
+  if (Object.values(chosen ?? {}).some((id) => !known.has(id))) {
+    throw unprocessableEntity(UNKNOWN_SUPPLY_TYPE, undefined, COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN);
+  }
+  const ownByCode = new Map(company.supplyTypes.map((supplyType) => [supplyType.code, supplyType.id]));
+  const drafts: PlannedDraft[] = [];
+  const differences: Difference[] = [];
+  for (const article of read.articles) {
+    const existing = company.articles.get(workbookReferenceKey(article.reference));
+    if (!existing) {
+      drafts.push({ article, supplyTypeId: chosen?.[article.supply_type_code] ?? ownByCode.get(article.supply_type_code) ?? null });
+      continue;
+    }
+    // An empty workbook price says nothing about the catalogue's; a defaulted unit neither.
+    const priceDiffers = article.unit_price_cents > 0 && article.unit_price_cents !== existing.unit_price_cents;
+    const unitDiffers = !article.unit_defaulted && unitKey(article.unit) !== unitKey(existing.unit);
+    if (priceDiffers || unitDiffers) {
+      differences.push({
+        row: article.row, product_id: existing.id, unit_price_cents: existing.unit_price_cents, unit: existing.unit,
+        is_active: existing.is_active,
+      });
+    }
+  }
+  return { read, drafts, supplyTypes: company.supplyTypes, differences };
 }
 
 function reportOf(plan: Plan, confirmed: boolean, drafts: readonly PlannedDraft[]): Report {
@@ -104,6 +146,8 @@ function reportOf(plan: Plan, confirmed: boolean, drafts: readonly PlannedDraft[
         row: article.row,
         without_supply_type: supplyTypeId === null,
       })),
+      supply_types: plan.supplyTypes,
+      catalogue_differences: plan.differences,
     } : {}),
     already_in_catalogue: plan.read.articles.length - plan.drafts.length,
     without_supply_type: drafts.filter((draft) => draft.supplyTypeId === null).length,
@@ -167,13 +211,13 @@ async function writeDrafts({ supabase }: AuthenticatedTenantContext, plan: Plan)
   return reportOf(plan, true, created);
 }
 
-export async function importCostingWorkbook(input: CostingWorkbookImportInput): Promise<Report> {
+export async function importCostingWorkbook(input: CostingWorkbookArticlesInput): Promise<Report> {
   const context = await getAuthenticatedTenantContext();
   if (!canAddToCatalogue(context.tenantRole)) throw forbidden(PRODUCT_WRITE_REFUSAL);
 
   // The sheet first: a sheet of another shape is refused without reading the catalogue.
   const read = readCostingWorkbookImportSheet(input.rows);
-  const plan = planImport(read, await readCompany(context));
+  const plan = planImport(read, await readCompany(context), input.supply_types);
   if (!input.confirm) return reportOf(plan, false, plan.drafts);
   return writeDrafts(context, plan);
 }
