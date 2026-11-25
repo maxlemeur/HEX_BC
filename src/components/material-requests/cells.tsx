@@ -259,6 +259,7 @@ export function TextCell({
         onChange={(event) => setDraft(event.currentTarget.value)}
         onBlur={() => void commit(draft)}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Enter") {
             event.preventDefault();
             void commit(draft);
@@ -357,6 +358,7 @@ export function QuantityCell({
           setUnreadable(raw.trim() !== "" && readQuantityDraft(raw) === null);
         }}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Enter") {
             event.preventDefault();
             const raw = event.currentTarget.value;

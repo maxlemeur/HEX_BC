@@ -329,7 +329,8 @@ export function computeTakeoffMappingPreview(
   } catch (error) {
     if (isCompiledRuleError(error)) {
       throw new Error(
-        `Règle de mapping invalide: regex non compilable (${error.ruleId}).`
+        `Règle de mapping invalide: regex non compilable (${error.ruleId}).`,
+        { cause: error },
       );
     }
 

@@ -227,6 +227,7 @@ export function NewMaterialRequestDialog({
                       autoFocus
                       onChange={(event) => setNewName(event.currentTarget.value)}
                       onKeyDown={(event) => {
+                        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
                         if (event.key === "Enter") {
                           event.preventDefault();
                           void addTechnician();
