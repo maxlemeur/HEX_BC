@@ -66,7 +66,7 @@ async function supplyTypes(browser: Browser) {
 }
 
 armyTest(
-  "CAT02 applies the workbook column selection to the preview and the imported draft",
+  "CAT02 filters workbook display columns without changing the imported draft",
   { session: "army", tags: ["critical", "catalogue"] },
   async ({ app, screen, browser, army }) => {
     const reference = `${army.runPrefix}-CHOIX-COLONNES`;
@@ -75,7 +75,7 @@ armyTest(
       HEADERS,
       row({
         ID: reference, Caractéristique: "Tube", Matériau: "Inox", Type_ligne: "Art",
-        Dimension: "DN20", Unité: "ml", "PR. FO": 12.5, "Fiabilité (/10)": 8,
+        Dimension: "DN20", Unité: "ml", "PR. FO": 12.5, "Fiabilité (/10)": 8, Commentaire: "Repère de préfiltre",
       }),
     ]), COSTING_WORKBOOK_SHEET);
     const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
@@ -89,34 +89,31 @@ armyTest(
     await expect(importButton).toBeEnabled({ timeout: 30_000 });
 
     const table = screen.getByRole("table", "Articles proposés en brouillon", { exact: true });
-    const columns = screen.getByRole("button", /^Colonnes à importer/);
-    const dialog = screen.getByRole("dialog", "Colonnes à importer", { exact: true });
-    const price = dialog.getByRole("checkbox", "Prix de fourniture", { exact: true });
-    const dimension = dialog.getByRole("checkbox", "Dimension", { exact: true });
+    const columns = screen.getByRole("button", "Colonnes à afficher", { exact: true });
+    const dialog = screen.getByRole("dialog", "Colonnes à afficher", { exact: true });
+    const values = dialog.getByRole("table", "Valeurs du classeur", { exact: true });
     await columns.tap();
-    await price.tap();
-    await dialog.getByRole("button", "Annuler", { exact: true }).tap();
-    await columns.tap();
-    await expect(price).toBeChecked();
-    await price.tap();
-    await dimension.tap();
-    await dialog.getByRole("button", "Appliquer à l’aperçu", { exact: true }).tap();
-    await expect(importButton).toBeEnabled();
-    await expect(screen.getByRole("button", "Sans prix (0 €) · 1", { exact: true })).toBeVisible();
-    await expect(table.getByText(/12,50\s*€/)).toBeHidden();
-    await expect(table.getByText(/DN20/)).toBeHidden();
-    expect(await cataloguePage(browser, reference, "draft")).toEqual([]);
-
-    await columns.tap();
-    await expect(price).not.toBeChecked();
-    await dimension.tap();
-    await dialog.getByRole("button", "Appliquer à l’aperçu", { exact: true }).tap();
+    await expect(values.getByText("DN20", { exact: true })).toBeVisible();
+    await expect(values.getByText("12.5", { exact: true })).toBeVisible();
+    await expect(values.getByText("Repère de préfiltre", { exact: true })).toBeVisible();
+    await dialog.getByRole("searchbox", "Valeur à rechercher", { exact: true }).fill("DN999");
+    await expect(values.getByText("Aucune ligne à afficher.", { exact: true })).toBeVisible();
+    await dialog.getByRole("searchbox", "Valeur à rechercher", { exact: true }).fill("");
+    await dialog.getByRole("button", /^Colonnes affichées/).tap();
+    await screen.getByRole("checkbox", /^Prix de fourniture · /).tap();
+    await screen.getByRole("checkbox", /^Dimension · /).tap();
+    await expect(values.getByText("12.5", { exact: true })).toBeHidden();
+    await expect(values.getByText("DN20", { exact: true })).toBeHidden();
+    await dialog.getByRole("button", /^Colonnes affichées/).tap();
+    await dialog.getByRole("button", "Fermer", { exact: true }).tap();
+    await expect(table.getByText(/12,50\s*€/)).toBeVisible();
     await expect(table.getByText(/DN20/).first()).toBeVisible();
+    expect(await cataloguePage(browser, reference, "draft")).toEqual([]);
     await importButton.tap();
     await expect(screen.getByText("Import terminé : 1 brouillon créé.", { exact: true })).toBeVisible();
     const drafts = await cataloguePage(browser, reference, "draft");
     expect(drafts).toMatchObject([{
-      reference, catalogue_status: "draft", unit_price_cents: 0, dimensions: "DN20", unit: "ml", reliability_score: 8,
+      reference, catalogue_status: "draft", unit_price_cents: 1250, dimensions: "DN20", unit: "ml", reliability_score: 8,
     }]);
     await recordEvidence(army, "catalogue-workbook-column-selection", { reference, draft: drafts[0] });
   },
