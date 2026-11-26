@@ -107,10 +107,11 @@ const OPTIONAL = [
   "Fiabilité (/10)", "Dimension", "Précision", "norme", "Unité", "PR. FO", "Type FO",
   "F1_nom", "F1_ref", "F1_URL", "F2_nom", "F2_ref", "F2_URL", "F3_nom", "F3_ref", "F3_URL",
 ] as const;
-type Column = (typeof REQUIRED)[number] | (typeof OPTIONAL)[number];
+export type CostingWorkbookOptionalColumn = (typeof OPTIONAL)[number];
+type Column = (typeof REQUIRED)[number] | CostingWorkbookOptionalColumn;
 export type CostingWorkbookColumn = Column;
 export const COSTING_WORKBOOK_REQUIRED_COLUMNS: readonly Column[] = REQUIRED;
-export const COSTING_WORKBOOK_OPTIONAL_COLUMNS: readonly Column[] = OPTIONAL;
+export const COSTING_WORKBOOK_OPTIONAL_COLUMNS: readonly CostingWorkbookOptionalColumn[] = OPTIONAL;
 
 /**
  * What the sheet's header row gives the reader, without refusing anything: the screen shows it so that a renamed
@@ -315,6 +316,19 @@ export function inspectCostingWorkbookColumns(rows: readonly Cell[][]): CostingW
       return label && !known.has(index) && !isErrorToken(label) ? [{ index, text: label }] : [];
     }),
   };
+}
+
+/** Omit values and all matching headers while keeping the Excel cell addresses used for review. */
+export function omitCostingWorkbookColumns<T>(
+  rows: T[][], headerRow: number | null, excluded: ReadonlySet<CostingWorkbookOptionalColumn>,
+): (T | null)[][] {
+  if (headerRow === null || excluded.size === 0) return rows;
+  const excludedKeys = new Set(OPTIONAL.filter((column) => excluded.has(column)).map(headerKey));
+  const positions = new Set((rows[headerRow - 1] ?? []).flatMap((value, index) =>
+    excludedKeys.has(headerKey(value)) ? [index] : [],
+  ));
+  if (positions.size === 0) return rows;
+  return rows.map((row) => row.map((value, column) => positions.has(column) ? null : value));
 }
 
 /**
