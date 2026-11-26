@@ -1005,6 +1005,30 @@ select results_eq($$select p.kind, p.quantity, p.marks_revision, p.pages, i.quan
   $$values ('verified_count'::text,1::numeric,2,array[2],1::numeric)$$,
   'the line holds only the chosen count, and its part holds the revision and the page bearing the mark');
 
+-- A legacy whole entry on an item with a real receipt cannot move, including to another plan.
+create function pg_temp.scope_after_send() returns text[] language plpgsql as $$
+declare outcomes text[];
+begin
+  begin
+    perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',pg_temp.f(1))::text,true);
+    perform set_config('request.jwt.claim.sub',pg_temp.f(1)::text,true);
+    insert into public.takeoff_item_entries(tenant_id,project_id,item_id,quantity,unit,category,
+      included,revision,actor_id,entered_at,command_id)
+      select pg_temp.tenant(),pg_temp.f(21),pg_temp.f(310),4,'u','site_survey',true,1,pg_temp.f(1),now(),d.command_id
+        from public.takeoff_item_answer_decisions d where d.item_id=pg_temp.f(310);
+    outcomes:=array[
+      public.change_takeoff_entry_scope(pg_temp.tenant(),pg_temp.f(21),pg_temp.f(310),pg_temp.f(7510),
+        'attach',pg_temp.f(100),1,0)->>'outcome',
+      public.change_takeoff_entry_scope(pg_temp.tenant(),pg_temp.f(21),pg_temp.f(310),pg_temp.f(7511),
+        'withdraw',null,1,0)->>'outcome'];
+    raise sqlstate 'ZX001';
+  exception when sqlstate 'ZX001' then null;
+  end;
+  return outcomes;
+end;
+$$;
+select is(pg_temp.scope_after_send(),array['sent','sent'],'a posted part of the item closes both scope gestures');
+
 -- The source job now has its first receipt. Check the boundary that prevents an amendment.
 select is((select count(*)::integer from mark_to_move m cross join lateral extensions.dblink('race_a',
   pg_temp.edit_marks_sql(955,jsonb_build_array(jsonb_build_object('op','remove','answer_id',m.answer_id,

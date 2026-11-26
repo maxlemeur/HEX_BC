@@ -356,6 +356,30 @@ select is((select count(*)::integer from public.takeoff_item_answer_decisions wh
 select is((select count(*)::integer from public.takeoff_item_answer_decisions d join public.takeoff_item_answers a on a.id = d.answer_id
   where a.job_id = pg_temp.f(1121)), 0, 'the replacement inherits no decision');
 
+-- Transfer compares the committed whole entry after the released writer gives up the review lock.
+create function pg_temp.write_total(intent integer, quantity numeric) returns text language sql stable as $$
+  select pg_temp.review_sql(20,pg_temp.cmd('enter_quantity',intent,array[301],jsonb_build_object(
+    'values',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(301),'quantity',quantity,'unit','u')),
+    'entry',jsonb_build_object('category','site_survey'))))
+$$;
+select is((select r->>'outcome' from extensions.dblink('race_a',pg_temp.write_total(681,4)) as x(r jsonb)),
+  'applied','enter four on the affaire');
+select is(extensions.dblink_exec('race_a','begin'),'BEGIN','hold a replacement entry');
+select is((select r->>'outcome' from extensions.dblink('race_a',pg_temp.write_total(682,6)) as x(r jsonb)),
+  'applied','six replaces four in the uncommitted transaction');
+select is(extensions.dblink_send_query('race_b',format(
+  'select public.change_takeoff_entry_scope(%L,%L,%L,%L,''attach'',%L,1,0)',
+  pg_temp.tenant(),pg_temp.f(20),pg_temp.f(301),pg_temp.f(683),pg_temp.f(100))),1,'attach the version read at four');
+select ok(pg_temp.waits_for('race_b','race_a'),'transfer waits for the actual entry command');
+select is(extensions.dblink_exec('race_a','commit'),'COMMIT','the replacement commits');
+select is((select r->>'outcome' from extensions.dblink_get_result('race_b',false) as x(r jsonb)),
+  'stale','the waiting transfer refuses the earlier revision');
+select is((select count(*)::int from extensions.dblink_get_result('race_b',false) as x(r jsonb)),0,'transfer completed');
+select results_eq($$select plan_logical_id,quantity from public.takeoff_item_entries where item_id=pg_temp.f(301)$$,
+  $$values (null::uuid,6::numeric)$$,'six remains solely on the affaire');
+select is((select count(*)::int from public.takeoff_item_review_commands where intent_key=pg_temp.f(683)),0,
+  'the refused transfer wrote no receipt');
+
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;
 set local session_replication_role = replica;
