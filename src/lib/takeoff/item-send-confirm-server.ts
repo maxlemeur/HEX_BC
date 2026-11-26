@@ -214,7 +214,7 @@ async function replayOf(ctx: Context, receipt: Receipt, jobId: string, request: 
       + `et l’affaire ne doit pas être archivée. ${NOTHING}`, 403);
   }
   const plan = receipt.write_plan as ItemSendWritePlan;
-  if (receipt.actor_id.toLowerCase() !== ctx.userId.toLowerCase() || receipt.job_id.toLowerCase() !== jobId.toLowerCase()
+  if ((plan.measure_confirmations?.length && !request.measure_reviews_checked) || receipt.actor_id.toLowerCase() !== ctx.userId.toLowerCase() || receipt.job_id.toLowerCase() !== jobId.toLowerCase()
     || plan.choices_sha256 !== itemSendChoicesDigest(request) || itemSendPlanDigest(plan) !== request.plan_digest) {
     throw conflict(jobId, "item_send_request_conflict", `Cette confirmation a déjà servi à un autre envoi. ${AGAIN}`);
   }
@@ -238,7 +238,7 @@ export async function confirmItemSendFor(ctx: Context, jobId: string, request: I
   // The plan again, from the stored facts and the member's choices only: what the request may name is a choice among
   // those the preview offered, never a quantity, a part, a page, a setting or a price.
   const state = await computeItemSendState(ctx, jobId, { destination: request.destination, breakdown: request.breakdown,
-    resolutions: request.resolutions, page_decisions: request.page_decisions });
+    resolutions: request.resolutions, page_decisions: request.page_decisions, review_measures: request.review_measures });
   if (!state.writePlan) {
     if (state.blocker === "already_sent") {
       // Committed meanwhile under this key (a lost answer sent again while the first one ran): its receipt.
@@ -258,6 +258,9 @@ export async function confirmItemSendFor(ctx: Context, jobId: string, request: I
         reason: response.blocked?.reason ?? (response.invalid_page_decisions.length > 0 ? "page_decision_invalid" : "to_resolve") } });
   }
   // Only the plan the member saw: another plan computed now (a fact moved since the preview) is never written.
+  if (state.writePlan.measure_confirmations?.length && !request.measure_reviews_checked) {
+    throw stale(jobId, "measure_reconciliation_changed");
+  }
   if (itemSendPlanDigest(state.writePlan) !== request.plan_digest) throw stale(jobId, null);
 
   const { data, error } = await createServiceRoleClient().rpc("send_takeoff_item_plan" as never, {

@@ -134,7 +134,9 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
                     {reading.entry ? <EntryFacts entry={reading.entry} names={names} /> : null}
                     {uncertainty?.action !== "unavailable" ? <Link className="underline" prefetch={false}
                       href={takeoffReviewHref({ projectId, jobId: answer.jobId, targeted: true,
-                        line: answer.observations.find(({ takeoffItemId }) => takeoffItemId)?.takeoffItemId ?? undefined })}>
+                        line: answer.observations.find(({ takeoffItemId }) => takeoffItemId)?.takeoffItemId ?? undefined })
+                        + (answer.anomalies.includes("rule_failed") && answer.observations.some(row => row.takeoffItemId)
+                          ? "&" + new URLSearchParams({ reponse: answer.answerId, contribution: answer.observations.find(row => row.takeoffItemId)!.takeoffItemId! }) : "")}>
                       Voir la preuve et corriger dans la revue ciblée
                     </Link> : null}
                   </div>

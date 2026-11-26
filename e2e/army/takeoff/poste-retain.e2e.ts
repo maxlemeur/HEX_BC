@@ -33,8 +33,11 @@ async function retainAndSend(ui: NativeUi, scenario: "rule" | "gap" | "both") {
   await app.open(address);
   await waitForHydration(ui.browser);
   await screen.getByRole("link", `Détail de « ${label} » sur le plan`, { exact: true }).click();
-  if (scenario !== "gap") {
+  async function justify(renew = false) {
     await screen.getByRole("link", /Justifier la contribution/).click();
+    if (renew) {
+      await screen.getByRole("button", "Rouvrir la contribution pour la justifier à nouveau").click();
+    }
     await screen.getByRole("button", /^Accepter/).click();
     await dialog.getByLabel("Motif").selectOption({ value: "system_documented" });
     await dialog.getByLabel("Référence du système").fill("Système fictif documenté dans la notice sanitaire.");
@@ -43,16 +46,35 @@ async function retainAndSend(ui: NativeUi, scenario: "rule" | "gap" | "both") {
     await screen.getByRole("link", /Revenir au poste/).click();
     expect(new URL(await ui.browser.url()).searchParams.get("poste")).toBe(item);
   }
+  if (scenario !== "gap") await justify();
+  if (scenario === "both") {
+    // A review on different evidence has to be renewed, even when the row still carries its original verification.
+    await querySql(`update public.takeoff_items set evidence='Précision fictive sur la localisation du relevé' where job_id='${plan.jobId}';`);
+    await app.open(await ui.browser.url());
+    await justify(true);
+  }
   await retain.click();
   await expect(dialog).toContainText("3 u");
   await expect(dialog).toContainText(`${reference} u`);
+  if (scenario !== "gap") {
+    await expect(dialog).toContainText("Système et conditions d’emploi documentés");
+    await dialog.getByRole("checkbox", /contrôles en échec/).check();
+  }
   if (scenario !== "rule") await dialog.getByRole("checkbox", /écart/).check();
   await dialog.getByRole("button", "Retenir cette mesure", { exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  const line = await seedRetainDestination(seeded.projectId, item, owner.tenantId, owner.userId, reference);
+  await expect(screen.getByText("Retenu : 3 u", { exact: true })).toBeVisible();
+  const line = await seedRetainDestination(seeded.projectId, item, owner.tenantId, owner.userId, scenario === "both" ? 2 : reference);
   await app.open(address);
   await screen.getByRole("button", "Envoyer ce plan au devis : « sanitaires.pdf »", { exact: true }).click();
   await expect(dialog.getByTestId(`item-send-line-${item}-dpgf`)).toContainText("3 u");
+  if (scenario === "both") {
+    await expect(dialog).toContainText("Référence DPGF · 2 u · Quantité cumulée · 3 u · Écart · 1 u");
+    await expect(dialog.getByRole("button", /^Envoyer « sanitaires.pdf »/)).toBeDisabled();
+    expect(await countOwnedReceipts(seeded.projectId)).toBe(0);
+    expect((await readOwnedLines(seeded.projectId)).find(row => row.id === line)?.quantity).toBe(2);
+    await dialog.getByRole("checkbox", /vérifié le rapprochement/).check();
+  }
   await dialog.getByRole("button", /^Envoyer « sanitaires.pdf »/).click();
   await expect(ui.browser).toHaveURL(new RegExp(`focusItemId=${line}$`), { timeout: 60_000 });
   expect((await readOwnedLines(seeded.projectId)).find(({ id }) => id === line)?.quantity).toBe(3);
@@ -109,10 +131,10 @@ test("POSTE-RETENIR04 refuse un échec bloquant et une justification absente, pu
   }
   const retain = screen.getByRole("button", "Retenir cette mesure", { exact: true });
   await openItem(labels[0]);
-  await expect(retain).toBeDisabled();
+  await expect(retain).toHaveCount(0);
   await expect(screen.getByText(/corrigez la contribution/i)).toBeVisible();
   await openItem(labels[1]);
-  await expect(retain).toBeDisabled();
+  await expect(retain).toBeEnabled();
   await expect(screen.getByRole("link", /Justifier la contribution/)).toBeVisible();
   await openItem(labels[2]);
   await retain.click();
@@ -122,6 +144,7 @@ test("POSTE-RETENIR04 refuse un échec bloquant et une justification absente, pu
   await expect(dialog).toHaveCount(0);
   await querySql(`update public.takeoff_items set evidence='Quantité vérifiée sur un autre repère fictif' where job_id='${jobId}' and designation='Compteur';`);
   await openItem(labels[2]);
+  await expect(screen.getByText("Les éléments sur lesquels vous aviez retenu cette mesure ont changé. Vérifiez la mesure à nouveau.")).toBeVisible();
   await expect(retain).toBeEnabled();
   await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
   await screen.getByRole("button","Envoyer ce plan au devis : « refus.pdf »", { exact: true }).click();

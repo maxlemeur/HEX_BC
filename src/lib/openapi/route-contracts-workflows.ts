@@ -1,3 +1,4 @@
+import { measureReviewSchema, retainedMeasureSchema, retainCommandSchema } from "@/lib/takeoff/measure-review-contracts";
 import { takeoffItemBatchPatchResponseSchema } from "@/lib/takeoff/item-response-contracts";
 import { takeoffItemBatchPatchSchema as takeoffItemsPatchSchema } from "@/lib/takeoff/item-patch-preparation";
 import { takeoffActivityCenterResponseSchema } from "@/lib/takeoff/activity-center-contracts";
@@ -803,6 +804,23 @@ const takeoffOperationsContracts: RouteContract[] = [
     success: [{ status: "200", description: "Sélection figée.", schema: {
       schemaName: "ApiTakeoffItemSelectionResponse", schema: z.object({ ok: z.literal(true), data: itemSelectionResponseSchema }), io: "output",
     } }],
+  },
+  {
+    id: "read-affaire-takeoff-measure", method: "get", path: "/api/affaires/{projectId}/takeoff/items/measures/{answerId}",
+    summary: "Lire la mesure d’un poste sur son plan", description: "Retourne les faits actuels, les contrôles et les confirmations requises.",
+    tags: ["Takeoff"], pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire." },
+      { name: "answerId", schema: uuidSchema, description: "Réponse du poste." }],
+    success: [{ status: "200", description: "Mesure à revoir.", schema: { schemaName: "ApiTakeoffMeasureReview",
+      schema: z.object({ ok: z.literal(true), data: measureReviewSchema }), io: "output" } }],
+  },
+  {
+    id: "retain-affaire-takeoff-measure", method: "post", path: "/api/affaires/{projectId}/takeoff/items/measures/{answerId}",
+    summary: "Retenir une mesure individuelle", description: "L’opérateur confirme les faits de la révision affichée. Le serveur revalide le droit et la mesure.",
+    tags: ["Takeoff"], pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire." },
+      { name: "answerId", schema: uuidSchema, description: "Réponse du poste." }],
+    body: { schema: retainCommandSchema, description: "Intention, révision vue et confirmations du membre." },
+    success: [{ status: "200", description: "Mesure retenue.", schema: { schemaName: "ApiTakeoffRetainedMeasure",
+      schema: z.object({ ok: z.literal(true), data: retainedMeasureSchema }), io: "output" } }],
   },
   {
     id: "review-affaire-takeoff-items",

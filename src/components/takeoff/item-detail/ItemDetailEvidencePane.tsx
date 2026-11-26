@@ -56,6 +56,7 @@ type Props = {
   outsideFilter: boolean;
   /** Moves with each change of the item the detail made: the journal is read again with it. */
   historyVersion: number;
+  measureRetention?: React.ReactNode;
   onRefused: (caught: unknown) => boolean;
   /** The member and scope reading the journal (the detail's reader): a new reader reads its own. */
   historyScope?: string;
@@ -160,7 +161,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(function ItemDetailEvidencePane(
   { projectId, line, choice, plan, documentState, names, planNames, outsideFilter, historyVersion, onRefused, historyScope, onObservation, onPage, onPlan,
-    decide, proof = null }, heading) {
+    decide, measureRetention, proof = null }, heading) {
   // An earlier reading (an old bookmark) shows nothing of the current one: its answer, decision and entry are not its own.
   const earlier = choice.kind === "reading" && !choice.current;
   const reading = !earlier && (choice.kind === "reading" || choice.kind === "dossier") ? choice.reading : null;
@@ -314,6 +315,7 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
             {reading?.entry ? <p>Saisi sur ce plan : <EntryText entry={reading.entry} names={names} /></p> : null}
             {line.entry ? <p>Saisi pour le poste : <EntryText entry={line.entry} names={names} /></p> : null}
             <DecisionButtons line={line} decide={decide} />
+            {measureRetention}
           </>
         )}
       </Section>

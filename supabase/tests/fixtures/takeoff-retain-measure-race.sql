@@ -72,6 +72,11 @@ select is(extensions.dblink_exec('race_setup','commit'),'COMMIT','role change co
 select is((select allowed from extensions.dblink_get_result('race_a') x(allowed boolean)),false,'committed demotion denies retention');
 select is((select count(*)::integer from extensions.dblink_get_result('race_a') x(r boolean)),0,'permission evaluation drained');
 select is(extensions.dblink_exec('race_a','rollback'),'ROLLBACK','close permission probe');
+select is((select count(*)::integer from extensions.dblink('race_a',pg_temp.retain_sql(621),false) as receipt(result jsonb)),
+  0,'the demoted member receives no public retention receipt');
+select ok(extensions.dblink_error_message('race_a') like '%TAKEOFF_ITEM_REVIEW_FORBIDDEN%','the public command reports the withdrawn review right');
+select ok(not exists(select 1 from public.takeoff_item_review_commands where tenant_id=pg_temp.tenant()
+  and project_id=pg_temp.f(20) and intent_key=pg_temp.f(621)),'the refused intention has no journal entry');
 select is(extensions.dblink_exec('race_setup',format('update public.tenant_memberships set role=''engineer''
   where tenant_id=%L and user_id=%L',pg_temp.tenant(),pg_temp.f(1))),'UPDATE 1','restore fixture role');
 \else

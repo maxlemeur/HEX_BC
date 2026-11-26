@@ -7329,6 +7329,217 @@
         }
       }
     },
+    "/api/affaires/{projectId}/takeoff/items/measures/{answerId}": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Lire la mesure d’un poste sur son plan",
+        "description": "Retourne les faits actuels, les contrôles et les confirmations requises.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffMeasureProjectIdParameter"
+            }
+          },
+          {
+            "name": "answerId",
+            "in": "path",
+            "description": "Réponse du poste.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffMeasureAnswerIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mesure à revoir.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffMeasureReview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Retenir une mesure individuelle",
+        "description": "L’opérateur confirme les faits de la révision affichée. Le serveur revalide le droit et la mesure.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/RetainAffaireTakeoffMeasureProjectIdParameter"
+            }
+          },
+          {
+            "name": "answerId",
+            "in": "path",
+            "description": "Réponse du poste.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/RetainAffaireTakeoffMeasureAnswerIdParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Intention, révision vue et confirmations du membre.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetainAffaireTakeoffMeasureRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mesure retenue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffRetainedMeasure"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/takeoff/items/remeasure": {
       "get": {
         "tags": [
@@ -30539,7 +30750,7 @@
           "Takeoff"
         ],
         "summary": "Confirmer l'envoi par poste des reponses d'un plan",
-        "description": "Lot 4 : recalcule le plan d'ecriture depuis les faits enregistres et les choix du membre, comme l'apercu, le refuse (409) si son empreinte differe de celle confirmee, puis l'ecrivain du serveur (public.send_takeoff_item_plan, role de service, membre authentifie en parametre) relit chaque droit apres ses attentes et ecrit en une transaction : premier brouillon (cree comme « Creer un devis »), sections, lignes creees ou alimentees, parts par poste, pages et recu. Une meme cle d'intention renvoie son recu ; un autre plan sous la meme cle est un conflit (409). Une révision de repères différente expire l’aperçu, même à quantité égale. Le code TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE (409) protège un total vérifié si le nouvel envoi le laisserait coexister avec une autre quantité du même plan. Chaque refus dit au membre pourquoi ; rien n'est ecrit.",
+        "description": "Lot 4 : recalcule le plan d'ecriture depuis les faits enregistres et les choix du membre, comme l'apercu, le refuse (409) si son empreinte differe de celle confirmee, puis l'ecrivain du serveur (public.send_takeoff_item_plan, role de service, membre authentifie en parametre) relit chaque droit apres ses attentes et ecrit en une transaction : premier brouillon (cree comme « Creer un devis »), sections, lignes creees ou alimentees, parts par poste, pages et recu. Une meme cle d'intention renvoie son recu ; un autre plan sous la meme cle est un conflit (409). Lorsque le nouvel aperçu contient des rapprochements individuels, le membre les vérifie et transmet measure_reviews_checked avec review_measures et l’empreinte affichée. Une révision de repères différente expire l’aperçu, même à quantité égale. Le code TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE (409) protège un total vérifié si le nouvel envoi le laisserait coexister avec une autre quantité du même plan. Chaque refus dit au membre pourquoi ; rien n'est ecrit.",
         "parameters": [
           {
             "name": "jobId",
@@ -30652,7 +30863,7 @@
           "Takeoff"
         ],
         "summary": "Apercu de l'envoi par poste des reponses d'un plan",
-        "description": "Lecture seule (lot 4) : pour l'analyse d'un plan lue contre la liste des postes, ce que deviendrait le devis : premier brouillon a creer, sections (lot puis famille de la liste, compartiment du decoupage), lignes creees ou alimentees (ligne du DPGF a sa place, ligne d'un envoi anterieur du meme poste), quantites avant et apres, reference, saisie, mesure et quantite retenue, lignes non envoyees et leur motif, points a trancher et leurs choix, lectures non additionnees, apports de page et regles sans effet sur les prix. Le comptage vérifié porte la révision des repères. Un total vérifié précédent est montré avec la quantité qui le remplace ou le motif qui le protège. Moteur 3 seul. N'ecrit rien. Tant que les reponses par poste ne sont pas enregistrees, repond 409.",
+        "description": "Lecture seule (lot 4) : pour l'analyse d'un plan lue contre la liste des postes, ce que deviendrait le devis : premier brouillon a creer, sections (lot puis famille de la liste, compartiment du decoupage), lignes creees ou alimentees (ligne du DPGF a sa place, ligne d'un envoi anterieur du meme poste), quantites avant et apres, reference, saisie, mesure et quantite retenue, lignes non envoyees et leur motif, points a trancher et leurs choix, lectures non additionnees, apports de page et regles sans effet sur les prix. Le comptage vérifié porte la révision des repères. Un total vérifié précédent est montré avec la quantité qui le remplace ou le motif qui le protège. Avec review_measures, les rapprochements individuels à confirmer dans le devis apparaissent dans measure_reviews et entrent dans l’empreinte du plan. Moteur 3 seul. N'ecrit rien. Tant que les reponses par poste ne sont pas enregistrees, repond 409.",
         "parameters": [
           {
             "name": "jobId",
@@ -53886,6 +54097,307 @@
             },
             "required": [
               "itemIds"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ReadAffaireTakeoffMeasureProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireTakeoffMeasureAnswerIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ApiTakeoffMeasureReview": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "answer_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "item_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "plan_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "quantity": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reference": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "expected_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "gap": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "confidence_threshold": {
+                "type": "number"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "answer_changed",
+                      "sent",
+                      "coverage_incomplete",
+                      "not_measured",
+                      "entered",
+                      "quantity_choice",
+                      "already_decided",
+                      "unit_conflict",
+                      "missing_evidence",
+                      "rules_stale",
+                      "unit_mismatch",
+                      "alert",
+                      "hypothesis",
+                      "rule_not_acceptable",
+                      "rule_without_coded_justification",
+                      "justification_required",
+                      "gap_confirmation_required",
+                      "rules_confirmation_required",
+                      "proof_confirmation_required"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "gap_required": {
+                "type": "boolean"
+              },
+              "rules_required": {
+                "type": "boolean"
+              },
+              "proof_required": {
+                "type": "boolean"
+              },
+              "previously_retained": {
+                "type": "boolean"
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "observation_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "failures": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "justification": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "author": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "needs_justification": {
+                      "type": "boolean"
+                    },
+                    "low_confidence": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "observation_id",
+                    "failures",
+                    "justification",
+                    "author",
+                    "needs_justification",
+                    "low_confidence"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "answer_id",
+              "item_id",
+              "plan_id",
+              "revision",
+              "quantity",
+              "unit",
+              "reference",
+              "expected_unit",
+              "gap",
+              "confidence_threshold",
+              "reason",
+              "gap_required",
+              "rules_required",
+              "proof_required",
+              "previously_retained",
+              "rows"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "RetainAffaireTakeoffMeasureProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "RetainAffaireTakeoffMeasureAnswerIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "RetainAffaireTakeoffMeasureRequest": {
+        "type": "object",
+        "properties": {
+          "intent_key": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "acknowledgement": {
+            "type": "object",
+            "properties": {
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "gap_checked": {
+                "type": "boolean"
+              },
+              "rules_checked": {
+                "type": "boolean"
+              },
+              "proof_checked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "revision",
+              "gap_checked",
+              "rules_checked",
+              "proof_checked"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "intent_key",
+          "acknowledgement"
+        ],
+        "additionalProperties": false
+      },
+      "ApiTakeoffRetainedMeasure": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "const": "applied"
+              },
+              "command_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "item_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "answer_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "replayed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "outcome",
+              "command_id",
+              "item_id",
+              "answer_id",
+              "replayed"
             ],
             "additionalProperties": false
           }
@@ -114887,6 +115399,10 @@
       "TakeoffItemSendConfirmRequest": {
         "type": "object",
         "properties": {
+          "review_measures": {
+            "type": "boolean",
+            "const": true
+          },
           "destination": {
             "oneOf": [
               {
@@ -115105,6 +115621,10 @@
               ]
             }
           },
+          "measure_reviews_checked": {
+            "type": "boolean",
+            "const": true
+          },
           "request_id": {
             "type": "string",
             "format": "uuid",
@@ -115203,6 +115723,10 @@
       "TakeoffItemSendPreviewRequest": {
         "type": "object",
         "properties": {
+          "review_measures": {
+            "type": "boolean",
+            "const": true
+          },
           "destination": {
             "oneOf": [
               {
@@ -115434,6 +115958,89 @@
           "data": {
             "type": "object",
             "properties": {
+              "measure_reviews": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "type": "string"
+                    },
+                    "answer_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "decision_revision": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "version_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "line_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "matched": {
+                      "type": "boolean"
+                    },
+                    "reference": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "measured": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "gap": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "quantity_after": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "target",
+                    "answer_id",
+                    "decision_revision",
+                    "version_id",
+                    "line_id",
+                    "matched",
+                    "reference",
+                    "measured",
+                    "unit",
+                    "gap",
+                    "quantity_after"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "job_id": {
                 "type": "string",
                 "format": "uuid",
@@ -118212,6 +118819,10 @@
                   "additions": {
                     "type": "object",
                     "properties": {
+                      "review_measures": {
+                        "type": "boolean",
+                        "const": true
+                      },
                       "breakdown": {
                         "type": "string",
                         "enum": [
@@ -118536,6 +119147,10 @@
                   "additions": {
                     "type": "object",
                     "properties": {
+                      "review_measures": {
+                        "type": "boolean",
+                        "const": true
+                      },
                       "breakdown": {
                         "type": "string",
                         "enum": [
@@ -119784,6 +120399,89 @@
                       "addition_preview": {
                         "type": "object",
                         "properties": {
+                          "measure_reviews": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "target": {
+                                  "type": "string"
+                                },
+                                "answer_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "decision_revision": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "version_id": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "line_id": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "matched": {
+                                  "type": "boolean"
+                                },
+                                "reference": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                },
+                                "measured": {
+                                  "type": "number"
+                                },
+                                "unit": {
+                                  "type": "string"
+                                },
+                                "gap": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                },
+                                "quantity_after": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "target",
+                                "answer_id",
+                                "decision_revision",
+                                "version_id",
+                                "line_id",
+                                "matched",
+                                "reference",
+                                "measured",
+                                "unit",
+                                "gap",
+                                "quantity_after"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
                           "job_id": {
                             "type": "string",
                             "format": "uuid",

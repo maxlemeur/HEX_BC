@@ -26,6 +26,7 @@ import {
   type ItemSendPendingPageDecision,
   type ItemSendScreenChoices,
 } from "@/lib/takeoff/item-send-screen";
+import { formatItemQuantity } from "@/lib/takeoff/item-table-labels";
 import { plural } from "@/lib/text/plural";
 
 import { ItemRedistributionPanel } from "./ItemRedistributionPanel";
@@ -100,6 +101,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
   const [notice, setNotice] = useState<Notice | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [redistributing, setRedistributing] = useState(false);
+  const [checkedMeasureDigest, setCheckedMeasureDigest] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // Sent: nothing is confirmed again while the editor opens.
   const [sent, setSent] = useState(false);
@@ -146,7 +148,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
       ? previewTakeoffItemSend(jobId, itemSendRequestOf({ ...ask, choices: { ...ask.choices, pageDecisions: new Map() } }),
         { signal: controller.signal })
       : Promise.resolve(null);
-    void Promise.all([previewTakeoffItemSend(jobId, request, { signal: controller.signal }), holders]).then(([data, bare]) => {
+    void Promise.all([previewTakeoffItemSend(jobId, { ...request, review_measures: true }, { signal: controller.signal }), holders]).then(([data, bare]) => {
       if (!completion.current()) return;
       const fresh = (bare?.to_resolve ?? []).filter((point) => point.kind === "page_decision");
       const movedPages = [...ask.choices.pageDecisions.keys()].filter((key) => {
@@ -272,6 +274,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
     || !pagePoints.some((point) => point.page === entry.page));
 
   const confirmable = !!data && data.confirmable && data.plan_digest !== null && data.invalid_page_decisions.length === 0
+    && (!data.measure_reviews?.length || checkedMeasureDigest === data.plan_digest)
     && !submitting && !redistributing && !loading && !sent && typing.size === 0 && !current?.disagree;
   const noteTyping = useCallback((page: number | null, pendingNote: boolean) => setTyping((current) => {
     const key = itemSendPageKey(page);
@@ -312,7 +315,8 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
         if (!completion.ownScreen()) return;
         inFlight.current.add(lockVersionId);
       }
-      response = await confirmTakeoffItemSend(jobId, { ...request, request_id: key.id, plan_digest: digest });
+      response = await confirmTakeoffItemSend(jobId, { ...request, request_id: key.id, plan_digest: digest,
+        ...(data.measure_reviews?.length ? { review_measures: true, measure_reviews_checked: true } : {}) });
     } catch (error) {
       failure = error;
     } finally {
@@ -370,6 +374,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
     if (status >= 400 && status < 500) {
       // Refused, nothing written: the preview is read again with the choices that still apply, and what changed is said.
       intent.current = null;
+      setCheckedMeasureDigest(null);
       stale.current = { from: data, dropped: [] };
       setNotice({ text: message, changes: [] });
       update((currentAsk) => currentAsk, true);
@@ -477,6 +482,19 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
               </>
             ) : null}
           </div>
+          {data?.measure_reviews?.length ? <div className="mt-3 space-y-2 text-sm">
+            <h3 className="font-semibold">Rapprochement à confirmer dans ce devis</h3>
+            {data.measure_reviews.map(review => {
+              const line = data.lines.find(line => line.key === review.target);
+              const show = (value: number | null) => value === null ? "Aucune" : formatItemQuantity(value, review.unit);
+              return <div key={review.target}><strong>{line?.label}</strong>
+                {!review.matched && <p>La ligne de destination diffère du rapprochement initial.</p>}
+                <p>Référence DPGF · {show(review.reference)} · Quantité cumulée · {show(review.measured)} · Écart · {show(review.gap)}</p>
+              </div>;
+            })}
+            <label className="flex items-center gap-2"><input type="checkbox" disabled={submitting} checked={checkedMeasureDigest === data.plan_digest}
+              onChange={event => setCheckedMeasureDigest(event.target.checked ? data.plan_digest : null)} />J’ai vérifié le rapprochement et l’écart dans ce devis.</label>
+          </div> : null}
           {submitError ? <Alert variant="danger" className="mt-3" data-testid="item-send-error">{submitError}</Alert> : null}
         </DialogBody>
         <DialogFooter>

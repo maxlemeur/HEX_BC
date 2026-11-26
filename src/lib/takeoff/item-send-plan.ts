@@ -324,6 +324,7 @@ type SnakeIdentity = { unit: string; basis: string | null; network: string | nul
 
 /** The plan the writer of migration C stores and executes, versioned; built only when nothing is left to resolve. */
 export type ItemSendWritePlan = {
+  measure_confirmations?: import("./item-send-contracts").DestinationMeasureReviews;
   format: typeof ITEM_SEND_PLAN_FORMAT;
   version: typeof ITEM_SEND_PLAN_VERSION;
   job_id: string;

@@ -5,6 +5,14 @@ les valeurs clés (TI-664 et cadrage TI-681 confirmé les 8 et 9 novembre 2026).
 
 Le métré se suit depuis son affaire, y compris pour une analyse créée sur une ancienne version du devis. Depuis sa revue, l’envoi au tableau de chiffrage exige toujours l’aperçu d’impact et une confirmation humaine.
 
+## Retenir une mesure sur un plan
+
+Dans le détail d’un poste mesuré, **Retenir cette mesure** ouvre les faits de la réponse du plan affiché. Le membre contrôle la quantité observée, l’unité, la référence DPGF et l’écart. Il confirme chaque écart à vérifier, les justifications des contrôles en échec et la vérification d’une preuve de faible confiance lorsque la lecture le demande.
+
+La revue ciblée permet de justifier chaque contribution qui le demande et de rouvrir une contribution déjà vérifiée pour renouveler son justificatif. **Revenir au poste** ramène à la mesure à retenir. Le raccourci V et l’acceptation de masse conservent leurs conditions habituelles.
+
+Une modification des éléments acquittés peut rendre la décision caduque. Le détail signale le retour à **À vérifier** et présente les faits actuels. Si le rapprochement du devis diffère lors de l’envoi, l’aperçu présente la référence, la quantité cumulée et l’écart de la destination. Le membre vérifie ces valeurs avant de confirmer l’écriture et son reçu.
+
 ## Liste des postes de l’affaire
 
 Un **poste** est une prestation demandée à l’affaire. La liste des postes est un

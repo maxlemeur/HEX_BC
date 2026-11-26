@@ -35,7 +35,15 @@ export const itemSendPageDecisionSchema = z.discriminatedUnion("decision", [
       { message: "« Garder les deux » pour un périmètre complémentaire demande une note de 10 caractères au moins.", path: ["note"] }),
 ]);
 
+export const destinationMeasureReviewsSchema = z.array(z.object({
+  target: z.string(), answer_id: uuid, decision_revision: z.number().int().positive(),
+  version_id: uuid.nullable(), line_id: uuid.nullable(), matched: z.boolean(),
+  reference: z.number().nullable(), measured: z.number(), unit: z.string(), gap: z.number().nullable(), quantity_after: z.number(),
+}).strict());
+export type DestinationMeasureReviews = z.infer<typeof destinationMeasureReviewsSchema>;
+
 export const itemSendPreviewRequestSchema = z.object({
+  review_measures: z.literal(true).optional(),
   destination: itemSendDestinationSchema.optional(),
   breakdown: z.enum(ITEM_SEND_BREAKDOWNS).optional(),
   /** The member's explicit choices, each by the key of the point to resolve the preview gave. */
@@ -53,6 +61,7 @@ export type ItemSendPreviewRequest = z.infer<typeof itemSendPreviewRequestSchema
  * plan computed now refuses the confirmation: nothing is written, the preview is shown again).
  */
 export const itemSendConfirmRequestSchema = itemSendPreviewRequestSchema.extend({
+  measure_reviews_checked: z.literal(true).optional(),
   request_id: uuid,
   plan_digest: z.string().regex(/^[0-9a-f]{64}$/),
 }).strict();
@@ -89,6 +98,7 @@ const optionSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const itemSendPreviewResponseSchema = z.object({
+  measure_reviews: destinationMeasureReviewsSchema.optional(),
   job_id: uuid,
   /** Null for a member who cannot write the affaire: the reason only, nothing of the takeoff. */
   plan: z.object({ key: z.string(), name: z.string() }).strict().nullable(),
