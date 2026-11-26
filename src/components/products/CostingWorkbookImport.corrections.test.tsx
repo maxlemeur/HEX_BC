@@ -477,8 +477,8 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     await user.upload(fileInput(), costingWorkbook());
     const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     const corrections = xlsxFile("corrections.xlsx", { Corrections: [
-      ["Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article"],
-      ["G2", "Pt.P", "Point P Matériaux", "F1_nom", "TUBE-20"],
+      ["Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article", "Identifiant unique à l’export"],
+      ["G2", "Pt.P", "Point P Matériaux", "F1_nom", "TUBE-20", "Oui"],
     ] });
     const bytes = await corrections.arrayBuffer();
     let finish!: (value: ArrayBuffer) => void;
@@ -592,9 +592,9 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
 
     const corrections = xlsxFile("corrections.xlsx", { Corrections: [
-      ["Motif", "Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article"],
-      ["Fournisseur actif introuvable", "G2", "Pt.P", "Point P Matériaux", "F1_nom", "TUBE-20"],
-      ["Fournisseur actif introuvable", "G3", "Autre nom", "Point P Matériaux", "F1_nom", "COQ-25"],
+      ["Motif", "Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article", "Identifiant unique à l’export"],
+      ["Fournisseur actif introuvable", "G2", "Pt.P", "Point P Matériaux", "F1_nom", "TUBE-20", "Oui"],
+      ["Fournisseur actif introuvable", "G3", "Autre nom", "Point P Matériaux", "F1_nom", "COQ-25", "Oui"],
       ["Article actif introuvable", "A2", "TUBE-20", ""],
     ] });
     await user.upload(screen.getByLabelText("Fichier de corrections"), corrections);
@@ -607,6 +607,26 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     )).toBeVisible();
     await user.click(screen.getByText("Voir les corrections écartées"));
     expect(screen.getByText("Ligne 3 · G3 · la valeur d’origine a changé")).toBeVisible();
+  });
+
+  it("shows the cell and next step when a legacy file cannot attest the source article", async () => {
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(fileInput(), costingWorkbook());
+    await screen.findByRole("table", { name: "Articles proposés en brouillon" });
+
+    const corrections = xlsxFile("anciennes-corrections.xlsx", { Corrections: [
+      ["Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article"],
+      ["G2", "Pt.P", "Point P Matériaux", "F1_nom", "TUBE-20"],
+    ] });
+    await user.upload(screen.getByLabelText("Fichier de corrections"), corrections);
+
+    expect(await screen.findByText(/Aucune correction à appliquer dans ce fichier/)).toBeVisible();
+    await user.click(screen.getByText("Voir les corrections écartées"));
+    expect(screen.getByText(/^Ligne 2 · G2 · l’unicité de l’identifiant/)).toHaveTextContent(
+      "Vérifiez la ligne dans le classeur d’origine avant de reporter la correction",
+    );
+    expect(previews()).toHaveLength(1);
   });
 
   it("keeps the list of the references it imported, to verify them (8)", async () => {

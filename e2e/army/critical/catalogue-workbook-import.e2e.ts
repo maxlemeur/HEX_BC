@@ -415,8 +415,13 @@ armyTest(
     await mkdir(directory, { recursive: true });
     const workbookPath = path.join(directory, "references-fournisseur.xlsx");
     const secondWorkbookPath = path.join(directory, "references-fournisseur-relues.xlsx");
+    const uniqueWorkbookPath = path.join(directory, "reference-fournisseur-identifiant-unique.xlsx");
     await writeFile(workbookPath, bytes);
     await writeFile(secondWorkbookPath, bytes);
+    const uniqueBook = XLSX.utils.book_new();
+    const uniqueRows = [sheetRows[0], sheetRows[2]].map((cells) => reorderedHeaders.map((header) => cells[HEADERS.indexOf(header)]));
+    XLSX.utils.book_append_sheet(uniqueBook, XLSX.utils.aoa_to_sheet(uniqueRows), COSTING_WORKBOOK_SHEET);
+    await writeFile(uniqueWorkbookPath, XLSX.write(uniqueBook, { bookType: "xlsx", type: "buffer" }) as Buffer);
     const open = async () => {
       await screen.getByRole("button", "Ouvrir les actions du catalogue", { exact: true }).tap();
       await screen.getByRole("menuitem", "Importer le classeur de chiffrage", { exact: true }).tap();
@@ -546,7 +551,9 @@ armyTest(
       "Cellule à vérifier": "B4", "Colonne": "ID", "Valeur d’origine": newRef,
       "Désignation": "Tube de démonstration", "Code fournisseur": "NA-32",
     });
-    expect(articleCorrections.rows.at(-1)).toMatchObject({ "Cellule à vérifier": "B35", "Valeur d’origine": newRef.toLowerCase() });
+    expect(articleCorrections.rows.at(-1)).toMatchObject({
+      "Cellule à vérifier": "B35", "Valeur d’origine": newRef.toLowerCase(), "Identifiant unique à l’export": "Non",
+    });
     await decisionSearch.fill(" atlas-t32 ");
     await expect(importPage.getByText("Aucune référence ne correspond à la recherche.", { exact: true })).toBeVisible();
     await expect(exportCorrections).toBeDisabled();
@@ -564,6 +571,7 @@ armyTest(
     expect(supplierCorrections.rows).toHaveLength(1);
     expect(supplierCorrections.rows[0]).toMatchObject({
       "Cellule à vérifier": supplierAddress, "Colonne": "F2_nom", "Valeur d’origine": unknownSupplier, "Code fournisseur": "NS-32",
+      "Identifiant unique à l’export": "Non",
     });
     await expect(importPage.getByRole("button", "Suivante", { exact: true })).toBeHidden();
     await decisionSearch.fill("DEPOT BOREAL");
@@ -594,7 +602,16 @@ armyTest(
     await referencesMode.tap();
     await expect(decisionSearch).toHaveValue("NA-32");
     await expect(importPage.getByText("31–31 sur 31", { exact: true })).toBeVisible();
-    await importPage.getByRole("button", "Changer de fichier Excel", { exact: true }).setInputFiles(secondWorkbookPath);
+    const changeWorkbook = importPage.getByRole("button", "Changer de fichier Excel", { exact: true });
+    await changeWorkbook.setInputFiles(uniqueWorkbookPath);
+    await expect(importPage.getByText(path.basename(uniqueWorkbookPath), { exact: false })).toBeVisible();
+    await importPage.getByRole("button", "Fournisseur actif introuvable", { exact: true }).tap();
+    const uniqueCorrection = await readCorrections("supplier-not-found");
+    expect(uniqueCorrection.rows).toMatchObject([{
+      "Cellule à vérifier": XLSX.utils.encode_cell({ r: 1, c: reorderedHeaders.indexOf("F2_nom") }),
+      "Valeur d’origine": unknownSupplier, "Identifiant unique à l’export": "Oui",
+    }]);
+    await changeWorkbook.setInputFiles(secondWorkbookPath);
     await expect(decisionSearch).toHaveValue("");
     await expect(allDecisions).toHaveAttribute("aria-pressed", "true");
     await expect(importPage.getByText("1–30 sur 33", { exact: true })).toBeVisible();

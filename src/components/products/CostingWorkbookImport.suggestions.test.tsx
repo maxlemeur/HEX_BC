@@ -321,8 +321,8 @@ describe("CostingWorkbookImport, proposals", () => {
     expect(await screen.findByText(conclusion)).toBeVisible();
 
     const correction = workbook([
-      ["Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article"],
-      ["H2", "Réf interne", "Autre référence", "F1_ref", "TUBE-20"],
+      ["Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article", "Identifiant unique à l’export"],
+      ["H2", "Réf interne", "Autre référence", "F1_ref", "TUBE-20", "Oui"],
     ], "Corrections");
     await user.upload(screen.getByLabelText("Fichier de corrections"), correction);
     await waitFor(() => expect(supplierPreviews()[1].body?.rows?.[1][7]).toBe("Autre référence"));

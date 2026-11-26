@@ -622,9 +622,12 @@ function SupplierGroup({ group, sourceByCell, directory, suggestion, dismissed, 
   );
 }
 
-export function SupplierReferenceReview({ report, rows, review, onReviewChange, dismissed, onDismiss, onShowDrafts, onCatalogueChange }: Readonly<{
+export function SupplierReferenceReview({
+  report, rows, originalRows, review, onReviewChange, dismissed, onDismiss, onShowDrafts, onCatalogueChange,
+}: Readonly<{
   report: CostingWorkbookSupplierReferenceReport;
   rows: CostingWorkbookRows;
+  originalRows: CostingWorkbookRows;
   review: WorkbookReview;
   onReviewChange: (review: WorkbookReview) => void;
   /** Cells the office set aside for this session (`row-slot`): out of the list, never out of the workbook. */
@@ -811,7 +814,7 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
     setExporting(true);
     setExportError(false);
     try {
-      await exportWorkbookCorrections(activeReason, filteredDecisions, sourceByCell);
+      await exportWorkbookCorrections(activeReason, filteredDecisions, sourceByCell, originalRows, rows);
     } catch {
       setExportError(true);
     } finally {
