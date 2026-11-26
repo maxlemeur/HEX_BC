@@ -11,7 +11,7 @@ import {
   type ReleaseEstimateDraftLockOptions,
 } from "@/lib/estimates/client-locks";
 import { isEstimateApiError } from "@/lib/estimates/client-errors";
-import { isOrphanedTabEstimateDraftLockSession } from "@/lib/estimates/draft-lock-session-client";
+import { releaseOrphanedTabDraftLock } from "@/lib/estimates/release-orphaned-draft-lock";
 
 /**
  * Battement de coeur du verrou de brouillon. Il sert aussi de detection de
@@ -81,35 +81,6 @@ function isDraftLockLostError(error: unknown) {
   return (
     isEstimateApiError(error) && (error.status === 404 || error.status === 403)
   );
-}
-
-/**
- * TI-665 : le bail refusé est tenu, pour le même utilisateur, par une identité
- * antérieure de cet onglet dont le document n'existe plus (il est parti pendant
- * son chargement après avoir demandé le bail). Ce bail est libéré sous cette
- * identité, scopée côté serveur, pour que la page le redemande sous la sienne :
- * aucune identité n'est partagée et une ancienne libération en retard ne peut
- * pas retirer le nouveau bail. Faux dans tout autre cas, erreur comprise.
- */
-async function releaseOrphanedTabDraftLock(
-  versionId: string,
-  lock: EstimateDraftLock | null
-) {
-  if (
-    lock?.isOwnedByCurrentUser !== true ||
-    lock.isOwnedByCurrentSession !== false ||
-    !lock.sessionId ||
-    !(await isOrphanedTabEstimateDraftLockSession(versionId, lock.sessionId))
-  ) {
-    return false;
-  }
-
-  try {
-    await releaseEstimateDraftLock(versionId, { sessionId: lock.sessionId });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function resolveDraftLockErrorMessage(error: unknown, fallback: string) {

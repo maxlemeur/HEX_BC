@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import type { Browser } from "@e2e-dev/web";
 import { createClient } from "@supabase/supabase-js";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
@@ -263,4 +264,39 @@ export async function holdDraftElsewhere(input: { tenantId: string; versionId: s
 
 export async function releaseDraftElsewhere(versionId: string, userId: string) {
   await querySql(`delete from public.draft_locks where version_id = '${versionId}' and user_id = '${userId}';`);
+}
+
+// pagehide keepalives may bypass browser.route as their document is destroyed.
+// Buffer each actual scoped DELETE across navigation so even the last one gets
+// its server response before the test forwards the departed editor's POST.
+export async function deferEditorDepartureReleases(browser: Browser, lockUrl: string) {
+  await browser.evaluate((path) => {
+    const key = `army-departure:${path}`;
+    const sessions: (string | null)[] = [];
+    const send = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      if (input === path && init?.method === "DELETE" && init.keepalive) {
+        sessions.push(new Headers(init.headers).get("x-estimate-draft-lock-session-id"));
+        sessionStorage.setItem(key, JSON.stringify(sessions));
+        return new Promise<Response>(() => {});
+      }
+      return send(input, init);
+    };
+    return true;
+  }, lockUrl);
+}
+
+export async function deliverEditorDepartureReleases(browser: Browser, lockUrl: string, editorSession: string) {
+  return browser.evaluate(async ({ path, editor }) => {
+    const key = `army-departure:${path}`;
+    const sessions: unknown[] = JSON.parse(sessionStorage.getItem(key) ?? "[]");
+    sessionStorage.removeItem(key);
+    const results = [];
+    for (const session of sessions) {
+      if (session !== editor) throw new Error("Unexpected departure lease identity");
+      const response = await fetch(path, { method: "DELETE", headers: { "x-estimate-draft-lock-session-id": editor } });
+      results.push({ status: response.status, released: (await response.json()).data?.released });
+    }
+    return results;
+  }, { path: lockUrl, editor: editorSession });
 }

@@ -1,4 +1,5 @@
-import { acquireEstimateDraftLock, renewEstimateDraftLock } from "@/lib/estimates/client-locks";
+import { releaseOrphanedTabDraftLock } from "@/lib/estimates/release-orphaned-draft-lock";
+import { acquireEstimateDraftLock, renewEstimateDraftLock, type EstimateDraftLock } from "@/lib/estimates/client-locks";
 import { isEstimateApiError } from "@/lib/estimates/client-errors";
 
 export type EnsureTakeoffApplyDraftLockResult = {
@@ -10,12 +11,15 @@ export type EnsureTakeoffApplyDraftLockResult = {
    * caller's to release (the lease send by item tracks it). False when the lease was renewed or refused before that.
    */
   acquireAttempted?: boolean;
-  /** Another member holds the draft (the message names them); otherwise a refusal is an error to try again. */
+  /** An active lease blocked this operation, including one held in another tab of the same member. */
   lockedByOther?: boolean;
 };
 
-function resolveLockedByOtherMessage(holderName: string | null | undefined) {
-  const normalizedHolder = holderName?.trim() ?? "";
+function resolveLockedByOtherMessage(lock: EstimateDraftLock | null) {
+  if (lock?.isOwnedByCurrentUser && lock.isOwnedByCurrentSession === false) {
+    return "La version cible est verrouillée dans un autre de vos onglets.";
+  }
+  const normalizedHolder = lock?.holderName?.trim() ?? "";
   const holder = normalizedHolder.length > 0 ? normalizedHolder : "un autre utilisateur";
   return `La version cible est verrouillée par ${holder}.`;
 }
@@ -35,12 +39,14 @@ export async function ensureTakeoffApplyDraftLock(
       };
     }
 
-    return {
-      acquired: false,
-      shouldRelease: false,
-      errorMessage: resolveLockedByOtherMessage(renewResult.lock?.holderName),
-      lockedByOther: true,
-    };
+    if (!(await releaseOrphanedTabDraftLock(versionId, renewResult.lock))) {
+      return {
+        acquired: false,
+        shouldRelease: false,
+        errorMessage: resolveLockedByOtherMessage(renewResult.lock),
+        lockedByOther: true,
+      };
+    }
   } catch (renewError) {
     if (!isEstimateApiError(renewError) || renewError.status !== 404) {
       return {
@@ -55,7 +61,11 @@ export async function ensureTakeoffApplyDraftLock(
   }
 
   try {
-    const acquireResult = await acquireEstimateDraftLock(versionId);
+    let acquireResult = await acquireEstimateDraftLock(versionId);
+    // A departing editor's POST can also land after our renewal returned 404.
+    if (!acquireResult.acquired && await releaseOrphanedTabDraftLock(versionId, acquireResult.lock)) {
+      acquireResult = await acquireEstimateDraftLock(versionId);
+    }
     const isOwnedByCurrentUser = acquireResult.lock?.isOwnedByCurrentUser !== false;
 
     if (acquireResult.acquired && isOwnedByCurrentUser) {
@@ -70,7 +80,7 @@ export async function ensureTakeoffApplyDraftLock(
     return {
       acquired: false,
       shouldRelease: false,
-      errorMessage: resolveLockedByOtherMessage(acquireResult.lock?.holderName),
+      errorMessage: resolveLockedByOtherMessage(acquireResult.lock),
       acquireAttempted: true,
       lockedByOther: true,
     };
