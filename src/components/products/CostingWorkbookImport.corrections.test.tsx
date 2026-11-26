@@ -222,6 +222,23 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     expect(previews()[2].body?.rows?.[2]?.[4]).toBe("9,90");
   });
 
+  it("toggles the article findings filter as a named, pressed button", async () => {
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(fileInput(), costingWorkbook());
+    const findings = within(await screen.findByRole("group", { name: "Articles à vérifier" }));
+    const price = findings.getByRole("button", { name: "Sans prix (0 €) · 1", pressed: false });
+    const table = within(screen.getByRole("table", { name: "Articles proposés en brouillon" }));
+    expect(table.getAllByRole("row")).toHaveLength(3);
+
+    await user.click(price);
+    expect(price).toHaveAttribute("aria-pressed", "true");
+    expect(table.getAllByRole("row")).toHaveLength(2);
+    await user.click(price);
+    expect(price).toHaveAttribute("aria-pressed", "false");
+    expect(table.getAllByRole("row")).toHaveLength(3);
+  });
+
   it("undoes a correction from the journal (2)", async () => {
     const user = userEvent.setup();
     renderImport();

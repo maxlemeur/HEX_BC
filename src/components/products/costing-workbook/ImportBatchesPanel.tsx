@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import Link from "next/link";
 
@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { fetchCatalogueImportBatches, undoCatalogueImport, validateDraftProducts } from "@/lib/catalogue/import-review-client";
-import type { CatalogueImportBatch } from "@/lib/catalogue/import-review-contract";
+import type { CatalogueImportBatch, CatalogueImportBatchPage } from "@/lib/catalogue/import-review-contract";
 import { bulkValidationSummary, CATALOGUE_BULK_INCOMPLETE } from "@/lib/catalogue/import-review-feedback";
 import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { catalogueErrorMessage } from "@/lib/catalogue/supplier-items-client";
@@ -18,7 +18,7 @@ import { catalogueErrorMessage } from "@/lib/catalogue/supplier-items-client";
 import { formatCount, plural } from "./shared";
 
 /**
- * The latest imports of the costing workbook and what is left to do on each (TI-711): validate the complete
+ * The imports of the costing workbook and what is left to do on each (TI-711): validate the complete
  * drafts of an import together, check its references together, or undo it. An undo removes only what the import
  * created and nobody touched since: untouched drafts and references still « à vérifier ».
  */
@@ -28,8 +28,6 @@ const MOMENT = new Intl.DateTimeFormat("fr-FR", {
 });
 
 type Message = { tone: "success" | "danger"; text: string };
-const visibleBatches = (items: CatalogueImportBatch[]) =>
-  items.filter((batch) => batch.kind !== "workbook_articles" || batch.total > 0 || batch.undone_at);
 
 export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readonly<{
   /** Changes after each confirmed import: the list is read again. */
@@ -40,24 +38,60 @@ export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readon
 }>) {
   const confirm = useConfirm();
   const isAdmin = useOptionalUserContext()?.profile?.tenant_role === "admin";
-  const [batches, setBatches] = useState<CatalogueImportBatch[] | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [page, setPage] = useState<CatalogueImportBatchPage | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [olderError, setOlderError] = useState<string | null>(null);
   const [working, setWorking] = useState<string | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [reload, setReload] = useState(0);
+  const listRequest = useRef<AbortController | null>(null);
+  const loadedPages = useRef(1);
 
   useEffect(() => {
     const abort = new AbortController();
-    fetchCatalogueImportBatches(abort.signal).then(
-      (items) => {
-        if (abort.signal.aborted) return;
-        setBatches(visibleBatches(items));
-        setFailed(false);
-      },
-      () => { if (!abort.signal.aborted) setFailed(true); },
-    );
-    return () => abort.abort();
+    listRequest.current = abort;
+    async function refresh() {
+      let latest = await fetchCatalogueImportBatches(undefined, abort.signal);
+      let pages = 1;
+      // Keep older imports in view after an action, including an undo that needs to be resumed.
+      while (pages < loadedPages.current && latest.next_cursor && !abort.signal.aborted) {
+        const next = await fetchCatalogueImportBatches(latest.next_cursor, abort.signal);
+        latest = { items: [...latest.items, ...next.items], next_cursor: next.next_cursor };
+        pages += 1;
+      }
+      if (abort.signal.aborted) return;
+      loadedPages.current = pages;
+      setPage(latest);
+      setOlderError(null);
+    }
+    void refresh()
+      .catch(() => { /* Keep the last successful list if its refresh fails. */ })
+      .finally(() => {
+        if (listRequest.current === abort) listRequest.current = null;
+      });
+    return () => listRequest.current?.abort();
   }, [refreshKey, reload]);
+
+  async function loadOlder() {
+    if (!page?.next_cursor || listRequest.current) return;
+    const abort = new AbortController();
+    listRequest.current = abort;
+    setLoadingOlder(true);
+    setOlderError(null);
+    try {
+      const next = await fetchCatalogueImportBatches(page.next_cursor, abort.signal);
+      if (abort.signal.aborted) return;
+      loadedPages.current += 1;
+      setPage({ items: [...page.items, ...next.items], next_cursor: next.next_cursor });
+    } catch (failure) {
+      if (!abort.signal.aborted) {
+        setOlderError(catalogueErrorMessage(failure, "Les imports plus anciens n’ont pas pu être chargés."));
+      }
+    } finally {
+      if (listRequest.current === abort) listRequest.current = null;
+      setLoadingOlder(false);
+    }
+  }
 
   async function run(batch: CatalogueImportBatch, action: () => Promise<string>, fallback: string) {
     setWorking(batch.id);
@@ -78,10 +112,7 @@ export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readon
       return bulkValidationSummary(await validateDraftProducts({ import_batch_id: batch.id }));
     } catch (failure) {
       if (isEstimateApiError(failure) && failure.code === CATALOGUE_BULK_INCOMPLETE) {
-        await Promise.allSettled([
-          Promise.resolve().then(onChanged),
-          fetchCatalogueImportBatches().then((items) => setBatches(visibleBatches(items))),
-        ]);
+        await Promise.resolve().then(onChanged).catch(() => {});
       }
       throw failure;
     }
@@ -106,17 +137,16 @@ export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readon
     }, "Cet import n’a pas pu être annulé.");
   }
 
-  if (failed && batches === null) return null;
-  if (batches === null || batches.length === 0) return null;
+  if (!page?.items.length) return null;
 
   return (
     <section aria-labelledby="costing-workbook-batches-title" className="mt-6 space-y-3 rounded-lg border border-border bg-surface p-4 sm:p-5">
       <h2 id="costing-workbook-batches-title" className="typo-h3">Imports récents</h2>
       {message ? <Alert variant={message.tone}>{message.text}</Alert> : null}
       <ul aria-label="Imports récents" className="divide-y divide-border">
-        {batches.map((batch) => {
+        {page.items.map((batch) => {
           const articles = batch.kind === "workbook_articles";
-          const busy = working !== null;
+          const busy = working !== null || loadingOlder;
           const undoInProgress = Boolean(batch.undo_started_at && !batch.undone_at);
           return (
             <li key={batch.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
@@ -163,6 +193,12 @@ export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readon
           );
         })}
       </ul>
+      {olderError ? <Alert variant="danger">{olderError}</Alert> : null}
+      {page.next_cursor ? (
+        <Button variant="outline" size="sm" loading={loadingOlder} disabled={working !== null} onClick={() => void loadOlder()}>
+          Afficher les imports plus anciens
+        </Button>
+      ) : null}
       {isAdmin ? null : (
         <p className="text-xs text-muted-foreground">La validation des brouillons est réservée aux administrateurs.</p>
       )}

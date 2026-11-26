@@ -1,7 +1,7 @@
 import type {
   BulkAssignResult,
   BulkValidateResult,
-  CatalogueImportBatch,
+  CatalogueImportBatchPage,
   PendingReferencesQuery,
   PendingSupplierReferencePage,
   ReviewReferencesInput,
@@ -69,11 +69,11 @@ export function assignProductsSupplyType(ids: string[], supplyTypeId: string): P
   );
 }
 
-export async function fetchCatalogueImportBatches(signal?: AbortSignal): Promise<CatalogueImportBatch[]> {
-  const answer = await requestJsonUncoordinated<{ items: CatalogueImportBatch[] }>(
-    "/api/catalogue/import-batches", { method: "GET", cache: "no-store", signal }, "Les imports n’ont pas pu être chargés.",
+export function fetchCatalogueImportBatches(cursor?: string, signal?: AbortSignal): Promise<CatalogueImportBatchPage> {
+  const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+  return requestJsonUncoordinated<CatalogueImportBatchPage>(
+    `/api/catalogue/import-batches${query}`, { method: "GET", cache: "no-store", signal }, "Les imports n’ont pas pu être chargés.",
   );
-  return answer.items ?? [];
 }
 
 export function undoCatalogueImport(batchId: string): Promise<UndoImportResult> {

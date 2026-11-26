@@ -331,6 +331,7 @@ describe("undoCatalogueImportBatch", () => {
 
   it("lists a started undo as resumable until the batch is marked undone", async () => {
     const fake = seed("admin");
+    fake.tables.products = [];
     const createdAt = "2026-11-25T10:00:00.000Z";
     const startedAt = "2026-11-25T11:00:00.000Z";
     fake.tables.catalogue_import_batches = [
@@ -343,7 +344,7 @@ describe("undoCatalogueImportBatch", () => {
     const { items } = await listCatalogueImportBatches();
 
     expect(items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: BATCH, undo_started_at: startedAt, undone_at: null, can_undo: true }),
+      expect.objectContaining({ id: BATCH, undo_started_at: startedAt, undone_at: null, total: 0, open: 0, can_undo: true }),
       expect.objectContaining({ id: OTHER_BATCH, undo_started_at: startedAt, undone_at: startedAt, can_undo: false }),
     ]));
   });
