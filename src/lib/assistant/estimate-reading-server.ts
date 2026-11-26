@@ -46,7 +46,7 @@ export async function listAffaireEstimateVersions(projectId: string) {
  * A member who reads the affaire without opening its estimates in the editor
  * (a director) gets the document view.
  */
-export async function loadEstimateReading(input: { versionId: string; projectId: string }): Promise<EstimateReading> {
+export async function loadEstimateReading(input: { versionId: string; projectId: string; cache?: Map<string, EstimateReading> }): Promise<EstimateReading> {
   const { context, project } = await affaireReadAccess(input.projectId, NO_ACCESS);
   const versionRead = await context.supabase.from("estimate_versions").select("*")
     .eq("id", input.versionId).eq("tenant_id", context.tenantId).maybeSingle();
@@ -56,6 +56,8 @@ export async function loadEstimateReading(input: { versionId: string; projectId:
     throw new AssistantToolError("Ce devis n’appartient pas à l’affaire de cette conversation.");
   }
   const view = canAccessOwnerResource({ context, resourceUserId: project.user_id }) ? "editor" : "document";
+  const cached = input.cache?.get(version.id);
+  if (cached?.view === view) return cached;
   const items = await readAllEstimateItems({ supabase: context.supabase, tenantId: context.tenantId, versionId: version.id });
 
   let calculation: EstimateReadingSource["calculation"] = { kind: "frozen" };
@@ -84,5 +86,7 @@ export async function loadEstimateReading(input: { versionId: string; projectId:
     }
     throw error;
   });
-  return buildEstimateReading({ version, items, calculation }, view);
+  const reading = buildEstimateReading({ version, items, calculation }, view);
+  input.cache?.set(version.id, reading);
+  return reading;
 }

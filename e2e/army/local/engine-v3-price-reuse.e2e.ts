@@ -40,8 +40,8 @@ armyTest("PRX01 reference prices are reused on identical articles after review, 
       },
     });
     // Sans activation serveur, les arbitres IA sont présentés mais inaccessibles : aucun appel facturé possible.
-    await expect(dialog.getByRole("button", "Départager avec Decisions", { exact: true })).toBeDisabled();
-    await expect(dialog.getByRole("button", "Départager avec ChatGPT", { exact: true })).toBeDisabled();
+    await expect(dialog.getByLabel("Source d’IA", { exact: true })).toHaveValue("");
+    await expect(dialog.getByRole("button", "Départager", { exact: true })).toBeDisabled();
     const unitNote = await browser.evaluate((id) =>
       document.querySelector(`[data-testid="price-reuse-row"][data-line-id="${id}"]`)?.textContent ?? "", T5.id);
     expect(unitNote).toContain("en m2 dans la référence");

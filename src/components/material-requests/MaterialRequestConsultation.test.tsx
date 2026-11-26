@@ -1681,7 +1681,7 @@ describe("consultation of suppliers", () => {
     await openStep(user, 1);
     await user.click(screen.getByRole("button", { name: "Voir l’original" }));
     const original = await screen.findByRole("dialog", { name: "Original de la demande" });
-    expect(within(original).getByText("Pas de photo de l’original.")).toBeVisible();
+    expect(within(original).getByText("Aucune pièce jointe.")).toBeVisible();
   });
 });
 

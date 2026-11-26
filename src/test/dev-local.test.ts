@@ -78,6 +78,93 @@ function childSettings(stdout: string) {
   return JSON.parse(stdout.split("\n").find((line) => line.startsWith("{")) ?? "null");
 }
 
+describe("npm run start port convention", () => {
+  it.each([
+    { npmScript: "start", args: [], portEnv: undefined, port: "3000" },
+    { npmScript: "start", args: ["-p3009"], portEnv: "4200", port: "3009" },
+    { npmScript: "start:local", args: [], portEnv: "4200", port: "3001" },
+  ])("uses local Supabase on $port", async ({ npmScript, args, portEnv, port }) => {
+    await withDevFixture(async (start, cwd) => {
+      await writeFile(join(cwd, ".env.supabase.local"), local);
+      const result = await start(args, { npmScript, env: { PORT: portEnv } });
+      expect(result.code, result.stderr).toBe(0);
+      expect(childSettings(result.stdout)).toMatchObject({
+        args: ["dev", "--hostname", "127.0.0.1", "--port", port],
+        url: "http://localhost:54321",
+        publicKey: "fixture-public-local",
+        serviceKey: "",
+        target: "local",
+      });
+    });
+  });
+
+  it.each([
+    { npmScript: "start", args: ["--port=4200"], portEnv: "3002", port: "4200" },
+    { npmScript: "start", args: [], portEnv: "4209", port: "4209" },
+    { npmScript: "start:prod", args: [], portEnv: "3002", port: "4200" },
+  ])("uses full production Supabase with $npmScript on $port", async ({ npmScript, args, portEnv, port }) => {
+    await withDevFixture(async (start, cwd) => {
+      await writeFile(join(cwd, ".env.supabase.local"), local);
+      await writeFile(join(cwd, productionConfigFile), production);
+      await writeFile(join(cwd, ".env.local"), productionPublic.replace("project-fixture", "other-fixture"));
+      const result = await start(args, {
+        npmScript,
+        env: { PORT: portEnv, MERGEONE_CHATGPT_LOCAL: "0", SUPABASE_SERVICE_ROLE_KEY: "fixture-service-shell" },
+      });
+      expect(result.code, result.stderr).toBe(0);
+      expect(childSettings(result.stdout)).toEqual({
+        args: ["dev", "--hostname", "127.0.0.1", "--port", port],
+        url: "https://project-fixture.supabase.co",
+        publicKey: "fixture-public-production",
+        serviceKey: "fixture-service-production",
+        chatgpt: "1",
+        target: "production-full",
+      });
+    });
+  });
+
+  it("requires the dedicated full production configuration even when shell and Next settings exist", async () => {
+    await withDevFixture(async (start) => {
+      const result = await start([], {
+        npmScript: "start:prod",
+        env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-service-shell" },
+      });
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(productionConfigFile);
+      expect(result.stderr).not.toContain("fixture-service-shell");
+      expect(childSettings(result.stdout)).toBeNull();
+    });
+  });
+
+  it.each(["300", "3010", "420", "4210", "4200oops"])("rejects port %s before starting Next", async (port) => {
+    await withDevFixture(async (start) => {
+      const result = await start(["--port", port], { npmScript: "start" });
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("3000–3009");
+      expect(result.stderr).toContain("4200–4209");
+      expect(childSettings(result.stdout)).toBeNull();
+    });
+  });
+
+  it.each(["--supabase=production-full", "--hostname=0.0.0.0"])("rejects %s on the local launcher", async (option) => {
+    await withDevFixture(async (start) => {
+      const result = await start(["--port", "4200", option], { npmScript: "start" });
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unknown option");
+      expect(childSettings(result.stdout)).toBeNull();
+    });
+  });
+
+  it("keeps the local shortcut from switching to production through an extra port option", async () => {
+    await withDevFixture(async (start) => {
+      const result = await start(["--port", "4200"], { npmScript: "start:local" });
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Pass the port once");
+      expect(childSettings(result.stdout)).toBeNull();
+    });
+  });
+});
+
 describe("development Supabase target", () => {
   it("blocks a hosted .env.local on the default launcher before Next starts", async () => {
     await withDevFixture(async (start) => {

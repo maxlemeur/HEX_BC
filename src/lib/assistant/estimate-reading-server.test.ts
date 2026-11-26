@@ -8,6 +8,7 @@ import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { estimateLineDetail, estimateOutline } from "@/lib/assistant/estimate-reading";
 import { loadEstimateReading } from "@/lib/assistant/estimate-reading-server";
 import { AssistantToolError } from "@/lib/assistant/loop";
+import { buildAssistantTools } from "@/lib/assistant/tools";
 import type { TenantRole } from "@/lib/auth/tenant-context";
 import { conflict, forbidden } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
@@ -44,6 +45,11 @@ function member(role: TenantRole, userId = "member-1", versions: Record<string, 
   return requests;
 }
 
+function lineReader() {
+  const tool = buildAssistantTools({ context: {} as never, projectId: AFFAIRE }).find(({ name }) => name === "lire_ligne_devis")!;
+  return () => tool.run({ versionId: issued.id, lineId: line.id }, new AbortController().signal);
+}
+
 describe("estimate read by the assistant", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -59,6 +65,30 @@ describe("estimate read by the assistant", () => {
     await expect(read).rejects.toThrow("introuvable ou vous n’y avez pas accès");
     expect(requireAffaireAccess).toHaveBeenCalledWith(AFFAIRE, "read");
     expect(requests).toEqual([]);
+  });
+
+  it("refuses a cached line when the same member loses access to the affaire", async () => {
+    member("admin");
+    const readLine = lineReader();
+    await expect(readLine()).resolves.toHaveProperty("saisie");
+
+    vi.mocked(requireAffaireAccess).mockRejectedValue(forbidden("Accès refusé à cette affaire."));
+    await expect(readLine()).rejects.toThrow("introuvable ou vous n’y avez pas accès");
+    expect(readAllEstimateItems).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces a cached editor reading with the document view after a role change", async () => {
+    member("admin");
+    const readLine = lineReader();
+    await expect(readLine()).resolves.toHaveProperty("saisie");
+
+    member("director");
+    const restricted = await readLine();
+    expect(restricted).not.toHaveProperty("saisie");
+    expect(restricted).toMatchObject({ restriction: expect.any(String), calcul: { pu_ht: "100,00 €" } });
+    await expect(readLine()).resolves.toEqual(restricted);
+    expect(requireAffaireAccess).toHaveBeenCalledTimes(3);
+    expect(readAllEstimateItems).toHaveBeenCalledTimes(2);
   });
 
   it("refuses an estimate of another affaire before reading any of its lines", async () => {

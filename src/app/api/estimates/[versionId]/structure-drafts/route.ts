@@ -1,4 +1,5 @@
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
+import { parseEstimateDraftGenerationBody } from "@/lib/estimates/draft-ai-generation";
 import { generateEstimateStructureDraftSchema } from "@/lib/estimates/schemas";
 import { generateEstimateStructureDraft } from "@/lib/estimates/structure-drafts";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
@@ -9,8 +10,8 @@ export async function POST(
 ) {
   try {
     const versionId = await uuidRouteParam(params, "versionId");
-    const body = generateEstimateStructureDraftSchema.parse(
-      await parseJsonBody(request, badRequest)
+    const body = parseEstimateDraftGenerationBody(
+      generateEstimateStructureDraftSchema, await parseJsonBody(request, badRequest)
     );
     const data = await generateEstimateStructureDraft(versionId, body);
     return ok(data, 201);

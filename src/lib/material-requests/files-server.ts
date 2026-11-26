@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { sanitizeAffaireIntakeFilename } from "@/lib/affaires/intake";
+import { openZip } from "@/lib/cad/zip";
 import {
   badRequest,
   conflict,
@@ -18,6 +19,7 @@ import {
   MATERIAL_REQUEST_FILE_REJECTED,
   MATERIAL_REQUEST_MAX_FILES,
   MATERIAL_REQUESTS_BUCKET,
+  MATERIAL_REQUEST_WORKBOOK_MIME_TYPE,
   type MaterialRequestFile,
   type MaterialRequestFileRejection,
   type MaterialRequestFileRotation,
@@ -72,9 +74,9 @@ export const MATERIAL_REQUEST_HEIC_MESSAGE =
   "Les photos HEIC doivent être converties en JPEG avant l’envoi : l’écran des demandes le fait de lui-même.";
 
 const FILE_NOT_FOUND_MESSAGE = "Original introuvable dans cette demande.";
-const PREPARE_FAILED_MESSAGE = "Impossible de préparer l’envoi des photos. Réessayez.";
-const COMPLETE_FAILED_MESSAGE = "Impossible d’enregistrer les photos : aucune n’a été conservée. Réessayez.";
-const REJECTED_MESSAGE = "Les photos reçues ne sont pas celles annoncées : aucune n’a été conservée. Déposez-les à nouveau.";
+const PREPARE_FAILED_MESSAGE = "Impossible de préparer l’envoi des fichiers. Réessayez.";
+const COMPLETE_FAILED_MESSAGE = "Impossible d’enregistrer les fichiers. Aucun n’a été conservé. Réessayez.";
+const REJECTED_MESSAGE = "Les fichiers reçus ne correspondent pas aux fichiers annoncés. Déposez-les à nouveau.";
 /** Paths per storage removal call: a request's deletion removes its files' bytes in batches of this size. */
 const STORAGE_REMOVE_BATCH = 100;
 /** A signed upload is valid for two hours: an unstored row older than this belongs to nobody's upload. */
@@ -90,6 +92,7 @@ const MIME_BY_EXTENSION: Record<(typeof MATERIAL_REQUEST_FILE_EXTENSIONS)[number
   png: "image/png",
   webp: "image/webp",
   pdf: "application/pdf",
+  xlsx: MATERIAL_REQUEST_WORKBOOK_MIME_TYPE,
 };
 const HEIC_EXTENSIONS = new Set(["heic", "heif", "heics", "heifs"]);
 const HEIC_MIME_TYPES = new Set(["image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"]);
@@ -117,21 +120,24 @@ function sniffFile(head: Uint8Array): StoredMimeType | "heic" | null {
 }
 
 /**
- * What is announced must be a PDF or a JPEG, PNG or WebP image of at most 20 MiB, whose name and type agree.
+ * The original or quote attachment must have a supported format of at most 20 MiB, with matching name and type.
  */
-function checkAnnounced(file: { name: string; mime_type: string; byte_size: number }): StoredMimeType {
+function checkAnnounced(file: { name: string; mime_type: string; byte_size: number }, scope: FileScope): StoredMimeType {
   const extension = extensionOf(file.name);
   const declared = file.mime_type.trim().toLowerCase();
   if (HEIC_EXTENSIONS.has(extension) || HEIC_MIME_TYPES.has(declared)) {
     throw unprocessableEntity(MATERIAL_REQUEST_HEIC_MESSAGE, undefined, MATERIAL_REQUEST_HEIC_UNSUPPORTED);
   }
   const expected: StoredMimeType | undefined = (MIME_BY_EXTENSION as Record<string, StoredMimeType | undefined>)[extension];
-  if (!expected) {
-    throw badRequest(`« ${file.name} » n’est pas un PDF ni une image JPEG, PNG ou WebP.`);
+  const quote = scope.quoteId !== null;
+  if (!expected || (quote && expected === MATERIAL_REQUEST_WORKBOOK_MIME_TYPE)) {
+    throw badRequest(quote
+      ? `« ${file.name} » n’est pas un PDF ni une image JPEG, PNG ou WebP.`
+      : `« ${file.name} » doit être une image JPEG, PNG ou WebP, un PDF ou un fichier Excel (.xlsx).`);
   }
   // A browser that does not know the type sends none: the extension then decides.
   if (declared && declared !== expected) {
-    throw badRequest(`« ${file.name} » n’est pas le fichier que son nom annonce : déposez un PDF ou une image JPEG, PNG ou WebP.`);
+    throw badRequest(`« ${file.name} » n’est pas du format annoncé par son nom.`);
   }
   if (file.byte_size > MATERIAL_REQUEST_FILE_MAX_BYTES) throw payloadTooLarge(`« ${file.name} » dépasse ${MAX_SIZE_LABEL}.`);
   return expected;
@@ -280,7 +286,7 @@ function limitReached(scope: FileScope, stored: number, suffix = "") {
 }
 
 /** The end of a cap refusal at completion: the batch was discarded. */
-const NOT_KEPT = { originals: " : ces photos n’ont pas été conservées", quote: " : ces fichiers n’ont pas été conservés" };
+const NOT_KEPT = " : ces fichiers n’ont pas été conservés";
 
 function capOf(scope: FileScope) {
   return scope.quoteId === null ? MATERIAL_REQUEST_MAX_FILES : MATERIAL_REQUEST_QUOTE_MAX_FILES;
@@ -288,7 +294,7 @@ function capOf(scope: FileScope) {
 
 function tooManyPending() {
   return unprocessableEntity(
-    `Trop de photos sont en cours d’envoi pour cette demande (${MATERIAL_REQUEST_MAX_PENDING_FILES} au plus) : terminez ou annulez les envois en cours, puis réessayez.`,
+    `Trop de fichiers sont en cours d’envoi pour cette demande (${MATERIAL_REQUEST_MAX_PENDING_FILES} au plus) : terminez ou annulez les envois en cours, puis réessayez.`,
     { max: MATERIAL_REQUEST_MAX_PENDING_FILES },
     MATERIAL_REQUEST_UPLOADS_PENDING,
   );
@@ -331,7 +337,7 @@ export async function prepareMaterialRequestFiles(
   const scope: FileScope = { quoteId: quoteId ? (await requireOpenQuote(access, request.id, quoteId)).id : null };
 
   // Every file is checked before anything is written: one refusal refuses the batch.
-  const mimeTypes = announced.map((file) => checkAnnounced(file));
+  const mimeTypes = announced.map((file) => checkAnnounced(file, scope));
   await discardLeftovers(access, request.id);
 
   // The cap is on what a reader sees: it is checked again where a batch becomes visible. Photos still
@@ -363,7 +369,7 @@ export async function prepareMaterialRequestFiles(
           const quote = await requireQuote(access, request.id, scope.quoteId);
           if (quote.status === "retained" || quote.status === "closed") throw quoteReadOnly(quote.status);
         }
-        throw mapSupabaseError(error, "Impossible d'enregistrer la photo.");
+        throw mapSupabaseError(error, "Impossible d’enregistrer le fichier.");
       }
       recorded.push(id);
 
@@ -405,6 +411,12 @@ async function readHead(stream: ReadableStream<Uint8Array>): Promise<Uint8Array>
   return head.subarray(0, length);
 }
 
+function hasWorkbookEntries(bytes: Uint8Array): boolean {
+  // Inspect the ZIP directory without decompressing the workbook.
+  const archive = openZip(bytes);
+  return archive !== null && ["[Content_Types].xml", "xl/workbook.xml"].every((name) => (archive.size(name) ?? 0) > 0);
+}
+
 /** Null when storage holds, at the path of the row, what the row announces. */
 async function verifyStored(
   access: MaterialRequestAccess,
@@ -414,6 +426,12 @@ async function verifyStored(
   const { data: info, error: infoError } = await bucket.info(file.storage_path);
   if (infoError || !info) return "missing";
   if (info.size !== file.byte_size) return "size";
+  if (file.mime_type === MATERIAL_REQUEST_WORKBOOK_MIME_TYPE) {
+    const { data: body, error } = await bucket.download(file.storage_path);
+    if (error || !body) return "missing";
+    if (body.size !== file.byte_size || body.size > MATERIAL_REQUEST_FILE_MAX_BYTES) return "size";
+    return hasWorkbookEntries(new Uint8Array(await body.arrayBuffer())) ? null : "type";
+  }
   const { data: stream, error: streamError } = await bucket.download(file.storage_path).asStream();
   if (streamError || !stream) return "missing";
   return sniffFile(await readHead(stream as ReadableStream<Uint8Array>)) === file.mime_type ? null : "type";
@@ -475,7 +493,7 @@ export async function completeMaterialRequestFiles(
     const over = counted.find((entry) => entry.listed + entry.adding > capOf(entry.scope));
     if (over) {
       await discardUnstored(access, requestId, pendingIds);
-      throw limitReached(over.scope, over.listed, NOT_KEPT[over.scope.quoteId === null ? "originals" : "quote"]);
+      throw limitReached(over.scope, over.listed, NOT_KEPT);
     }
 
     // One statement makes the whole batch visible. The database sets the time itself and refuses the
@@ -494,7 +512,7 @@ export async function completeMaterialRequestFiles(
       await discardUnstored(access, requestId, pendingIds);
       if (markError.message === MATERIAL_REQUEST_FILE_LIMIT) {
         const originals = counted.find((entry) => entry.scope.quoteId === null);
-        throw fileLimitReached(originals?.listed ?? MATERIAL_REQUEST_MAX_FILES, NOT_KEPT.originals);
+        throw fileLimitReached(originals?.listed ?? MATERIAL_REQUEST_MAX_FILES, NOT_KEPT);
       }
       // A quote of the batch was retained or closed between the check above and this mark.
       if (markError.message === "MATERIAL_REQUEST_QUOTE_READ_ONLY") {
@@ -504,7 +522,7 @@ export async function completeMaterialRequestFiles(
       }
       if (markError.message === MATERIAL_REQUEST_QUOTE_FILE_LIMIT) {
         const quote = counted.find((entry) => entry.scope.quoteId !== null);
-        throw quoteFileLimitReached(quote?.listed ?? MATERIAL_REQUEST_QUOTE_MAX_FILES, NOT_KEPT.quote);
+        throw quoteFileLimitReached(quote?.listed ?? MATERIAL_REQUEST_QUOTE_MAX_FILES, NOT_KEPT);
       }
       console.error("Material request originals could not be marked stored", { requestId, error: markError });
       throw internalError(COMPLETE_FAILED_MESSAGE);
@@ -514,7 +532,7 @@ export async function completeMaterialRequestFiles(
       // its bytes; only what is still unstored is taken back.
       await discardUnstored(access, requestId, pendingIds);
       throw conflict(
-        "Ce dépôt a été modifié pendant son enregistrement : rechargez la demande, puis déposez à nouveau les photos manquantes.",
+        "Ce dépôt a été modifié pendant son enregistrement : rechargez la demande, puis déposez à nouveau les fichiers manquants.",
         undefined,
         MATERIAL_REQUEST_UPLOAD_CHANGED,
       );
@@ -600,6 +618,7 @@ export async function updateMaterialRequestFile(
   const file = await requireFile(access, requestId, fileId);
   if (file.quote_id) await requireOpenQuote(access, requestId, file.quote_id);
   if (file.mime_type === "application/pdf") throw badRequest("Un PDF ne se tourne pas.");
+  if (file.mime_type === MATERIAL_REQUEST_WORKBOOK_MIME_TYPE) throw badRequest("Un fichier Excel ne se tourne pas.");
   const { data, error } = await access.context.supabase
     .from("material_request_files")
     .update({ rotation: input.rotation })

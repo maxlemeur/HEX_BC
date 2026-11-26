@@ -19,12 +19,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ thr
   try {
     assertAssistantRequest(request.headers.get("host"));
     const { threadId } = paramsSchema.parse(await params);
-    const prepared = await prepareAssistantReply(threadId, await request.json().catch(() => null));
+    const prepared = await prepareAssistantReply(threadId, await request.json().catch(() => null), request.signal);
 
     const encoder = new TextEncoder();
     // The member stops the answer by closing the request: the reply is then saved as interrupted.
     const interruption = new AbortController();
-    request.signal.addEventListener("abort", () => interruption.abort(), { once: true });
+    const signal = AbortSignal.any([request.signal, interruption.signal]);
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const emit = (event: AssistantStreamEvent) => {
@@ -35,7 +35,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ thr
           }
         };
         emit({ type: "started", question: prepared.question });
-        await runAssistantReply(prepared, emit, interruption.signal);
+        await runAssistantReply(prepared, emit, signal);
         try {
           controller.close();
         } catch {

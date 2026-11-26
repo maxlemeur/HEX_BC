@@ -51,6 +51,7 @@ import {
 import {
   applyEstimateStructureDraftSchema,
   duplicateEstimateSectionSchema,
+  ESTIMATE_DRAFT_AI_CHOICE_REQUIRED,
   generateEstimateStructureDraftSchema,
   generateVersionZeroDraftSchema,
   importEstimateSectionsSchema,
@@ -318,6 +319,9 @@ const portalAndProcurementContracts: RouteContract[] = [
   },
 ];
 
+const estimateDraftAiChoiceErrorDescription =
+  `Une requête autrement valide sans le champ ai reçoit un HTTP 400 avec le code ${ESTIMATE_DRAFT_AI_CHOICE_REQUIRED.code} et le message « ${ESTIMATE_DRAFT_AI_CHOICE_REQUIRED.message} ».`;
+
 const estimateWorkflowContracts: RouteContract[] = [
   {
     id: "get-estimate-approval-journal",
@@ -404,7 +408,7 @@ const estimateWorkflowContracts: RouteContract[] = [
     method: "post",
     path: "/api/estimates/{versionId}/price-reuse/preview",
     summary: "Comparer avec un devis de reference",
-    description: "Lecture seule (docs/metier/reprise-des-prix.md). Rapproche les lignes chiffrables (priced, not_priced) de la version cible moteur 3 des lignes chiffrees d'un autre devis moteur 3 accessible : identical (memes cotes, mots et unite), to_review (candidats sans cote contraire, ecarts nommes, ou plusieurs prix pour le meme article), new. Une cote differente (DN, dimension, epaisseur, classe) ou une autre unite exclut un article. preselected seulement pour un article identique sans prix saisi. arbiters indique la disponibilite de Decisions et du forfait ChatGPT, sans appel. Moteur 1/2 : 409 PRICE_REUSE_ENGINE_UNSUPPORTED.",
+    description: "Lecture seule (docs/metier/reprise-des-prix.md). Rapproche les lignes chiffrables (priced, not_priced) de la version cible moteur 3 des lignes chiffrees d'un autre devis moteur 3 accessible : identical (memes cotes, mots et unite), to_review (candidats sans cote contraire, ecarts nommes, ou plusieurs prix pour le meme article), new. Une cote differente (DN, dimension, epaisseur, classe) ou une autre unite exclut un article. preselected seulement pour un article identique sans prix saisi. arbiters indique les sources disponibles (Decisions, forfait ChatGPT, cle personnelle) et les modeles et efforts proposes. default_billing_source vient de Mon profil. Aucune inference. Moteur 1/2 : 409 PRICE_REUSE_ENGINE_UNSUPPORTED.",
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
     body: { schema: priceReusePreviewInputSchema, description: "Version de reference." },
@@ -416,10 +420,11 @@ const estimateWorkflowContracts: RouteContract[] = [
     method: "post",
     path: "/api/estimates/{versionId}/price-reuse/arbitration",
     summary: "Departager les lignes a verifier",
-    description: "Sans ecriture. Recalcule la comparaison et n'envoie au fournisseur choisi que les lignes encore to_review avec leurs candidats (100 au plus par demande). decisions : API Decisions facturee separement, seulement si MERGEONE_OPENAI_DECISIONS=1 et une cle serveur ; chatgpt : forfait ChatGPT de MergeOne local. Chaque reponse est une proposition (reference_line_id ou null, confiance) ; aucun repli d'un fournisseur vers l'autre. Reference modifiee depuis la comparaison : 409 PRICE_REUSE_REFERENCE_CHANGED.",
+    description: "Sans ecriture. Recalcule la comparaison et n'envoie a la source choisie que les lignes encore to_review avec leurs candidats. decisions utilise le modele fixe de l'API Decisions facturee separement, seulement si MERGEONE_OPENAI_DECISIONS=1 et une cle serveur. chatgpt et personal_api_key utilisent le forfait ChatGPT et la cle OpenAI de MergeOne local avec les preferences du membre authentifie par defaut. Toute selection explicite de modele ou d'effort doit etre proposee par sa source. personal_api_key partage un plafond de 0,10 USD entre tous les lots de la demande et conserve les reponses recues en cas d'arret. Chaque reponse est une proposition (reference_line_id ou null, confiance ; no_match signale un choix explicite sans correspondance). Aucun repli entre sources. Reference modifiee depuis la comparaison : 409 PRICE_REUSE_REFERENCE_CHANGED.",
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
-    body: { schema: priceReuseArbitrationInputSchema, description: "Reference, fournisseur et lignes a departager." },
+    body: { schema: priceReuseArbitrationInputSchema, description: "Reference, source, lignes et choix facultatifs de modele et d'effort pour le forfait ChatGPT ou la cle personnelle." },
+    extraErrors: [{ status: "422", description: "Modele ou niveau d'effort que la source choisie ne propose plus a ce membre : recharger les sources et choisir de nouveau." }],
     success: [{ status: "200", description: "Propositions de l'arbitre, a confirmer.",
       schema: { schemaName: "ArbitrateEstimatePriceReuseResponse", schema: z.object({ ok: z.literal(true), data: priceReuseArbitrationSchema }), io: "output" } }],
   },
@@ -469,7 +474,7 @@ const estimateWorkflowContracts: RouteContract[] = [
     description: "Produit un brouillon de structure hybride depuis les sources disponibles.",
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
-    body: { schema: generateEstimateStructureDraftSchema, description: "Strategie de generation." },
+    body: { schema: generateEstimateStructureDraftSchema, description: `Stratégie et choix IA. Une génération avec la clé personnelle est plafonnée à 1 USD. ${estimateDraftAiChoiceErrorDescription}` },
     success: [{ status: "201", description: "Brouillon de structure genere." }],
   },
   {
@@ -515,7 +520,7 @@ const estimateWorkflowContracts: RouteContract[] = [
     description: "Genere un brouillon IA a revoir pour les lots selectionnes.",
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
-    body: { schema: generateVersionZeroDraftSchema, description: "Brief et lots selectionnes." },
+    body: { schema: generateVersionZeroDraftSchema, description: `Brief, lots et choix IA. La structure et les lignes partagent le plafond de 1 USD avec la clé personnelle. ${estimateDraftAiChoiceErrorDescription}` },
     success: [{ status: "201", description: "Brouillon version zero genere." }],
   },
   {

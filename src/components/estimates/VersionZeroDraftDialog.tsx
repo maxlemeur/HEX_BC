@@ -32,6 +32,8 @@ import {
   type VersionZeroReviewLine,
   type VersionZeroReviewLot,
 } from "@/lib/estimates/version-zero-drafts-client";
+import type { EstimateDraftAiRequest } from "@/lib/estimates/schemas";
+import { EstimateDraftAiSettings, useEstimateDraftAiSettings } from "./EstimateDraftAiSettings";
 import { parseVersionZeroQuantityInput } from "@/lib/estimates/version-zero-utils";
 import { cn } from "@/lib/utils";
 import type { VersionZeroDraftDialogProps } from "@/hooks/estimate-editor-view-props";
@@ -112,6 +114,7 @@ export function VersionZeroDraftDialog({
   ensureMutationCanProceed,
   onClose,
 }: VersionZeroDraftDialogProps) {
+  const aiSettings = useEstimateDraftAiSettings(versionId, isOpen && summary?.canGenerate === true);
   const [selectedLots, setSelectedLots] = useState<string[]>([]);
   const [review, setReview] = useState<VersionZeroReview | null>(null);
   const [isBusy, setIsBusy] = useState(false);
@@ -197,7 +200,8 @@ export function VersionZeroDraftDialog({
   const activeDraft = review?.draft ?? null;
   const canMaterialize = activeDraft?.counts.pending === 0;
 
-  async function handleGenerate() {
+  async function handleGenerate(ai: EstimateDraftAiRequest) {
+    if (isBusyRef.current || !summary?.canGenerate || selectedLots.length === 0) return;
     if (isMutationBlocked) {
       setErrorMessage(mutationBlockedMessage);
       return;
@@ -210,6 +214,7 @@ export function VersionZeroDraftDialog({
       const nextReview = await generateVersionZeroDraft(versionId, {
         briefId: summary?.confirmedBriefId ?? null,
         selectedLots,
+        ai,
       });
       startTransition(() => {
         setReview(nextReview);
@@ -414,25 +419,33 @@ export function VersionZeroDraftDialog({
                     })}
                   </div>
                 </fieldset>
+                {summary?.canGenerate ? (
+                  <div className="mt-4">
+                    <EstimateDraftAiSettings settings={aiSettings} locked={isBusy || isMutationBlocked} />
+                  </div>
+                ) : null}
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-sm text-muted-foreground">
                     Provenance : brief confirmé
                     {summary?.confirmedBriefId ? ` (${summary.confirmedBriefId})` : ""}.
                   </p>
-                  <Button
-                    type="button"
-                    variant="primary"
-                    size="md"
-                    onClick={() => void handleGenerate()}
-                    disabled={
-                      isBusy ||
-                      isMutationBlocked ||
-                      selectedLots.length === 0 ||
-                      !summary?.canGenerate
-                    }
-                  >
-                    {isBusy ? "Génération…" : "Générer V0"}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleGenerate({ source: "fallback" })}
+                      disabled={isBusy || isMutationBlocked || selectedLots.length === 0 || !summary?.canGenerate}
+                    >
+                      Générer sans IA
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => { if (aiSettings.request) void handleGenerate(aiSettings.request); }}
+                      disabled={isBusy || isMutationBlocked || selectedLots.length === 0 || !aiSettings.request}
+                    >
+                      {isBusy ? "Génération…" : "Générer V0"}
+                    </Button>
+                  </div>
                 </div>
               </section>
             </div>
@@ -456,6 +469,11 @@ export function VersionZeroDraftDialog({
                 />
               </dl>
 
+              {review.draft.generationMetadata.used_fallback === true ? (
+                <Alert variant="info">Des lignes ont été proposées à partir du brief confirmé.</Alert>
+              ) : review.draft.generationMetadata.structure_used_fallback === true ? (
+                <Alert variant="info">La structure a été déduite des sources disponibles.</Alert>
+              ) : null}
               {review.draft.summaryText ? (
                 <p className="rounded-lg border border-border bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">
                   Inférence : {review.draft.summaryText}
@@ -548,6 +566,11 @@ export function VersionZeroDraftDialog({
                                   <Badge variant={STATUS_BADGE[line.reviewStatus].variant}>
                                     {STATUS_BADGE[line.reviewStatus].label}
                                   </Badge>
+                                  {line.generationOrigin ? (
+                                    <Badge variant="neutral">
+                                      {line.generationOrigin === "brief" ? "Brief confirmé" : "Proposition IA"}
+                                    </Badge>
+                                  ) : null}
                                   <span className="text-xs text-muted-foreground">
                                     {CONFIDENCE_LABELS[line.confidenceLabel] ?? line.confidenceLabel}{" "}
                                     {confidenceText(line.confidence)}

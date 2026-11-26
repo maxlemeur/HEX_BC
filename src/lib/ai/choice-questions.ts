@@ -29,14 +29,14 @@ import { unprocessableEntity } from "@/lib/http/api-error";
  *  - an answer is a proposal: nothing here writes or applies anything;
  *  - the provider is the one asked for, never another: an unavailable or failing provider is reported as such;
  *  - the texts of a question are data: they travel as JSON, and the instructions come from the caller's code;
- *  - requests are bounded and run one after the other; the first refusal stops the following ones, so that no
- *    further billed request leaves after a failure.
+ *  - requests are bounded and run one after the other; a provider failure stops the following ones.
  *
  * The three providers:
  *  - `chatgpt_plan`: the member's ChatGPT plan (`callStructuredAi`), in local MergeOne only;
  *  - `personal_api_key`: the member's own OpenAI API key (`openAiApiKeyAccess`), in local MergeOne only. Each
  *    call is counted by OpenAI before generation. All calls share CHOICE_API_KEY_CEILING_NANO_USD per HTTP request.
- *    An unknown cost or a cost above the remaining allowance refuses the answer and stops.
+ *    If a batch cannot fit the remaining allowance, it is split and counted again. A single question that
+ *    cannot fit or an unknown cost stops the remaining questions.
  *    The default model and effort come from « Mon profil » for this source. Choice questions have no usage override.
  *  - `decisions`: one bounded call to the Decisions API billed to the server. The adapter supplies no cost bound.
  *
@@ -171,6 +171,7 @@ type Entry = {
 type Picked = { choice: string; confidence: number | null };
 type Outcome =
   | { status: "answered"; model: string | null; picks: Map<string, Picked> }
+  | { status: "over_budget" }
   | { status: "failed" | "unavailable" | "partial"; model: string | null; message: string };
 type Sender = (chunk: readonly Entry[], timeoutMs: number) => Promise<Outcome>;
 type Task = { task: string; promptVersion: string; instructions: string };
@@ -298,9 +299,13 @@ function apiKeySender(owner: ChoiceOwner, task: Task, call: ChatGptPreferences &
         model: call.model, reasoningEffort: call.reasoningEffort, expectedVersion: call.expectedVersion,
         prompt: promptOf(task, chunk), schema: strictAnswerSchema, files: [], allotmentNanoUsd: remaining, signal,
         outputCap: API_KEY_OUTPUT_CAP, minOutputTokens: apiKeyMinOutputTokens(chunk.length),
+      }).catch((error: unknown) => {
+        if (isApiKeyError(error) && error.code === "AI_KEY_CEILING") return null;
+        throw error;
       });
       const left = deadline - Date.now();
       if (left <= 0 || signal.aborted) return { status: "partial", model: null, message: MESSAGES.outOfTime };
+      if (prepared === null) return { status: "over_budget" };
       const answer = await api.execute<Replies>(owner, prepared, { timeoutMs: left, signal });
       if (answer.costNanoUsd === null) throw new ApiKeyError("AI_KEY_COST_UNKNOWN");
       if (answer.costNanoUsd > remaining) {
@@ -311,9 +316,6 @@ function apiKeySender(owner: ChoiceOwner, task: Task, call: ChatGptPreferences &
       return { status: "answered", model: answer.model, picks: picksOf(chunk, answer.data) };
     } catch (error) {
       if (signal.aborted || reasonOf(error) === "TIMEOUT") return { status: "partial", model: null, message: FAILURE_MESSAGES.TIMEOUT };
-      if (remaining < CHOICE_API_KEY_CEILING_NANO_USD && isApiKeyError(error) && error.code === "AI_KEY_CEILING") {
-        return { status: "partial", model: null, message: MESSAGES.outOfBudget };
-      }
       // A key failure is its closed code and its fixed sentence; anything else is worded here.
       const message = isApiKeyError(error) ? error.message
         : reasonOf(error) === "INVALID_ANSWER" ? FAILURE_MESSAGES.INVALID_ANSWER : apiKeyErrorMessage("AI_KEY_UNEXPECTED");
@@ -420,15 +422,26 @@ export async function askChoiceQuestions(input: ChoiceModelSelection & {
   let outOfTime = false;
   const chunks = chunksOf(entries, CHOICE_REQUEST_LIMITS[provider]);
   const decisionsLimited = provider === "decisions" && chunks.length > 1;
-  for (const chunk of decisionsLimited ? chunks.slice(0, 1) : chunks) {
+  if (decisionsLimited) chunks.length = 1;
+  for (let index = 0; index < chunks.length;) {
+    const chunk = chunks[index];
     const left = deadline - Date.now();
     if (left < MIN_REQUEST_MS) {
       outOfTime = true;
       break;
     }
     const outcome = await send(chunk, Math.min(REQUEST_TIMEOUT_MS[provider], left));
+    if (outcome.status === "over_budget") {
+      if (chunk.length === 1) {
+        stopped = { status: "partial", message: MESSAGES.outOfBudget };
+        break;
+      }
+      const middle = Math.floor(chunk.length / 2);
+      chunks.splice(index, 1, chunk.slice(0, middle), chunk.slice(middle));
+      continue;
+    }
     model = outcome.model ?? model;
-    // Stop at the first refusal: no further billed request after a provider failure.
+    // No further billed request after a provider failure.
     if (outcome.status !== "answered") {
       stopped = { status: outcome.status, message: outcome.message };
       break;
@@ -437,6 +450,7 @@ export async function askChoiceQuestions(input: ChoiceModelSelection & {
       const pick = outcome.picks.get(entry.key);
       if (pick) picked.set(entry.id, pick);
     }
+    index++;
   }
 
   const answers = input.questions.map((question) => ({ id: question.id, choice: null, confidence: null, ...picked.get(question.id) }));

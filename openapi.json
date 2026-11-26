@@ -2489,7 +2489,7 @@
           "Demandes de matériel"
         ],
         "summary": "Préparer le dépôt d'originaux",
-        "description": "Les originaux ne passent pas par l'application : le navigateur les envoie au stockage. Cet appel vérifie ce qui est annoncé (de 1 à 12 fichiers PDF ou images JPEG, PNG ou WebP de 20 Mo au plus, nom et type concordants, 12 originaux conservés par demande), enregistre une ligne invisible par fichier et signe un envoi par fichier avec la session de l'appelant, sans écrasement possible. Le navigateur envoie ensuite chaque fichier avec uploadToSignedUrl(path, token, fichier) sur le bucket material-requests, puis appelle files/complete. Un seul fichier refusé refuse le lot. Avec quote_id (TI-691), le lot répond à un devis de cette demande encore demandé ou reçu : PDF ou images, 10 fichiers conservés par devis, à part des originaux, listés avec le devis et jamais parmi les originaux ; même chemin de stockage (tenant/affaire/demande/fichier/nom).",
+        "description": "Les originaux ne passent pas par l'application : le navigateur les envoie au stockage. Cet appel vérifie ce qui est annoncé (de 1 à 12 fichiers Excel (.xlsx), PDF ou images JPEG, PNG ou WebP de 20 Mo au plus, nom et type concordants, 12 originaux conservés par demande), enregistre une ligne invisible par fichier et signe un envoi par fichier avec la session de l'appelant, sans écrasement possible. Le navigateur envoie ensuite chaque fichier avec uploadToSignedUrl(path, token, fichier) sur le bucket material-requests, puis appelle files/complete. Un seul fichier refusé refuse le lot. Avec quote_id (TI-691), le lot répond à un devis de cette demande encore demandé ou reçu : PDF ou images, 10 fichiers conservés par devis, à part des originaux, listés avec le devis et jamais parmi les originaux ; même chemin de stockage (tenant/affaire/demande/fichier/nom).",
         "parameters": [
           {
             "name": "projectId",
@@ -2523,7 +2523,7 @@
         },
         "responses": {
           "201": {
-            "description": "Un envoi signé par photo, valable deux heures.",
+            "description": "Un envoi signé par fichier, valable deux heures.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2583,7 +2583,7 @@
             }
           },
           "413": {
-            "description": "PAYLOAD_TOO_LARGE : une photo annoncée dépasse 20 Mo.",
+            "description": "PAYLOAD_TOO_LARGE : un fichier annoncé dépasse 20 Mo.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2621,7 +2621,7 @@
           "Demandes de matériel"
         ],
         "summary": "Lire un original ou le fichier d'un devis",
-        "description": "Octets d'un original (image ou PDF) ou d'un fichier de devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; un PDF l'est en pièce jointe (Content-Disposition: attachment), jamais affiché directement dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
+        "description": "Octets d'un original (image, PDF ou Excel) ou d'un fichier de devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; un PDF ou un Excel l'est en pièce jointe (Content-Disposition: attachment), jamais affiché directement dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
         "parameters": [
           {
             "name": "projectId",
@@ -2655,12 +2655,6 @@
           "200": {
             "description": "Fichier d'origine, jamais réécrit.",
             "content": {
-              "application/pdf": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              },
               "image/jpeg": {
                 "schema": {
                   "type": "string",
@@ -2674,6 +2668,18 @@
                 }
               },
               "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
                   "type": "string",
                   "format": "binary"
@@ -2748,7 +2754,7 @@
           "Demandes de matériel"
         ],
         "summary": "Tourner un original",
-        "description": "Rotation d'affichage par quarts de tour pour une image ; les octets conservés ne changent pas. Un PDF ne se tourne pas (400). Le fichier d'un devis retenu ou clos ne tourne plus.",
+        "description": "Rotation d'affichage par quarts de tour pour une image ; les octets conservés ne changent pas. La rotation d’un PDF ou d’un fichier Excel répond 400. Le fichier d'un devis retenu ou clos ne tourne plus.",
         "parameters": [
           {
             "name": "projectId",
@@ -2801,7 +2807,7 @@
             }
           },
           "400": {
-            "description": "BAD_REQUEST : un PDF ne se tourne pas.",
+            "description": "BAD_REQUEST : la rotation est réservée aux images.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2867,7 +2873,7 @@
           "Demandes de matériel"
         ],
         "summary": "Supprimer un original",
-        "description": "Retire l'original de toute lecture, puis supprime ses octets et sa ligne. Vaut aussi pour une photo préparée mais pas encore conservée : c'est ainsi qu'un dépôt s'annule, et un envoi encore en cours n'aboutit plus. Le fichier d'un devis se supprime de même tant que le devis est demandé ou reçu ; il reste une fois le devis retenu ou clos.",
+        "description": "Retire l'original de toute lecture, puis supprime ses octets et sa ligne. Vaut aussi pour un fichier préparé mais pas encore conservé : c'est ainsi qu'un dépôt s'annule, et un envoi encore en cours n'aboutit plus. Le fichier d'un devis se supprime de même tant que le devis est demandé ou reçu ; il reste une fois le devis retenu ou clos.",
         "parameters": [
           {
             "name": "projectId",
@@ -2977,7 +2983,7 @@
           "Demandes de matériel"
         ],
         "summary": "Lire un original avec l'IA",
-        "description": "Fait lire un original de la demande (photo ou PDF) par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à l'original. Un champ qui n'est pas écrit reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Un original par appel, de 15 Mo au plus ; la rotation d'affichage d'une photo est indiquée au modèle, ses octets partent tels quels. L'annulation de la requête HTTP interrompt l'appel fournisseur. Seuls les originaux de la demande se lisent : le fichier d'un devis, un original dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Un original sans article répond lines vide.",
+        "description": "Fait lire un original de la demande (photo ou PDF) par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à l'original. Un champ qui n'est pas écrit reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Un original par appel, de 15 Mo au plus ; la rotation d'affichage d'une photo est indiquée au modèle, ses octets partent tels quels. L'annulation de la requête HTTP interrompt l'appel fournisseur. Seules les photos et les PDF originaux de la demande sont analysés. Après validation des réglages de lecture, un fichier Excel, le fichier d'un devis et un original en cours de dépôt ou de suppression répondent 404. Un original sans article répond lines vide.",
         "parameters": [
           {
             "name": "projectId",
@@ -3128,7 +3134,7 @@
           "Demandes de matériel"
         ],
         "summary": "Terminer le dépôt d'originaux",
-        "description": "Vérifie dans le stockage chaque fichier préparé : présent, de la taille annoncée, et dont les premiers octets sont ceux du type annoncé (un PDF commence par %PDF-). Tout ou rien : si une photo échoue, aucune du lot n'est conservée (lignes et octets retirés) ; sinon le lot devient visible en une seule écriture. Un original n'est listé, compté et servi qu'après cet appel. Une photo déjà conservée, nommée à nouveau, est retournée sans être relue.",
+        "description": "Vérifie dans le stockage chaque fichier préparé : présent, de la taille annoncée, et conforme au format annoncé. Les images et PDF sont vérifiés par leur signature et un .xlsx par les entrées de classeur dans son archive. Tout ou rien : si un fichier échoue, aucun du lot n'est conservé (lignes et octets retirés) ; sinon le lot devient visible en une seule écriture. Un original n'est listé, compté et servi qu'après cet appel. Un fichier déjà conservé, nommé à nouveau, est retourné sans être relu.",
         "parameters": [
           {
             "name": "projectId",
@@ -3212,7 +3218,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_UPLOAD_CHANGED : une photo du lot a été annulée entre-temps ; celles déjà visibles le restent, recharger la demande. MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis du lot a été retenu ou clos pendant l'envoi ; le lot est retiré.",
+            "description": "MATERIAL_REQUEST_UPLOAD_CHANGED : un fichier du lot a été annulé entre-temps ; ceux déjà visibles le restent, recharger la demande. MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis du lot a été retenu ou clos pendant l'envoi ; le lot est retiré.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3222,7 +3228,7 @@
             }
           },
           "422": {
-            "description": "MATERIAL_REQUEST_FILE_REJECTED : chaque photo refusée et sa raison (missing, size, type) ; aucune du lot n'est conservée. Même statut, code MATERIAL_REQUEST_FILE_LIMIT, sans details.rejected, quand le lot ferait dépasser 12 originaux (MATERIAL_REQUEST_QUOTE_FILE_LIMIT : les fichiers de son devis) : il est alors écarté en entier.",
+            "description": "MATERIAL_REQUEST_FILE_REJECTED : chaque fichier refusé et sa raison (missing, size, type) ; aucun du lot n'est conservé. Même statut, code MATERIAL_REQUEST_FILE_LIMIT, sans details.rejected, quand le lot ferait dépasser 12 originaux (MATERIAL_REQUEST_QUOTE_FILE_LIMIT : les fichiers de son devis) : il est alors écarté en entier.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14633,8 +14639,8 @@
         "tags": [
           "Estimate Diagnostics"
         ],
-        "summary": "Expliquer le prix d'une ligne",
-        "description": "Retourne un snapshot explicable en lecture seule pour une ligne du devis, avec faits, hypotheses, inferences, provenance et confiance.",
+        "summary": "Lire l’explication du prix d’une ligne",
+        "description": "Retourne l’explication encore valide et les réglages locaux de l’utilisateur. Une explication absente ou obsolète est signalée avec un contenu nul. Aucun provider d’IA n’est appelé.",
         "parameters": [
           {
             "name": "versionId",
@@ -14666,11 +14672,259 @@
         ],
         "responses": {
           "200": {
-            "description": "Explication de prix calculee avec succes.",
+            "description": "État de l’explication et réglages disponibles.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEstimateExplanationResponse"
+                  "$ref": "#/components/schemas/ApiPriceExplanationReadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Estimate Diagnostics"
+        ],
+        "summary": "Générer une explication de prix",
+        "description": "Génère ou remplace l’explication pour la révision affichée, avec la source, le modèle et le niveau d’effort explicitement choisis. Un appel avec la clé API OpenAI est plafonné à 0,10 USD.",
+        "parameters": [
+          {
+            "name": "versionId",
+            "in": "path",
+            "description": "Identifiant UUID de la version de chiffrage.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/VersionIdPathParameter"
+            }
+          },
+          {
+            "name": "lineId",
+            "in": "path",
+            "description": "Identifiant UUID de la ligne du devis.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateLineIdPathParameter"
+            }
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "description": "Quand 1, retourne aussi le detail narratif complet.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateExplanationDetailQueryParameter"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "description": "Origine HTTP(S) de l’application.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PriceExplanationOriginHeader"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Révision et réglages de la demande.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PriceExplanationGeneration"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Explication enregistrée avec les réglages utilisés.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiPriceExplanationGeneratedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Révision, accès IA ou plafond incompatible avec la demande.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Explication inexploitable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/estimates/{versionId}/lines/{lineId}/explanation/options": {
+      "post": {
+        "tags": [
+          "Estimate Diagnostics"
+        ],
+        "summary": "Actualiser les modèles du forfait ChatGPT",
+        "description": "Recharge la liste des modèles du forfait ChatGPT connecté pour l’auteur de la demande. Cette action ne génère aucune explication.",
+        "parameters": [
+          {
+            "name": "versionId",
+            "in": "path",
+            "description": "Identifiant UUID de la version de chiffrage.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/VersionIdPathParameter"
+            }
+          },
+          {
+            "name": "lineId",
+            "in": "path",
+            "description": "Identifiant UUID de la ligne du devis.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateLineIdPathParameter"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "description": "Origine HTTP(S) de l’application.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PriceExplanationOriginHeader"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Réglages disponibles pour cette explication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiPriceExplanationSettingsResponse"
                 }
               }
             }
@@ -15701,7 +15955,7 @@
           "Estimates"
         ],
         "summary": "Departager les lignes a verifier",
-        "description": "Sans ecriture. Recalcule la comparaison et n'envoie au fournisseur choisi que les lignes encore to_review avec leurs candidats (100 au plus par demande). decisions : API Decisions facturee separement, seulement si MERGEONE_OPENAI_DECISIONS=1 et une cle serveur ; chatgpt : forfait ChatGPT de MergeOne local. Chaque reponse est une proposition (reference_line_id ou null, confiance) ; aucun repli d'un fournisseur vers l'autre. Reference modifiee depuis la comparaison : 409 PRICE_REUSE_REFERENCE_CHANGED.",
+        "description": "Sans ecriture. Recalcule la comparaison et n'envoie a la source choisie que les lignes encore to_review avec leurs candidats. decisions utilise le modele fixe de l'API Decisions facturee separement, seulement si MERGEONE_OPENAI_DECISIONS=1 et une cle serveur. chatgpt et personal_api_key utilisent le forfait ChatGPT et la cle OpenAI de MergeOne local avec les preferences du membre authentifie par defaut. Toute selection explicite de modele ou d'effort doit etre proposee par sa source. personal_api_key partage un plafond de 0,10 USD entre tous les lots de la demande et conserve les reponses recues en cas d'arret. Chaque reponse est une proposition (reference_line_id ou null, confiance ; no_match signale un choix explicite sans correspondance). Aucun repli entre sources. Reference modifiee depuis la comparaison : 409 PRICE_REUSE_REFERENCE_CHANGED.",
         "parameters": [
           {
             "name": "versionId",
@@ -15714,7 +15968,7 @@
           }
         ],
         "requestBody": {
-          "description": "Reference, fournisseur et lignes a departager.",
+          "description": "Reference, source, lignes et choix facultatifs de modele et d'effort pour le forfait ChatGPT ou la cle personnelle.",
           "required": true,
           "content": {
             "application/json": {
@@ -15785,6 +16039,16 @@
               }
             }
           },
+          "422": {
+            "description": "Modele ou niveau d'effort que la source choisie ne propose plus a ce membre : recharger les sources et choisir de nouveau.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Erreur interne serveur.",
             "content": {
@@ -15804,7 +16068,7 @@
           "Estimates"
         ],
         "summary": "Comparer avec un devis de reference",
-        "description": "Lecture seule (docs/metier/reprise-des-prix.md). Rapproche les lignes chiffrables (priced, not_priced) de la version cible moteur 3 des lignes chiffrees d'un autre devis moteur 3 accessible : identical (memes cotes, mots et unite), to_review (candidats sans cote contraire, ecarts nommes, ou plusieurs prix pour le meme article), new. Une cote differente (DN, dimension, epaisseur, classe) ou une autre unite exclut un article. preselected seulement pour un article identique sans prix saisi. arbiters indique la disponibilite de Decisions et du forfait ChatGPT, sans appel. Moteur 1/2 : 409 PRICE_REUSE_ENGINE_UNSUPPORTED.",
+        "description": "Lecture seule (docs/metier/reprise-des-prix.md). Rapproche les lignes chiffrables (priced, not_priced) de la version cible moteur 3 des lignes chiffrees d'un autre devis moteur 3 accessible : identical (memes cotes, mots et unite), to_review (candidats sans cote contraire, ecarts nommes, ou plusieurs prix pour le meme article), new. Une cote differente (DN, dimension, epaisseur, classe) ou une autre unite exclut un article. preselected seulement pour un article identique sans prix saisi. arbiters indique les sources disponibles (Decisions, forfait ChatGPT, cle personnelle) et les modeles et efforts proposes. default_billing_source vient de Mon profil. Aucune inference. Moteur 1/2 : 409 PRICE_REUSE_ENGINE_UNSUPPORTED.",
         "parameters": [
           {
             "name": "versionId",
@@ -18979,7 +19243,7 @@
           }
         ],
         "requestBody": {
-          "description": "Strategie de generation.",
+          "description": "Stratégie et choix IA. Une génération avec la clé personnelle est plafonnée à 1 USD. Une requête autrement valide sans le champ ai reçoit un HTTP 400 avec le code ESTIMATE_DRAFT_AI_CHOICE_REQUIRED et le message « Rechargez la page pour choisir votre source IA avant de générer. ».",
           "required": true,
           "content": {
             "application/json": {
@@ -20414,7 +20678,7 @@
           }
         ],
         "requestBody": {
-          "description": "Brief et lots selectionnes.",
+          "description": "Brief, lots et choix IA. La structure et les lignes partagent le plafond de 1 USD avec la clé personnelle. Une requête autrement valide sans le champ ai reçoit un HTTP 400 avec le code ESTIMATE_DRAFT_AI_CHOICE_REQUIRED et le message « Rechargez la page pour choisir votre source IA avant de générer. ».",
           "required": true,
           "content": {
             "application/json": {
@@ -37833,10 +38097,11 @@
                     "mime_type": {
                       "type": "string",
                       "enum": [
-                        "application/pdf",
                         "image/jpeg",
                         "image/png",
-                        "image/webp"
+                        "image/webp",
+                        "application/pdf",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                       ]
                     },
                     "byte_size": {
@@ -38445,10 +38710,11 @@
                     "mime_type": {
                       "type": "string",
                       "enum": [
-                        "application/pdf",
                         "image/jpeg",
                         "image/png",
-                        "image/webp"
+                        "image/webp",
+                        "application/pdf",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                       ]
                     },
                     "byte_size": {
@@ -39448,10 +39714,11 @@
                         "mime_type": {
                           "type": "string",
                           "enum": [
-                            "application/pdf",
                             "image/jpeg",
                             "image/png",
-                            "image/webp"
+                            "image/webp",
+                            "application/pdf",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                           ]
                         },
                         "byte_size": {
@@ -39571,10 +39838,11 @@
                   "mime_type": {
                     "type": "string",
                     "enum": [
-                      "application/pdf",
                       "image/jpeg",
                       "image/png",
-                      "image/webp"
+                      "image/webp",
+                      "application/pdf",
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     ]
                   },
                   "byte_size": {
@@ -39873,10 +40141,11 @@
                     "mime_type": {
                       "type": "string",
                       "enum": [
-                        "application/pdf",
                         "image/jpeg",
                         "image/png",
-                        "image/webp"
+                        "image/webp",
+                        "application/pdf",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                       ]
                     },
                     "byte_size": {
@@ -75693,6 +75962,1765 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "ApiPriceExplanationReadResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "missing",
+                  "stale"
+                ]
+              },
+              "explanation": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "explanation_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "price",
+                          "delta"
+                        ]
+                      },
+                      "version_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "line_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "compare_version_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "summary_short": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "summary_detail": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "confidence_label": {
+                        "type": "string",
+                        "enum": [
+                          "low",
+                          "medium",
+                          "high"
+                        ]
+                      },
+                      "confidence_score": {
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "used_fallback": {
+                        "type": "boolean"
+                      },
+                      "provider": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "model": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "generated_at": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "facts": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "source_label": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "confidence_score": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "label"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "hypotheses": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "source_label": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "confidence_score": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "label"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "inferences": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "source_label": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "confidence_score": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "label"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "provenance": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "source_kind": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "label": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "source_ref": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "confidence_score": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "source_kind",
+                            "label"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "risk_signals": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "severity": {
+                              "type": "string",
+                              "enum": [
+                                "low",
+                                "medium",
+                                "high"
+                              ]
+                            },
+                            "basis": {
+                              "type": "string",
+                              "enum": [
+                                "fact",
+                                "hypothesis",
+                                "inference"
+                              ]
+                            },
+                            "source_label": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "severity",
+                            "basis"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "impact_summary": {
+                        "type": "object",
+                        "properties": {
+                          "current_amount_ht_cents": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "current_amount_ttc_cents": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "delta_ht_cents": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "delta_ttc_cents": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "current_margin_bp": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "compare_margin_bp": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "margin_bp_delta": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "current_margin_multiplier": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "compare_margin_multiplier": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "top_drivers": {
+                            "default": [],
+                            "maxItems": 5,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          }
+                        },
+                        "required": [
+                          "top_drivers"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "ai_request": {
+                        "type": "object",
+                        "properties": {
+                          "model": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "reasoningEffort": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "low",
+                                  "medium",
+                                  "high",
+                                  "xhigh",
+                                  "max"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "chatgpt_plan",
+                              "personal_api_key"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "model",
+                          "reasoningEffort",
+                          "source"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "explanation_id",
+                      "kind",
+                      "version_id",
+                      "summary_short",
+                      "confidence_label",
+                      "used_fallback",
+                      "provider",
+                      "generated_at",
+                      "facts",
+                      "hypotheses",
+                      "inferences",
+                      "provenance",
+                      "risk_signals",
+                      "impact_summary"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 110
+              },
+              "settings": {
+                "type": "object",
+                "properties": {
+                  "defaultSource": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sources": {
+                    "type": "object",
+                    "properties": {
+                      "chatgpt_plan": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "available": {
+                                "type": "boolean",
+                                "const": true
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "models": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "reasoningEfforts": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "none",
+                                          "low",
+                                          "medium",
+                                          "high",
+                                          "xhigh",
+                                          "max"
+                                        ]
+                                      }
+                                    },
+                                    "defaultReasoningEffort": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "none",
+                                            "low",
+                                            "medium",
+                                            "high",
+                                            "xhigh",
+                                            "max"
+                                          ]
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name",
+                                    "reasoningEfforts",
+                                    "defaultReasoningEffort"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "preferences": {
+                                "type": "object",
+                                "properties": {
+                                  "model": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 200
+                                  },
+                                  "reasoningEffort": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "none",
+                                          "low",
+                                          "medium",
+                                          "high",
+                                          "xhigh",
+                                          "max"
+                                        ]
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "model",
+                                  "reasoningEffort"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "available",
+                              "message",
+                              "models",
+                              "preferences"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "available": {
+                                "type": "boolean",
+                                "const": false
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "available",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "personal_api_key": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "available": {
+                                "type": "boolean",
+                                "const": true
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "models": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "reasoningEfforts": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "none",
+                                          "low",
+                                          "medium",
+                                          "high",
+                                          "xhigh",
+                                          "max"
+                                        ]
+                                      }
+                                    },
+                                    "defaultReasoningEffort": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "none",
+                                            "low",
+                                            "medium",
+                                            "high",
+                                            "xhigh",
+                                            "max"
+                                          ]
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name",
+                                    "reasoningEfforts",
+                                    "defaultReasoningEffort"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "preferences": {
+                                "type": "object",
+                                "properties": {
+                                  "model": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 200
+                                  },
+                                  "reasoningEffort": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "none",
+                                          "low",
+                                          "medium",
+                                          "high",
+                                          "xhigh",
+                                          "max"
+                                        ]
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "model",
+                                  "reasoningEffort"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "available",
+                              "message",
+                              "models",
+                              "preferences"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "available": {
+                                "type": "boolean",
+                                "const": false
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "available",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "chatgpt_plan",
+                      "personal_api_key"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "connectionId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "canRefreshPlanModels": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "defaultSource",
+                  "sources",
+                  "connectionId",
+                  "canRefreshPlanModels"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "status",
+              "explanation",
+              "revision",
+              "settings"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "PriceExplanationOriginHeader": {
+        "type": "string",
+        "format": "uri"
+      },
+      "PriceExplanationGeneration": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoningEffort": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh",
+                      "max"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "source": {
+                "type": "string",
+                "const": "chatgpt_plan"
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 110
+              }
+            },
+            "required": [
+              "model",
+              "reasoningEffort",
+              "source",
+              "revision"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoningEffort": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh",
+                      "max"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "source": {
+                "type": "string",
+                "const": "personal_api_key"
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 110
+              },
+              "connectionId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "model",
+              "reasoningEffort",
+              "source",
+              "revision",
+              "connectionId"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ApiPriceExplanationGeneratedResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "explanation": {
+                "type": "object",
+                "properties": {
+                  "explanation_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "price",
+                      "delta"
+                    ]
+                  },
+                  "version_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "line_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "compare_version_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "summary_short": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "summary_detail": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "confidence_label": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high"
+                    ]
+                  },
+                  "confidence_score": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "used_fallback": {
+                    "type": "boolean"
+                  },
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "model": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "generated_at": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "facts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "source_label": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "confidence_score": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "label"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "hypotheses": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "source_label": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "confidence_score": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "label"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "inferences": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "source_label": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "confidence_score": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "label"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "provenance": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "source_kind": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "source_ref": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "confidence_score": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "source_kind",
+                        "label"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "risk_signals": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "severity": {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "medium",
+                            "high"
+                          ]
+                        },
+                        "basis": {
+                          "type": "string",
+                          "enum": [
+                            "fact",
+                            "hypothesis",
+                            "inference"
+                          ]
+                        },
+                        "source_label": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "severity",
+                        "basis"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "impact_summary": {
+                    "type": "object",
+                    "properties": {
+                      "current_amount_ht_cents": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "current_amount_ttc_cents": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "delta_ht_cents": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "delta_ttc_cents": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "current_margin_bp": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "compare_margin_bp": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "margin_bp_delta": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "current_margin_multiplier": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "compare_margin_multiplier": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "top_drivers": {
+                        "default": [],
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "top_drivers"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "ai_request": {
+                    "type": "object",
+                    "properties": {
+                      "model": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "reasoningEffort": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "low",
+                              "medium",
+                              "high",
+                              "xhigh",
+                              "max"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "source": {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "model",
+                      "reasoningEffort",
+                      "source"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "explanation_id",
+                  "kind",
+                  "version_id",
+                  "summary_short",
+                  "confidence_label",
+                  "used_fallback",
+                  "provider",
+                  "generated_at",
+                  "facts",
+                  "hypotheses",
+                  "inferences",
+                  "provenance",
+                  "risk_signals",
+                  "impact_summary"
+                ],
+                "additionalProperties": false
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 110
+              }
+            },
+            "required": [
+              "explanation",
+              "revision"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiPriceExplanationSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "defaultSource": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "chatgpt_plan",
+                      "personal_api_key"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sources": {
+                "type": "object",
+                "properties": {
+                  "chatgpt_plan": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "available": {
+                            "type": "boolean",
+                            "const": true
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "models": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "reasoningEfforts": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "none",
+                                      "low",
+                                      "medium",
+                                      "high",
+                                      "xhigh",
+                                      "max"
+                                    ]
+                                  }
+                                },
+                                "defaultReasoningEffort": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "none",
+                                        "low",
+                                        "medium",
+                                        "high",
+                                        "xhigh",
+                                        "max"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                                "reasoningEfforts",
+                                "defaultReasoningEffort"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "preferences": {
+                            "type": "object",
+                            "properties": {
+                              "model": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "reasoningEffort": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "none",
+                                      "low",
+                                      "medium",
+                                      "high",
+                                      "xhigh",
+                                      "max"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "model",
+                              "reasoningEffort"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "available",
+                          "message",
+                          "models",
+                          "preferences"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "available": {
+                            "type": "boolean",
+                            "const": false
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "available",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "personal_api_key": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "available": {
+                            "type": "boolean",
+                            "const": true
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "models": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "reasoningEfforts": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "none",
+                                      "low",
+                                      "medium",
+                                      "high",
+                                      "xhigh",
+                                      "max"
+                                    ]
+                                  }
+                                },
+                                "defaultReasoningEffort": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "none",
+                                        "low",
+                                        "medium",
+                                        "high",
+                                        "xhigh",
+                                        "max"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                                "reasoningEfforts",
+                                "defaultReasoningEffort"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "preferences": {
+                            "type": "object",
+                            "properties": {
+                              "model": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "reasoningEffort": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "none",
+                                      "low",
+                                      "medium",
+                                      "high",
+                                      "xhigh",
+                                      "max"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "model",
+                              "reasoningEffort"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "available",
+                          "message",
+                          "models",
+                          "preferences"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "available": {
+                            "type": "boolean",
+                            "const": false
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "available",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "chatgpt_plan",
+                  "personal_api_key"
+                ],
+                "additionalProperties": false
+              },
+              "connectionId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "canRefreshPlanModels": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "defaultSource",
+              "sources",
+              "connectionId",
+              "canRefreshPlanModels"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "ApiEstimateDraftLockResponse": {
         "type": "object",
         "properties": {
@@ -76354,41 +78382,156 @@
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
       "ArbitrateEstimatePriceReuseRequest": {
-        "type": "object",
-        "properties": {
-          "reference_version_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "reference_version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "reference_updated_at": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string",
+                "const": "decisions"
+              },
+              "line_ids": {
+                "minItems": 1,
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "required": [
+              "reference_version_id",
+              "reference_updated_at",
+              "provider",
+              "line_ids"
+            ],
+            "additionalProperties": false
           },
-          "reference_updated_at": {
-            "type": "string"
+          {
+            "type": "object",
+            "properties": {
+              "reference_version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "reference_updated_at": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string",
+                "const": "chatgpt"
+              },
+              "line_ids": {
+                "minItems": 1,
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoning_effort": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh",
+                      "max"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "reference_version_id",
+              "reference_updated_at",
+              "provider",
+              "line_ids"
+            ],
+            "additionalProperties": false
           },
-          "provider": {
-            "type": "string",
-            "enum": [
-              "decisions",
-              "chatgpt"
-            ]
-          },
-          "line_ids": {
-            "minItems": 1,
-            "maxItems": 100,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            }
+          {
+            "type": "object",
+            "properties": {
+              "reference_version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "reference_updated_at": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string",
+                "const": "personal_api_key"
+              },
+              "line_ids": {
+                "minItems": 1,
+                "maxItems": 1000,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoning_effort": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh",
+                      "max"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "reference_version_id",
+              "reference_updated_at",
+              "provider",
+              "line_ids"
+            ],
+            "additionalProperties": false
           }
-        },
-        "required": [
-          "reference_version_id",
-          "reference_updated_at",
-          "provider",
-          "line_ids"
-        ],
-        "additionalProperties": false
+        ]
       },
       "ArbitrateEstimatePriceReuseResponse": {
         "type": "object",
@@ -76404,7 +78547,8 @@
                 "type": "string",
                 "enum": [
                   "decisions",
-                  "chatgpt"
+                  "chatgpt",
+                  "personal_api_key"
                 ]
               },
               "model": {
@@ -76458,6 +78602,10 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "no_match": {
+                      "type": "boolean",
+                      "const": true
                     }
                   },
                   "required": [
@@ -76825,20 +78973,241 @@
                       },
                       "message": {
                         "type": "string"
+                      },
+                      "models": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "reasoningEfforts": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "low",
+                                  "medium",
+                                  "high",
+                                  "xhigh",
+                                  "max"
+                                ]
+                              }
+                            },
+                            "defaultReasoningEffort": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "none",
+                                    "low",
+                                    "medium",
+                                    "high",
+                                    "xhigh",
+                                    "max"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "reasoningEfforts",
+                            "defaultReasoningEffort"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "preferences": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "model": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "reasoningEffort": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "none",
+                                      "low",
+                                      "medium",
+                                      "high",
+                                      "xhigh",
+                                      "max"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "model",
+                              "reasoningEffort"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
                       "available",
-                      "message"
+                      "message",
+                      "models",
+                      "preferences"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "personal_api_key": {
+                    "type": "object",
+                    "properties": {
+                      "available": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "models": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "reasoningEfforts": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "low",
+                                  "medium",
+                                  "high",
+                                  "xhigh",
+                                  "max"
+                                ]
+                              }
+                            },
+                            "defaultReasoningEffort": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "none",
+                                    "low",
+                                    "medium",
+                                    "high",
+                                    "xhigh",
+                                    "max"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "reasoningEfforts",
+                            "defaultReasoningEffort"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "preferences": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "model": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "reasoningEffort": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "none",
+                                      "low",
+                                      "medium",
+                                      "high",
+                                      "xhigh",
+                                      "max"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "model",
+                              "reasoningEffort"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "available",
+                      "message",
+                      "models",
+                      "preferences"
                     ],
                     "additionalProperties": false
                   }
                 },
                 "required": [
                   "decisions",
-                  "chatgpt"
+                  "chatgpt",
+                  "personal_api_key"
                 ],
                 "additionalProperties": false
+              },
+              "default_billing_source": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "chatgpt_plan",
+                      "personal_api_key"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -76847,7 +79216,8 @@
               "summary",
               "lines",
               "references",
-              "arbiters"
+              "arbiters",
+              "default_billing_source"
             ],
             "additionalProperties": false
           }
@@ -89390,8 +91760,107 @@
             "enum": [
               "hybrid"
             ]
+          },
+          "ai": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "chatgpt_plan"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "personal_api_key"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expectedConnectionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort",
+                  "expectedConnectionId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "fallback"
+                  }
+                },
+                "required": [
+                  "source"
+                ]
+              }
+            ]
           }
-        }
+        },
+        "required": [
+          "ai"
+        ]
       },
       "GetEstimateStructureDraftVersionIdParameter": {
         "type": "string",
@@ -93016,8 +95485,107 @@
               "minLength": 1,
               "maxLength": 160
             }
+          },
+          "ai": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "chatgpt_plan"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "personal_api_key"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expectedConnectionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort",
+                  "expectedConnectionId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "fallback"
+                  }
+                },
+                "required": [
+                  "source"
+                ]
+              }
+            ]
           }
-        }
+        },
+        "required": [
+          "ai"
+        ]
       },
       "GetVersionZeroDraftVersionIdParameter": {
         "type": "string",

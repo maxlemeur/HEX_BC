@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent } from "@/components/ui/dialog";
 import {
-  fetchEstimateStructureDraft,
   generateEstimateStructureDraft,
   type ApplyEstimateStructureDraftPayload,
   type ApplyEstimateStructureDraftResult,
+  type EstimateStructureDraft,
   type EstimateStructureDraftApplyMode,
 } from "@/lib/estimates/structure-drafts-client";
 import {
@@ -33,12 +33,17 @@ import { SourcesStep } from "./estimate-structure-draft/SourcesStep";
 import { StickySummaryBar } from "./estimate-structure-draft/StickySummaryBar";
 import { WizardHeader } from "./estimate-structure-draft/WizardHeader";
 import type { WizardStep } from "./estimate-structure-draft/shared";
+import { EstimateDraftAiSettings, useEstimateDraftAiSettings } from "./EstimateDraftAiSettings";
+import type { EstimateDraftAiRequest } from "@/lib/estimates/schemas";
 import type { EstimateStructureDraftDialogProps } from "@/hooks/estimate-editor-view-props";
 
 export type { ApplyEstimateStructureDraftResult };
 
-export function EstimateStructureDraftDialog({
-  isOpen,
+export function EstimateStructureDraftDialog(props: EstimateStructureDraftDialogProps) {
+  return props.isOpen ? <EstimateStructureDraftWizard key={props.targetVersionId} {...props} /> : null;
+}
+
+function EstimateStructureDraftWizard({
   targetVersionId,
   hasExistingItems,
   existingSections,
@@ -46,9 +51,9 @@ export function EstimateStructureDraftDialog({
   onConfirm,
 }: EstimateStructureDraftDialogProps) {
   const [step, setStep] = useState<WizardStep>(1);
-  const [draft, setDraft] = useState<Awaited<
-    ReturnType<typeof fetchEstimateStructureDraft>
-  > | null>(null);
+  const [draft, setDraft] = useState<EstimateStructureDraft | null>(null);
+  const settings = useEstimateDraftAiSettings(targetVersionId, true);
+  const isGenerating = useRef(false);
   const [isLoadingDraft, setIsLoadingDraft] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [selectedRootIds, setSelectedRootIds] = useState<string[]>([]);
@@ -63,63 +68,25 @@ export function EstimateStructureDraftDialog({
     null,
   );
 
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    let isActive = true;
-    setStep(1);
-    setMode(hasExistingItems ? "merge_existing" : "create_empty");
-    setOverrides({});
-    setSubmitError(null);
-    setDraftError(null);
-    setDraft(null);
-    setSelectedRootIds([]);
+  async function handleGenerate(ai: EstimateDraftAiRequest) {
+    if (isGenerating.current) return;
+    isGenerating.current = true;
     setIsLoadingDraft(true);
-    setActiveFilters(new Set());
-    setApplyResult(null);
-
-    async function loadDraft() {
-      try {
-        const generated = await generateEstimateStructureDraft(targetVersionId, {
-          strategy: "hybrid",
-        });
-        const persisted = await fetchEstimateStructureDraft(
-          targetVersionId,
-          generated.draftId,
-        );
-        if (!isActive) {
-          return;
-        }
-
-        setDraft(persisted);
-        setSelectedRootIds(getDefaultSelectedRootIds(persisted));
-      } catch (error) {
-        if (!isActive) {
-          return;
-        }
-
-        setDraftError(
-          error instanceof Error
-            ? error.message
-            : "Impossible de générer l'aperçu de structure.",
-        );
-      } finally {
-        if (!isActive) {
-          return;
-        }
-
-        setIsLoadingDraft(false);
-      }
+    setDraftError(null);
+    setMode(hasExistingItems ? "merge_existing" : "create_empty");
+    try {
+      const generated = await generateEstimateStructureDraft(targetVersionId, { strategy: "hybrid", ai });
+      setDraft(generated);
+      setSelectedRootIds(getDefaultSelectedRootIds(generated));
+    } catch (error) {
+      setDraftError(
+        error instanceof Error ? error.message : "Impossible de générer l’aperçu de structure.",
+      );
+    } finally {
+      isGenerating.current = false;
+      setIsLoadingDraft(false);
     }
-
-    void loadDraft();
-
-    return () => {
-      isActive = false;
-    };
-  }, [hasExistingItems, isOpen, targetVersionId]);
+  }
 
   const flatNodes = useMemo(() => flattenNodes(draft?.nodes ?? []), [draft?.nodes]);
   const selectedNodes = useMemo(
@@ -258,16 +225,12 @@ export function EstimateStructureDraftDialog({
     }
   };
 
-  if (!isOpen) {
-    return null;
-  }
-
   return (
     <Dialog
       open
       disablePointerDismissal
       onOpenChange={(open) => {
-        if (!open && !isSubmitting) onClose();
+        if (!open && !isSubmitting && !isGenerating.current) onClose();
       }}
     >
       <DialogContent
@@ -277,8 +240,8 @@ export function EstimateStructureDraftDialog({
       >
         <WizardHeader
           step={step}
-          onClose={() => onClose()}
-          isSubmitting={isSubmitting}
+          onClose={() => { if (!isGenerating.current) onClose(); }}
+          isSubmitting={isSubmitting || isLoadingDraft}
         />
 
         <DialogBody className="relative min-h-0 flex-1 gap-0 overflow-y-auto px-6 py-5">
@@ -287,12 +250,15 @@ export function EstimateStructureDraftDialog({
           ) : null}
 
           {step === 1 ? (
-            <SourcesStep
-              draft={draft}
-              isLoadingDraft={isLoadingDraft}
-              draftError={draftError}
-              sourceCoverageSummary={sourceCoverageSummary}
-            />
+            <div className="space-y-4">
+              {!draft ? <EstimateDraftAiSettings settings={settings} locked={isLoadingDraft} /> : null}
+              <SourcesStep
+                draft={draft}
+                isLoadingDraft={isLoadingDraft}
+                draftError={draftError}
+                sourceCoverageSummary={sourceCoverageSummary}
+              />
+            </div>
           ) : null}
 
           {step === 2 && draft ? (
@@ -333,7 +299,7 @@ export function EstimateStructureDraftDialog({
           ) : null}
         </DialogBody>
 
-        <div className="flex items-center justify-between gap-3 border-t border-border px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-4">
           {step === 4 ? (
             <div />
           ) : (
@@ -351,7 +317,7 @@ export function EstimateStructureDraftDialog({
               Retour
             </Button>
           )}
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             {step === 4 ? (
               <Button
                 type="button"
@@ -361,6 +327,24 @@ export function EstimateStructureDraftDialog({
               >
                 Fermer
               </Button>
+            ) : step === 1 && !draft ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isLoadingDraft}
+                  onClick={() => void handleGenerate({ source: "fallback" })}
+                >
+                  Générer sans IA
+                </Button>
+                <Button
+                  type="button"
+                  disabled={isLoadingDraft || !settings.request}
+                  onClick={() => { if (settings.request) void handleGenerate(settings.request); }}
+                >
+                  Générer l’aperçu
+                </Button>
+              </>
             ) : step < 3 ? (
               <Button
                 type="button"

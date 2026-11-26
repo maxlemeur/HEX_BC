@@ -217,7 +217,8 @@ globalThis.fetch = async (input, init) => {
     const transcriptionSent = body.input.some(entry => Array.isArray(entry.content) && entry.content.some(part =>
       part.type === "input_text" && part.text.startsWith("Transcription automatique non vérifiée")));
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "assistant",
-      step: outputs.length, toolChoice: body.tool_choice, question, model: body.model, transcriptionSent }) + "\n");
+      step: outputs.length, toolChoice: body.tool_choice, question, model: body.model,
+      reasoningEffort: body.reasoning?.effort ?? null, transcriptionSent }) + "\n");
     const completed = { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 20, output_tokens: 8, total_tokens: 28 } } };
     const sse = events => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     const call = (name, args) => sse([{ type: "response.output_item.done", output_index: 0, item: {
@@ -451,15 +452,15 @@ globalThis.fetch = async (input, init) => {
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }
   // Reprise des prix (PRX02) : aucun document ; le dernier candidat de chaque ligne à vérifier, avant « aucun ».
-  const priceReuseSchema = body.input.find(entry => entry.role === "developer")?.content;
-  if (typeof priceReuseSchema === "string" && priceReuseSchema.includes("\"price_reuse_answers\"")) {
-    const prompt = body.input.find(entry => entry.role === "user")?.content?.find(part => part.type === "input_text")?.text ?? "";
-    const evidence = JSON.parse(prompt.split("\n").at(-1));
-    const answers = evidence.lignes.map(line => ({ ligne: line.ligne, choix: line.choix.at(-2), confiance: 0.7 }));
+  const priceReusePrompt = body.input.find(entry => entry.role === "user")?.content
+    ?.find(part => part.type === "input_text" && part.text?.includes('"tache":"price-reuse"'))?.text;
+  if (priceReusePrompt) {
+    const evidence = JSON.parse(priceReusePrompt.split("\n").at(-1));
+    const answers = evidence.questions.map(question => ({ question: question.question, choix: question.choix.at(-2).valeur, confiance: 0.7 }));
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG,
-      JSON.stringify({ provider: "chatgpt-fixture", task: "price-reuse", lines: answers.length, model: body.model }) + "\n");
+      JSON.stringify({ ...transportEntry("chatgpt-fixture"), task: "price-reuse", lines: answers.length }) + "\n");
     return new Response([
-      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify({ price_reuse_answers: answers }) },
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify({ reponses: answers }) },
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 12, output_tokens: 6, total_tokens: 18 } } },
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }

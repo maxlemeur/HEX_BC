@@ -13,7 +13,7 @@ Le code utilise Next.js App Router, React, TypeScript, Supabase et Tailwind ;
    pile native, applique les migrations et écrit `.env.supabase.local`. Le chemin
    du fichier privé contenant les identifiants du compte de développement est
    affiché au démarrage et par `npm run supabase:local -- status`.
-4. Lancer `npm run dev`, ouvrir `http://localhost:3000/login` et se connecter
+4. Lancer `npm run start`, ouvrir `http://localhost:3000/login` et se connecter
    avec ce compte. Une configuration Supabase locale existante
    peut aussi venir des variables du shell ou d’un fichier Next habituel.
    Le lanceur refuse une URL distante dans ce mode.
@@ -21,28 +21,39 @@ Le code utilise Next.js App Router, React, TypeScript, Supabase et Tailwind ;
 Pour une pile jetable et des comptes de recette, suivre [le guide TesterArmy](docs/testing/tester-army-local-development.md).
 `GET /api/health` renvoie `200` et `db: "up"` si la base répond.
 
-Pour travailler sur la production depuis le poste, utiliser l’une de ces
-commandes explicites.
+`npm run start` démarre le serveur de développement sur la boucle locale et
+sélectionne Supabase selon le port.
 
-- `npm run dev:prod -- --port 3001` utilise les droits du compte connecté.
+| Ports | Base | Raccourci |
+| --- | --- | --- |
+| 3000 à 3009 | Supabase local | `npm run start:local` sur 3001 |
+| 4200 à 4209 | Supabase de production en mode complet | `npm run start:prod` sur 4200 |
+
+`npm run start` utilise le port 3000 par défaut. Pour choisir un autre port, par
+exemple si le port est occupé, utiliser `npm run start -- --port 3002`. L’option
+`--port` (ou `-p`) prend le dessus sur la variable `PORT`.
+Pour servir un build Next.js existant, utiliser `npm run start:build`.
+
+- `npm run dev:prod -- --port 4200` cible aussi la production avec les droits du compte connecté.
   Renseigner l’URL HTTPS et la clé publique ensemble dans `.env.local` ou, à
   défaut, dans `.env`.
   Le forfait ChatGPT local et les opérations qui exigent la clé de service
   Supabase, dont le lancement et la lecture d’un métré, sont indisponibles.
-- `npm run dev:prod:full` exige les trois valeurs de production dans le fichier
-  ignoré `.env.supabase.production.local` au côté de `.env.supabase.local`.
-  Y renseigner `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` et
-  `SUPABASE_SERVICE_ROLE_KEY`. Les opérations serveur qui utilisent ce rôle
-  peuvent écrire sur la production. Le métré et la lecture des plans avec le
-  forfait ChatGPT local sont disponibles. L’envoi d’e-mails suit
-  `EMAIL_DELIVERY_MODE` comme dans les autres modes.
+- `npm run start:prod`, les ports 4200 à 4209 de `npm run start` et
+  `npm run dev:prod:full -- --port 4200` exigent la configuration complète dans
+  le fichier ignoré `.env.supabase.production.local`. Y renseigner
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` et
+  `SUPABASE_SERVICE_ROLE_KEY`. La création d’affaires et les autres opérations
+  serveur qui utilisent ce rôle peuvent écrire sur la production. Le métré et
+  la lecture des plans avec le forfait ChatGPT local sont disponibles.
+  L’envoi d’e-mails suit `EMAIL_DELIVERY_MODE` comme dans les autres modes.
 
 Dans `.env.local` et `.env`, garder seulement l’URL et la clé publique pour
 Supabase en production. Next charge ces fichiers lors d’un lancement direct.
 Déplacer toute clé de service de production déjà présente dans le fichier
 dédié au mode complet, que seul le lanceur lit.
 
-Les deux commandes de production écoutent uniquement sur une adresse de boucle
+Les lanceurs qui ciblent Supabase de production écoutent uniquement sur la boucle
 locale. Pour changer de cible, arrêter le serveur et relancer la commande
 correspondante. Le lanceur distingue les cibles dans le cache Turbopack et
 arrête le serveur s’il détecte une boucle de rendu.

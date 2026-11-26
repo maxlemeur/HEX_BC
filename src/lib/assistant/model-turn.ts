@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import { chatGptIncompleteError, chatGptStreamEvents } from "@/lib/ai/chatgpt-local-inference";
+import { chatGptIncompleteError, chatGptStreamEvents, type ChatGptStreamEvent } from "@/lib/ai/chatgpt-local-inference";
 import { isRecord } from "@/lib/value-guards";
 
 /** What the browser may show before the turn is known to have succeeded. */
@@ -28,13 +28,20 @@ const messageSchema = z.object({ content: z.array(z.object({ type: z.string(), t
  * asks for. Text already shown stays partial until this resolves; a stream that
  * fails or stops early rejects with the provider's fixed message.
  */
-export async function readAssistantModelTurn(
+export function readAssistantModelTurn(
   response: Response, onDelta: (delta: AssistantModelDelta) => void,
+): Promise<AssistantModelTurn> {
+  return readAssistantTurnEvents(chatGptStreamEvents(response), onDelta);
+}
+
+export async function readAssistantTurnEvents(
+  events: AsyncIterable<ChatGptStreamEvent>, onDelta: (delta: AssistantModelDelta) => void,
+  maskFallbackText?: (text: string) => string,
 ): Promise<AssistantModelTurn> {
   let completed: Record<string, unknown> | null = null;
   let streamedText = "";
   const finishedItems = new Map<number, Record<string, unknown>>();
-  for await (const event of chatGptStreamEvents(response)) {
+  for await (const event of events) {
     if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
       streamedText += event.delta;
       onDelta({ type: "text", delta: event.delta });
@@ -66,8 +73,9 @@ export async function readAssistantModelTurn(
       }
     }
   }
-  if (!streamedText && finalText) onDelta({ type: "text", delta: finalText });
-  const text = streamedText || finalText;
+  // A credential can span adjacent fallback parts even when each part was masked separately.
+  const text = streamedText || (maskFallbackText ? maskFallbackText(finalText) : finalText);
+  if (!streamedText && text) onDelta({ type: "text", delta: text });
   if (!text && toolCalls.length === 0) throw chatGptIncompleteError();
 
   const usage = usageSchema.parse(completed.usage ?? {});

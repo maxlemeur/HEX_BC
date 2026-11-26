@@ -583,7 +583,7 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     await openOriginal();
     const original = screen.getByRole("dialog", "Original de la demande", { exact: true });
     // No photo, no reading to offer.
-    await expect(original.getByText("Pas de photo de l’original.", { exact: true })).toBeVisible();
+    await expect(original.getByText("Aucune pièce jointe.", { exact: true })).toBeVisible();
     await expect(original.getByRole("button", "Analyser la photo avec l’IA", { exact: true })).toHaveCount(0);
 
     // A 1x1 PNG, generated here: no real photograph in a public repository.
@@ -591,7 +591,7 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     await mkdir(directory, { recursive: true });
     const photo = path.join(directory, "demande-papier.png");
     await writeFile(photo, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));
-    await browser.locator('input[type="file"][aria-label="Photos à ajouter"]').first().setInputFiles([photo]);
+    await browser.locator('input[type="file"][aria-label="Fichiers à ajouter"]').first().setInputFiles([photo]);
     await expect.poll(async () => (await read()).files.length, DEV_SERVER_WORK).toBe(1);
     // The office turns the photo: the bytes stay as stored, and the model is told how to read them upright.
     await original.getByRole("button", "Tourner à droite", { exact: true }).click();
@@ -638,7 +638,7 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     const pdfDoc = await PDFDocument.create();
     pdfDoc.addPage().drawText("4 brides inox DN 50 - Local technique");
     await writeFile(pdfOriginal, await pdfDoc.save());
-    await browser.locator('input[type="file"][aria-label="Photos à ajouter"]').first().setInputFiles([pdfOriginal]);
+    await browser.locator('input[type="file"][aria-label="Fichiers à ajouter"]').first().setInputFiles([pdfOriginal]);
     await expect.poll(async () => (await read()).files.length, DEV_SERVER_WORK).toBe(2);
     await expect(original.getByText("Original 2 sur 2", { exact: true })).toBeVisible();
     await expect(original.getByRole("button", "Tourner à droite", { exact: true })).toHaveCount(0);
@@ -774,6 +774,9 @@ if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the esti
     await screen.getByTestId("assistant-toggle").click();
     const panel = screen.getByTestId("assistant-panel");
     await expect(panel).toBeVisible();
+    await expect(panel.getByLabel("Source IA", { exact: true })).toHaveValue("chatgpt_plan", DEV_SERVER_WORK);
+    await expect(panel.getByLabel("Modèle", { exact: true })).toHaveValue("army-plan-model");
+    await panel.getByLabel("Effort de raisonnement", { exact: true }).selectOption({ value: "high" });
     await panel.getByTestId("assistant-input").fill(question);
     await panel.getByTestId("assistant-send").click();
     const answer = panel.getByTestId("assistant-message-assistant");
@@ -790,14 +793,16 @@ if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the esti
     const sent = (await readTransport()).filter((entry) => entry.task === "assistant");
     expect(sent.map((entry) => entry.step)).toEqual([0, 1, 2]);
     expect(sent.every((entry) => entry.question === question && entry.toolChoice === "auto" && entry.model === "army-plan-model")).toBe(true);
+    expect(sent.map((entry) => entry.reasoningEffort)).toEqual(["high", "high", "high"]);
     expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
 
     // Persistence, as its author: the question, then the complete answer with what it read.
-    const saved = await client.from("assistant_messages").select("role, status, content, activity, model").order("created_at");
+    const saved = await client.from("assistant_messages").select("role, status, content, activity, model, token_usage").order("created_at");
     expect(saved.error).toBeNull();
     expect(saved.data).toEqual([
-      { role: "user", status: "complete", content: question, activity: [], model: null },
+      { role: "user", status: "complete", content: question, activity: [], model: null, token_usage: null },
       { role: "assistant", status: "complete", model: "army-plan-model",
+        token_usage: expect.objectContaining({ reasoningEffort: "high" }),
         content: `Le total HT du devis est de ${total}. La ligne [[ligne:${ids.versionId}/${line.id}|${line.title}]] vaut ${total}.`,
         activity: [{ name: "lire_devis", activity: "Lecture du devis", ok: true },
           { name: "lire_lignes_devis", activity: "Lecture des lignes du devis", ok: true }] },

@@ -166,6 +166,8 @@ vivent dans `~/.supabase/native-runs/`. Le diagnostic nomme leurs détenteurs et
 les piles/builds orphelins détectés. Attendre leur fin ou utiliser
 `NATIVE_STACK_WAIT_SECONDS=<secondes>`. `NATIVE_STACK_MAX_RUNS` accepte 1 à 32,
 mais augmenter la limite n'améliore pas la capacité de la machine.
+La [pile de développement persistante](../../supabase/README.md#vérifier-localement)
+tourne en dehors de cette limite lorsque son identité locale est vérifiée.
 
 Le garde libère les réservations des processus morts ; SIGKILL ne peut pas
 détruire automatiquement leur pile. Ne jamais supprimer un verrou d'un autre

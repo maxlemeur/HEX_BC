@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,26 +10,21 @@ import { createClient } from "@supabase/supabase-js";
 import { reserveAppPort, type AppPortLease } from "../../scripts/tester-army/app-port";
 import type { Database } from "@/types/database";
 import {
+  entry, localDevStackDirectory, localDevStackRegistryId, privateDirectory, readFile, readOwner, readPrivateJson,
+  registryIdPattern, sha256, type OwnerRecord,
+} from "./local-dev-supabase-owner";
+import {
   assertNativeRuntimeHost, currentNativeRuntimeHost, describeSafeFailure, parseLocalSupabaseStatus, prepareNativeStackConfig,
   type LocalSupabaseStatus,
 } from "./local-supabase-ci";
-import { acquireNativeStackSlot, nativeStackWaitMs } from "./native-stack-guard";
+import { acquireNativeStackSlot } from "./native-stack-guard";
 import { assertNoRemoteSupabaseEnvironment, createLocalCiEnvironment, resolveSupabaseCli, type SupabaseEnvironment } from "./supabase-cli";
-import { hashSupabaseMigrationContents, parseSupabaseMigrationList, validateAppliedMigrationRows } from "./supabase-migrations";
+import { hashSupabaseMigrationContents, validateAppliedMigrationRows } from "./supabase-migrations";
 
 const envFile = ".env.supabase.local";
 const usage = "Usage: npm run supabase:local -- start [--checkout PATH] | status | stop | destroy --yes";
 const rebuild = "Back up any data you need before rebuilding with `npm run supabase:local -- destroy --yes` and then `npm run supabase:local -- start`.";
-const registryIdPattern = /^[a-f0-9]{64}$/;
 const migrationNamePattern = /^(?:\d{3}|\d{8}|\d{14})_[a-z0-9_]+\.sql$/;
-
-interface OwnerRecord {
-  projectId: string;
-  ports: Record<number, number>;
-  configHash: string;
-  registryId?: string;
-  applied?: Record<string, string>;
-}
 
 interface Login { email: string; password: string; }
 
@@ -40,54 +35,39 @@ interface Dependencies {
   log: (message: string) => void;
   assertIgnored: (directory: string) => void;
   prepareConfig: (checkout: string, projectId: string) => ReturnType<typeof prepareNativeStackConfig>;
-  acquireStart: (project: string, ports: number[]) => Promise<() => void>;
+  acquireStart: (ports: number[]) => Promise<() => void>;
   ensureAccount: (status: LocalSupabaseStatus, login: Login) => Promise<void>;
   cli: (command: string[], workdir: string) => string | null;
 }
 
-const sha256 = (content: string) => createHash("sha256").update(content).digest("hex");
-const entry = (file: string) => fs.lstatSync(file, { throwIfNoEntry: false });
-
-function privateDirectory(directory: string) {
-  const stat = entry(directory);
-  if (!stat?.isDirectory() || stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o700) {
-    throw new Error(`Expected an owned directory with mode 0700 at ${directory}.`);
-  }
-}
-
-function readFile(file: string, privateFile = false) {
-  const stat = entry(file);
-  if (!stat?.isFile() || (privateFile && (stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o600))) {
-    throw new Error(`Expected a regular${privateFile ? ", owned, mode-0600" : ""} file at ${file}.`);
-  }
-  return fs.readFileSync(file, "utf8");
-}
-
 function writePrivateFile(file: string, text: string) {
   const temporary = `${file}.${randomUUID()}.tmp`;
+  const durable = path.basename(file) === "owner.json";
   try {
     const fd = fs.openSync(temporary, "wx", 0o600);
     try {
       fs.fchmodSync(fd, 0o600);
       fs.writeFileSync(fd, text);
+      if (durable) fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);
     }
     fs.renameSync(temporary, file);
+    if (durable) {
+      // Persist the directory entry as well as the record contents.
+      const directory = fs.openSync(path.dirname(file), "r");
+      try {
+        fs.fsyncSync(directory);
+      } finally {
+        fs.closeSync(directory);
+      }
+    }
   } finally {
     fs.rmSync(temporary, { force: true });
   }
 }
 
 const writeJson = (file: string, value: unknown) => writePrivateFile(file, `${JSON.stringify(value, null, 2)}\n`);
-
-function readPrivateJson<T>(file: string): T {
-  try {
-    return JSON.parse(readFile(file, true)) as T;
-  } catch {
-    throw new Error(`Expected valid JSON in an owned mode-0600 file at ${file}.`);
-  }
-}
 
 function checkoutDestination(checkout: string, assertIgnored: Dependencies["assertIgnored"]) {
   assertIgnored(checkout);
@@ -99,18 +79,6 @@ function checkoutDestination(checkout: string, assertIgnored: Dependencies["asse
     }
   }
   return file;
-}
-
-function readOwner(file: string): OwnerRecord {
-  const owner = readPrivateJson<OwnerRecord>(file);
-  if (!owner || !/^mergeone-dev-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(owner.projectId) ||
-    !/^[a-f0-9]{64}$/.test(owner.configHash) ||
-    !owner.ports || !Object.hasOwn(owner.ports, 54321) ||
-    Object.values(owner.ports).some((port) => !Number.isInteger(port) || port < 1024 || port > 65535) ||
-    (owner.registryId !== undefined && !registryIdPattern.test(owner.registryId))) {
-    throw new Error("Cannot establish the persistent Supabase stack identity from its owner record.");
-  }
-  return owner;
 }
 
 function nativeRegistryId(registry: string, project: string, expectedId?: string) {
@@ -159,29 +127,83 @@ async function prepareProject(base: string, active: string, dependencies: Depend
   }
 }
 
-function applyMigrations(workdir: string, migrations: Map<string, string>, previous: OwnerRecord["applied"], cli: Dependencies["cli"]) {
+type MigrationOwner = OwnerRecord & { attempted?: Record<string, string> };
+
+const migrationVersion = (file: string) => file.split("_", 1)[0];
+
+function readMigrationList(workdir: string, cli: Dependencies["cli"]) {
+  const output = cli(["migration", "list", "--local", "--output-format", "json"], workdir);
+  const version = /^(?:\d{3}|\d{8}|\d{14})$/;
+  try {
+    const { migrations } = JSON.parse(output ?? "") as { migrations?: Array<{ local: string; remote: string }> };
+    if (Array.isArray(migrations) && migrations.every((row) =>
+      row && typeof row.local === "string" && typeof row.remote === "string" &&
+      version.test(row.remote || row.local) &&
+      (!row.remote || !row.local || row.remote === row.local))) {
+      return migrations;
+    }
+  } catch {
+    // The CLI output can contain private data. Do not include it in the error.
+  }
+  throw new Error("Supabase did not return a valid local migration inventory.");
+}
+
+function reconcileMigrations(workdir: string, owner: MigrationOwner, cli: Dependencies["cli"]) {
+  const { applied, attempted } = owner;
+  if (attempted === undefined) return applied;
+  if (!attempted || typeof attempted !== "object" || Array.isArray(attempted)) {
+    throw new Error("Invalid attempted local migration fingerprints.");
+  }
+  const entries = Object.entries(attempted);
+  if (!entries.length || entries.some(([file, digest]) =>
+    !migrationNamePattern.test(file) || typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest))) {
+    throw new Error("Invalid attempted local migration fingerprints.");
+  }
+  const versions = new Set(readMigrationList(workdir, cli).map(({ remote }) => remote).filter(Boolean));
+  const reconciled = { ...applied };
+  for (const [file, digest] of entries) {
+    if (versions.delete(migrationVersion(file))) reconciled[file] ??= digest;
+  }
+  if (versions.size) throw new Error("Local database history contains migrations outside the recorded attempt.");
+  return reconciled;
+}
+
+function applyMigrations(
+  workdir: string,
+  migrations: Map<string, string>,
+  ownerFile: string,
+  owner: MigrationOwner,
+  cli: Dependencies["cli"],
+) {
+  const previous = reconcileMigrations(workdir, owner, cli);
   for (const [file, digest] of Object.entries(previous ?? {})) {
     const content = migrations.get(file);
     if (content === undefined || (hashSupabaseMigrationContents(content) !== digest && sha256(content) !== digest)) {
       throw new Error(`The checkout is missing or changed applied migration ${file}. Use a checkout with the applied history. ${rebuild}`);
     }
   }
+  const versions = [...migrations.keys()].map(migrationVersion);
+  if (new Set(versions).size !== versions.length) throw new Error("Duplicate migration versions in checkout.");
   const destination = path.join(workdir, "supabase", "migrations");
   privateDirectory(destination);
   for (const file of fs.readdirSync(destination)) {
     if (!migrations.has(file) && migrationNamePattern.test(file)) fs.unlinkSync(path.join(destination, file));
   }
   for (const [file, content] of migrations) writePrivateFile(path.join(destination, file), content);
+  const attempted = Object.fromEntries([...migrations].map(([file, content]) => [file, hashSupabaseMigrationContents(content)]));
+  // A migration may commit even if the command never reaches the final owner write.
+  owner.attempted = attempted;
+  writeJson(ownerFile, owner);
   try {
     cli(["migration", "up"], workdir);
-    const output = cli(["migration", "list", "--local", "--output-format", "json"], workdir) ?? "";
-    const versions = [...migrations.keys()].map((file) => file.split("_", 1)[0]);
-    const errors = validateAppliedMigrationRows(versions, parseSupabaseMigrationList(output));
+    const errors = validateAppliedMigrationRows(versions, readMigrationList(workdir, cli));
     if (errors.length) throw new Error(errors[0]);
   } catch (error) {
     throw new Error(`Could not bring the local database to the checkout's migrations. ${(error as Error).message} ${rebuild}`);
   }
-  return Object.fromEntries([...migrations].map(([file, content]) => [file, hashSupabaseMigrationContents(content)]));
+  owner.applied = attempted;
+  delete owner.attempted;
+  writeJson(ownerFile, owner);
 }
 
 async function ensureAccount(status: LocalSupabaseStatus, login: Login) {
@@ -229,16 +251,13 @@ function defaultDependencies(): Dependencies {
       }
     },
     prepareConfig: (root, id) => prepareNativeStackConfig(path.join(root, "supabase"), id, new Set([3000, 3001, 3107])),
-    acquireStart: async (project, ports) => {
+    acquireStart: async (ports) => {
       assertNativeRuntimeHost(currentNativeRuntimeHost());
-      const slot = await acquireNativeStackSlot({ label: "persistent local Supabase", waitMs: nativeStackWaitMs() });
       const leases: AppPortLease[] = [];
       const release = () => {
         for (const lease of leases) lease.release();
-        slot.release();
       };
       try {
-        slot.recordStack(project);
         for (const port of ports) leases.push(reserveAppPort({ port, label: "persistent local Supabase startup" }));
         return release;
       } catch (error) {
@@ -285,7 +304,7 @@ export async function runLocalDevSupabase(args: string[], dependencies = default
   const { cli, log } = dependencies;
   const checkout = fs.realpathSync(dependencies.checkout);
   const home = fs.realpathSync(dependencies.homeDirectory);
-  const base = path.join(home, ".supabase", "mergeone-dev");
+  const base = localDevStackDirectory(home);
   const active = path.join(base, "active");
   const registry = path.join(home, ".supabase", "stacks");
   const loginFile = path.join(active, "login.json");
@@ -309,7 +328,7 @@ export async function runLocalDevSupabase(args: string[], dependencies = default
       await prepareProject(base, active, dependencies);
     }
     privateDirectory(active);
-    const owner = readOwner(ownerFile);
+    const owner: MigrationOwner = readOwner(ownerFile);
     const project = path.join(active, owner.projectId);
     const supabase = path.join(project, "supabase");
     privateDirectory(project);
@@ -354,14 +373,20 @@ export async function runLocalDevSupabase(args: string[], dependencies = default
     const login = readPrivateJson<Login>(loginFile);
     if (!login || typeof login.email !== "string" || typeof login.password !== "string") throw new Error("Invalid private login file.");
     if (!output) {
-      const release = await dependencies.acquireStart(project, Object.values(owner.ports));
+      const release = await dependencies.acquireStart(Object.values(owner.ports));
       try {
+        if (!owner.registryId) {
+          // The host can appear before start returns its confirmed registry ID.
+          owner.pendingRegistryId = localDevStackRegistryId(project);
+          writeJson(ownerFile, owner);
+        }
         cli(["start", "--runtime", "native"], project);
       } finally {
         try {
           registered = nativeRegistryId(registry, project, owner.registryId);
           if (registered && !owner.registryId) {
             owner.registryId = registered;
+            delete owner.pendingRegistryId;
             writeJson(ownerFile, owner);
           }
         } finally {
@@ -372,11 +397,11 @@ export async function runLocalDevSupabase(args: string[], dependencies = default
     }
     if (!output || !registered) throw new Error("Supabase did not report an active owned native stack.");
     owner.registryId = registered;
+    delete owner.pendingRegistryId;
     writeJson(ownerFile, owner);
     const status = checkedStatus(output, owner);
     const needsAccount = !entry(path.join(active, "account-ready"));
-    owner.applied = applyMigrations(project, migrations, owner.applied, cli);
-    writeJson(ownerFile, owner);
+    applyMigrations(project, migrations, ownerFile, owner, cli);
     if (needsAccount) {
       await dependencies.ensureAccount(status, login);
       writePrivateFile(path.join(active, "account-ready"), "ready\n");

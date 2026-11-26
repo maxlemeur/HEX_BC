@@ -132,6 +132,10 @@ import {
   estimateDeltaExplanationQuerySchema,
   estimateExplanationDetailQueryParamSchema,
   estimateExplanationResponseSchema,
+  priceExplanationGeneratedResponseSchema,
+  priceExplanationGenerationSchema,
+  priceExplanationReadResponseSchema,
+  priceExplanationSettingsSchema,
 } from "@/lib/estimates/explanation-schemas";
 import { pricesActionSchema } from "@/lib/catalogue/schemas";
 import { referencePriceActionSchema, referencePriceHistorySchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
@@ -2465,6 +2469,13 @@ const estimateExplanationDetailQueryParameter = queryParameter({
   schema: estimateExplanationDetailQueryParamSchema,
   required: false,
 });
+const priceExplanationOriginHeader = headerParameter({
+  name: "Origin",
+  description: "Origine HTTP(S) de l’application.",
+  schemaName: "PriceExplanationOriginHeader",
+  schema: z.string().url(),
+  required: true,
+});
 const estimateExplanationCompareVersionQueryParameter = queryParameter({
   name: "compare_version_id",
   description: "UUID de la version de comparaison pour expliquer le delta.",
@@ -4595,9 +4606,9 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   {
     method: "get",
     path: "/api/estimates/{versionId}/lines/{lineId}/explanation",
-    summary: "Expliquer le prix d'une ligne",
+    summary: "Lire l’explication du prix d’une ligne",
     description:
-      "Retourne un snapshot explicable en lecture seule pour une ligne du devis, avec faits, hypotheses, inferences, provenance et confiance.",
+      "Retourne l’explication encore valide et les réglages locaux de l’utilisateur. Une explication absente ou obsolète est signalée avec un contenu nul. Aucun provider d’IA n’est appelé.",
     tags: ["Estimate Diagnostics"],
     parameters: [
       versionIdPathParameter,
@@ -4606,8 +4617,43 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     ],
     responses: {
       "200": jsonResponse(
-        "Explication de prix calculee avec succes.",
-        apiEstimateExplanationSchemaDefinition
+        "État de l’explication et réglages disponibles.",
+        successResponseSchemaDefinition("ApiPriceExplanationReadResponse", priceExplanationReadResponseSchema)
+      ),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/estimates/{versionId}/lines/{lineId}/explanation",
+    summary: "Générer une explication de prix",
+    description:
+      "Génère ou remplace l’explication pour la révision affichée, avec la source, le modèle et le niveau d’effort explicitement choisis. Un appel avec la clé API OpenAI est plafonné à 0,10 USD.",
+    tags: ["Estimate Diagnostics"],
+    parameters: [versionIdPathParameter, estimateLineIdPathParameter, estimateExplanationDetailQueryParameter, priceExplanationOriginHeader],
+    requestBody: jsonBody({
+      name: "PriceExplanationGeneration", description: "Révision et réglages de la demande.",
+      schema: priceExplanationGenerationSchema,
+    }),
+    responses: {
+      "200": jsonResponse(
+        "Explication enregistrée avec les réglages utilisés.",
+        successResponseSchemaDefinition("ApiPriceExplanationGeneratedResponse", priceExplanationGeneratedResponseSchema)
+      ),
+      "409": jsonResponse("Révision, accès IA ou plafond incompatible avec la demande.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "422": jsonResponse("Explication inexploitable.", openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/estimates/{versionId}/lines/{lineId}/explanation/options",
+    summary: "Actualiser les modèles du forfait ChatGPT",
+    description: "Recharge la liste des modèles du forfait ChatGPT connecté pour l’auteur de la demande. Cette action ne génère aucune explication.",
+    tags: ["Estimate Diagnostics"],
+    parameters: [versionIdPathParameter, estimateLineIdPathParameter, priceExplanationOriginHeader],
+    responses: {
+      "200": jsonResponse(
+        "Réglages disponibles pour cette explication.",
+        successResponseSchemaDefinition("ApiPriceExplanationSettingsResponse", priceExplanationSettingsSchema)
       ),
     },
   },
