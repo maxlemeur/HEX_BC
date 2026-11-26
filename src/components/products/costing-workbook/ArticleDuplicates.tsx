@@ -44,7 +44,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
   onSearch: (search: DuplicateSearch | null) => void;
 }>) {
   const { busy, applyEdits, rows, revision, isCurrentRevision } = useWorkbookEditor();
-  const { provider } = useWorkbookAssistant();
+  const { provider, requestOptions, lockSettings } = useWorkbookAssistant();
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
@@ -53,6 +53,9 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
   useEffect(() => () => abortRef.current?.abort(), [revision]);
 
   async function run() {
+    if (abortRef.current) return;
+    const releaseSettings = lockSettings();
+    if (!releaseSettings) return;
     const abort = new AbortController();
     abortRef.current = abort;
     setError(null);
@@ -66,7 +69,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
         const chunk = proposed.slice(start, start + size);
         const answer = await requestWorkbookSuggestions({
           task: "articles",
-          ...(provider ? { provider } : {}),
+          ...requestOptions,
           lines: chunk.map(({ row, article }) => ({
             key: String(row),
             reference: article.reference.slice(0, 255),
@@ -93,6 +96,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
     } catch (failure) {
       if (!abort.signal.aborted) setError(catalogueErrorMessage(failure, "La recherche de doublons n’a pas abouti."));
     } finally {
+      releaseSettings();
       if (abortRef.current === abort) {
         abortRef.current = null;
         setProgress(null);

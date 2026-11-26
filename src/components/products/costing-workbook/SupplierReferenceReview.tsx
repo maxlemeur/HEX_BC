@@ -93,7 +93,7 @@ const CODE_KIND_LABELS = { price_source: "une source de prix, pas un code", none
  */
 function DoubtfulCodes({ proposed, sourceByCell }: Readonly<{ proposed: Proposed; sourceByCell: SourceMap }>) {
   const { busy, applyEdits } = useWorkbookEditor();
-  const { provider } = useWorkbookAssistant();
+  const { provider, requestOptions } = useWorkbookAssistant();
   const [answers, setAnswers] = useState<Array<{ value: string; kind: keyof typeof CODE_KIND_LABELS; confidence: number | null }> | null>(null);
   const [unanswered, setUnanswered] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -119,7 +119,7 @@ function DoubtfulCodes({ proposed, sourceByCell }: Readonly<{ proposed: Proposed
     setOutcome(null);
     setUnanswered(null);
     try {
-      const answer = await requestWorkbookSuggestions({ task: "supplier_codes", provider, values });
+      const answer = await requestWorkbookSuggestions({ task: "supplier_codes", ...requestOptions, values });
       const byValue = new Map(answer.items.map(({ value, suggestion }) => [value, suggestion]));
       setUnanswered(values.filter((value) => !byValue.get(value)).length);
       setAnswers(values.flatMap((value) => {
@@ -638,7 +638,7 @@ export function SupplierReferenceReview({
   onCatalogueChange: CatalogueChange;
 }>) {
   const { applyEdits, busy } = useWorkbookEditor();
-  const { provider } = useWorkbookAssistant();
+  const { requestOptions } = useWorkbookAssistant();
   const [supplierSuggestions, setSupplierSuggestions] = useState<ReadonlyMap<string, SupplierSuggestion>>(new Map());
   const [suggestionOutcome, setSuggestionOutcome] = useState<Outcome | null>(null);
   const [suggesting, setSuggesting] = useState<"ask" | "retain" | null>(null);
@@ -775,7 +775,7 @@ export function SupplierReferenceReview({
     try {
       const answer = await requestWorkbookSuggestions({
         task: "suppliers",
-        ...(provider ? { provider } : {}),
+        ...requestOptions,
         names: unknownSuppliers.slice(0, COSTING_WORKBOOK_SUGGESTION_LIMITS.suppliers).map((group) => group.label.slice(0, 255)),
       });
       setSupplierSuggestions(new Map(answer.items.flatMap((item) => (item.suggestion ? [[workbookSupplierNameKey(item.name), {

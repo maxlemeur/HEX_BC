@@ -36,7 +36,7 @@ export function SupplyTypeGroups({ articles, companyTypes, chosenRows, onChoose 
 }>) {
   const selectId = useId();
   const { busy } = useWorkbookEditor();
-  const { provider } = useWorkbookAssistant();
+  const { requestOptions } = useWorkbookAssistant();
   const [suggestions, setSuggestions] = useState<ReadonlyMap<string, Suggestion>>(new Map());
   const [outcome, setOutcome] = useState<{ status: CostingWorkbookSuggestionsResponseOf<"supply_types">["status"]; message: string } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -81,7 +81,7 @@ export function SupplyTypeGroups({ articles, companyTypes, chosenRows, onChoose 
       const asked = groups.slice(0, COSTING_WORKBOOK_SUGGESTION_LIMITS.supplyTypeGroups);
       const answer = await requestWorkbookSuggestions({
         task: "supply_types",
-        ...(provider ? { provider } : {}),
+        ...requestOptions,
         groups: asked.map((group, index) => ({
           key: String(index),
           family_code: group.familyCode?.slice(0, 80) ?? null,
