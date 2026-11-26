@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Link from "next/link";
 import { FileSpreadsheetIcon, FileUpIcon, Loader2, RefreshCwIcon } from "lucide-react";
@@ -79,7 +79,6 @@ export type CostingWorkbookImportProps = {
   onImported: () => void | Promise<void>;
   /** An import of either kind was confirmed: the list of imports has a new entry. */
   onImportRecorded?: () => void;
-  children?: ReactNode;
 };
 
 const ENDPOINT = "/api/catalogue/workbook-import";
@@ -178,7 +177,6 @@ export function CostingWorkbookImport({
   draftsHref,
   onImported,
   onImportRecorded,
-  children,
   visible = true,
 }: Readonly<CostingWorkbookImportProps>) {
   const isAdmin = useOptionalUserContext()?.profile?.tenant_role === "admin";
@@ -881,7 +879,6 @@ export function CostingWorkbookImport({
           </WorkbookEditorProvider>
         ) : null}
       </Tabs>
-      {children}
       {rows && originalRows && inspection ? (
         <RowExclusions key={fileGeneration} rows={rows} originalRows={originalRows} inspection={inspection} visible={visible} disabled={isBusy || editorDirty}
           onApply={updateRowExclusions} />

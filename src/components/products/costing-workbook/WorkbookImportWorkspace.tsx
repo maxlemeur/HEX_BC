@@ -41,9 +41,8 @@ export default function WorkbookImportWorkspace({ visible = true }: { visible?: 
         visible={visible}
         onImported={clearCataloguePages}
         onImportRecorded={() => setImports((count) => count + 1)}
-      >
-        <ImportBatchesPanel refreshKey={imports} draftsHref={draftsHref} onChanged={clearCataloguePages} />
-      </CostingWorkbookImport>
+      />
+      <ImportBatchesPanel refreshKey={imports} draftsHref={draftsHref} onChanged={clearCataloguePages} />
     </>
   );
 }
