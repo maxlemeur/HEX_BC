@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import { fetchMeasureReview } from "@/lib/takeoff/item-table-client";
+import { EntryScopeActions } from "@/components/takeoff/item-table/EntryScopeActions";
 import { MeasureRetention } from "./MeasureRetention";
 import type { ItemQuantityChoice } from "@/lib/takeoff/item-table";
 
@@ -590,6 +591,9 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
             className={cn("w-[24rem] shrink-0 border-l border-border max-lg:w-full max-lg:border-l-0 max-lg:border-t", !panels.evidence && "max-lg:hidden")}>
             {line ? (
               <ItemDetailEvidencePane ref={evidence} projectId={projectId} line={line} choice={choice} plan={view}
+                entryScopeActions={canReview && <EntryScopeActions key={viewer + line.itemId} projectId={projectId} viewerKey={viewer}
+                  line={line} filtered={new URLSearchParams(tableQuery).has("postePlan")} version={version} onRefused={historyRefused}
+                  onRefresh={() => onMeasureChanged ? onMeasureChanged(line.itemId) : rereadItem(line.itemId)} />}
                 showPosteDecision={!reviewId || (!!review && !decisionDisagrees)}
                 measureRetention={choice.kind === "reading" && review && answer ? <MeasureRetention
                   key={`${viewerKey}:${review.answer_id}:${review.revision}:${canReview}`} projectId={projectId}

@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { TakeoffItemDetail, type ItemDetailGestureRequest, type ItemDetailShown } from "@/components/takeoff/item-detail/TakeoffItemDetail";
 import { forgetItemDetailOpener, rememberItemDetailOpener } from "@/components/takeoff/item-detail/ItemDetailOpenerFocus";
 import { isRightRefusal, useCompletions } from "@/components/takeoff/item-detail/useCompletions";
-import { AcceptMeasuredDialog, EntryDialog, SetAsideDialog } from "@/components/takeoff/item-table/ItemTableGestureDialogs";
+import { AcceptMeasuredDialog, SetAsideDialog } from "@/components/takeoff/item-table/ItemTableGestureDialogs";
 import { isTakeoffReadRefusal } from "@/components/takeoff/useTakeoffRequestActivity";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ import { itemReviewStaleLines, sendItemReviewCommand } from "@/lib/takeoff/item-
 import { ITEM_REVIEW_COMMAND_VERSION, type ItemReviewCommand, type ItemReviewResult } from "@/lib/takeoff/item-table-contracts";
 import { ITEM_INELIGIBILITY_LABELS } from "@/lib/takeoff/item-table-labels";
 import { readItemTableAddress } from "@/lib/takeoff/item-table-query";
-import type { QuantityEntry } from "@/lib/takeoff/quantity-entry";
+import { EntryDialog } from "@/components/takeoff/item-table/EntryDialog";
 import { TAKEOFF_ITEM_UNIT_MAX_LENGTH } from "@/lib/takeoff/types";
 
 /**
@@ -283,9 +283,9 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
           onConfirm={(value) => setPending({ ...pending!, value })} />
       ) : null}
       {active?.gesture === "enter_quantity" && active.value ? (
-        <EntryDialog scopeLabel={scopeLabel} busy={busy} onClose={close}
-          values={[{ itemId: active.line.itemId, label: active.line.label, ...active.value }]}
-          onConfirm={(entry: QuantityEntry) => void runCommand({ ...base(active.line, active.intentKey), gesture: "enter_quantity",
+        <EntryDialog projectId={projectId} viewScope={scope} onRefused={withdrawOnRefusal} busy={busy} onClose={close}
+          values={[{ line: active.line, ...active.value }]}
+          onConfirm={(entry, chosenScope, targets) => void runCommand({ ...base(active.line, active.intentKey), scope: chosenScope, targets, gesture: "enter_quantity",
             values: [{ item_id: active.line.itemId, quantity: active.value!.quantity, unit: active.value!.unit }], entry }, "saisi",
             pending)} />
       ) : null}

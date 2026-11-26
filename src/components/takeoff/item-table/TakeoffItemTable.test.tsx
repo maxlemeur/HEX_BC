@@ -339,6 +339,7 @@ describe("TakeoffItemTable", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("Baignoire : 1 u");
     expect(dialog).toHaveTextContent("Vanne DN32 : 2,5 u");
+    fireEvent.change(within(dialog).getByLabelText("Portée de la saisie"), { target: { value: "affaire" } });
     fireEvent.change(within(dialog).getByRole("combobox", { name: "Ce qui fonde ces quantités" }), { target: { value: "hypothesis" } });
     const note = within(dialog).getByRole("textbox", { name: "Ce qui est supposé (obligatoire)" });
     fireEvent.change(note, { target: { value: "trop court" } });
@@ -423,6 +424,7 @@ describe("TakeoffItemTable", () => {
     const save = async () => {
       fireEvent.click(await screen.findByRole("button", { name: "Enregistrer les saisies (1)" }));
       const dialog = await screen.findByRole("dialog");
+      fireEvent.change(within(dialog).getByLabelText("Portée de la saisie"), { target: { value: "affaire" } });
       fireEvent.change(within(dialog).getByRole("combobox", { name: "Ce qui fonde ces quantités" }), { target: { value: "site_survey" } });
       fireEvent.click(within(dialog).getByRole("button", { name: "Enregistrer" }));
     };

@@ -56,7 +56,8 @@ import {
   withFrozenSelection,
   type ItemSelection,
 } from "@/lib/takeoff/item-table-selection";
-import type { QuantityEntry } from "@/lib/takeoff/quantity-entry";
+import { EntryScopeActions } from "./EntryScopeActions";
+import { EntryDialog } from "@/components/takeoff/item-table/EntryDialog";
 import { JourneyPanel } from "@/components/journey/JourneyPage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,7 +65,6 @@ import { NativeSelect } from "@/components/ui/native-select";
 
 import {
   AcceptMeasuredDialog,
-  EntryDialog,
   ReinstateDialog,
   RemeasureDialog,
   SetAsideDialog,
@@ -346,10 +346,10 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const canReview = data?.canReview === true;
   const plans = data?.plans ?? [];
   const label = scopeLabel(address.scope, plans);
-  const entryValues = Object.entries(drafts).flatMap(([itemId, draft]) => {
+  const entryValues = Object.values(drafts).flatMap((draft) => {
     const quantity = parseDecimal(draft.quantity);
     const unit = draft.unit.trim() || draft.line.expectedUnit || "";
-    return quantity !== null && unit ? [{ itemId, label: draft.line.label, quantity, unit, target: draft.line.targets }] : [];
+    return quantity !== null && unit ? [{ line: draft.line, quantity, unit }] : [];
   });
 
   /** The selection read again as it is stored now: applied only to the selection it was read for, if still held. */
@@ -813,6 +813,9 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                           {open ? (
                             <tr id={`poste-detail-ligne-${line.itemId}`}>
                               <td colSpan={columns} className="whitespace-normal">
+                                {canReview && <EntryScopeActions key={screenKey + line.itemId} projectId={projectId} viewerKey={viewerKey}
+                                  line={line} filtered={address.scope.kind === "plan"} version={historyVersion}
+                                  onRefused={withdrawOnRefusal} onRefresh={() => void refresh()} />}
                                 <ItemTableLineDetail line={line} projectId={projectId} viewerKey={viewerKey} names={data.names} canReview={canReview} busy={busy}
                                   historyVersion={historyVersion} onRefused={withdrawOnRefusal}
                                   onChooseQuantity={(choice) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION,
@@ -885,10 +888,10 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
           onConfirm={() => void runCommand({ ...base(dialog.intentKey), gesture: "reinstate" }, "réintégré", dropApplied)} />
       ) : null}
       {dialog?.gesture === "entry" ? (
-        <EntryDialog scopeLabel={label} busy={busy} values={entryValues} onClose={() => setDialog(null)}
-          onConfirm={(entry: QuantityEntry) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: dialog.intentKey,
-            scope: address.scope, gesture: "enter_quantity", targets: entryValues.map(({ target }) => target),
-            values: entryValues.map(({ itemId, quantity, unit }) => ({ item_id: itemId, quantity, unit })), entry }, "saisi",
+        <EntryDialog projectId={projectId} viewScope={address.scope} onRefused={withdrawOnRefusal} busy={busy} values={entryValues} onClose={() => setDialog(null)}
+          onConfirm={(entry, scope, targets, values) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: dialog.intentKey,
+            scope, gesture: "enter_quantity", targets,
+            values: values.map(({ line, quantity, unit }) => ({ item_id: line.itemId, quantity, unit })), entry }, "saisi",
           (result) => setDrafts((current) => {
             const copy = { ...current };
             for (const { itemId } of result.applied) delete copy[itemId];

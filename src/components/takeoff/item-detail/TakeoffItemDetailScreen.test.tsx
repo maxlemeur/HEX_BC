@@ -185,11 +185,12 @@ describe("TakeoffItemDetailScreen, the decisions", () => {
     fireEvent.click(evidence().getByRole("button", { name: "Saisir une quantité" }));
     fireEvent.change(dialog().getByLabelText("Quantité"), { target: { value: "2,5" } });
     fireEvent.click(dialog().getByRole("button", { name: "Continuer" }));
+    fireEvent.change(dialog().getByLabelText("Portée de la saisie"), { target: { value: PLAN_RDC } });
     fireEvent.change(dialog().getByLabelText("Ce qui fonde ces quantités"), { target: { value: "site_survey" } });
     fireEvent.click(dialog().getByRole("button", { name: "Enregistrer" }));
     await settle();
     expect(client.sendItemReviewCommand).toHaveBeenLastCalledWith(DETAIL_PROJECT, expect.objectContaining({
-      gesture: "enter_quantity", values: [{ item_id: ITEMS.notFound, quantity: 2.5, unit: "u" }],
+      gesture: "enter_quantity", scope: { kind: "plan", planKey: PLAN_RDC }, values: [{ item_id: ITEMS.notFound, quantity: 2.5, unit: "u" }],
       entry: { category: "site_survey" } }));
   });
 

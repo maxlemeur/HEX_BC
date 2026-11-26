@@ -56,6 +56,7 @@ type Props = {
   outsideFilter: boolean;
   /** Moves with each change of the item the detail made: the journal is read again with it. */
   historyVersion: number;
+  entryScopeActions?: React.ReactNode;
   measureRetention?: React.ReactNode;
   showPosteDecision: boolean;
   onRefused: (caught: unknown) => boolean;
@@ -162,7 +163,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(function ItemDetailEvidencePane(
   { projectId, line, choice, plan, documentState, names, planNames, outsideFilter, historyVersion, onRefused, historyScope, onObservation, onPage, onPlan,
-    decide, measureRetention, showPosteDecision, proof = null }, heading) {
+    decide, entryScopeActions, measureRetention, showPosteDecision, proof = null }, heading) {
   // An earlier reading (an old bookmark) shows nothing of the current one: its answer, decision and entry are not its own.
   const earlier = choice.kind === "reading" && !choice.current;
   const reading = !earlier && (choice.kind === "reading" || choice.kind === "dossier") ? choice.reading : null;
@@ -315,6 +316,7 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
             ) : <p className="text-muted-foreground">Aucune décision sur ce plan.</p>)}
             {reading?.entry ? <p>Saisi sur ce plan : <EntryText entry={reading.entry} names={names} /></p> : null}
             {line.entry ? <p>Saisi pour le poste : <EntryText entry={line.entry} names={names} /></p> : null}
+            {entryScopeActions}
             <DecisionButtons line={line} decide={decide} />
             {answer && answer.outcome !== "measured" && !reading?.sent && !reading?.decision && !reading?.entry && !line.entry && !line.wholeEntry &&
               <p>Ce plan ne donne pas de mesure à retenir. Relisez le plan ou renseignez une saisie justifiée pour ce poste.</p>}

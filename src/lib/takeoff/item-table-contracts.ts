@@ -242,6 +242,7 @@ export type ItemHistoryEvent = ItemHistoryResponse["events"][number];
 export type ItemTableResponseLine = ItemTableResponse["page"]["lines"][number];
 
 export const itemSelectionRequestSchema = z.object({
+  entry_plans: z.literal(true).optional(),
   command_version: z.literal(ITEM_REVIEW_COMMAND_VERSION),
   scope: itemTableScopeSchema,
   selection: z.discriminatedUnion("kind", [
@@ -256,6 +257,7 @@ export const itemSelectionResponseSchema = z.object({
     itemId: uuid,
     label: z.string(),
     target: itemReviewTargetSchema,
+    entryPlans: z.array(z.object({ key: planKey, name: z.string(), answerId: uuid, eligible: z.boolean() })).optional(),
     eligible: z.array(z.enum(ITEM_REVIEW_GESTURES)).describe("Gestes qui s’appliquent à ce poste, décidés de nouveau à la commande."),
   }).strict()),
   eligible: z.object(Object.fromEntries(ITEM_REVIEW_GESTURES.map((gesture) => [gesture, count])) as
