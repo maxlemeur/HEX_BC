@@ -7,20 +7,22 @@ vi.mock("@/lib/supabase/server", () => ({
 // The arbiter boundary: no test reaches a provider.
 vi.mock("@/lib/ai/choice-questions", () => ({
   askChoiceQuestions: vi.fn(),
-  readChoiceProviderAvailability: vi.fn(),
+  readChoiceProviderOptions: vi.fn(),
 }));
 
 import { GET, maxDuration, POST } from "@/app/api/catalogue/workbook-import/suggestions/route";
-import { askChoiceQuestions, readChoiceProviderAvailability } from "@/lib/ai/choice-questions";
+import { askChoiceQuestions, readChoiceProviderOptions } from "@/lib/ai/choice-questions";
 import {
   COSTING_WORKBOOK_SUGGESTION_PROVIDERS,
   COSTING_WORKBOOK_SUGGESTIONS_MAX_BODY_BYTES,
   costingWorkbookSuggestionProvidersResponseSchema,
   costingWorkbookSuggestionsRequestSchema,
   costingWorkbookSuggestionsResponseSchema,
+  type CostingWorkbookSuggestionProvidersResponse,
   type CostingWorkbookSuggestionsResponse,
 } from "@/lib/catalogue/costing-workbook-suggestions-contract";
 import { PRODUCT_WRITE_REFUSAL } from "@/lib/catalogue/product-writes";
+import { unprocessableEntity } from "@/lib/http/api-error";
 import { createFakeSupabase, fakeMembership, type FakeRow } from "@/lib/material-requests/server.test-utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -44,11 +46,18 @@ const POINT_P = "40000000-0000-4000-8000-000000000002";
 const TUBE = "90000000-0000-4000-8000-000000000001";
 const TUBE_TYPE = "a0000000-0000-4000-8000-000000000001";
 
-const PROVIDERS = {
-  chatgpt_plan: { available: true, message: "Connexion ChatGPT configurée." },
-  personal_api_key: { available: false, message: "Configurez votre clé API OpenAI et son modèle dans Mon profil." },
-  decisions: { available: false, message: "Le classement Decisions est désactivé." },
-};
+const OPTIONS = {
+  defaultProvider: "chatgpt_plan",
+  providers: {
+    chatgpt_plan: {
+      available: true, message: "Connexion ChatGPT configurée.",
+      models: [{ id: "plan-a", name: "Modèle A", reasoningEfforts: ["high"], defaultReasoningEffort: "high" }],
+      preferences: { model: "plan-a", reasoningEffort: "high" },
+    },
+    personal_api_key: { available: false, message: "Configurez votre clé API OpenAI et son modèle dans Mon profil.", models: [], preferences: null },
+    decisions: { available: false, message: "Le classement Decisions est désactivé." },
+  },
+} satisfies CostingWorkbookSuggestionProvidersResponse;
 
 function seed(actor: string | null = ADMIN, role: "admin" | "viewer" = "admin") {
   const supplier = (id: string, tenant: string, name: string): FakeRow =>
@@ -100,7 +109,7 @@ const group = (key: string) => ({ key, family_code: null, product_type: "Tube", 
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(readChoiceProviderAvailability).mockResolvedValue(PROVIDERS);
+  vi.mocked(readChoiceProviderOptions).mockResolvedValue(OPTIONS);
 });
 
 describe("GET /api/catalogue/workbook-import/suggestions", () => {
@@ -109,9 +118,9 @@ describe("GET /api/catalogue/workbook-import/suggestions", () => {
 
     const answer = await read(await GET());
 
-    expect(answer).toEqual({ status: 200, ok: true, data: { providers: PROVIDERS }, error: undefined });
+    expect(answer).toEqual({ status: 200, ok: true, data: OPTIONS, error: undefined });
     expect(costingWorkbookSuggestionProvidersResponseSchema.safeParse(answer.data).success).toBe(true);
-    expect(readChoiceProviderAvailability).toHaveBeenCalledWith({ userId: ADMIN, tenantId: TENANT });
+    expect(readChoiceProviderOptions).toHaveBeenCalledWith({ userId: ADMIN, tenantId: TENANT });
     expect(askChoiceQuestions).not.toHaveBeenCalled();
     expect(fake.reads).toEqual(["tenant_memberships"]);
   });
@@ -122,7 +131,7 @@ describe("GET /api/catalogue/workbook-import/suggestions", () => {
 
     seed(null);
     expect((await read(await GET())).status).toBe(401);
-    expect(readChoiceProviderAvailability).not.toHaveBeenCalled();
+    expect(readChoiceProviderOptions).not.toHaveBeenCalled();
   });
 });
 
@@ -161,12 +170,29 @@ describe("POST /api/catalogue/workbook-import/suggestions", () => {
       answers: input.questions.map((question) => ({ id: question.id, choice: POINT_P, confidence: 0.8 })),
     }));
 
-    const answer = await send({ ...BODIES.suppliers, provider: "personal_api_key" });
+    const selection = { provider: "personal_api_key", model: "modele-fictif", reasoning_effort: "medium" };
+    const answer = await send({ ...BODIES.suppliers, ...selection });
 
     expect(answer).toMatchObject({ status: 200, data: { provider: "personal_api_key", model: "modele-fictif", status: "partial", message: "Réponse partielle de l’IA." } });
     expect(answer.data?.items[1]).toMatchObject({ suggestion: { supplier_id: POINT_P, confidence: 0.8, source: "ai" } });
     expect(costingWorkbookSuggestionsResponseSchema.safeParse(answer.data).success).toBe(true);
-    expect(vi.mocked(askChoiceQuestions).mock.calls[0][0]).toMatchObject({ provider: "personal_api_key", owner: { userId: ADMIN, tenantId: TENANT } });
+    expect(vi.mocked(askChoiceQuestions).mock.calls[0][0]).toMatchObject({ ...selection, owner: { userId: ADMIN, tenantId: TENANT } });
+  });
+
+  it("returns the French 422 even when deterministic matching finds an answer", async () => {
+    seed();
+    const message = "Ce niveau de raisonnement n’est pas proposé pour le modèle choisi.";
+    vi.mocked(askChoiceQuestions).mockRejectedValue(unprocessableEntity(message));
+
+    expect(await send({ ...BODIES.articles, provider: "chatgpt_plan", reasoning_effort: "niveau-inconnu" }))
+      .toMatchObject({ status: 422, ok: false, error: { message } });
+    expect(askChoiceQuestions).toHaveBeenCalledWith(expect.objectContaining({ questions: [], reasoning_effort: "niveau-inconnu" }));
+  });
+
+  it("refuses a model when the request is rules-only", async () => {
+    seed();
+    expect(await send({ ...BODIES.suppliers, model: "plan-a" })).toMatchObject({ status: 422, ok: false });
+    expect(askChoiceQuestions).not.toHaveBeenCalled();
   });
 
   it("refuses a viewer before any read of the catalogue (1)", async () => {

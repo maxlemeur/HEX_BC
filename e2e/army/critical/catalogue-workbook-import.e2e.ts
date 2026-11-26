@@ -170,6 +170,8 @@ armyTest(
       fileInput.setInputFiles(workbookPath),
     ]);
     expect(previewResponse.status).toBe(200);
+    await expect(importPage.getByRole("combobox", "Propositions", { exact: true })).toHaveValue("");
+    await expect(importPage.getByText(/^Source par défaut indisponible : /)).toBeVisible();
     const unitIssue = { row: 5, reference: valveRef, message: "Unité absente : « u » retenue." };
     const expectedPreview: CostingWorkbookImportReport = {
       confirmed: false, articles: 4, new_articles: 3, already_in_catalogue: 1, without_supply_type: withoutSupplyType,

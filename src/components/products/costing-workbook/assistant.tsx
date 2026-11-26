@@ -4,14 +4,21 @@ import { createContext, useContext, useId, useState } from "react";
 
 import { SparklesIcon } from "lucide-react";
 
+import { ReasoningEffortSelect } from "@/components/ai/ReasoningEffortSelect";
 import { Button } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
+import type { ChatGptPreferences, ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import {
   fetchSuggestionProviders,
   type SuggestionProvider,
   type SuggestionProviders,
 } from "@/lib/catalogue/costing-workbook-suggestions-client";
-import type { CostingWorkbookSuggestionStatus } from "@/lib/catalogue/costing-workbook-suggestions-contract";
+import type {
+  CostingWorkbookSuggestionProvidersResponse,
+  CostingWorkbookSuggestionsRequest,
+  CostingWorkbookSuggestionStatus,
+} from "@/lib/catalogue/costing-workbook-suggestions-contract";
 
 /**
  * The AI source the office chose for the import screen's proposals (TI-711): its ChatGPT plan, its own OpenAI
@@ -29,34 +36,69 @@ export const SUGGESTION_PROVIDER_LABELS: Record<SuggestionProvider, string> = {
 export const RETAINED_CONFIDENCE = 0.8;
 
 export type WorkbookAssistant = {
-  /**
-   * null until the office asks for them; "loading"; "error" when the sources could not be read (proposals then
-   * come from the rules alone).
-   */
-  providers: SuggestionProviders | "loading" | "error" | null;
+  sources: CostingWorkbookSuggestionProvidersResponse | "loading" | "error" | null;
   provider: SuggestionProvider | null;
+  preferences: ChatGptPreferences | null;
+  requestOptions: Pick<CostingWorkbookSuggestionsRequest, "provider" | "model" | "reasoning_effort">;
   chooseProvider: (provider: SuggestionProvider | null) => void;
-  /** Reads which sources this member can ask here; no provider is called. */
+  chooseModel: (model: string) => void;
+  chooseEffort: (effort: ChatGptReasoningEffort | null) => void;
   loadProviders: () => void;
 };
 
 const NO_ASSISTANT: WorkbookAssistant = {
-  providers: null, provider: null, chooseProvider: () => undefined, loadProviders: () => undefined,
+  sources: null, provider: null, preferences: null, requestOptions: {},
+  chooseProvider: () => undefined, chooseModel: () => undefined, chooseEffort: () => undefined, loadProviders: () => undefined,
 };
 const WorkbookAssistantContext = createContext<WorkbookAssistant>(NO_ASSISTANT);
 export const WorkbookAssistantProvider = WorkbookAssistantContext.Provider;
 export const useWorkbookAssistant = () => useContext(WorkbookAssistantContext);
 
-/** The sources are read when the office asks to choose one; the choice lasts as long as the page. */
+function personalOptions(providers: SuggestionProviders, provider: SuggestionProvider | null) {
+  return provider && provider !== "decisions" ? providers[provider] : null;
+}
+
+/** The choices last as long as the page. */
 export function useWorkbookAssistantState(): WorkbookAssistant {
-  const [providers, setProviders] = useState<WorkbookAssistant["providers"]>(null);
+  const [sources, setSources] = useState<WorkbookAssistant["sources"]>(null);
   const [provider, setProvider] = useState<SuggestionProvider | null>(null);
+  const [preferences, setPreferences] = useState<ChatGptPreferences | null>(null);
+  const providers = typeof sources === "object" ? sources?.providers : undefined;
+
   function loadProviders() {
-    if (providers !== null && providers !== "error") return;
-    setProviders("loading");
-    fetchSuggestionProviders().then((answer) => setProviders(answer), () => setProviders("error"));
+    if (sources !== null && sources !== "error") return;
+    setSources("loading");
+    void fetchSuggestionProviders().then((answer) => {
+      const preferred = answer.providers[answer.defaultProvider];
+      setProvider(preferred.available ? answer.defaultProvider : null);
+      setPreferences(preferred.available ? preferred.preferences : null);
+      setSources(answer);
+    }, () => setSources("error"));
   }
-  return { providers, provider, chooseProvider: setProvider, loadProviders };
+
+  function chooseProvider(next: SuggestionProvider | null) {
+    if (!providers || (next && !providers[next].available)) return;
+    setProvider(next);
+    setPreferences(personalOptions(providers, next)?.preferences ?? null);
+  }
+
+  function chooseModel(id: string) {
+    if (!providers || !preferences) return;
+    const model = personalOptions(providers, provider)?.models.find((entry) => entry.id === id);
+    if (!model) return;
+    const effort = preferences.reasoningEffort;
+    setPreferences({
+      model: model.id,
+      reasoningEffort: effort === null || model.reasoningEfforts.includes(effort) ? effort : model.defaultReasoningEffort,
+    });
+  }
+
+  function chooseEffort(reasoningEffort: ChatGptReasoningEffort | null) {
+    if (preferences) setPreferences({ ...preferences, reasoningEffort });
+  }
+
+  const requestOptions = provider ? { provider, ...(preferences && { model: preferences.model, reasoning_effort: preferences.reasoningEffort }) } : {};
+  return { sources, provider, preferences, requestOptions, chooseProvider, chooseModel, chooseEffort, loadProviders };
 }
 
 export function confidenceLabel(confidence: number | null) {
@@ -66,52 +108,58 @@ export function confidenceLabel(confidence: number | null) {
 /** The choice of the AI source, with why a source cannot be chosen here. */
 export function AssistantProviderSelect() {
   const selectId = useId();
-  const { providers, provider, chooseProvider, loadProviders } = useWorkbookAssistant();
-  if (providers === null || providers === "loading" || providers === "error") {
+  const { sources, provider, preferences, chooseProvider, chooseModel, chooseEffort, loadProviders } = useWorkbookAssistant();
+  if (sources === "error") {
     return (
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <Button
-          variant="ghost"
-          size="xs"
-          loading={providers === "loading"}
-          leftIcon={<SparklesIcon aria-hidden="true" />}
-          onClick={loadProviders}
-        >
-          Propositions avec l’IA
-        </Button>
-        {providers === "error" ? <span role="alert">Les sources d’IA n’ont pas pu être lues. Les propositions suivent les règles seules.</span> : null}
+        <span role="alert">Les sources d’IA n’ont pas pu être lues. Les propositions suivent les règles seules.</span>
+        <Button variant="ghost" size="xs" onClick={loadProviders}>Recharger les sources d’IA</Button>
       </div>
     );
   }
-  const entries = Object.entries(providers) as Array<[SuggestionProvider, SuggestionProviders[SuggestionProvider]]>;
-  const unavailable = entries.filter(([, state]) => !state.available);
+  if (sources === null || sources === "loading") {
+    return <span role="status" className="text-xs text-muted-foreground">Chargement des sources d’IA…</span>;
+  }
+  const { providers, defaultProvider } = sources;
+  const options = personalOptions(providers, provider);
+  const model = options?.models.find((entry) => entry.id === preferences?.model);
+  const message = provider ? providers[provider].message : !providers[defaultProvider].available
+    ? `Source par défaut indisponible : ${providers[defaultProvider].message}` : null;
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-      <label htmlFor={selectId} className="inline-flex items-center gap-1 font-medium">
-        <SparklesIcon className="size-3.5" aria-hidden="true" /> Propositions
-      </label>
-      <NativeSelect
-        id={selectId}
-        size="sm"
-        wrapperClassName="w-52"
-        className="h-8 text-xs"
-        value={provider ?? ""}
-        onChange={(event) => chooseProvider((event.currentTarget.value || null) as SuggestionProvider | null)}
-      >
-        <option value="">Règles seules, sans IA</option>
-        {entries.map(([id, state]) => (
-          <option key={id} value={id} disabled={!state.available}>
-            {`${SUGGESTION_PROVIDER_LABELS[id]}${state.available ? "" : " (indisponible)"}`}
-          </option>
-        ))}
-      </NativeSelect>
-      {provider ? (
-        <span>{providers[provider].message}</span>
-      ) : unavailable.length === entries.length ? (
-        <span title={unavailable.map(([id, state]) => `${SUGGESTION_PROVIDER_LABELS[id]} : ${state.message}`).join("\n")}>
-          Aucune source d’IA n’est disponible ici.
-        </span>
-      ) : null}
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-0 space-y-1.5">
+          <FieldLabel htmlFor={selectId} className="inline-flex items-center gap-1">
+            <SparklesIcon className="size-3.5" aria-hidden="true" /> Propositions
+          </FieldLabel>
+          <NativeSelect
+            id={selectId}
+            value={provider ?? ""}
+            aria-describedby={message ? `${selectId}-source-info` : undefined}
+            onChange={(event) => chooseProvider((event.currentTarget.value || null) as SuggestionProvider | null)}
+          >
+            <option value="">Règles seules, sans IA</option>
+            {(Object.keys(providers) as SuggestionProvider[]).map((id) => (
+              <option key={id} value={id} disabled={!providers[id].available}>
+                {`${SUGGESTION_PROVIDER_LABELS[id]}${providers[id].available ? "" : " (indisponible)"}`}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        {options && preferences ? (
+          <>
+            <div className="min-w-0 space-y-1.5">
+              <FieldLabel htmlFor={`${selectId}-model`}>Modèle</FieldLabel>
+              <NativeSelect id={`${selectId}-model`} value={preferences.model} onChange={(event) => chooseModel(event.currentTarget.value)}>
+                {options.models.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+              </NativeSelect>
+            </div>
+            <ReasoningEffortSelect id={`${selectId}-effort`} efforts={model?.reasoningEfforts ?? []}
+              value={preferences.reasoningEffort} disabled={!model} onChange={chooseEffort} />
+          </>
+        ) : null}
+      </div>
+      {message ? <p id={`${selectId}-source-info`} className="text-xs text-muted-foreground">{message}</p> : null}
     </div>
   );
 }
@@ -139,13 +187,13 @@ export function SuggestButton({ label, withAi, loading, disabled, onClick }: Rea
   disabled?: boolean;
   onClick: () => void;
 }>) {
-  const { provider } = useWorkbookAssistant();
+  const { provider, sources } = useWorkbookAssistant();
   return (
     <Button
       variant="secondary"
       size="sm"
       loading={loading}
-      disabled={disabled}
+      disabled={disabled || (withAi && sources === "loading")}
       leftIcon={<SparklesIcon aria-hidden="true" />}
       title={withAi && provider ? `Arbitré par ${SUGGESTION_PROVIDER_LABELS[provider]} : rien n’est appliqué sans votre accord` : undefined}
       onClick={onClick}

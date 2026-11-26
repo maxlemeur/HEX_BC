@@ -5,6 +5,7 @@ const request = vi.hoisted(() => ({ host: "127.0.0.1:3000" as string | null }));
 vi.mock("next/headers", () => ({ headers: async () => new Headers(request.host ? { host: request.host } : {}) }));
 // The provider boundaries: no test reaches a ChatGPT plan, OpenAI or Decisions.
 vi.mock("@/lib/ai/structured-ai", () => ({ callStructuredAi: vi.fn(), getStructuredAiAvailability: vi.fn() }));
+vi.mock("@/lib/ai/chatgpt-local-inference", () => ({ readLocalChatGptModelOptions: vi.fn() }));
 vi.mock("@/lib/ai/decisions", () => ({
   OPENAI_DECISIONS_MODEL: "gpt-6-luna", getOpenAiDecisionsCapability: vi.fn(), callOpenAiDecisions: vi.fn(),
 }));
@@ -13,13 +14,16 @@ vi.mock("@/lib/ai/access/openai-api", () => ({ openAiApiKeyAccess: () => api }))
 
 import { ApiKeyError, apiKeyErrorMessage } from "@/lib/ai/access/api-key-errors";
 import { MODEL_TEST_CEILING_NANO_USD } from "@/lib/ai/access/openai-pricing";
+import { readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
+import type { ChatGptAvailableModel, ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import {
   askChoiceQuestions,
   CHOICE_API_KEY_CEILING_NANO_USD,
   CHOICE_PROVIDERS,
   CHOICE_REQUEST_LIMITS,
-  readChoiceProviderAvailability,
+  readChoiceProviderOptions,
   type ChoiceProvider,
+  type ChoiceModelSelection,
   type ChoiceQuestion,
 } from "@/lib/ai/choice-questions";
 import { callOpenAiDecisions, getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
@@ -55,6 +59,11 @@ const AVAILABLE = "Propositions de l’IA à confirmer : elles ne prouvent rien 
 const PARTIAL = "Réponse partielle de l’IA : les éléments sans proposition restent à choisir.";
 
 const offered = (id: string) => ({ id, name: id, reasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "medium", verified: true });
+const PLAN_MODELS: ChatGptAvailableModel[] = [
+  { id: "plan-a", name: "Modèle A", reasoningEfforts: ["high"], defaultReasoningEffort: "high" },
+  { id: "plan-b", name: "Modèle B", reasoningEfforts: ["low", "medium"], defaultReasoningEffort: "medium" },
+];
+const PLAN_DEFAULT: ChatGptPreferences = { model: "plan-a", reasoningEffort: "high" };
 /** A saved key whose default model is Terra at a low effort, and whose photo override is Sol at a high one. */
 const SAVED_KEY = {
   status: "saved",
@@ -154,9 +163,10 @@ const questions = (count: number) => Array.from({ length: count }, (_, index) =>
 /** The provider's name of the choice the caller calls `value`. */
 const keyOf = (asked: Asked, value: string) => asked.choix.find((choice) => choice.description === `Choix ${value}`)?.valeur ?? "";
 
-const ask = (provider: ChoiceProvider, asked: readonly ChoiceQuestion[]) => askChoiceQuestions({
+const ask = (provider: ChoiceProvider, asked: readonly ChoiceQuestion[], selection?: ChoiceModelSelection) => askChoiceQuestions({
   provider, owner: OWNER, task: "tache-fictive", promptVersion: "tache-fictive-v1",
   instructions: "Choisis le fournisseur qui est la même société.", questions: asked,
+  ...selection,
 });
 
 beforeEach(() => {
@@ -170,6 +180,7 @@ beforeEach(() => {
   sent.prompts = [];
   sent.timeouts = [];
   vi.mocked(getStructuredAiAvailability).mockResolvedValue({ available: true, message: "Connexion ChatGPT configurée." });
+  vi.mocked(readLocalChatGptModelOptions).mockResolvedValue({ models: PLAN_MODELS, preferences: PLAN_DEFAULT });
   vi.mocked(getOpenAiDecisionsCapability).mockReturnValue({
     status: "available", model: "gpt-6-luna", billing: "separate_api", message: "Decisions configuré.",
   });
@@ -395,6 +406,30 @@ describe("askChoiceQuestions on the ChatGPT plan", () => {
     expect(options.timeoutMs).toBe(100_000);
   });
 
+  it.each([
+    [{ model: "plan-b", reasoning_effort: "low" }, { model: "plan-b", reasoningEffort: "low" }],
+    [{ model: "plan-b" }, { model: "plan-b", reasoningEffort: "medium" }],
+    [{ reasoning_effort: null }, { model: "plan-a", reasoningEffort: null }],
+  ])("passes the one-request selection to the plan adapter (%j)", async (selection, expected) => {
+    provide("chatgpt_plan");
+    await ask("chatgpt_plan", [question("a")], selection);
+    expect(readLocalChatGptModelOptions).toHaveBeenCalledWith(OWNER);
+    expect(callStructuredAi).toHaveBeenCalledWith(expect.anything(), OWNER, expected);
+  });
+
+  it.each([
+    ["chatgpt_plan", { model: "gpt-6.2-sol" }, "Ce modèle n’est pas proposé par la source d’IA choisie."],
+    ["chatgpt_plan", { model: "plan-b", reasoning_effort: "high" }, "Ce niveau de raisonnement n’est pas proposé pour le modèle choisi."],
+    ["personal_api_key", { model: "plan-a" }, "Ce modèle n’est pas proposé par la source d’IA choisie."],
+    ["personal_api_key", { reasoning_effort: "max" }, "Ce niveau de raisonnement n’est pas proposé pour le modèle choisi."],
+    ["decisions", { reasoning_effort: null }, "L’API Decisions ne permet pas de choisir le modèle ni le niveau de raisonnement."],
+  ] as const)("refuses the invalid selection on %s even without unresolved questions", async (provider, selection, message) => {
+    await expect(ask(provider, [], selection)).rejects.toMatchObject({ status: 422, message });
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(api.prepare).not.toHaveBeenCalled();
+    expect(callOpenAiDecisions).not.toHaveBeenCalled();
+  });
+
   it("accepts an answer without confidence, and ignores a question answered twice (1)", async () => {
     vi.mocked(callStructuredAi).mockImplementation(async (options) => ({
       data: options.schema.parse({ reponses: [
@@ -478,7 +513,7 @@ describe("askChoiceQuestions on the personal API key (6)", () => {
     expectOnly("personal_api_key");
   });
 
-  it("subtracts billed chunks from the allowance before preparing the next chunk", async () => {
+  it("passes the override to every API-key call and subtracts billed chunks from the allowance", async () => {
     provide("personal_api_key");
     const prepare = api.prepare.getMockImplementation()!;
     const execute = api.execute.getMockImplementation()!;
@@ -487,8 +522,9 @@ describe("askChoiceQuestions on the personal API key (6)", () => {
       return prepare(owner, input);
     });
     api.execute.mockImplementation(async (...args) => ({ ...await execute(...args), costNanoUsd: 90_000_000 }));
-    const result = await ask("personal_api_key", questions(60));
-    expect(api.prepare.mock.calls.map(([, input]) => input.allotmentNanoUsd)).toEqual([100_000_000, 10_000_000]);
+    const result = await ask("personal_api_key", questions(60), { model: "gpt-6.2-sol", reasoning_effort: "medium" });
+    expect(api.prepare.mock.calls.map(([, input]) => input)).toEqual([100_000_000, 10_000_000].map((allotmentNanoUsd) =>
+      expect.objectContaining({ model: "gpt-6.2-sol", reasoningEffort: "medium", expectedVersion: 4, allotmentNanoUsd })));
     expect(api.execute).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("partial");
     expect(result.answers.filter((entry) => entry.choice !== null)).toHaveLength(50);
@@ -618,13 +654,27 @@ describe("availability", () => {
     expect(api.execute).not.toHaveBeenCalled();
   };
 
-  it("says which providers can be asked, without calling any (8)", async () => {
-    expect(await readChoiceProviderAvailability(OWNER)).toEqual({
-      chatgpt_plan: { available: true, message: "Connexion ChatGPT configurée." },
-      personal_api_key: { available: true, message: "Clé API OpenAI enregistrée : appels facturés à votre compte OpenAI, 0,10 $ US au plus par demande." },
-      decisions: { available: true, message: "Decisions configuré. Un appel par demande, jusqu’à 100 questions et 200 Kio de données." },
+  it("returns the profile default even when its key is unavailable", async () => {
+    api.state.mockResolvedValue({ status: "empty", analysisPreferences: { billingSource: "personal_api_key", apiModel: null } });
+    expect(await readChoiceProviderOptions(OWNER)).toMatchObject({
+      defaultProvider: "personal_api_key",
+      providers: { personal_api_key: { available: false, models: [], preferences: null } },
     });
-    expect(getStructuredAiAvailability).toHaveBeenCalledWith(OWNER);
+  });
+
+  it("says which sources and models can be used, without running inference (8)", async () => {
+    expect(await readChoiceProviderOptions(OWNER)).toEqual({
+      defaultProvider: "chatgpt_plan",
+      providers: {
+        chatgpt_plan: { available: true, message: "Connexion ChatGPT configurée.", models: PLAN_MODELS, preferences: PLAN_DEFAULT },
+        personal_api_key: {
+          available: true, message: "Clé API OpenAI enregistrée : appels facturés à votre compte OpenAI, 0,10 $ US au plus par demande.",
+          models: SAVED_KEY.connection.offeredModels, preferences: { model: "gpt-6.1-terra", reasoningEffort: "low" },
+        },
+        decisions: { available: true, message: "Decisions configuré. Un appel par demande, jusqu’à 100 questions et 200 Kio de données." },
+      },
+    });
+    expect(getStructuredAiAvailability).toHaveBeenCalledWith(OWNER, { allowUnselectedModel: true });
     expect(api.state).toHaveBeenCalledWith(OWNER);
     expectNoProviderCall();
   });
@@ -636,9 +686,9 @@ describe("availability", () => {
       status: "not_configured", model: "gpt-6-luna", billing: "separate_api", message: "L’accès API Decisions n’est pas configuré côté serveur.",
     });
 
-    expect(await readChoiceProviderAvailability(OWNER)).toEqual({
-      chatgpt_plan: { available: false, message: PLAN_ELSEWHERE },
-      personal_api_key: { available: false, message: apiKeyErrorMessage("AI_KEY_KEYCHAIN_UNAVAILABLE") },
+    expect((await readChoiceProviderOptions(OWNER)).providers).toEqual({
+      chatgpt_plan: { available: false, message: PLAN_ELSEWHERE, models: [], preferences: null },
+      personal_api_key: { available: false, message: apiKeyErrorMessage("AI_KEY_KEYCHAIN_UNAVAILABLE"), models: [], preferences: null },
       decisions: { available: false, message: "L’accès API Decisions n’est pas configuré côté serveur." },
     });
     // Nothing of the member's connections is even read.
@@ -650,7 +700,7 @@ describe("availability", () => {
   it("offers neither the plan nor the personal key from another host than the local one (6)", async () => {
     request.host = "mergeone.example";
 
-    expect(await readChoiceProviderAvailability(OWNER)).toMatchObject({
+    expect((await readChoiceProviderOptions(OWNER)).providers).toMatchObject({
       chatgpt_plan: { available: false, message: "Le forfait ChatGPT n’est utilisable que depuis MergeOne local, sur ce Mac." },
       personal_api_key: { available: false, message: apiKeyErrorMessage("AI_KEY_LOCAL_ONLY") },
       decisions: { available: true },

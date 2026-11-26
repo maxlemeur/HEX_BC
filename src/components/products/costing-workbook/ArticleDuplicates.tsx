@@ -44,7 +44,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
   onSearch: (search: DuplicateSearch | null) => void;
 }>) {
   const { busy, applyEdits, rows, revision, isCurrentRevision } = useWorkbookEditor();
-  const { provider } = useWorkbookAssistant();
+  const { provider, requestOptions } = useWorkbookAssistant();
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
@@ -66,7 +66,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
         const chunk = proposed.slice(start, start + size);
         const answer = await requestWorkbookSuggestions({
           task: "articles",
-          ...(provider ? { provider } : {}),
+          ...requestOptions,
           lines: chunk.map(({ row, article }) => ({
             key: String(row),
             reference: article.reference.slice(0, 255),

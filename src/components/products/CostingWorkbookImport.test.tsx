@@ -105,7 +105,17 @@ const importPage = () => screen.getByRole("region", { name: "Importer le classeu
 describe("CostingWorkbookImport", () => {
   beforeEach(() => {
     fetchMock.mockReset();
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchImport: typeof fetch = (input, init) => input === "/api/catalogue/workbook-import/suggestions" && init?.method === "GET"
+      ? respond(200, { ok: true, data: {
+        defaultProvider: "chatgpt_plan",
+        providers: {
+          chatgpt_plan: { available: false, message: "Forfait indisponible.", models: [], preferences: null },
+          personal_api_key: { available: false, message: "Clé indisponible.", models: [], preferences: null },
+          decisions: { available: false, message: "Decisions indisponible." },
+        },
+      } })
+      : fetchMock(input, init);
+    vi.stubGlobal("fetch", fetchImport);
   });
 
   afterEach(() => {

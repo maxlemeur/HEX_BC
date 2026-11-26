@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 // Types only: the arbiter is a server module, and this contract is read by the screen.
-import type { ChoiceProvider, ChoiceProviderAvailability } from "@/lib/ai/choice-questions";
+import { AI_BILLING_SOURCES } from "@/lib/ai/access/contracts";
+import { chatGptPreferencesSchema, chatGptReasoningEffortSchema } from "@/lib/ai/chatgpt-model-preferences";
+import type { ChoiceProvider } from "@/lib/ai/choice-questions";
 
 import {
   COSTING_WORKBOOK_OPTIONAL_COLUMNS,
@@ -14,7 +16,7 @@ import {
  * that speed up what the office corrects in the costing workbook import. Nothing is written by these routes, and
  * a proposal applies nothing: the office confirms it in the screen.
  *
- *  - GET answers `{ providers }`: which AI sources this member can ask here (no provider is called).
+ *  - GET answers `{ defaultProvider, providers }`: the profile's preferred source and the available sources and models.
  *  - POST answers the proposals of one task. Without `provider` they come from the deterministic pass alone
  *    (`status: "deterministic"`, `provider: null`). With a provider, that pass runs first and the provider is asked
  *    only for what it left undecided and that has something to choose from; `status` and `message` are then the
@@ -42,6 +44,12 @@ export const COSTING_WORKBOOK_SUGGESTION_LIMITS = {
 const COLUMNS: readonly CostingWorkbookColumn[] = [...COSTING_WORKBOOK_REQUIRED_COLUMNS, ...COSTING_WORKBOOK_OPTIONAL_COLUMNS];
 
 const providerSchema = z.enum(COSTING_WORKBOOK_SUGGESTION_PROVIDERS);
+const aiSelection = {
+  provider: providerSchema.optional(),
+  model: z.string().min(1).max(200).optional().describe("Modèle proposé par la source choisie."),
+  reasoning_effort: z.string().min(1).max(20).nullable().optional()
+    .describe("Niveau de raisonnement proposé par le modèle. La valeur null sélectionne Automatique."),
+};
 /** A column the reader knows, by its exact name (« PR. FO », « F1_nom »…). */
 const columnSchema = z.enum(COLUMNS);
 const name = z.string().min(1).max(255);
@@ -50,14 +58,14 @@ const distinct = <T>(values: readonly T[]) => new Set(values).size === values.le
 
 const suppliersRequest = z.object({
   task: z.literal("suppliers"),
-  provider: providerSchema.optional(),
+  ...aiSelection,
   /** Supplier names as the workbook writes them. */
   names: z.array(name).min(1).max(COSTING_WORKBOOK_SUGGESTION_LIMITS.suppliers),
 }).strict();
 
 const articlesRequest = z.object({
   task: z.literal("articles"),
-  provider: providerSchema.optional(),
+  ...aiSelection,
   /** Workbook lines to find in the catalogue; `key` is the screen's own, returned as it is. */
   lines: z.array(z.object({
     key: z.string().min(1).max(40),
@@ -72,7 +80,7 @@ const articlesRequest = z.object({
 
 const supplyTypesRequest = z.object({
   task: z.literal("supply_types"),
-  provider: providerSchema.optional(),
+  ...aiSelection,
   /** Proposed drafts without supply type, grouped by what they are; `count` is the size of the group. */
   groups: z.array(z.object({
     key: z.string().min(1).max(200),
@@ -87,7 +95,7 @@ const supplyTypesRequest = z.object({
 
 const columnsRequest = z.object({
   task: z.literal("columns"),
-  provider: providerSchema.optional(),
+  ...aiSelection,
   /** Columns the reader did not find in the header row. */
   missing: z.array(columnSchema).min(1).max(COLUMNS.length)
     .refine(distinct, "Chaque colonne manquante est nommée une fois."),
@@ -102,7 +110,7 @@ const columnsRequest = z.object({
 
 const supplierCodesRequest = z.object({
   task: z.literal("supplier_codes"),
-  provider: providerSchema.optional(),
+  ...aiSelection,
   /** Supplier reference cells the reader refused. */
   values: z.array(name).min(1).max(COSTING_WORKBOOK_SUGGESTION_LIMITS.supplierCodes),
 }).strict();
@@ -191,9 +199,19 @@ export type CostingWorkbookSuggestionsResponseOf<Task extends CostingWorkbookSug
 export type CostingWorkbookSuggestionStatus = CostingWorkbookSuggestionsResponse["status"];
 
 const availability = z.object({ available: z.boolean(), message: z.string() });
+const personalSource = availability.extend({
+  models: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    reasoningEfforts: z.array(chatGptReasoningEffortSchema),
+    defaultReasoningEffort: chatGptReasoningEffortSchema.nullable(),
+  })),
+  preferences: chatGptPreferencesSchema.nullable(),
+});
 
 /** Answer of GET /api/catalogue/workbook-import/suggestions (the `data` of the envelope). */
 export const costingWorkbookSuggestionProvidersResponseSchema = z.object({
-  providers: z.object({ chatgpt_plan: availability, personal_api_key: availability, decisions: availability }),
-}) satisfies z.ZodType<{ providers: ChoiceProviderAvailability }>;
+  defaultProvider: z.enum(AI_BILLING_SOURCES),
+  providers: z.object({ chatgpt_plan: personalSource, personal_api_key: personalSource, decisions: availability }),
+});
 export type CostingWorkbookSuggestionProvidersResponse = z.infer<typeof costingWorkbookSuggestionProvidersResponseSchema>;

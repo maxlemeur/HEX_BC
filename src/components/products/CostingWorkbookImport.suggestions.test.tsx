@@ -14,8 +14,7 @@ import { CostingWorkbookImport } from "./CostingWorkbookImport";
  * Failure modes of the proposals of the import screen (TI-711), written before the code. A proposal comes from
  * the rules, or from the AI source the office chose (its ChatGPT plan, its API key, the Decisions API); the
  * network is the only stub, and every name is invented.
- *  1. An AI source is asked, or even its availability read, without the office asking for it; an unavailable
- *     source can be chosen; the source chosen is not the one the request names.
+ *  1. Loading the sources starts inference, selects an unavailable source or sends different settings from those shown.
  *  2. A proposal is applied by itself: nothing may change before the office retains it. « Retenir les
  *     propositions » retains one the model is not sure of.
  *  3. What the provider says of its answer (partial, unavailable, failed) is not shown.
@@ -69,8 +68,30 @@ type Body = Record<string, unknown> & { rows?: unknown[][] };
 type Sent = { url: string; method: string; body: Body | null };
 const sent: Sent[] = [];
 const SUGGESTIONS = "/api/catalogue/workbook-import/suggestions";
+const UNAVAILABLE_SOURCES = {
+  chatgpt_plan: { available: false, message: "Connectez votre forfait ChatGPT dans Mon profil.", models: [], preferences: null },
+  personal_api_key: { available: false, message: "Configurez votre clé API OpenAI dans Mon profil.", models: [], preferences: null },
+  decisions: { available: true, message: "Decisions configuré : consommation API distincte du forfait ChatGPT." },
+};
+const PERSONAL_SOURCES = {
+  ...UNAVAILABLE_SOURCES,
+  chatgpt_plan: {
+    available: true, message: "Connexion ChatGPT configurée.",
+    models: [
+      { id: "plan-a", name: "Forfait A", reasoningEfforts: ["high"], defaultReasoningEffort: "high" },
+      { id: "plan-b", name: "Forfait B", reasoningEfforts: ["low", "medium"], defaultReasoningEffort: "medium" },
+    ],
+    preferences: { model: "plan-a", reasoningEffort: "high" },
+  },
+  personal_api_key: {
+    available: true, message: "Clé API OpenAI : 0,10 $ US au plus par demande.",
+    models: [{ id: "key-a", name: "Clé A", reasoningEfforts: ["low", "high"], defaultReasoningEffort: "high" }],
+    preferences: { model: "key-a", reasoningEffort: "low" },
+  },
+};
 const answers = {
   suppliers: () => ok(supplierReport()),
+  sources: () => ok({ defaultProvider: "chatgpt_plan", providers: UNAVAILABLE_SOURCES }),
   /** What the suggestions route answers to a task, from its request. */
   suggest: (body: Body): unknown => ({ task: body.task, provider: body.provider ?? null, model: null, status: "deterministic", message: "", items: [] }),
 };
@@ -81,11 +102,7 @@ const fetchMock = vi.fn<typeof fetch>((input, init) => {
   sent.push({ url, method, body });
   if (url === SUGGESTIONS) {
     return method === "GET"
-      ? ok({ providers: {
-        chatgpt_plan: { available: false, message: "L’analyse IA est indisponible sur cette instance." },
-        personal_api_key: { available: false, message: "Configurez votre clé API OpenAI dans Mon profil." },
-        decisions: { available: true, message: "Decisions configuré : consommation API distincte du forfait ChatGPT." },
-      } })
+      ? answers.sources()
       : ok(answers.suggest(body!));
   }
   if (url.startsWith("/api/catalogue/supplier-aliases")) {
@@ -107,7 +124,6 @@ async function openImport(user: ReturnType<typeof userEvent.setup>) {
 }
 
 async function chooseDecisions(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Propositions avec l’IA" }));
   await user.selectOptions(await screen.findByLabelText("Propositions"), "API Decisions");
 }
 
@@ -120,6 +136,7 @@ describe("CostingWorkbookImport, proposals", () => {
   beforeEach(() => {
     sent.length = 0;
     answers.suppliers = () => ok(supplierReport());
+    answers.sources = () => ok({ defaultProvider: "chatgpt_plan", providers: UNAVAILABLE_SOURCES });
     answers.suggest = (body) => ({ task: body.task, provider: body.provider ?? null, model: null, status: "deterministic", message: "", items: [] });
     fetchMock.mockClear();
     vi.stubGlobal("fetch", fetchMock);
@@ -129,18 +146,53 @@ describe("CostingWorkbookImport, proposals", () => {
     vi.unstubAllGlobals();
   });
 
-  it("reads the AI sources only when asked, and lets the office choose an available one (1)", async () => {
+  it("starts with rules and explains why the profile default is unavailable, even when Decisions is available (1)", async () => {
     const user = userEvent.setup();
     await openImport(user);
-    expect(sent.some((call) => call.url === SUGGESTIONS)).toBe(false);
-
-    await user.click(screen.getByRole("button", { name: "Propositions avec l’IA" }));
     const select = await screen.findByLabelText("Propositions");
     expect(sent.filter((call) => call.url === SUGGESTIONS).map((call) => call.method)).toEqual(["GET"]);
+    expect(select).toHaveValue("");
+    expect(select).toHaveAccessibleDescription("Source par défaut indisponible : Connectez votre forfait ChatGPT dans Mon profil.");
     expect(within(select).getByRole("option", { name: "Forfait ChatGPT (indisponible)" })).toBeDisabled();
     expect(within(select).getByRole("option", { name: "Clé API OpenAI (indisponible)" })).toBeDisabled();
     await user.selectOptions(select, "API Decisions");
     expect(screen.getByText("Decisions configuré : consommation API distincte du forfait ChatGPT.")).toBeVisible();
+    expect(screen.queryByLabelText("Modèle")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Effort de raisonnement")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["chatgpt_plan", "plan-a", "high", ["Forfait A", "Forfait B"]],
+    ["personal_api_key", "key-a", "low", ["Clé A"]],
+  ] as const)("prefills the profile source %s and its own model and effort", async (defaultProvider, model, effort, labels) => {
+    answers.sources = () => ok({ defaultProvider, providers: PERSONAL_SOURCES });
+    await openImport(userEvent.setup());
+
+    expect(await screen.findByLabelText("Propositions")).toHaveValue(defaultProvider);
+    const modelSelect = screen.getByLabelText("Modèle");
+    expect(modelSelect).toHaveValue(model);
+    expect(within(modelSelect).getAllByRole("option").map((option) => option.textContent)).toEqual(labels);
+    expect(screen.getByLabelText("Effort de raisonnement")).toHaveValue(effort);
+    if (defaultProvider === "personal_api_key") expect(screen.getByText(/0,10 \$ US au plus par demande/)).toBeVisible();
+    expect(suggestions()).toHaveLength(0);
+  });
+
+  it("resets an unsupported effort to the new model default and sends it only with the suggestion", async () => {
+    const user = userEvent.setup();
+    answers.sources = () => ok({ defaultProvider: "chatgpt_plan", providers: PERSONAL_SOURCES });
+    await openImport(user);
+    await user.selectOptions(await screen.findByLabelText("Modèle"), "plan-b");
+    const effort = screen.getByLabelText("Effort de raisonnement");
+    expect(effort).toHaveValue("medium");
+    expect(within(effort).queryByRole("option", { name: "Élevé" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Doublons possibles" }));
+    await user.click(screen.getByRole("button", { name: /chercher les doublons.*avec l’IA/i }));
+    await waitFor(() => expect(suggestions()).toEqual([expect.objectContaining({
+      task: "articles", provider: "chatgpt_plan", model: "plan-b", reasoning_effort: "medium",
+    })]));
+    expect(sent.filter((call) => /profile|profil|ai-access/.test(call.url))).toEqual([]);
+    await user.selectOptions(screen.getByLabelText("Propositions"), "");
+    expect(screen.queryByLabelText("Modèle")).not.toBeInTheDocument();
   });
 
   it("proposes a supplier by the rules, then by the source chosen, and applies nothing by itself (1, 2, 3, 4)", async () => {

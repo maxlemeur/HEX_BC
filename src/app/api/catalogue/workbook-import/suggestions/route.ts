@@ -1,5 +1,6 @@
 import {
   COSTING_WORKBOOK_SUGGESTIONS_MAX_BODY_BYTES,
+  costingWorkbookSuggestionProvidersResponseSchema,
   costingWorkbookSuggestionsRequestSchema,
 } from "@/lib/catalogue/costing-workbook-suggestions-contract";
 import { readWorkbookSuggestionProviders, suggestForWorkbook } from "@/lib/catalogue/costing-workbook-suggestions-server";
@@ -9,10 +10,10 @@ import { readJsonBody } from "@/lib/http/json-body";
 // An arbiter answers several bounded requests one after the other; it starts none after about 105 s.
 export const maxDuration = 120;
 
-/** Which AI sources the member can ask for proposals. No provider is called. */
+/** The member's default source and available model options. No inference is run. */
 export async function GET() {
   try {
-    return ok({ providers: await readWorkbookSuggestionProviders() });
+    return ok(costingWorkbookSuggestionProvidersResponseSchema.parse(await readWorkbookSuggestionProviders()));
   } catch (error) {
     return toErrorResponse(error);
   }

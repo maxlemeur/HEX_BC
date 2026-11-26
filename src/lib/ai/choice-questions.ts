@@ -5,11 +5,12 @@ import { headers } from "next/headers";
 import { z } from "zod";
 
 import { ApiKeyError, apiKeyErrorMessage, isApiKeyError } from "@/lib/ai/access/api-key-errors";
-import { resolveApiAnalysisPreferences } from "@/lib/ai/access/contracts";
+import { DEFAULT_AI_ANALYSIS_PREFERENCES, resolveApiAnalysisPreferences, type AiBillingSource } from "@/lib/ai/access/contracts";
 import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
 import { formatUsdCeiling, MODEL_TEST_CEILING_NANO_USD } from "@/lib/ai/access/openai-pricing";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
-import type { ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
+import { readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
+import type { ChatGptAvailableModel, ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import {
   callOpenAiDecisions,
   getOpenAiDecisionsCapability,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/ai/decisions";
 import { callStructuredAi, getStructuredAiAvailability } from "@/lib/ai/structured-ai";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
+import { unprocessableEntity } from "@/lib/http/api-error";
 
 /**
  * An arbiter for closed questions, whatever the feature: each question gives its subject and its choices, and the
@@ -49,7 +51,7 @@ import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 
 export const CHOICE_PROVIDERS = ["chatgpt_plan", "personal_api_key", "decisions"] as const;
 export type ChoiceProvider = (typeof CHOICE_PROVIDERS)[number];
-export type ChoiceProviderAvailability = Record<ChoiceProvider, { available: boolean; message: string }>;
+export type ChoiceModelSelection = { model?: string; reasoning_effort?: string | null };
 export type ChoiceQuestion = {
   id: string;
   /** What is asked, as data. */
@@ -128,13 +130,15 @@ const PLAN_RECONNECT = "L’accès ChatGPT n’a pas pu être renouvelé. Reconn
 const FAILURE_MESSAGES = {
   AI_QUOTA: "La limite du forfait ChatGPT est atteinte : aucune proposition n’a été faite. Consultez votre consommation dans Mon profil.",
   AI_RATE_LIMIT: "ChatGPT limite les demandes pour le moment : aucune proposition n’a été faite. Réessayez dans quelques minutes.",
-  AI_REQUEST_REJECTED: "ChatGPT a refusé la demande. Choisissez un autre modèle dans Mon profil, ou continuez manuellement.",
+  AI_REQUEST_REJECTED: "ChatGPT a refusé la demande. Choisissez un autre modèle, ou continuez manuellement.",
   TIMEOUT: "L’IA n’a pas répondu dans le délai prévu. Relancez la demande, ou continuez manuellement.",
   INVALID_ANSWER: "L’IA a renvoyé une réponse inexploitable. Relancez la demande, ou continuez manuellement.",
   PROVIDER_ERROR: "ChatGPT n’a pas terminé la demande. Relancez-la ; si cela se répète, vérifiez la connexion ChatGPT dans Mon profil.",
 } as const;
 
 type Availability = { available: boolean; message: string };
+type ModelOptions = { models: ChatGptAvailableModel[]; preferences: ChatGptPreferences };
+const NO_MODELS = { models: [], preferences: null };
 
 async function localHostAllowed(): Promise<boolean> {
   try {
@@ -146,36 +150,51 @@ async function localHostAllowed(): Promise<boolean> {
   }
 }
 
-async function planAvailability(owner: ChoiceOwner): Promise<Availability> {
+async function planAvailability(owner: ChoiceOwner, allowUnselectedModel = false): Promise<Availability> {
   if (!isLocalChatGptEnabled()) return { available: false, message: PLAN_ELSEWHERE };
   if (!(await localHostAllowed())) return { available: false, message: PLAN_OTHER_HOST };
-  const { available, message } = await getStructuredAiAvailability(owner);
-  return { available, message };
+  return getStructuredAiAvailability(owner, { allowUnselectedModel });
 }
 
-type ApiKeySetup = Availability & { call: (ChatGptPreferences & { expectedVersion: number }) | null };
+async function planOptions(owner: ChoiceOwner) {
+  const availability = await planAvailability(owner, true);
+  if (!availability.available) return { ...availability, ...NO_MODELS };
+  try {
+    const options = await readLocalChatGptModelOptions(owner);
+    if (options.preferences) return { ...availability, ...options, preferences: options.preferences };
+    return { available: false, message: "Votre forfait ChatGPT ne propose aucun modèle ici.", ...NO_MODELS };
+  } catch {
+    return { available: false, message: "Les modèles de votre forfait ChatGPT sont indisponibles. Vérifiez la connexion dans Mon profil.", ...NO_MODELS };
+  }
+}
+
+type ApiKeySetup = Availability & { defaultProvider: AiBillingSource; call: (ModelOptions & { expectedVersion: number }) | null };
 
 /** From MergeOne's own record only: the Keychain is not opened and OpenAI is not called. */
 async function apiKeySetup(owner: ChoiceOwner): Promise<ApiKeySetup> {
-  const refused = (message: string): ApiKeySetup => ({ available: false, message, call: null });
+  let defaultProvider: AiBillingSource = DEFAULT_AI_ANALYSIS_PREFERENCES.billingSource;
+  const refused = (message: string): ApiKeySetup => ({ available: false, message, defaultProvider, call: null });
   if (!isLocalChatGptEnabled()) return refused(apiKeyErrorMessage("AI_KEY_KEYCHAIN_UNAVAILABLE"));
   if (!(await localHostAllowed())) return refused(apiKeyErrorMessage("AI_KEY_LOCAL_ONLY"));
   try {
     const state = await openAiApiKeyAccess().state(owner);
-    if (state.status === "unavailable") return refused(state.message);
     const settings = state.analysisPreferences;
+    defaultProvider = settings?.billingSource ?? defaultProvider;
+    if (state.status === "unavailable") return refused(state.message);
     if (state.status !== "saved" || !settings) return refused(MISSING_API_KEY);
+    const models = state.connection.offeredModels;
     // The member's default API model and effort: see the header for why the usage named here has no effect.
     const preferences = resolveApiAnalysisPreferences({
       billingSource: settings.billingSource,
       apiModel: settings.apiModel,
       ...(settings.apiReasoningEffort === undefined ? {} : { apiReasoningEffort: settings.apiReasoningEffort }),
-    }, state.connection.offeredModels, "photos");
+    }, models, "photos");
     if (!preferences) return refused(MISSING_API_KEY);
     return {
       available: true,
+      defaultProvider,
       message: `Clé API OpenAI enregistrée : appels facturés à votre compte OpenAI, ${formatUsdCeiling(CHOICE_API_KEY_CEILING_NANO_USD)} au plus par demande.`,
-      call: { ...preferences, expectedVersion: state.connection.version },
+      call: { models, preferences, expectedVersion: state.connection.version },
     };
   } catch (error) {
     return refused(isApiKeyError(error) ? error.message : apiKeyErrorMessage("AI_KEY_UNEXPECTED"));
@@ -193,14 +212,33 @@ function decisionsAvailability(): Availability {
   };
 }
 
-/** Whether each provider can be asked by this member, here: no inference, no provider request. */
-export async function readChoiceProviderAvailability(owner: ChoiceOwner): Promise<ChoiceProviderAvailability> {
-  const [plan, key] = await Promise.all([planAvailability(owner), apiKeySetup(owner)]);
+/** Read the member's available options without running inference. */
+export async function readChoiceProviderOptions(owner: ChoiceOwner) {
+  const [plan, key] = await Promise.all([planOptions(owner), apiKeySetup(owner)]);
   return {
-    chatgpt_plan: plan,
-    personal_api_key: { available: key.available, message: key.message },
-    decisions: decisionsAvailability(),
+    defaultProvider: key.defaultProvider,
+    providers: {
+      chatgpt_plan: plan,
+      personal_api_key: {
+        available: key.available, message: key.message, models: key.call?.models ?? [], preferences: key.call?.preferences ?? null,
+      },
+      decisions: decisionsAvailability(),
+    },
   };
+}
+
+function resolveChoiceModel(options: ModelOptions, selection: ChoiceModelSelection): ChatGptPreferences {
+  const id = selection.model ?? options.preferences.model;
+  const model = options.models.find((entry) => entry.id === id);
+  if (!model) throw unprocessableEntity("Ce modèle n’est pas proposé par la source d’IA choisie.");
+  const requestedEffort = selection.reasoning_effort;
+  if (requestedEffort === undefined) {
+    return id === options.preferences.model ? options.preferences : { model: id, reasoningEffort: model.defaultReasoningEffort };
+  }
+  if (requestedEffort === null) return { model: id, reasoningEffort: null };
+  const reasoningEffort = model.reasoningEfforts.find((effort) => effort === requestedEffort);
+  if (!reasoningEffort) throw unprocessableEntity("Ce niveau de raisonnement n’est pas proposé pour le modèle choisi.");
+  return { model: id, reasoningEffort };
 }
 
 type Entry = {
@@ -306,14 +344,14 @@ function reasonOf(error: unknown): keyof typeof FAILURE_MESSAGES {
   return "PROVIDER_ERROR";
 }
 
-function planSender(owner: ChoiceOwner, task: Task): Sender {
+function planSender(owner: ChoiceOwner, task: Task, preferences?: ChatGptPreferences): Sender {
   return async (chunk, timeoutMs) => {
     try {
       // The owner is the member the caller authorized; the local host was checked before the first request.
       const result = await callStructuredAi({
         prompt: promptOf(task, chunk), schema: lenientAnswerSchema, timeoutMs,
         context: { tenantId: owner.tenantId, promptVersion: task.promptVersion },
-      }, owner);
+      }, owner, preferences);
       return { status: "answered", model: result.model, picks: picksOf(chunk, result.data) };
     } catch (error) {
       if (error instanceof StructuredAiError && PLAN_ACCESS_CODES.has(error.code)) {
@@ -329,7 +367,7 @@ function planSender(owner: ChoiceOwner, task: Task): Sender {
   };
 }
 
-function apiKeySender(owner: ChoiceOwner, task: Task, call: NonNullable<ApiKeySetup["call"]>): Sender {
+function apiKeySender(owner: ChoiceOwner, task: Task, call: ChatGptPreferences & { expectedVersion: number }): Sender {
   const api = openAiApiKeyAccess();
   let remaining = CHOICE_API_KEY_CEILING_NANO_USD;
   return async (chunk, timeoutMs) => {
@@ -409,24 +447,32 @@ function decisionsSender(owner: ChoiceOwner, task: Task): Sender {
 }
 
 /** The sender of the provider asked for, or why it cannot be asked. No other provider is ever tried. */
-async function openSender(provider: ChoiceProvider, owner: ChoiceOwner, task: Task): Promise<Sender | string> {
+async function openSender(provider: ChoiceProvider, owner: ChoiceOwner, task: Task, selection?: ChoiceModelSelection): Promise<Sender | string> {
   if (provider === "decisions") {
+    if (selection) throw unprocessableEntity("L’API Decisions ne permet pas de choisir le modèle ni le niveau de raisonnement.");
     const availability = decisionsAvailability();
     return availability.available ? decisionsSender(owner, task) : availability.message;
   }
   if (provider === "chatgpt_plan") {
+    if (selection) {
+      const options = await planOptions(owner);
+      if (!options.preferences) return options.message;
+      return planSender(owner, task, resolveChoiceModel({ models: options.models, preferences: options.preferences }, selection));
+    }
     const availability = await planAvailability(owner);
     return availability.available ? planSender(owner, task) : availability.message;
   }
   const setup = await apiKeySetup(owner);
-  return setup.call ? apiKeySender(owner, task, setup.call) : setup.message;
+  if (!setup.call) return setup.message;
+  const preferences = selection ? resolveChoiceModel(setup.call, selection) : setup.call.preferences;
+  return apiKeySender(owner, task, { ...preferences, expectedVersion: setup.call.expectedVersion });
 }
 
 /**
  * Asks one provider the questions, in bounded requests sent one after the other. One answer per question, in the
  * order given. The caller authorizes the member and builds the questions; nothing is applied here.
  */
-export async function askChoiceQuestions(input: {
+export async function askChoiceQuestions(input: ChoiceModelSelection & {
   provider: ChoiceProvider;
   owner: ChoiceOwner;
   /** Stable identifier of the task, e.g. "catalogue-workbook-suppliers". */
@@ -444,11 +490,14 @@ export async function askChoiceQuestions(input: {
   const task: Task = { task: input.task, promptVersion: input.promptVersion, instructions: input.instructions };
   const entries = entriesOf(input.questions);
   const unanswered = (): ChoiceAnswer[] => input.questions.map((question) => ({ id: question.id, choice: null, confidence: null }));
-  if (entries.length === 0) return { provider, status: "available", message: MESSAGES.nothing, model: null, answers: [] };
+  const selection = input.model !== undefined || input.reasoning_effort !== undefined ? input : undefined;
+  const nothingToAsk = { provider, status: "available", message: MESSAGES.nothing, model: null, answers: [] } as const;
+  if (entries.length === 0 && !selection) return { ...nothingToAsk, answers: [] };
 
   const deadline = Date.now() + TIME_BUDGET_MS;
-  const send = await openSender(provider, owner, task);
+  const send = await openSender(provider, owner, task, selection);
   if (typeof send === "string") return { provider, status: "unavailable", message: send, model: null, answers: unanswered() };
+  if (entries.length === 0) return { ...nothingToAsk, answers: [] };
 
   const picked = new Map<string, Picked>();
   let model: string | null = null;
