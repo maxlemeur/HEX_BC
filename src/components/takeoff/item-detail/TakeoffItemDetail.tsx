@@ -93,6 +93,7 @@ type Props = {
    * is read again and its line kept, the journal shown read again; nothing moves.
    */
   refresh?: { version: number; itemId: string } | null;
+  onMeasureChanged?: (itemId: string) => void;
   /** Told what the detail shows each time it changes (another item, reading, line read again or right). */
   onShown?: (shown: ItemDetailShown | null) => void;
 };
@@ -133,7 +134,7 @@ const neverRefused = () => false;
 /** The detail's screen: one per member and scope (a new reader remounts it), so its own completions name it alone. */
 const DETAIL_SCREEN = "detail";
 
-function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onBack, onGesture, onAddressChange, onRefused = neverRefused,
+function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onBack, onGesture, onMeasureChanged, onAddressChange, onRefused = neverRefused,
   refresh = null, onShown }: Props) {
   const version = refresh?.version ?? 0;
   const queue = useMemo(() => new ItemDetailQueue(), []);
@@ -585,7 +586,11 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
                   observations={answer.observations} planName={choice.planName} jobId={choice.jobId} review={review} label={line.label}
                   undecided={!choice.reading.decision} acceptedMeasure={choice.reading.decision?.kind === "accepted"
                     && !choice.reading.quantityDecision} canReview={canReview} onRefused={historyRefused}
-                  onRefresh={() => { rereadItem(itemId); void measure.mutate(); }} /> : reviewId && measure.error ?
+                  onRefresh={() => {
+                    if (!begin({ screen: DETAIL_SCREEN, item: itemId }).ownScreen()) return;
+                    if (onMeasureChanged) onMeasureChanged(itemId);
+                    else { rereadItem(itemId); void measure.mutate(); }
+                  }} /> : reviewId && measure.error ?
                     <Button size="xs" variant="outline" onClick={() => void measure.mutate()}>Relire la mesure</Button> : null}
                 documentState={documentState} names={names} planNames={planNames} outsideFilter={!found && outside !== null}
                 historyVersion={version} onRefused={historyRefused} historyScope={`lecteur-${readerIdentity(reader)}`}

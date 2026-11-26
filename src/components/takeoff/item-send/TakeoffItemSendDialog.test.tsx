@@ -74,13 +74,17 @@ beforeEach(() => {
   network.renew.mockResolvedValue({ renewed: true, lock: { isOwnedByCurrentUser: true } });
 });
 
-it("shows the unreferenced cumulative quantity before confirmation and the released stale notice after refusal", async () => {
+it("shows the new reconciliation after the writer refuses and requires its confirmation before retrying", async () => {
   const message = "Le métré, le devis ou la liste ont changé depuis l’aperçu. Rouvrez l’aperçu puis confirmez de nouveau. Rien n’a été écrit.";
-  network.preview.mockResolvedValue(response({ lines: [{ ...line(lineA, 7), quantity_before: 2,
-    entered: null, earlier: 2, added: 5 }] }));
-  network.confirm.mockRejectedValue(new TakeoffApiError(message, 409, {
+  const shown = { ...line(lineA, 7), quantity_before: 2, entered: null, earlier: 2, added: 5 };
+  const freshDigest = "b".repeat(64);
+  network.preview.mockResolvedValueOnce(response({ lines: [shown] })).mockResolvedValue(response({
+    plan_digest: freshDigest, lines: [shown], measure_reviews: [{ target: shown.key, answer_id: item, decision_revision: 2,
+      version_id: version, line_id: lineA, matched: true, reference: 4, measured: 7, unit: "u", gap: 3, quantity_after: 7 }],
+  }));
+  network.confirm.mockRejectedValueOnce(new TakeoffApiError(message, 409, {
     guard: "item_send_preview_stale", reason: "measure_reconciliation_changed",
-  }, "CONFLICT"));
+  }, "CONFLICT")).mockResolvedValue(confirmResponse);
   const onSent = vi.fn();
   render(view(onSent));
   const row = await screen.findByTestId(`item-send-line-${item}-${group.key}`);
@@ -88,6 +92,17 @@ it("shows the unreferenced cumulative quantity before confirmation and the relea
   fireEvent.click(sendButton());
   expect(await screen.findByTestId("item-send-notice")).toHaveTextContent(message);
   expect(onSent).not.toHaveBeenCalled();
+  const check = await screen.findByRole("checkbox", { name: /vérifié le rapprochement/ });
+  expect(screen.getByText(/Référence DPGF · 4 u · Quantité cumulée · 7 u · Écart · 3 u/)).toBeVisible();
+  expect(check).not.toBeChecked();
+  expect(sendButton()).toBeDisabled();
+  expect(network.confirm).toHaveBeenCalledTimes(1);
+  fireEvent.click(check);
+  fireEvent.click(sendButton());
+  await waitFor(() => expect(onSent).toHaveBeenCalledTimes(1));
+  expect(network.confirm).toHaveBeenLastCalledWith(job, expect.objectContaining({
+    plan_digest: freshDigest, measure_reviews_checked: true, review_measures: true,
+  }));
 });
 
 it.each([

@@ -146,6 +146,7 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
   }, []);
   /** The last command's item, read again when it ends (`version` counts the commands). */
   const [refresh, setRefresh] = useState<{ version: number; itemId: string } | null>(null);
+  const refreshItem = (itemId: string) => setRefresh((current) => ({ version: (current?.version ?? 0) + 1, itemId }));
   const [shown, setShown] = useState<ItemDetailShown | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const scopeKey = JSON.stringify(tableAddress.scope);
@@ -196,7 +197,7 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
       if (own) setPending((current) => (current === own ? null : current));
       // The command's item, not the one shown now, read again in the screen that sent it.
       const itemId = command.targets[0]!.itemId;
-      if (completion.ownScreen()) setRefresh((current) => ({ version: (current?.version ?? 0) + 1, itemId }));
+      if (completion.ownScreen()) refreshItem(itemId);
     }
   };
 
@@ -259,7 +260,7 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
       {/* A move inside replaces the address natively (history.replaceState), which the router's search parameters follow:
           no navigation, no server render per arrow. */}
       <TakeoffItemDetail viewerKey={viewerKey} projectId={projectId} address={detail.address} reader={reader} tableQuery={query} onBack={back}
-        onGesture={onGesture} onRefused={withdrawOnRefusal} refresh={refresh} onShown={setShown} />
+        onGesture={onGesture} onRefused={withdrawOnRefusal} refresh={refresh} onMeasureChanged={refreshItem} onShown={setShown} />
       {active?.gesture === "accept_measured" && active.line.quantityOptions ? (
         <Dialog open onOpenChange={(open) => { if (!open && !busy) close(); }}>
           <DialogContent><DialogHeader><DialogTitle>Quantité de ce poste sur le plan</DialogTitle></DialogHeader>

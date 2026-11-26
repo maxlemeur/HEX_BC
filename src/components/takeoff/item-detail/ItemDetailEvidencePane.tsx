@@ -315,6 +315,8 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
             {reading?.entry ? <p>Saisi sur ce plan : <EntryText entry={reading.entry} names={names} /></p> : null}
             {line.entry ? <p>Saisi pour le poste : <EntryText entry={line.entry} names={names} /></p> : null}
             <DecisionButtons line={line} decide={decide} />
+            {answer && answer.outcome !== "measured" && !reading?.sent && !reading?.decision && !reading?.entry && !line.entry && !line.wholeEntry &&
+              <p>Ce plan ne donne pas de mesure à retenir. Relisez le plan ou renseignez une saisie justifiée pour ce poste.</p>}
             {measureRetention}
           </>
         )}

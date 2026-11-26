@@ -158,8 +158,9 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
   const retainedLine = contribution ? items.find(item => item.id === contribution) : null;
   const retention = useSWR(answerId && retainedLine ? ["targeted-measure", viewerKey, projectId, answerId, retainedLine.updated_at] : null,
     () => fetchMeasureReview(projectId, answerId!), { shouldRetryOnError: false });
-  const returnReview = retention.data?.rows.some(row => row.id === contribution) ? retention.data : null;
-  const [justifiedFor, setJustifiedFor] = useState<string | null>(null);
+  const returnRow = retention.data?.rows.find(row => row.id === contribution);
+  const returnReview = returnRow ? retention.data : null;
+  const pendingRetention = returnReview && (returnReview.reason === null || returnReview.reason === "justification_required");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dpgf, setDpgf] = useState<{ loading: boolean; error: string | null; blocking: boolean }>({ loading: true, error: null, blocking: false });
   // Read again after each saved decision: a quantity or an exclusion can open or close a DPGF gap.
@@ -535,6 +536,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
             <Badge size="sm" variant={counts.uncertain > 0 ? "warning" : "neutral"}>
               {counts.uncertain} incertaine{counts.uncertain > 1 ? "s" : ""}
             </Badge>
+            {pendingRetention && <Badge size="sm" variant="warning">1 poste à retenir</Badge>}
           </span>
         ) : null}
         <nav aria-label="Métré" className="ml-auto flex items-center gap-2">
@@ -543,10 +545,10 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
         </nav>
       </header>
       {returnReview && retainedLine && <div className="space-y-1 border-b border-border px-4 py-2 text-sm">
-        {justifiedFor === retainedLine.id && retainedLine.is_verified && !returnReview.rows.some(row => row.id === retainedLine.id && row.needs_justification)
+        {pendingRetention && retainedLine.is_verified && returnRow?.justification.length && !returnRow.needs_justification
           ? <p role="status">La contribution est justifiée. Le poste reste à retenir.</p>
           : returnReview.reason === "justification_required" && <p>Le poste attend la justification de ses contributions.</p>}
-        {retainedLine.is_verified && returnReview.rows.some(row => row.id === retainedLine.id && row.needs_justification) && !readOnly &&
+        {retainedLine.is_verified && returnRow?.needs_justification && !readOnly &&
           <Button size="sm" variant="outline" disabled={busy} onClick={async () => {
             if (await decide(retainedLine, { is_verified: false }, "Ligne rouverte pour justification", retainedLine.rules_evaluated_at ?? null)) {
               setSelectedId(retainedLine.id); setPinnedId(retainedLine.id);
@@ -739,9 +741,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
           }}
           onConfirm={(value) => {
             void decide(justifiedItem, { is_verified: true, verification_justification: value }, "Ligne acceptée avec justification",
-              justifiedItem.rules_evaluated_at ?? null).then(saved => {
-                if (saved && justifiedItem.id === contribution) setJustifiedFor(justifiedItem.id);
-              });
+              justifiedItem.rules_evaluated_at ?? null);
             setJustification(null);
             requestFocusList();
           }} />
