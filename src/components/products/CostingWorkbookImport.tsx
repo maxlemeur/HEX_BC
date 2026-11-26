@@ -181,6 +181,7 @@ export function CostingWorkbookImport({
   const [mode, setMode] = useState<Mode>("articles");
   const modeRef = useRef<Mode>("articles");
   const [fileName, setFileName] = useState<string | null>(null);
+  const [fileGeneration, setFileGeneration] = useState(0);
   /** The sheet as the file holds it, and the corrections made here: the import reads the first with the second. */
   const [baseRows, setBaseRows] = useState<CostingWorkbookRows | null>(null);
   const [edits, setEdits] = useState<WorkbookEdit[]>([]);
@@ -500,6 +501,7 @@ export function CostingWorkbookImport({
     setReplacement(null);
     setBaseRows(next.rows);
     setFileName(next.name);
+    setFileGeneration((current) => current + 1);
     assistant.loadProviders();
     fileNameRef.current = next.name;
     setEdits(nextEdits);
@@ -725,7 +727,7 @@ export function CostingWorkbookImport({
                     Importer des corrections
                   </Button>
                   {inspection && headerRow !== null && inspection.missingRequired.length === 0 ? (
-                    <RowExclusions rows={rows} inspection={inspection} disabled={isBusy || editorDirty}
+                    <RowExclusions key={fileGeneration} rows={rows} inspection={inspection} disabled={isBusy || editorDirty}
                       onApply={updateRowExclusions} />
                   ) : null}
                 </>

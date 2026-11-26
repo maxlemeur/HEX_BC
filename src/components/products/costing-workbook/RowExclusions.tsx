@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
-import { SparklesIcon } from "lucide-react";
+import { Loader2Icon, SparklesIcon } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -34,7 +34,14 @@ type Props = Readonly<{
 
 type Line = { row: number; description: string };
 type Answer = CostingWorkbookSuggestionsResponseOf<"row_exclusions">;
-type Proposal = { rows: CostingWorkbookRows; analysed: number; proposed: Line[]; status: Answer["status"]; message: string };
+type Proposal = {
+  rows: CostingWorkbookRows;
+  total: number;
+  analysed: number;
+  proposed: Line[];
+  status: Answer["status"] | "running" | "stopped";
+  message: string;
+};
 const BATCH_SIZE = COSTING_WORKBOOK_SUGGESTION_LIMITS.rowExclusions;
 
 function batchesOf(rows: CostingWorkbookRows, inspection: CostingWorkbookColumnInspection): Line[][] {
@@ -62,42 +69,20 @@ function batchesOf(rows: CostingWorkbookRows, inspection: CostingWorkbookColumnI
 
 export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
   const [open, setOpen] = useState(false);
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" disabled={disabled} leftIcon={<SparklesIcon aria-hidden="true" />} />}>
-        Supprimer des lignes avec l’IA
-      </DialogTrigger>
-      <DialogContent size="lg">
-        <DialogHeader>
-          <DialogTitle>Supprimer des lignes avec l’IA</DialogTitle>
-          <DialogDescription>Vérifiez les propositions puis choisissez les lignes à écarter de cet import.</DialogDescription>
-        </DialogHeader>
-        {open ? <RowExclusionsForm rows={rows} inspection={inspection} disabled={disabled} onApply={(selection) => {
-          if (!onApply(selection)) return false;
-          setOpen(false);
-          return true;
-        }} /> : null}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function RowExclusionsForm({ rows, inspection, disabled, onApply }: Props) {
   const id = useId();
   const { sources, provider, requestOptions, settingsLocked, lockSettings, loadProviders } = useWorkbookAssistant();
   const [criterion, setCriterion] = useState("");
   const [scope, setScope] = useState("0");
-  const [loading, setLoading] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const pending = useRef<AbortController | null>(null);
-  const batches = useMemo(() => batchesOf(rows, inspection), [rows, inspection]);
-  const scopedBatch = batches[Number(scope)];
+  const batches = useMemo(() => open ? batchesOf(rows, inspection) : [], [open, rows, inspection]);
+  const scopedBatch = batches[Number(scope)] ?? batches[0];
   const requests = scope === "all" ? batches : scopedBatch ? [scopedBatch] : [];
   const total = requests.reduce((sum, lines) => sum + lines.length, 0);
   const answer = proposal?.rows === rows ? proposal : null;
+  const loading = answer?.status === "running";
   const sourceOptions = typeof sources === "object" ? sources : null;
   const apiKey = sourceOptions?.providers.personal_api_key;
   const canAnalyse = sourceOptions !== null && provider !== null && !disabled && !settingsLocked
@@ -106,13 +91,12 @@ function RowExclusionsForm({ rows, inspection, disabled, onApply }: Props) {
   const currentPage = boundedPage(page, proposed.length);
   const start = currentPage * DECISIONS_PER_PAGE;
 
-  useEffect(() => () => pending.current?.abort(), []);
+  useEffect(() => () => pending.current?.abort(), [rows]);
 
   function resetProposal() {
     setProposal(null);
     setPage(0);
     setSelected(new Set());
-    setFailure(null);
   }
 
   async function analyse() {
@@ -121,10 +105,11 @@ function RowExclusionsForm({ rows, inspection, disabled, onApply }: Props) {
     if (!releaseSettings) return;
     const controller = new AbortController();
     pending.current = controller;
-    setLoading(true);
     resetProposal();
-    let analysed = 0;
-    const proposed: Line[] = [];
+    let progress: Proposal = { rows, total, analysed: 0, proposed: [], status: "running", message: "" };
+    let status: Answer["status"] = "available";
+    let message = "";
+    setProposal(progress);
     try {
       for (const lines of requests) {
         const answer = await requestWorkbookSuggestions<"row_exclusions">(
@@ -132,133 +117,164 @@ function RowExclusionsForm({ rows, inspection, disabled, onApply }: Props) {
           controller.signal,
         );
         if (controller.signal.aborted) return;
-        analysed += answer.analysed;
         const matches = new Set(answer.items.map(({ row }) => row));
-        proposed.push(...lines.filter(({ row }) => matches.has(row)));
-        setProposal({ rows, analysed, proposed: [...proposed], status: answer.status, message: answer.message });
-        if (answer.status !== "available") break;
+        progress = {
+          ...progress,
+          analysed: progress.analysed + answer.analysed,
+          proposed: [...progress.proposed, ...lines.filter(({ row }) => matches.has(row))],
+        };
+        setProposal(progress);
+        status = answer.status;
+        message = answer.message;
+        if (status !== "available") break;
       }
     } catch (error) {
-      if (!controller.signal.aborted) {
-        setFailure(error instanceof Error ? error.message : "L’analyse n’a pas abouti. Réessayez.");
-      }
+      status = "failed";
+      message = error instanceof Error ? error.message : "L’analyse n’a pas abouti. Réessayez.";
     } finally {
       pending.current = null;
       releaseSettings();
-      if (!controller.signal.aborted) setLoading(false);
+      if (!controller.signal.aborted) setProposal({ ...progress, status, message });
     }
   }
 
+  function stopAnalysis() {
+    pending.current?.abort();
+    setProposal((current) => current?.status === "running"
+      ? { ...current, status: "stopped", message: "Analyse arrêtée. Les propositions reçues restent disponibles." }
+      : current);
+  }
+
   const selection = proposed.filter(({ row }) => selected.has(row)).map(({ row }) => row);
+  let triggerLabel = "Supprimer des lignes avec l’IA";
+  if (answer?.status === "running") triggerLabel = `Analyse IA en cours · ${formatCount(answer.analysed)} / ${formatCount(answer.total)}`;
+  else if (answer) triggerLabel = "Consulter les résultats de l’analyse IA";
+
   return (
-    <div className="space-y-4">
-      <div className="space-y-1.5">
-        <FieldLabel htmlFor={`${id}-criterion`}>Quelles lignes souhaitez-vous supprimer ?</FieldLabel>
-        <Textarea id={`${id}-criterion`} aria-describedby={`${id}-criterion-help`}
-          value={criterion} maxLength={COSTING_WORKBOOK_ROW_CRITERION_MAX_LENGTH}
-          placeholder="Par exemple, les articles en acier galvanisé"
-          disabled={loading} onChange={(event) => { setCriterion(event.target.value); resetProposal(); }} />
-        <p id={`${id}-criterion-help`} className="text-xs text-muted-foreground">
-          L’IA applique le critère à chaque ligne à partir d’un extrait de ses cellules.
-        </p>
-      </div>
-      <div className="space-y-2">
-        <AssistantProviderSelect required />
-        {sourceOptions && apiKey ? (
-          <>
-            {!apiKey.available && (provider !== null || sourceOptions.defaultProvider !== "personal_api_key") ? (
-              <p className="text-xs text-muted-foreground">{apiKey.message}</p>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              <a href={settingsLocked ? undefined : "/dashboard/profile#section-cle-api"} target="_blank" rel="noopener noreferrer"
-                aria-disabled={settingsLocked || undefined}
-                className={buttonVariants({ variant: "outline", size: "xs", className: "aria-disabled:opacity-50" })}>
-                {apiKey.available ? "Gérer la clé API" : "Configurer la clé API"}
-                <span className="sr-only"> (nouvel onglet)</span>
-              </a>
-              <Button size="xs" variant="ghost" disabled={settingsLocked} onClick={() => loadProviders(true)}>
-                Actualiser les sources d’IA
-              </Button>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={<Button variant={answer ? "secondary" : "outline"} disabled={disabled && !answer}
+        leftIcon={loading ? <Loader2Icon aria-hidden="true" className="motion-safe:animate-spin" /> : <SparklesIcon aria-hidden="true" />} />}>
+        {triggerLabel}
+      </DialogTrigger>
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>Supprimer des lignes avec l’IA</DialogTitle>
+          <DialogDescription>Vérifiez les propositions puis choisissez les lignes à écarter de cet import.</DialogDescription>
+        </DialogHeader>
+        {open ? (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <FieldLabel htmlFor={`${id}-criterion`}>Quelles lignes souhaitez-vous supprimer ?</FieldLabel>
+              <Textarea id={`${id}-criterion`} aria-describedby={`${id}-criterion-help`}
+                value={criterion} maxLength={COSTING_WORKBOOK_ROW_CRITERION_MAX_LENGTH}
+                placeholder="Par exemple, les articles en acier galvanisé"
+                disabled={loading} onChange={(event) => { setCriterion(event.target.value); resetProposal(); }} />
+              <p id={`${id}-criterion-help`} className="text-xs text-muted-foreground">
+                L’IA applique le critère à chaque ligne à partir d’un extrait de ses cellules.
+              </p>
             </div>
-          </>
-        ) : null}
-      </div>
-      {batches.length > 1 ? (
-        <div className="space-y-1.5">
-          <FieldLabel htmlFor={`${id}-range`}>Lignes à analyser</FieldLabel>
-          <NativeSelect id={`${id}-range`} value={scope} disabled={loading}
-            onChange={(event) => { setScope(event.target.value); resetProposal(); }}>
-            <option value="all">Tout l’onglet</option>
-            {batches.map((group, index) => <option key={group[0].row} value={index}>
-              {formatCount(group[0].row)} à {formatCount(group[group.length - 1].row)} ({formatCount(group.length)} lignes)
-            </option>)}
-          </NativeSelect>
-        </div>
-      ) : null}
-      {requests.length > 1 && provider ? (
-        <p className="text-xs text-muted-foreground">
-          {provider === "personal_api_key"
-            ? `Jusqu’à ${formatCount(requests.length)} demandes et ${formatUsdCeiling(requests.length * AI_REQUEST_CEILINGS_NANO_USD.shortQuestion)} au total.`
-            : `Jusqu’à ${formatCount(requests.length)} demandes successives.`}
-        </p>
-      ) : null}
-      <Button variant="secondary" loading={loading} disabled={!canAnalyse}
-        onClick={() => void analyse()}>
-        Analyser {formatCount(total)} {plural(total, "ligne", "lignes")}
-      </Button>
-      {total === 0 ? <p role="status" className="text-muted-foreground">Aucune ligne à analyser.</p> : null}
-      {failure ? <SuggestionStatus status="failed" message={failure} /> : null}
-      {loading ? (
-        <p role="status" className="text-muted-foreground">{formatCount(answer?.analysed ?? 0)} sur {formatCount(total)} lignes analysées…</p>
-      ) : answer ? (
-        <div className="space-y-2">
-          <p role="status" className="font-medium">
-            {formatCount(proposed.length)} {plural(proposed.length, "ligne proposée", "lignes proposées")} sur {formatCount(answer.analysed)} {plural(answer.analysed, "ligne analysée", "lignes analysées")}
-          </p>
-          {answer.analysed < total ? (
-            <p className="text-xs text-muted-foreground">L’analyse a couvert {formatCount(answer.analysed)} lignes sur les {formatCount(total)} demandées.</p>
-          ) : null}
-          {answer.status !== "available" ? <SuggestionStatus status={answer.status} message={answer.message} /> : null}
-          {proposed.length > 0 ? (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button size="xs" variant="outline" onClick={() => setSelected(selection.length === proposed.length ? new Set() : new Set(proposed.map(({ row }) => row)))}>
-                  {selection.length === proposed.length ? "Tout désélectionner" : "Tout sélectionner"}
-                </Button>
-                <ReviewPager page={currentPage} total={proposed.length} onSelect={setPage} />
+            <div className="space-y-2">
+              <AssistantProviderSelect required />
+              {sourceOptions && apiKey ? (
+                <>
+                  {!apiKey.available && (provider !== null || sourceOptions.defaultProvider !== "personal_api_key") ? (
+                    <p className="text-xs text-muted-foreground">{apiKey.message}</p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <a href={settingsLocked ? undefined : "/dashboard/profile#section-cle-api"} target="_blank" rel="noopener noreferrer"
+                      aria-disabled={settingsLocked || undefined}
+                      className={buttonVariants({ variant: "outline", size: "xs", className: "aria-disabled:opacity-50" })}>
+                      {apiKey.available ? "Gérer la clé API" : "Configurer la clé API"}
+                      <span className="sr-only"> (nouvel onglet)</span>
+                    </a>
+                    <Button size="xs" variant="ghost" disabled={settingsLocked} onClick={() => loadProviders(true)}>
+                      Actualiser les sources d’IA
+                    </Button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+            {batches.length > 1 ? (
+              <div className="space-y-1.5">
+                <FieldLabel htmlFor={`${id}-range`}>Lignes à analyser</FieldLabel>
+                <NativeSelect id={`${id}-range`} value={scope === "all" || batches[Number(scope)] ? scope : "0"} disabled={loading}
+                  onChange={(event) => { setScope(event.target.value); resetProposal(); }}>
+                  <option value="all">Tout l’onglet</option>
+                  {batches.map((group, index) => <option key={group[0].row} value={index}>
+                    {formatCount(group[0].row)} à {formatCount(group[group.length - 1].row)} ({formatCount(group.length)} lignes)
+                  </option>)}
+                </NativeSelect>
               </div>
-              <ul aria-label="Lignes proposées à la suppression" className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
-                {proposed.slice(start, start + DECISIONS_PER_PAGE).map(({ row, description }) => (
-                  <li key={row}>
-                    <label className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-surface-subtle">
-                      <input type="checkbox" className="mt-1 size-4 shrink-0 accent-primary"
-                        checked={selected.has(row)} onChange={(event) => {
-                          const checked = event.target.checked;
-                          setSelected((current) => {
-                            const next = new Set(current);
-                            if (checked) next.add(row);
-                            else next.delete(row);
-                            return next;
-                          });
-                        }} />
-                      <span className="min-w-0 wrap-anywhere">
-                        <strong className="block">Ligne Excel {formatCount(row)}</strong>
-                        <span className="text-muted-foreground">{description}</span>
-                      </span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      <DialogFooter>
-        <DialogClose render={<Button variant="outline" />}>Annuler</DialogClose>
-        <Button disabled={disabled || loading || selection.length === 0} onClick={() => onApply(selection)}>
-          {selection.length > 0 ? `Écarter ${formatCount(selection.length)} ${plural(selection.length, "ligne", "lignes")} de l’import` : "Écarter les lignes sélectionnées"}
-        </Button>
-      </DialogFooter>
-    </div>
+            ) : null}
+            {requests.length > 1 && provider ? (
+              <p className="text-xs text-muted-foreground">
+                {provider === "personal_api_key"
+                  ? `Jusqu’à ${formatCount(requests.length)} demandes et ${formatUsdCeiling(requests.length * AI_REQUEST_CEILINGS_NANO_USD.shortQuestion)} au total.`
+                  : `Jusqu’à ${formatCount(requests.length)} demandes successives.`}
+              </p>
+            ) : null}
+            <Button variant="secondary" loading={loading} disabled={!canAnalyse}
+              onClick={() => void analyse()}>
+              Analyser {formatCount(total)} {plural(total, "ligne", "lignes")}
+            </Button>
+            {total === 0 ? <p role="status" className="text-muted-foreground">Aucune ligne à analyser.</p> : null}
+            {answer?.status === "running" ? (
+              <p role="status" className="text-muted-foreground">{formatCount(answer.analysed)} sur {formatCount(answer.total)} lignes analysées…</p>
+            ) : answer ? (
+              <div className="space-y-2">
+                <p role="status" className="font-medium">
+                  {formatCount(proposed.length)} {plural(proposed.length, "ligne proposée", "lignes proposées")} sur {formatCount(answer.analysed)} {plural(answer.analysed, "ligne analysée", "lignes analysées")}
+                </p>
+                {answer.analysed < answer.total ? (
+                  <p className="text-xs text-muted-foreground">L’analyse a couvert {formatCount(answer.analysed)} lignes sur les {formatCount(answer.total)} demandées.</p>
+                ) : null}
+                {answer.status !== "available" ? <SuggestionStatus status={answer.status === "stopped" ? "partial" : answer.status} message={answer.message} /> : null}
+                {proposed.length > 0 ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="xs" variant="outline" onClick={() => setSelected(selection.length === proposed.length ? new Set() : new Set(proposed.map(({ row }) => row)))}>
+                        {selection.length === proposed.length ? "Tout désélectionner" : "Tout sélectionner"}
+                      </Button>
+                      <ReviewPager page={currentPage} total={proposed.length} onSelect={setPage} />
+                    </div>
+                    <ul aria-label="Lignes proposées à la suppression" className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+                      {proposed.slice(start, start + DECISIONS_PER_PAGE).map(({ row, description }) => (
+                        <li key={row}>
+                          <label className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-surface-subtle">
+                            <input type="checkbox" className="mt-1 size-4 shrink-0 accent-primary"
+                              checked={selected.has(row)} onChange={(event) => {
+                                const checked = event.target.checked;
+                                setSelected((current) => {
+                                  const next = new Set(current);
+                                  if (checked) next.add(row);
+                                  else next.delete(row);
+                                  return next;
+                                });
+                              }} />
+                            <span className="min-w-0 wrap-anywhere">
+                              <strong className="block">Ligne Excel {formatCount(row)}</strong>
+                              <span className="text-muted-foreground">{description}</span>
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+            <DialogFooter>
+              {loading ? <Button variant="ghost" onClick={stopAnalysis}>Arrêter l’analyse</Button> : null}
+              <DialogClose render={<Button variant="outline" />}>Fermer</DialogClose>
+              <Button disabled={disabled || loading || selection.length === 0} onClick={() => {
+                if (onApply(selection)) setOpen(false);
+              }}>
+                {selection.length > 0 ? `Écarter ${formatCount(selection.length)} ${plural(selection.length, "ligne", "lignes")} de l’import` : "Écarter les lignes sélectionnées"}
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }

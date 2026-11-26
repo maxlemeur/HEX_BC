@@ -206,7 +206,7 @@ describe("CostingWorkbookImport, proposals", () => {
     answers.sources = () => respond(503, {});
     await user.click(dialog.getByRole("button", { name: "Actualiser les sources d’IA" }));
     await dialog.findByText("Les sources d’IA n’ont pas pu être lues.");
-    await user.click(dialog.getByRole("button", { name: "Annuler" }));
+    await user.click(dialog.getByRole("button", { name: "Fermer" }));
     await user.click(screen.getByRole("button", { name: "Doublons possibles" }));
     await user.click(screen.getByRole("button", { name: "Chercher les doublons" }));
     await waitFor(() => expect(suggestions()).toHaveLength(1));

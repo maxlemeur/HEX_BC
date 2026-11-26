@@ -90,6 +90,7 @@ armyTest(
 
     const criterion = "Supprime les articles en acier galvanisé.";
     const requests: CostingWorkbookSuggestionsRequest[] = [];
+    const firstResponse = Promise.withResolvers<void>();
     let keyRegistered = false;
     await browser.route("**/api/catalogue/workbook-import/suggestions", async (route) => {
       if (route.request.method === "GET") {
@@ -113,6 +114,7 @@ armyTest(
       }
       const request = JSON.parse(route.request.postData ?? "{}") as CostingWorkbookSuggestionsRequest;
       requests.push(request);
+      if (requests.length === 1) await firstResponse.promise;
       await route.fulfill({ json: { ok: true, data: {
         task: "row_exclusions", provider: "personal_api_key", model: "key-b", analysed: 3, status: "available", message: "",
         items: [{ row: 3 }, { row: 5 }],
@@ -142,28 +144,44 @@ armyTest(
     await expect(instruction).toHaveValue(criterion);
     await dialog.getByRole("combobox", "Source d’IA", { exact: true }).selectOption({ value: "personal_api_key" });
     await dialog.getByRole("combobox", "Modèle", { exact: true }).selectOption({ value: "key-b" });
-    await analyse();
+    const running = screen.getByRole("button", "Analyse IA en cours · 0 / 3", { exact: true });
+    const results = screen.getByRole("button", "Consulter les résultats de l’analyse IA", { exact: true });
+    try {
+      await dialog.getByRole("button", "Analyser 3 lignes", { exact: true }).tap();
+      await dialog.getByRole("button", "Fermer", { exact: true }).tap();
+      await expect(running).toBeEnabled();
+      await running.tap();
+      await expect(instruction).toHaveValue(criterion);
+      await expect(dialog.getByText("0 sur 3 lignes analysées…", { exact: true })).toBeVisible();
+      await dialog.getByRole("button", "Fermer", { exact: true }).tap();
+    } finally {
+      firstResponse.resolve();
+    }
+    await expect(results).toBeEnabled();
+    expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       task: "row_exclusions", criterion, provider: "personal_api_key", model: "key-b", reasoning_effort: "medium",
       lines: refs.map((ref, index) => ({ row: [3, 5, 6][index], description: expect.stringContaining(ref) })),
     });
-    await dialog.getByRole("button", "Annuler", { exact: true }).tap();
     await expect(importThree).toBeEnabled();
     expect(await cataloguePage(browser, army.runPrefix, "draft")).toEqual([]);
 
     async function excludeOne() {
-      await trigger.tap();
-      await instruction.fill(criterion);
-      await expect(dialog.getByRole("combobox", "Modèle", { exact: true })).toHaveValue("key-b");
-      await analyse();
       await dialog.getByRole("checkbox", /^Ligne Excel 3\b/).check();
       await dialog.getByRole("button", "Écarter 1 ligne de l’import", { exact: true }).tap();
       await expect(screen.getByText("1 ligne écartée de l’import", { exact: true })).toBeVisible();
       await expect(screen.getByRole("button", "Importer 2 brouillons", { exact: true })).toBeEnabled({ timeout: 30_000 });
     }
+    await results.tap();
+    await expect(dialog.getByText("2 lignes proposées sur 3 lignes analysées", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", "Écarter les lignes sélectionnées", { exact: true })).toBeDisabled();
     await excludeOne();
     await screen.getByRole("button", "Réintégrer les lignes écartées", { exact: true }).tap();
     await expect(importThree).toBeEnabled({ timeout: 30_000 });
+    await trigger.tap();
+    await expect(instruction).toHaveValue(criterion);
+    await expect(dialog.getByRole("combobox", "Modèle", { exact: true })).toHaveValue("key-b");
+    await analyse();
     await excludeOne();
     const [supplierPreview] = await Promise.all([
       browser.waitForResponse("**/api/catalogue/workbook-import/supplier-references"),
