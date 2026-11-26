@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import { takeoffPaymentHostId } from "@/lib/takeoff/payment-mandate-server";
 import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
@@ -39,13 +40,14 @@ const defaultAttempt: TakeoffDispatchAttempt = async (jobId, trigger) => {
 
 export type TakeoffDispatchPass = { ran: string[]; closed: string[]; nextDueAt: string | null };
 
-async function dispatchOnce(service: Service, hostId: string, attempt: TakeoffDispatchAttempt): Promise<TakeoffDispatchPass> {
+async function dispatchOnce(service: Service, hostId: string, attempt: TakeoffDispatchAttempt, explicitPayment: boolean): Promise<TakeoffDispatchPass> {
   const ran: string[] = [];
   const closed: string[] = [];
   let nextDueAt: string | null = null;
   let previous: string | null = null;
   for (let index = 0; index < MAX_ATTEMPTS_PER_PASS; index += 1) {
-    const { data, error } = await service.rpc("dispatch_next_takeoff_host_job", { p_host_id: hostId, p_module_default: takeoffModuleDefault() });
+    const { data, error } = await service.rpc(explicitPayment ? "dispatch_next_takeoff_payment_job" : "dispatch_next_takeoff_host_job", { p_host_id: hostId, p_module_default: takeoffModuleDefault() });
+    if (explicitPayment && error?.code === "PGRST202") break;
     if (error) throw error;
     const next = data?.[0];
     closed.push(...(next?.closed_jobs ?? []));
@@ -94,13 +96,17 @@ export async function runLocalTakeoffDispatcherPass(options: { attempt?: Takeoff
   const service = options.service ?? createServiceRoleClient();
   running = (async () => {
     const hostId = options.hostId ?? await getChatGptHostId();
+    const hosts = options.hostId ? [hostId] : [hostId, takeoffPaymentHostId(hostId)];
     const total: TakeoffDispatchPass = { ran: [], closed: [], nextDueAt: null };
     do {
       again = false;
-      const pass = await dispatchOnce(service, hostId, options.attempt ?? defaultAttempt);
-      total.ran.push(...pass.ran);
-      total.closed.push(...pass.closed);
-      total.nextDueAt = pass.nextDueAt;
+      total.nextDueAt = null;
+      for (const queueHost of hosts) {
+        const pass = await dispatchOnce(service, queueHost, options.attempt ?? defaultAttempt, queueHost !== hostId);
+        total.ran.push(...pass.ran);
+        total.closed.push(...pass.closed);
+        if (pass.nextDueAt && (!total.nextDueAt || pass.nextDueAt < total.nextDueAt)) total.nextDueAt = pass.nextDueAt;
+      }
     } while (again);
     return total;
   })();

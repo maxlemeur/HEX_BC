@@ -1,3 +1,4 @@
+import { API_KEY_ERROR_CODES, apiKeyErrorMessage } from "@/lib/ai/access/api-key-errors";
 import { z } from "zod";
 
 /**
@@ -102,14 +103,19 @@ export function normalizeIntakeTranscription(row: {
 /** Why a reading stopped, in the words of the dossier. */
 export function intakeTranscriptionFailureMessage(code: string | null) {
   switch (code) {
-    case "MODEL_UNAVAILABLE": return "Le forfait ChatGPT utilisé pour la lecture ne propose pas le modèle Terra.";
+    case "AI_KEY_CEILING": return "La transcription a atteint le plafond du lot de 2,00 $ US.";
+    case "AI_KEY_MODEL_NOT_OFFERED":
+    case "MODEL_UNAVAILABLE": return "La source utilisée pour la lecture ne propose pas GPT‑6.1 Terra avec un effort élevé.";
     case "AI_QUOTA": return "La limite du forfait ChatGPT a été atteinte pendant la lecture.";
     case "AI_RATE_LIMIT": return "ChatGPT a limité les demandes pendant la lecture.";
     case "AI_AUTH_REQUIRED": case "AI_NOT_CONFIGURED": return "La connexion ChatGPT utilisée pour la lecture doit être reconnectée.";
     case "PAGE_TOO_LARGE": return "Une page est trop lourde pour être lue.";
     case "PDF_INSPECTION_INCOMPLETE": return "Toutes les pages du PDF n’ont pas pu être examinées : des pages scannées peuvent manquer.";
-    case "INVALID_ANSWER": return "La réponse de ChatGPT n’a pas pu être lue.";
+    case "INVALID_ANSWER": return "La réponse de l’IA n’a pas pu être lue.";
     case null: return null;
-    default: return "ChatGPT n’a pas terminé la lecture.";
+    default: {
+      const keyError = API_KEY_ERROR_CODES.find(candidate => candidate === code);
+      return keyError ? apiKeyErrorMessage(keyError) : "L’IA n’a pas terminé la lecture.";
+    }
   }
 }

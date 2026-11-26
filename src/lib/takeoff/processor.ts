@@ -288,6 +288,7 @@ async function processTakeoffLevel(
     if ("error" in resolved) throw resolved.error;
     if ("error" in itemList) throw itemList.error;
     const localProvider = resolved.provider;
+    const apiVectorCall = localProvider.callApiVectorGroup;
     const call: StructuredCall = async <T>(providerOptions: StructuredCallOptions<T>) => {
       await assertProviderTenantActive();
       return runWithTakeoffLeaseRenewal(renewProcessingLease, () => localProvider.call<T>(providerOptions));
@@ -322,7 +323,9 @@ async function processTakeoffLevel(
           onPage: renewProcessingLease, context: { jobId: claimed.id, tenantId: claimed.tenant_id },
           ...(unit ? { maxPages: unit.vectorPages } : {}),
           decisions: takeoffVectorLocalGroupsHook({ paidClassifier, jobId: claimed.id, tenantId: claimed.tenant_id, userId: claimed.created_by ?? null,
-            provider: localProvider, beforeCall: async () => {
+            provider: apiVectorCall ? { ...localProvider,
+              callApiVectorGroup: async (options) => runWithTakeoffLeaseRenewal(renewProcessingLease,
+                () => apiVectorCall(options)) } : localProvider, beforeCall: async () => {
               await assertProviderTenantActive();
               await renewProcessingLease();
             } }),

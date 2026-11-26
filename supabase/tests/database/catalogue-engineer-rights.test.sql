@@ -609,5 +609,23 @@ select is((select row(item.supplier_sku, item.is_active, item.reference_needs_re
   and item.supplier_id = 'ce689000-0000-4000-8000-0000000000a1'),
   '(,f,f)', 'TI-711 rejection discards the pending SKU so prices cannot reuse it');
 
+create function pg_temp.reference_naming_command(p_tenant text, p_naming jsonb)
+returns text language sql as $$
+  select format('select public.set_tenant_product_reference_naming(%L, %L::jsonb)', pg_temp.fx(p_tenant), p_naming)
+$$;
+
+select is(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a', '{
+  "enabled":true,"patterns":{"tube":"TUY-{dimension}","coude":"COU-{dimension}","reduction":"RED-{dimension}","vanne":"VAN-{dimension}"}
+}'::jsonb)), 'ok 1', 'an admin saves a reference naming format for the active company');
+select is((select product_reference_naming->'patterns'->>'tube' from public.tenant_catalogue_policies
+  where tenant_id = pg_temp.fx('tenant_a')), 'TUY-{dimension}', 'the company pattern is stored');
+select matches(pg_temp.ce_run('engineer_1', pg_temp.reference_naming_command('tenant_a', '{}'::jsonb)),
+  '^42501 ', 'an engineer cannot configure naming');
+select matches(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_b', '{}'::jsonb)),
+  '^42501 ', 'an admin cannot configure the naming of a different company');
+select matches(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a', '{
+  "enabled":true,"patterns":{"tube":"TUY-{prix}","coude":"COU-{dimension}","reduction":"RED-{dimension}","vanne":"VAN-{dimension}"}
+}'::jsonb)), '^22023 ', 'an unknown token is rejected by the database');
+
 select * from finish();
 rollback;

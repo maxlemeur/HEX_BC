@@ -16,6 +16,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     if (!body.success) throw unprocessableEntity("Sélection invalide.", undefined, "VALIDATION_ERROR");
     return ok(await previewItemRemeasure(parsed.data.projectId, {
       scope: body.data.scope, itemIds: body.data.item_ids.map((id) => id.toLowerCase()), seen: body.data.seen, detail: body.data.detail, fromFinds: body.data.from_finds,
+      ...(body.data.payment_choice && { paymentChoice: body.data.payment_choice }),
     }));
   } catch (error) {
     return toErrorResponse(error);

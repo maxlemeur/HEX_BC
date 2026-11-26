@@ -189,7 +189,10 @@ export function AssistantAiSettingsMenu({ scopeChoices, contextOptions, children
 type RequestFields = Parameters<typeof AiRequestSettings>[0];
 
 /** Existing dialogs surface the same menu inside their focus boundary. */
-export function AssistantAiFeatureSettings({ fixedSource = false, ...fields }: RequestFields & { fixedSource?: boolean }) {
+export function AssistantAiFeatureSettings({ fixedSource = false, onRefresh, ...fields }: RequestFields & {
+  fixedSource?: boolean;
+  onRefresh?(): void;
+}) {
   const shared = useAssistantAiSettings();
   if (!shared) return <AiRequestSettings {...fields} />;
   const value = fields.value ?? defaultAiRequestSettings(fields.defaultSource, fields.sources);
@@ -212,7 +215,7 @@ export function AssistantAiFeatureSettings({ fixedSource = false, ...fields }: R
         {fixedSource ? " · Source de cette fonction" : ""}
         {ceiling ? " · " + (fields.keyCeiling?.message?.(ceiling) ?? `${ceiling} au plus par demande`) : ""}
       </span>
-      <AssistantAiSettingsMenu keyCeiling={fields.keyCeiling?.nanoUsd} locked={fields.locked} scopeChoices={scopeChoices}>
+      <AssistantAiSettingsMenu keyCeiling={fields.keyCeiling?.nanoUsd} locked={fields.locked} scopeChoices={scopeChoices} onRefresh={onRefresh}>
         Réglages IA
       </AssistantAiSettingsMenu>
     </div>

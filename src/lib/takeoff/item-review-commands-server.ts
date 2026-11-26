@@ -15,6 +15,9 @@ import { conflict, forbidden, mapSupabaseError, unprocessableEntity } from "@/li
 import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { noteLength } from "@/lib/takeoff/rules/verification";
 import { asRecord } from "@/lib/value-guards";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { TAKEOFF_NANO_USD_PER_CENT, type TakeoffPaymentChoice } from "./payment-choice";
+import { resolveTakeoffPayment } from "./payment-server";
 import type { Database } from "@/types/database";
 import { quantityEntryError } from "./quantity-entry";
 import { ITEM_INELIGIBILITIES, planItemReviewCommand, type ItemIneligibility, type ItemTableScope } from "./item-table";
@@ -60,7 +63,7 @@ export const ITEM_REVIEW_STALE = "TAKEOFF_ITEM_REVIEW_STALE";
 
 const FORBIDDEN = "Seul un opérateur du métré de l’affaire peut revoir les postes.";
 
-async function requireReviewer(projectId: string): Promise<AffaireAccess> {
+export async function requireReviewer(projectId: string): Promise<AffaireAccess> {
   const access = await requireAffaireAccess(projectId, "read");
   if (!await itemReviewerRight(access)) throw forbidden(FORBIDDEN, undefined, "TAKEOFF_ITEM_REVIEW_FORBIDDEN");
   return access;
@@ -100,7 +103,7 @@ function staleRefusal(stale: Array<{ itemId: string; label: string | null }>): n
 }
 
 /** The refusals of public.review_takeoff_items, by their own code: a fixed French answer, never the database's text. */
-function reviewFailure(error: { message?: string }): never {
+export function reviewFailure(error: { message?: string }): never {
   switch (error.message?.trim()) {
     case "TAKEOFF_ITEM_REVIEW_FORBIDDEN": throw forbidden(FORBIDDEN, undefined, "TAKEOFF_ITEM_REVIEW_FORBIDDEN");
     case "TAKEOFF_ITEM_REVIEW_INVALID": throw unprocessableEntity("Commande de revue invalide.", undefined, "VALIDATION_ERROR");
@@ -223,6 +226,9 @@ async function payerName(access: AffaireAccess) {
   return data?.full_name?.trim() || null;
 }
 
+type RemeasureInput = { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen; detail?: ItemMeasureScope; fromFinds?: true };
+type RemeasurePayment = Awaited<ReturnType<typeof resolveTakeoffPayment>>;
+
 /**
  * What a new measure of the selection asks and who pays: the member who confirms, on their own subscription, with the
  * model and effort of their profile; the plans and items; the paid calls and the budget the admission will take; those a
@@ -231,7 +237,7 @@ async function payerName(access: AffaireAccess) {
  * plans, the items, the list's revision and each item's current readings on those plans, the calls and the budget, and
  * the preparation it was planned on (its revision, each plan's sealed copy, identity, bytes and pages).
  */
-async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen; detail?: ItemMeasureScope; fromFinds?: true }, access: AffaireAccess) {
+async function remeasurePreview(input: RemeasureInput, access: AffaireAccess, payment?: RemeasurePayment) {
   const key = (input.detail || input.fromFinds) && input.scope.kind === "plan" ? input.scope.planKey : null;
   if (input.detail && (!key || input.itemIds.length !== 1)) invalid("Choisissez un seul poste sur son plan.");
   if (input.fromFinds) {
@@ -266,21 +272,23 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
     .sort((left, right) => left.name.localeCompare(right.name, "fr", { numeric: true }));
   const [name, subscription, launch] = await Promise.all([
     payerName(access),
-    readLocalChatGptSubscription({ userId: access.context.userId, tenantId: access.context.tenantId },
-      (await headers()).get("host")),
+    payment ? { issue: null, selection: payment.selection }
+      : readLocalChatGptSubscription({ userId: access.context.userId, tenantId: access.context.tenantId }, (await headers()).get("host")),
     readAffaireTakeoffLaunchState(access.context, access.project.id),
   ]);
-  const catalogue = input.detail && key && !subscription.issue ? await readMeasureCatalogue({ userId: access.context.userId, tenantId: access.context.tenantId }, subscription.selection) : null;
+  const catalogue = !payment && input.detail && key && !subscription.issue ? await readMeasureCatalogue({ userId: access.context.userId, tenantId: access.context.tenantId }, subscription.selection) : null;
   const shown: ItemRemeasurePreview["subscription"] = subscription.issue
     ? { state: "unavailable", reason: SUBSCRIPTION_REASONS[subscription.issue] }
     : catalogue?.reason !== undefined ? { state: "unavailable", reason: catalogue.reason }
-    : { state: "ready", model: subscription.selection.model, reasoningEffort: subscription.selection.reasoningEffort ?? null };
+    : { state: "ready", model: payment?.preferences.model ?? subscription.selection.model,
+      reasoningEffort: payment ? payment.preferences.reasoningEffort : subscription.selection.reasoningEffort ?? null };
   const items = eligible.map(({ itemId, label }) => ({ itemId, label }));
   const payer = { memberId: access.context.userId, name };
   // What the request would read and reserve, planned as its admission plans it (nothing written).
   const planned = items.length && plans.length
     ? await planTakeoffItemRemeasure(access.context, { projectId: access.project.id, planKeys: plans.map(({ key }) => key),
-      itemIds: items.map(({ itemId }) => itemId), ...(input.detail && { detail: input.detail }), selection: null })
+      itemIds: items.map(({ itemId }) => itemId), ...(input.detail && { detail: input.detail }), selection: null,
+      ...(payment?.apiMandate && { apiMandate: payment.apiMandate }) })
     : null;
   if (key && planned && "refusal" in planned && planned.changedCopy) {
     throw conflict(planned.refusal, undefined, "TAKEOFF_ITEM_MEASURE_COPY_CHANGED");
@@ -316,12 +324,14 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
       plans: key && file ? [{ key, name: file.name }] : plans,
       payer,
       subscription: shown,
+      ...(payment && { payment: { source: payment.selection.source,
+        ...(payment.apiMandate && { maxCostCents: payment.apiMandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT }) } }),
       ...(detail && { detail }),
       ...(catalogue && "models" in catalogue && { models: catalogue.models }),
       reading,
       running: launch.request?.state === "admitted",
       previewDigest: createHash("sha256").update(canonical({ contract: 3, scope: input.scope, ...(input.detail && { detail: input.detail, pin: subscription.selection }), payer: payer.memberId,
-        subscription: shown, plans: plans.map(({ key }) => key), items: items.map(({ itemId }) => itemId),
+        subscription: shown, ...(payment && { payment: payment.selection }), plans: plans.map(({ key }) => key), items: items.map(({ itemId }) => itemId),
         list: list?.revisionId ?? null, readings: targets,
         reading: reading.state === "ready" ? { calls: reading.calls, budgetTokens: reading.budgetTokens } : reading,
         // The preparation it was planned on: its revision and each plan as sealed (its copy, identity, bytes and pages).
@@ -368,9 +378,11 @@ function sealedSelection(selection: TakeoffExecutionSelection, setting: ItemReme
 }
 
 /** What a remeasure of the selection would ask, and who would pay: shown before its explicit confirmation. Reads only. */
-export async function previewItemRemeasure(projectId: string, input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen; detail?: ItemMeasureScope; fromFinds?: true }) {
+export async function previewItemRemeasure(projectId: string, input: RemeasureInput & { paymentChoice?: TakeoffPaymentChoice }) {
   const access = await requireReviewer(projectId);
-  return (await remeasurePreview(input, access)).preview;
+  const payment = input.paymentChoice
+    ? await resolveTakeoffPayment({ ...access.context, projectId }, input.paymentChoice, createServiceRoleClient(), false) : undefined;
+  return (await remeasurePreview(input, access, payment)).preview;
 }
 
 /**
@@ -382,26 +394,32 @@ export async function previewItemRemeasure(projectId: string, input: { scope: It
 export async function runItemRemeasure(projectId: string, command: ItemRemeasureCommand): Promise<ItemRemeasureResult> {
   // The member's right first (requireReviewer: the right to launch on the affaire), a replay included.
   const access = await requireReviewer(projectId);
+  if (command.payment_choice && command.setting) invalid("Utilisez les réglages de paiement affichés pour cette nouvelle mesure.");
+  const payment = command.payment_choice
+    ? await resolveTakeoffPayment({ ...access.context, projectId }, command.payment_choice, createServiceRoleClient()) : undefined;
+  let setting = command.setting;
+  if (payment) {
+    setting = command.detail ? { model: payment.selection.model, reasoning_effort: payment.selection.reasoningEffort } : null;
+  }
   if (command.detail && (command.item_ids.length !== 1 || command.plan_keys.length !== 1 || command.scope.kind !== "plan"
-      || command.scope.planKey !== command.plan_keys[0] || !command.setting?.model)) invalid("Confirmez le poste, le plan et le modèle depuis le récapitulatif.");
-  if (!command.detail && command.setting?.model) invalid("Choisissez le modèle depuis le poste ouvert sur le plan.");
+      || command.scope.planKey !== command.plan_keys[0] || !setting?.model)) invalid("Confirmez le poste, le plan et le modèle depuis le récapitulatif.");
+  if (!command.detail && setting?.model) invalid("Choisissez le modèle depuis le poste ouvert sur le plan.");
   if (!!command.detail?.proposeMarks !== !!command.mark_schedule) invalid("Relisez le nombre d’appels des propositions avant de confirmer.");
-  const confirmation = { ...(command.mark_schedule && { count_marks: command.mark_schedule }), ...(command.detail && { page: command.detail.page, shown_sha256: createHash("sha256").update(canonical(command.detail)).digest("hex") }), preview_digest: command.preview_digest, setting: command.setting };
-  // A lost answer sent again: replayed by what the member confirmed alone, before anything is planned (the items it
-  // admitted read « En lecture » since); another confirmation under the key is the database's conflict.
-  const subscription = await readLocalChatGptSubscription({ userId: access.context.userId, tenantId: access.context.tenantId },
-    (await headers()).get("host"));
+  const confirmation = { ...(command.mark_schedule && { count_marks: command.mark_schedule }), ...(command.detail && { page: command.detail.page, shown_sha256: createHash("sha256").update(canonical(command.detail)).digest("hex") }), preview_digest: command.preview_digest, setting };
+  // A lost answer sent again: compare only what the member confirmed.
+  const subscription = payment ? { issue: null, selection: payment.selection }
+    : await readLocalChatGptSubscription({ userId: access.context.userId, tenantId: access.context.tenantId }, (await headers()).get("host"));
   if (command.detail && subscription.selection && command.host_proof !== measureHostProof(access, subscription.selection.hostId)) {
     throw conflict("Le récapitulatif a été ouvert sur un autre Mac. Relisez-le sur le Mac connecté à votre forfait.", undefined, ITEM_REVIEW_STALE);
   }
   if (!subscription.issue && command.seen.list_revision_id) {
     const replayed = await replayTakeoffItemRemeasure(access.context, { projectId: access.project.id, intentKey: command.intent_key,
       planKeys: command.plan_keys, listRevisionId: command.seen.list_revision_id, targets: remeasureTargets(command.item_ids, command.seen),
-      selection: command.detail ? subscription.selection : sealedSelection(subscription.selection, command.setting), confirmation });
+      selection: command.detail || payment ? subscription.selection : sealedSelection(subscription.selection, setting), confirmation });
     if (replayed) return receipt(replayed);
   }
   const { preview, targets, selection, labels, planned: confirmed } = await remeasurePreview({ scope: command.scope,
-    itemIds: command.item_ids, seen: command.seen, detail: command.detail, fromFinds: command.from_finds }, access);
+    itemIds: command.item_ids, seen: command.seen, detail: command.detail, fromFinds: command.from_finds }, access, payment);
   const shownPlans = preview.plans.map(({ key }) => key);
   if (preview.subscription.state === "unavailable" || !selection) {
     throw unprocessableEntity(preview.subscription.state === "unavailable" ? preview.subscription.reason
@@ -415,15 +433,16 @@ export async function runItemRemeasure(projectId: string, command: ItemRemeasure
   if (preview.reading.state === "refused" || !confirmed) {
     invalid(preview.reading.state === "refused" ? preview.reading.reason : "Aucun poste de la sélection ne peut être mesuré de nouveau.");
   }
-  const sealed = command.detail ? selection : sealedSelection(selection, command.setting);
-  if (command.detail) {
+  const sealed = command.detail || payment ? selection : sealedSelection(selection, setting);
+  if (command.detail && !payment) {
     const model = preview.models?.find((entry) => entry.id === command.setting?.model);
     if (!model || (command.setting?.reasoning_effort && !model.reasoningEfforts.includes(command.setting.reasoning_effort))) {
       invalid("Ce modèle ou ce niveau de raisonnement est indisponible sur votre forfait. Choisissez un réglage proposé.");
     }
   }
   const planned = await planTakeoffItemRemeasure(access.context, { projectId: access.project.id, planKeys: shownPlans,
-    itemIds: preview.items.map(({ itemId }) => itemId), selection: sealed, ...(command.detail && { detail: command.detail }) });
+    itemIds: preview.items.map(({ itemId }) => itemId), selection: sealed, ...(command.detail && { detail: command.detail }),
+    ...(payment?.apiMandate && { apiMandate: payment.apiMandate }) });
   const items = preview.items.map(({ itemId, label }) => ({ itemId, label }));
   if ("refusal" in planned) {
     if (planned.stale) staleRefusal(items);

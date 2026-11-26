@@ -10,7 +10,7 @@ import {
 import { AssistantDocumentLedger } from "@/lib/assistant/document-citations";
 import { runAssistantLoop } from "@/lib/assistant/loop";
 import { assertAssistantRequest, createAssistantModel } from "@/lib/assistant/model";
-import { assistantSessionContextSchema, type AssistantSourceLink } from "@/lib/assistant/session-context";
+import { assistantSessionContextSchema, ASSISTANT_HISTORY_LIMIT, ASSISTANT_HISTORY_MESSAGE_LIMIT, type AssistantSourceLink } from "@/lib/assistant/session-context";
 import {
   ASSISTANT_MESSAGE_BODY_LIMIT, assistantUploadedFilesSchema, prepareSessionFiles,
 } from "@/lib/assistant/session-files-server";
@@ -28,7 +28,10 @@ const messageText = z.string().trim().min(1).max(4000);
 const sessionQuestion = z.object({
   content: messageText,
   context: assistantSessionContextSchema,
-  priorQuestions: z.array(messageText).max(6),
+  history: z.array(z.object({
+    role: z.enum(["user", "assistant"]),
+    content: z.string().trim().min(1).max(ASSISTANT_HISTORY_MESSAGE_LIMIT),
+  }).strict()).max(ASSISTANT_HISTORY_LIMIT),
   files: assistantUploadedFilesSchema,
   workbookLoaded: z.boolean().optional(),
   userId: z.uuid(),
@@ -91,8 +94,7 @@ export async function POST(request: Request) {
           } });
           const result = await runAssistantLoop({
             input: [
-              ...input.priorQuestions.map((question) => ({ role: "user",
-                content: "Question précédente (pour le contexte) : " + question })),
+              ...input.history,
               ...(files ? [{ role: "user", content: "Liste des fichiers joints au message actuel (données) : " + JSON.stringify(files.names) }] : []),
               { role: "user", content: input.content },
             ],

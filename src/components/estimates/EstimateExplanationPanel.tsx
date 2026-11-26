@@ -317,6 +317,7 @@ function PriceExplanationRequest({ price, versionId, lineId, disabled, onBusyCha
         onChange={setSelection}
         sourcePicker={{ label: "Source d’IA" }}
         locked={pending !== null || disabled}
+        onRefresh={settings.canRefreshPlanModels ? () => void refreshModels() : undefined}
         keyCeiling={{
           nanoUsd: AI_REQUEST_CEILINGS_NANO_USD.shortQuestion,
           message: (ceiling) => `${ceiling} au plus par explication, facturés sur votre compte OpenAI.`,

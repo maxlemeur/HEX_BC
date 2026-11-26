@@ -1,3 +1,5 @@
+import { apiKeyGroupsCall } from "@/lib/takeoff/vectors/group-local-model-server";
+import type { StructuredCall } from "@/lib/ai/structured-call";
 import "server-only";
 import { readDefaultOnTakeoffFlag } from "@/lib/takeoff/default-on-flags";
 
@@ -150,16 +152,18 @@ export function takeoffVectorLocalGroupsHook(input: {
   jobId: string; tenantId: string; userId: string | null;
   /** The job's local provider (resolveLocalTakeoffProvider): its pinned selection and the creator's membership check. */
   provider: { selection: LocalGroupsSelection; groupsSelection?: LocalGroupsSelection; assertOwnerActive: () => Promise<void>;
-    useProfileForVectorGroups?: boolean };
+    useProfileForVectorGroups?: boolean; callApiVectorGroup?: StructuredCall };
   beforeCall?: () => Promise<void>;
 }): TakeoffVectorDecisionsHook | undefined {
   if (!isTakeoffVectorReadingEnabled() || !(input.paidClassifier ?? isTakeoffDecisionsSelected()) || !isLocalChatGptEnabled() || !input.userId) return undefined;
   // Before each plan request, as before each level C one: the creator is still a member (their plan receives the
   // images), then the job's own check (tenant, lease).
   const { provider } = input;
+  const apiCall = provider.callApiVectorGroup;
   return { owner: { tenantId: input.tenantId, userId: input.userId }, projectId: `takeoff-job:${input.jobId}`,
     // The groups' questions are reserved in the job's ledger as such (its branch), with the profile of its readings.
-    local: { selection: provider.groupsSelection ?? provider.selection, useProfile: provider.useProfileForVectorGroups },
+    local: apiCall ? { call: async () => apiKeyGroupsCall(apiCall) }
+      : { selection: provider.groupsSelection ?? provider.selection, useProfile: provider.useProfileForVectorGroups },
     beforeCall: async () => {
       await provider.assertOwnerActive();
       await input.beforeCall?.();

@@ -23,7 +23,9 @@ import { acceptanceReasonRule, requiresAcceptanceReason } from "@/lib/takeoff/ru
 import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
 import { TAKEOFF_COMPARISON_DEFERRED, TAKEOFF_CROSS_JOB_COMPARISON_LABEL } from "@/lib/takeoff/apply-readiness";
 import { useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold } from "@/components/takeoff/review/useTakeoffReviewSupport";
-import { takeoffReviewHref } from "@/lib/takeoff/review-href";
+import useSWR from "swr";
+import { fetchMeasureReview } from "@/lib/takeoff/item-table-client";
+import { takeoffItemDetailHref, takeoffReviewHref } from "@/lib/takeoff/review-href";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -151,6 +153,14 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
 
   const [job, setJob] = useState<Job | null>(null);
   const [items, setItems] = useState<TakeoffJobItem[]>([]);
+  const answerId = searchParams.get("reponse");
+  const contribution = searchParams.get("contribution");
+  const retainedLine = contribution ? items.find(item => item.id === contribution) : null;
+  const retention = useSWR(answerId && retainedLine ? ["targeted-measure", viewerKey, projectId, answerId, retainedLine.updated_at] : null,
+    () => fetchMeasureReview(projectId, answerId!), { shouldRetryOnError: false });
+  const returnRow = retention.data?.rows.find(row => row.id === contribution);
+  const returnReview = returnRow ? retention.data : null;
+  const pendingRetention = returnReview && (returnReview.reason === null || returnReview.reason === "justification_required");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dpgf, setDpgf] = useState<{ loading: boolean; error: string | null; blocking: boolean }>({ loading: true, error: null, blocking: false });
   // Read again after each saved decision: a quantity or an exclusion can open or close a DPGF gap.
@@ -526,6 +536,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
             <Badge size="sm" variant={counts.uncertain > 0 ? "warning" : "neutral"}>
               {counts.uncertain} incertaine{counts.uncertain > 1 ? "s" : ""}
             </Badge>
+            {pendingRetention && <Badge size="sm" variant="warning">1 poste à retenir</Badge>}
           </span>
         ) : null}
         <nav aria-label="Métré" className="ml-auto flex items-center gap-2">
@@ -533,6 +544,20 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
           <Link href={`/dashboard/affaires/${projectId}/takeoff`} className={buttonVariants({ variant: "ghost", size: "xs" })}>Métrés</Link>
         </nav>
       </header>
+      {returnReview && retainedLine && <div className="space-y-1 border-b border-border px-4 py-2 text-sm">
+        {pendingRetention && retainedLine.is_verified && returnRow?.justification.length && !returnRow.needs_justification
+          ? <p role="status">La contribution est justifiée. Le poste reste à retenir.</p>
+          : returnReview.reason === "justification_required" && <p>Le poste attend la justification de ses contributions.</p>}
+        {retainedLine.is_verified && returnRow?.needs_justification && !readOnly &&
+          <Button size="sm" variant="outline" disabled={busy} onClick={async () => {
+            if (await decide(retainedLine, { is_verified: false }, "Ligne rouverte pour justification", retainedLine.rules_evaluated_at ?? null)) {
+              setSelectedId(retainedLine.id); setPinnedId(retainedLine.id);
+            }
+          }}>Rouvrir la contribution pour la justifier à nouveau</Button>}
+        {lineErrors[retainedLine.id] && current?.item.id !== retainedLine.id && <p role="alert">{lineErrors[retainedLine.id]}</p>}
+        <Link className="block underline" href={takeoffItemDetailHref({ projectId, jobId, itemId: returnReview.item_id,
+          planKey: returnReview.plan_id, answerId: returnReview.answer_id, versionId })}>Revenir au poste</Link>
+      </div>}
       {job ? (
         <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={applied} className="mx-4 mt-2"
           jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
@@ -671,7 +696,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
                 <IconButton label="Replier le détail" size="icon-xs" variant="ghost" icon={<PanelRightClose />} className="ml-auto" onClick={() => { setRightOpen(false); focusList(); }} />
               </div>
               {current ? (
-                <LineDecision key={current.item.id} line={current} level={level} guidance={guidance} acceptance={acceptance}
+                <LineDecision key={current.item.id} fromMeasure={!!answerId && !!contribution} line={current} level={level} guidance={guidance} acceptance={acceptance}
                   busy={busy} readOnly={readOnly} showSourceEvidence={versionId === null} error={lineErrors[current.item.id] ?? null} jobId={jobId}
                   draft={draft?.itemId === current.item.id ? draft.text : null} quantityRef={quantityRef}
                   onDraft={(text) => setDraft({ itemId: current.item.id, text })}
@@ -760,6 +785,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
 }
 
 type LineDecisionProps = {
+  fromMeasure: boolean;
   line: Line;
   level: string | null;
   guidance: ZoneOverlapGuidance | null;
@@ -788,7 +814,7 @@ type LineDecisionProps = {
   partnerHref: (jobId: string, itemId: string) => string;
 };
 
-function LineDecision({ line, level, guidance, acceptance, busy, readOnly, showSourceEvidence, error, jobId, draft, quantityRef, onDraft, onCancelEntry,
+function LineDecision({ line, fromMeasure, level, guidance, acceptance, busy, readOnly, showSourceEvidence, error, jobId, draft, quantityRef, onDraft, onCancelEntry,
   onLeaveEntry, onSaveUnit, onCommit, onStartEntry, onExclude, onAccept, onInclude, onReduce, onSelectPartner, partnerListed, partnerHref }: Readonly<LineDecisionProps>) {
   const { item } = line;
   const toEnter = line.rule_failures.some((failure) => failure.rule === "non_observable") || hasToEnter(item);
@@ -863,7 +889,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, showS
               <li key={failure.rule} className="rounded-md border border-danger-border bg-danger-light px-2 py-1.5">
                 <p className="flex flex-wrap items-center gap-1.5">
                   <span className="font-medium text-foreground">{TAKEOFF_RULE_LABELS[failure.rule]}</span>
-                  <code className="rounded bg-surface px-1 font-mono text-[11px] text-muted-foreground">{failure.code}</code>
+                  {!fromMeasure && <code className="rounded bg-surface px-1 font-mono text-[11px] text-muted-foreground">{failure.code}</code>}
                 </p>
                 <p className="mt-0.5 text-xs text-foreground-secondary">{failure.reason}</p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">{alternative ? "Lecture non retenue au devis." : failure.acceptable
@@ -983,12 +1009,12 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, showS
           </section>
         ) : null}
 
-        <details className="text-xs">
+        {!fromMeasure && <details className="text-xs">
           <summary className="cursor-pointer text-muted-foreground">Résultats des règles (JSON)</summary>
           <pre className="mt-1 max-h-64 overflow-auto rounded-md border border-border bg-surface-subtle p-2 font-mono text-[11px] leading-snug">
             {JSON.stringify({ rule_results: item.rule_results ?? [], rules_stale: item.rules_stale ?? false, rules_evaluated_at: item.rules_evaluated_at ?? null }, null, 2)}
           </pre>
-        </details>
+        </details>}
       </div>
 
       <div className="shrink-0 space-y-2 border-t border-border bg-surface p-3">

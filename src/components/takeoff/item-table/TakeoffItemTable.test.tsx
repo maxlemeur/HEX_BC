@@ -16,6 +16,7 @@ import type { ItemTableResponse } from "@/lib/takeoff/item-table-contracts";
 
 const client = vi.hoisted(() => ({
   fetchItemTable: vi.fn(),
+  fetchMeasureReview: vi.fn(),
   fetchFrozenItemSelection: vi.fn(),
   sendItemReviewCommand: vi.fn(),
   previewItemRemeasure: vi.fn(),
@@ -666,4 +667,19 @@ describe("TakeoffItemTable", () => {
     await act(async () => undefined);
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
+});
+
+it("targets the second contribution when only it needs a justification", async () => {
+  const answer = fixtureAnswer("measured", 3, { anomalies: ["rule_failed"] });
+  const second = fixtureItemId(8);
+  answer.observations.push({ ...answer.observations[0], observationId: "second", takeoffItemId: second });
+  client.fetchMeasureReview.mockResolvedValue({ answer_id: answer.answerId, rows: [
+    { id: answer.observations[0].takeoffItemId, needs_justification: false }, { id: second, needs_justification: true },
+  ] });
+  client.fetchItemTable.mockResolvedValue(table({ readings: [fixtureReading(0, RDC, answer)] }));
+  renderTable();
+  fireEvent.click(await screen.findByRole("button", { name: "Détail du poste « Lavabo »" }));
+  const link = await screen.findByRole("link", { name: "Voir la preuve et corriger dans la revue ciblée" });
+  await waitFor(() => expect(link).toHaveAttribute("href", expect.stringContaining(`contribution=${second}`)));
+  expect(new URL(link.getAttribute("href")!, "http://localhost").searchParams.get("line")).toBe(second);
 });

@@ -5,6 +5,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
 
 
+vi.mock("@/lib/ai/structured-ai", async (actual) => ({
+  ...await actual<typeof import("@/lib/ai/structured-ai")>(), callStructuredAi: vi.fn(),
+}));
+vi.mock("@/lib/ai/access/openai-api", async (actual) => ({
+  ...await actual<typeof import("@/lib/ai/access/openai-api")>(), openAiApiKeyAccess: vi.fn(),
+}));
+vi.mock("@/lib/ai/request-settings-server", async (actual) => ({
+  ...await actual<typeof import("@/lib/ai/request-settings-server")>(),
+  readAiRequestOptions: vi.fn(async () => ({ defaultSource: "personal_api_key", options: {} })),
+  resolveAiRequest: vi.fn(),
+}));
+vi.mock("@/lib/affaires/intake-brief-store", async (actual) => ({
+  ...await actual<typeof import("@/lib/affaires/intake-brief-store")>(), persistAffaireBriefDraft: vi.fn(),
+}));
+
 vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
@@ -17,11 +32,15 @@ vi.mock("@/lib/affaires/register-sync-server", () => ({
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
-import { reconcileAffairePlanPresence, refreshAffaireIntakeFromActiveDocuments } from "@/lib/affaires/intake-derived-state-server";
+import { reconcileAffairePlanPresence, refreshAffaireBriefFromDocuments, refreshAffaireIntakeFromActiveDocuments } from "@/lib/affaires/intake-derived-state-server";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import { readLinkedDriveDocument } from "@/lib/affaires/google-drive/content";
 import { syncAffairePlanGap } from "@/lib/affaires/register-sync-server";
 import { hasStoredStandalonePlan } from "@/lib/affaires/plan-presence";
+import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { readAiRequestOptions, resolveAiRequest } from "@/lib/ai/request-settings-server";
+import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
+import { persistAffaireBriefDraft } from "@/lib/affaires/intake-brief-store";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -285,3 +304,42 @@ describe("refreshAffaireIntakeFromActiveDocuments", () => {
     expect(syncTakeoffPlanSetFromAffaireIntake).toHaveBeenLastCalledWith(expect.objectContaining({ readDriveDocument: undefined }));
   });
 });
+
+it.each(["édition", "suppression", "reprise historique", "reconnexion Drive"])(
+  "recomputes the historical brief on the plan after %s without consulting the current payer preference",
+  async (origin) => {
+    const owner = { userId: USER_ID, tenantId: TENANT_ID };
+    const project = createProjectRow();
+    const document = createDocumentRow({ id: "aaaa0000-9999-4000-8000-000000000001", uploadId: FIRST_UPLOAD_ID,
+      fileName: "Fictif.pdf", documentKind: "plans", documentPriority: "primary" });
+    const draft = { summary: { text: "Brief fictif", sourceDocumentIds: [document.id] },
+      projectObject: { text: "Dossier fictif", sourceDocumentIds: [document.id] },
+      scope: [], lots: [], receivedPieces: [], assumptions: [], vigilancePoints: [], missingElements: [] };
+    const service = { rpc: vi.fn(async (name: string) => {
+      if (name === "read_affaire_intake_brief_inputs") {
+        return { data: { project, documents: [document], missing_piece_codes: [], revision: "historical", brief_updated_at: null } };
+      }
+      if (name === "intake_current_brief_active") return { data: false };
+      if (name === "intake_payer_can_write") return { data: true };
+      throw new Error(`Unexpected query ${name}`);
+    }) };
+    vi.clearAllMocks();
+    vi.mocked(createServiceRoleClient).mockReturnValue(service as never);
+    vi.mocked(callStructuredAi).mockResolvedValue({ data: draft, model: "plan-fictif", reasoningEffort: "high" } as never);
+    const supabase = createSupabaseMock([document]) as never;
+    const input = { supabase, project, uploadId: FIRST_UPLOAD_ID };
+    if (origin === "édition" || origin === "suppression") {
+      await refreshAffaireIntakeFromActiveDocuments({ ...input, actorUserId: USER_ID, readDrive: origin !== "suppression" });
+    } else {
+      await refreshAffaireBriefFromDocuments({ ...input, documents: [], aiOwner: owner, renewLease: vi.fn(),
+        claim: { uploadId: FIRST_UPLOAD_ID, tenantId: TENANT_ID, projectId: PROJECT_ID, leaseToken: "historical", attemptCount: 2 } });
+    }
+    expect(callStructuredAi).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ prompt: expect.any(String) }), owner);
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
+    expect(readAiRequestOptions).not.toHaveBeenCalled();
+    expect(resolveAiRequest).not.toHaveBeenCalled();
+    expect(persistAffaireBriefDraft).toHaveBeenCalledWith(expect.objectContaining({
+      aiReceipt: { source: "chatgpt_plan", model: "plan-fictif", reasoningEffort: "high" },
+    }));
+  },
+);

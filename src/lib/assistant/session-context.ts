@@ -2,6 +2,9 @@ import { z } from "zod";
 
 import { assistantScreenSchema } from "./prompt";
 
+export const ASSISTANT_HISTORY_LIMIT = 8;
+export const ASSISTANT_HISTORY_MESSAGE_LIMIT = 2_000;
+
 export const assistantSessionContextSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.enum(["help", "affaires", "estimates", "catalogue", "workbook", "prices", "suppliers", "approvals"]) }).strict(),
   z.object({ kind: z.literal("orders"), orderId: z.string().uuid().optional() }).strict(),

@@ -31,3 +31,24 @@ it("keeps a refused category unresolved without inventing a replacement", async 
   expect(result.documentKind).toBe("a_classer");
   expect(result.extractedMetadata).toEqual(extracted.extractedMetadata);
 });
+
+it("keeps classification on Decisions even when a personal key was selected for the rest of the batch", async () => {
+  const { classifyAffaireIntakeDocument } = await import("./intake-classification");
+  const run = vi.fn();
+  vi.stubEnv("MERGEONE_INTAKE_DECISIONS", "1");
+  try {
+    vi.mocked(callOpenAiDecisions).mockResolvedValue({ status: "available",
+      answers: [{ name: "document_category", status: "answered", value: "cctp" }],
+      provenance: { model: "décision-fictive", request_fingerprint: "request-sha" } } as never);
+    const result = await classifyAffaireIntakeDocument({
+      fileName: "pièce-fictive.txt", mimeType: "text/plain", bytes: new TextEncoder().encode("Spécifications de plomberie fictives.").buffer,
+      ai: { source: "personal_api_key", run },
+      decisionsContext: { owner: input.owner, projectId: input.projectId, documentId: input.documentId, sourceVersion: input.sourceVersion },
+    });
+    expect(callOpenAiDecisions).toHaveBeenCalledOnce();
+    expect(run).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ analysisSucceeded: true, receipt: { source: "decisions", model: "décision-fictive", reasoningEffort: null } });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

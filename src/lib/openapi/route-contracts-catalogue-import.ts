@@ -138,7 +138,10 @@ export const catalogueImportContracts: RouteContract[] = [
       "Propose des corrections pour les fournisseurs, articles, types de fourniture, colonnes ou codes fournisseur, à partir de règles et d’un arbitrage IA facultatif. La tâche row_exclusions requiert une source d’IA et un critère libre, et propose les numéros Excel à écarter parmi les lignes envoyées. La réponse indique le nombre de lignes analysées, y compris celles à conserver. Les propositions s’appliquent à l’aperçu après confirmation dans l’interface. Aucun repli d’une source vers une autre. Réservé aux administrateurs et aux ingénieurs.",
     tags: ["Catalogue"],
     body: { schema: costingWorkbookSuggestionsRequestSchema, description: "Tâche, éléments à proposer et source d’IA éventuelle. Pour le forfait ChatGPT ou la clé API OpenAI, model et reasoning_effort sont facultatifs et ponctuels. À défaut, la demande utilise les réglages initiaux de la source renvoyés par GET, ou le niveau par défaut du modèle si un autre modèle est demandé seul." },
-    extraErrors: [{ status: "422", description: "Modèle ou niveau de raisonnement non proposé, ou réglage envoyé sans source compatible." }],
+    extraErrors: [
+      { status: "409", description: "La session active ou la clé API personnelle a changé depuis la sélection. Actualisez les réglages." },
+      { status: "422", description: "Modèle ou niveau de raisonnement non proposé, ou réglage envoyé sans source compatible." },
+    ],
     success: [{
       status: "200", description: "Propositions pour la tâche demandée.",
       schema: successResponseSchemaDefinition("ApiCostingWorkbookSuggestions", costingWorkbookSuggestionsResponseSchema),

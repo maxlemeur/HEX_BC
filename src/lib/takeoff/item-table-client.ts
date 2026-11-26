@@ -1,3 +1,5 @@
+import { measureReviewSchema, retainedMeasureSchema, type retainCommandSchema } from "./measure-review-contracts";
+import type { TakeoffPaymentChoice } from "./payment-choice";
 import { findReceiptSchema, findsViewSchema, type FindCommand } from "./unlisted-finds";
 import type { z } from "zod";
 
@@ -56,6 +58,18 @@ export function fetchItemTable(projectId: string, address: ItemTableAddress, det
     TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
 
+const measurePath = (project: string, answer: string) => `${base(project)}/measures/${encodeURIComponent(answer)}`;
+
+export function fetchMeasureReview(project: string, answer: string) {
+  return call(measurePath(project, answer), { method: "GET", cache: "no-store" }, measureReviewSchema, READ_FAILURE,
+    TAKEOFF_READ_REQUEST_TIMEOUT_MS);
+}
+
+export function sendMeasureRetention(project: string, answer: string, command: z.infer<typeof retainCommandSchema>) {
+  return call(measurePath(project, answer), { method: "POST", body: JSON.stringify(command) }, retainedMeasureSchema,
+    WRITE_FAILURE, TAKEOFF_WRITE_REQUEST_TIMEOUT_MS);
+}
+
 /** The review history of one item, newest first, by pages. */
 export function fetchItemHistory(projectId: string, itemId: string, page: { offset: number; limit: number }) {
   return call(`${base(projectId)}/${encodeURIComponent(itemId)}/history?offset=${page.offset}&limit=${page.limit}`, { method: "GET" },
@@ -82,9 +96,10 @@ export function sendItemReviewCommand(projectId: string, command: ItemReviewComm
 }
 
 /** The preview of a new measure of the selection, with what the member saw of it (the list revision, each line's readings). */
-export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[], seen: ItemRemeasureSeen, detail?: import("./item-table-contracts").ItemMeasureScope, fromFinds?: true) {
+export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[], seen: ItemRemeasureSeen, detail?: import("./item-table-contracts").ItemMeasureScope, fromFinds?: true,
+  paymentChoice?: TakeoffPaymentChoice) {
   return call(`${base(projectId)}/remeasure/preview`, { method: "POST", body: JSON.stringify({
-    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds, seen, detail, from_finds: fromFinds,
+    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds, seen, detail, from_finds: fromFinds, payment_choice: paymentChoice,
   }) }, itemRemeasurePreviewSchema, "Impossible de préparer la nouvelle mesure.", TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
 

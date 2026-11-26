@@ -336,7 +336,9 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
     : allPdf
       ? "Analyser le PDF avec l’IA"
       : "Analyser la photo avec l’IA";
-  const sources = settings ? { [settings.billingSource]: { available: true, models: settings.models, message: "Source d’analyse" } } : {};
+  const sources = settings ? { [settings.billingSource]: {
+    available: true, models: settings.models, preferences: settings.preferences, message: "Source d’analyse",
+  } } : {};
   const aiSelection = settings ? effectiveAiChoice(common?.choice,
     { source: settings.billingSource, preferences: settings.preferences }, sources, true) : undefined;
   const preferences = aiSelection?.preferences ?? null;

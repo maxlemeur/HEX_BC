@@ -168,9 +168,9 @@ const launchClaimSchema = z.object({
   payer_id: z.string().uuid().nullable(), read_scans: z.boolean(), attempt_count: z.number().int().positive(),
 });
 
-export async function claimAffaireIntakeAnalysisLaunch(client: DurableWorkflowRpcClient, uploadId?: string): Promise<AffaireIntakeClaim | null> {
+export async function claimAffaireIntakeAnalysisLaunch(client: DurableWorkflowRpcClient, uploadId?: string, recorded = false): Promise<AffaireIntakeClaim | null> {
   const leaseToken = crypto.randomUUID();
-  const { data, error } = await client.rpc("claim_affaire_intake_analysis_launch", {
+  const { data, error } = await client.rpc(recorded ? "claim_affaire_intake_analysis_launch_v2" : "claim_affaire_intake_analysis_launch", {
     p_lease_token: leaseToken, ...(uploadId ? { p_upload_id: uploadId } : {}),
   });
   if (error) throw new Error("Impossible de réserver le lancement du dossier.", { cause: error });

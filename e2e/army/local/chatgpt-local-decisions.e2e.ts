@@ -5,6 +5,9 @@ import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { expect } from "e2e";
+import * as XLSX from "xlsx";
+
+import { COSTING_WORKBOOK_SHEET } from "@/lib/catalogue/costing-workbook";
 
 import {
   apiRequest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, restrictCriticalBrowser,
@@ -52,6 +55,45 @@ for (const wave of TAKEOFF_JOURNEY_WAVES) beforeAll(() => server.compileTakeoffR
 beforeAll(() => compileChatGptRoutes(localOrigin, fixtureEmail, "takeoff-activity"));
 
 afterAll(() => server.stop(fixtureStore));
+
+test("ASSIST05 workbook reliability filters Excel in the assistant and requires confirmation", {
+  tags: ["critical", "local", "chatgpt", "catalogue"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  const prefix = "ARMY-assistant-reliability-" + Date.now();
+  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+  const directory = path.join(path.dirname(transportLog), "workbook-reliability");
+  await mkdir(directory, { recursive: true });
+  const filename = path.join(directory, "fiabilite.xlsx");
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ["ID", "Type_ligne", "Caractéristique", "Matériau", "Unité", "PR. FO", "Fiabilité (/10)"],
+    [prefix + "-ZERO", "Art", "Tube à écarter", "Inox", "m", 10, 0],
+    [prefix + "-NOTE", "Art", "Tube à garder", "Inox", "m", 10, 8],
+    [prefix + "-VIDE", "Art", "Tube sans note", "Inox", "m", 10, null],
+  ]), COSTING_WORKBOOK_SHEET);
+  await writeFile(filename, XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }) as Buffer);
+  const callsBefore = await readFile(transportLog, "utf8");
+
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+  await hydratedUi({ app, screen, browser }, localOrigin).app.open("/dashboard/products/import-workbook");
+  await screen.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(filename);
+  const importThree = screen.getByRole("button", "Importer 3 brouillons", { exact: true });
+  await expect(importThree).toBeEnabled(DEV_SERVER_WORK);
+  const entry = screen.getByRole("banner").getByTestId("assistant-toggle");
+  await expect(entry).toHaveAttribute("aria-expanded", "false");
+  await entry.click();
+  await expect(entry).toHaveAttribute("aria-expanded", "true");
+  await screen.getByRole("textbox", "Votre message à l’assistant", { exact: true }).fill("Écarte les lignes dont la fiabilité est à zéro");
+  await screen.getByRole("button", "Envoyer", { exact: true }).click();
+  const preview = screen.getByRole("dialog", "Lignes dont la fiabilité Excel est à zéro", { exact: true });
+  await expect(preview.getByText("1 ligne proposée sur 3 lignes analysées", { exact: true })).toBeVisible();
+  await expect(preview.getByRole("button", "Écarter les lignes sélectionnées", { exact: true })).toBeDisabled();
+  await preview.getByRole("checkbox", /^Ligne Excel 2\b/).check();
+  await preview.getByRole("button", "Écarter 1 ligne de l’import", { exact: true }).click();
+  await expect(screen.getByRole("button", "Importer 2 brouillons", { exact: true })).toBeEnabled(DEV_SERVER_WORK);
+  expect(await readFile(transportLog, "utf8")).toBe(callsBefore);
+  await recordEvidence(army, "assistant-workbook-reliability", { analysed: 3, retained: 2, excludedExcelRow: 2, providerRequests: 0 });
+});
 
 if (!existsSync(liveProbePath)) test("LOCALREV01 a chosen plan revision supplies both detailed and vector reads with the pinned profile", {
   tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 240_000,

@@ -19,7 +19,7 @@ export const TAKEOFF_LAUNCH_DOSSIER_REASONS = [
 /** Only the gesture of the member who pays (or of an operator who takes it on) lifts these. */
 export const TAKEOFF_LAUNCH_MANDATE_REASONS = [
   "OPERATOR_REQUIRED", "MANDATE_REQUIRED", "LOCAL_RUNTIME_REQUIRED", "HOST_NOT_AUTHORISED", "CHATGPT_NOT_CONNECTED",
-  "CHATGPT_ACCESS_REVOKED", "CHATGPT_MODEL_MISSING", "CHATGPT_SELECTION_CHANGED", "PAYER_NOT_ELIGIBLE",
+  "CHATGPT_ACCESS_REVOKED", "CHATGPT_MODEL_MISSING", "CHATGPT_SELECTION_CHANGED", "API_KEY_CONNECTION_CHANGED", "PAYER_NOT_ELIGIBLE",
   "EVALUATION_FAILED",
 ] as const;
 /** The Mac of the mandate tries again on its own. */
@@ -405,6 +405,7 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     case "LOCAL_RUNTIME_REQUIRED": return "Métré non démarré — ouvrez MergeOne sur le Mac connecté, puis reprenez avec votre forfait.";
     case "HOST_NOT_AUTHORISED": return "Métré non démarré — cette adresse ne peut pas utiliser le forfait ChatGPT. Ouvrez MergeOne sur le Mac connecté.";
     case "CHATGPT_NOT_CONNECTED": return "Métré non démarré — forfait ChatGPT non connecté. Connectez-le dans Mon profil, puis reprenez avec votre forfait.";
+    case "API_KEY_CONNECTION_CHANGED": return "Métré non démarré — la clé API OpenAI du payeur a été remplacée ou retirée. Reprenez avec votre propre connexion.";
     case "CHATGPT_ACCESS_REVOKED": return "Métré non démarré — connexion ChatGPT expirée ou partage révoqué. Reconnectez votre forfait dans Mon profil, puis reprenez.";
     case "CHATGPT_MODEL_MISSING": return "Métré non démarré — aucun modèle ChatGPT choisi. Choisissez-en un dans Mon profil, puis reprenez.";
     case "CHATGPT_SELECTION_CHANGED": return "Métré non démarré — le compte, le modèle ou l’effort ChatGPT a changé depuis la confirmation. Reprenez avec votre forfait pour confirmer ces réglages.";

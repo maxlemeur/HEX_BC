@@ -220,13 +220,13 @@ create temp table race_pids(label text primary key, pid integer);
 insert into race_pids
 select session.name, (select backend.pid from extensions.dblink(session.name, 'select pg_backend_pid()') as backend(pid integer))
 from (values ('race_setup'), ('race_a'), ('race_b'), ('race_c')) as session(name);
-create function pg_temp.waits_for(p_waiting text, p_holding text) returns boolean language plpgsql as $$
+create function pg_temp.waits_for(p_waiting text, p_holding text, p_queued text default null) returns boolean language plpgsql as $$
 declare
   waiting integer := (select pid from race_pids where label = p_waiting);
-  holding integer := (select pid from race_pids where label = p_holding);
+  holders integer[] := array(select pid from race_pids where label in (p_holding,p_queued));
 begin
   for attempt in 1..400 loop
-    if holding = any(pg_catalog.pg_blocking_pids(waiting)) then return true; end if;
+    if holders && pg_catalog.pg_blocking_pids(waiting) then return true; end if;
     perform pg_catalog.pg_sleep(0.025);
   end loop;
   return false;
@@ -908,6 +908,30 @@ select is((select count(*)::integer from extensions.dblink('race_b',pg_temp.send
   as x(answer text)),0,'an old plan presenting the measured observation cannot send it after the choice');
 select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_SEND_PREVIEW_STALE%',
   'the writer compares the selected source before writing');
+-- Arrival order 1. A first-send preview was ready. A member enters and attaches
+-- the absent poste before that preview is confirmed. The send must re-read it.
+select is(extensions.dblink_exec('race_a','begin'),'BEGIN','hold the scope transaction');
+select is((select r->>'outcome' from extensions.dblink('race_a',pg_temp.review_sql(21,
+  pg_temp.cmd('enter_quantity',7540,array[311],jsonb_build_object(
+    'values',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(311),'quantity',5,'unit','u')),
+    'entry',jsonb_build_object('category','documented_calculation'))))) x(r jsonb)),
+  'applied','the member enters a total on the absent poste');
+select is((select r->>'outcome' from extensions.dblink('race_a',format(
+  'select public.change_takeoff_entry_scope(%L,%L,%L,%L,''attach'',1,0,%L)',
+  pg_temp.tenant(),pg_temp.f(21),pg_temp.f(311),pg_temp.f(7541),pg_temp.plan_file(21))) x(r jsonb)),
+  'applied','transfer to its plan is still uncommitted');
+select is(extensions.dblink_send_query('race_b',pg_temp.send_sql(7542,'21-before-move')),1,'confirm the earlier first send');
+select ok(pg_temp.waits_for('race_b','race_a'),'the first-send writer waits for the transfer');
+select is(extensions.dblink_exec('race_a','commit'),'COMMIT','commit the plan entry');
+select is((select count(*)::int from extensions.dblink_get_result('race_b',false) x(r jsonb)),0,'the obsolete preview writes no first part');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_SEND_PREVIEW_STALE%','the writer requires a fresh preview');
+select is((select count(*)::int from extensions.dblink_get_result('race_b',false) x(r jsonb)),0,'drain the stale confirmation');
+select is(pg_temp.written(21),'0/0/0/0/completed','there is no estimate write after the obsolete preview');
+select results_eq($$select plan_logical_id,quantity from public.takeoff_item_entries where item_id=pg_temp.f(311)$$,
+  $$values (pg_temp.plan_file(21),5::numeric)$$,'the transferred value remains on its plan');
+select is(extensions.dblink_exec('race_setup',format('delete from public.takeoff_item_review_commands where intent_key in (%L,%L)',
+  pg_temp.f(7540),pg_temp.f(7541))),'DELETE 2','restore the unsent fixture for subsequent first sends');
+
 -- Holding only the marks row distinguishes its lock from the affaire's row,
 -- which a first-draft creation also takes against a member editing marks.
 select is(extensions.dblink_exec('race_setup','begin'),'BEGIN','hold just the chosen proof');
@@ -989,9 +1013,27 @@ select is(extensions.dblink_exec('race_a', pg_temp.as_server_sql()), 'SET', 'thr
 create temp table first_send as select x.answer::jsonb as answer
   from extensions.dblink('race_a', pg_temp.send_sql(812, '21-again')) as x(answer text);
 select is((select answer ->> 'replayed' from first_send), 'false', 'sent, not yet committed');
+-- Arrival order 2. Stage the legacy total beside the real first send inside
+-- the fixture transaction: the ordinary writer cannot send through an existing total.
+select is(extensions.dblink_exec('race_a','set local role postgres'),'SET','stage the legacy coexistence fixture');
+select is(extensions.dblink_exec('race_a',format($seed$insert into public.takeoff_item_entries
+  (tenant_id,project_id,item_id,quantity,unit,category,included,revision,actor_id,entered_at,command_id)
+  select tenant_id,project_id,item_id,4,'u','site_survey',true,1,%L,now(),command_id from public.takeoff_item_answer_decisions
+  where item_id=%L$seed$,pg_temp.f(1),pg_temp.f(310))),'INSERT 0 1','a legacy total exists on the same poste');
 select is(extensions.dblink_send_query('race_b', pg_temp.send_sql(812, '21-again')), 1, 'its lost answer is sent again meanwhile');
 select ok(pg_temp.waits_for('race_b', 'race_a'), 'the second waits for the affaire');
+select is(extensions.dblink_send_query('race_c',format(
+  'select public.change_takeoff_entry_scope(%L,%L,%L,%L,''attach'',1,0,%L)',pg_temp.tenant(),pg_temp.f(21),
+  pg_temp.f(310),pg_temp.f(7543),pg_temp.plan_file(21))),1,'the member tries to attach the total');
+-- The replay is already in the row-lock queue. Both waits lead to the in-flight first send.
+select ok(pg_temp.waits_for('race_c','race_a','race_b'),
+  'transfer waits in the first-send lock queue');
 select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the first commits');
+select is((select r->>'outcome' from extensions.dblink_get_result('race_c',false) x(r jsonb)),'sent',
+  'the waiting transfer sees the committed first part');
+select is((select count(*)::int from extensions.dblink_get_result('race_c',false) x(r jsonb)),0,'drain the blocked transfer');
+select is(extensions.dblink_exec('race_setup',format('delete from public.takeoff_item_entries where item_id=%L and plan_logical_id is null',
+  pg_temp.f(310))),'DELETE 1','the refused transfer preserved the total');
 select ok(pg_temp.answered('race_b'), 'the second answers');
 select is((select x.answer::jsonb from extensions.dblink_get_result('race_b', false) as x(answer text)),
   (select answer - 'replayed' || '{"replayed": true}'::jsonb from first_send), 'the first one''s receipt, replayed');
@@ -1004,6 +1046,39 @@ select results_eq($$select p.kind, p.quantity, p.marks_revision, p.pages, i.quan
   join public.estimate_items i on i.id = t.estimate_item_id where p.project_id = pg_temp.f(21)$$,
   $$values ('verified_count'::text,1::numeric,2,array[2],1::numeric)$$,
   'the line holds only the chosen count, and its part holds the revision and the page bearing the mark');
+
+-- A legacy whole entry on an item with a real receipt cannot move, including to another plan.
+create function pg_temp.scope_after_send(remove_draft boolean default false) returns text[] language plpgsql as $$
+declare outcomes text[];
+begin
+  begin
+    perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',pg_temp.f(1))::text,true);
+    perform set_config('request.jwt.claim.sub',pg_temp.f(1)::text,true);
+    insert into public.takeoff_item_entries(tenant_id,project_id,item_id,quantity,unit,category,
+      included,revision,actor_id,entered_at,command_id)
+      select pg_temp.tenant(),pg_temp.f(21),pg_temp.f(310),4,'u','site_survey',true,1,pg_temp.f(1),now(),d.command_id
+        from public.takeoff_item_answer_decisions d where d.item_id=pg_temp.f(310);
+    if remove_draft then
+      delete from public.estimate_versions where id=(select version_id from public.takeoff_item_send_parts
+        where project_id=pg_temp.f(21) and item_id=pg_temp.f(310) and state='live' limit 1);
+    end if;
+    outcomes:=array[
+      public.change_takeoff_entry_scope(pg_temp.tenant(),pg_temp.f(21),pg_temp.f(310),pg_temp.f(7512),
+        'attach',p_plan_id=>pg_temp.f(100),p_entry_revision=>1,p_plan_entry_revision=>1)->>'outcome',
+      public.change_takeoff_entry_scope(pg_temp.tenant(),pg_temp.f(21),pg_temp.f(310),pg_temp.f(7510),
+        'attach',p_plan_id=>pg_temp.f(100),p_entry_revision=>1,p_plan_entry_revision=>0)->>'outcome',
+      public.change_takeoff_entry_scope(pg_temp.tenant(),pg_temp.f(21),pg_temp.f(310),pg_temp.f(7511),
+        'withdraw',p_plan_id=>null,p_entry_revision=>1,p_plan_entry_revision=>0)->>'outcome'];
+    raise sqlstate 'ZX001';
+  exception when sqlstate 'ZX001' then null;
+  end;
+  return outcomes;
+end;
+$$;
+select is(pg_temp.scope_after_send(),array['stale','sent','sent'],'destination comparison precedes sent; a posted part of the item closes both scope gestures');
+
+select is(pg_temp.scope_after_send(true),array['stale','ineligible','applied'],
+  'deleting the destination draft releases the item; a foreign plan still fails eligibility');
 
 -- The source job now has its first receipt. Check the boundary that prevents an amendment.
 select is((select count(*)::integer from mark_to_move m cross join lateral extensions.dblink('race_a',

@@ -5,6 +5,8 @@ import { countMarkPageFrames } from "./count-mark-geometry-server";
 import { readPlanBytes } from "./plan-location-server";
 import { countMarkSchedule, MARK_SCOPE_REFUSAL, type CountMarkSchedule } from "./count-mark-schedule";
 
+import { TAKEOFF_NANO_USD_PER_CENT } from "./payment-choice";
+import type { TakeoffApiMandate } from "./payment-mandate-server";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
@@ -99,11 +101,13 @@ export async function readFirstMeasurePlans(context: Context, projectId: string)
 }
 
 export async function planTakeoffItemRemeasure(context: Context, input: {
-  projectId: string; planKeys: readonly string[]; itemIds: readonly string[]; detail?: ItemMeasureScope; selection: TakeoffExecutionSelection | null;
+  projectId: string; planKeys: readonly string[]; itemIds: readonly string[]; detail?: ItemMeasureScope; selection: TakeoffExecutionSelection | null; apiMandate?: TakeoffApiMandate;
 }): Promise<{ plan: TakeoffItemRemeasurePlan } | { refusal: string; stale?: boolean; changedCopy?: boolean }> {
   const prepared = await readMeasurePreparation(context, input.projectId);
   if (!prepared.everyPlan) return { refusal: prepared.refusal };
-  const { confirmed, planSetId, service, config, order, items, everyPlan } = prepared;
+  const { confirmed, planSetId, service, order, items, everyPlan } = prepared;
+  const config = input.apiMandate ? { ...prepared.config, maxTotalTokens: input.apiMandate.maxTokens,
+    maxCostCents: input.apiMandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT } : prepared.config;
   const copyOf = new Map(everyPlan.manifest.plans.map((plan) => [plan.logical_id.toLowerCase(), plan.plan_file_id]));
   const scope = input.planKeys.map((key) => copyOf.get(key.toLowerCase()));
   if (!scope.length || scope.some((id) => !id)) {

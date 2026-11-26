@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { inspect } from "node:util";
@@ -659,6 +659,7 @@ describe("failures of a paid call", () => {
     const error = await failure(service.test(OWNER, "gpt-6.1-terra"));
     expect(error.usage).toEqual({ input: 1_200, cachedInput: 200, cacheWrite: 0, cacheWrite12h: 0, output: 300, reasoning: 100, total: 1_500 });
     expect(error.model).toBe("gpt-6.1-terra-2026-10-01");
+    expect(error.costNanoUsd).toBe(2_510_000);
   });
 });
 
@@ -696,6 +697,60 @@ describe("a structured call for the lab", () => {
       ["Tuyauterie cuivre DN20", 12.5, "m", 1], ["Vanne isolement DN20", 4, "u", 1]]);
     expect(result.costNanoUsd).toBe(1_000 * 1_000 + 200 * 50 + 300 * 5_000);
     expect(await service.state(OWNER)).toMatchObject({ connection: { lastUsedAt: NOW.toISOString() } });
+  });
+
+  it("keeps the recorded connection across the budget gate and sends nothing after replacement", async () => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const { service } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const state = await service.state(OWNER);
+    if (state.status !== "saved") throw new Error("Fictional key was not saved.");
+    const connection = { id: state.connection.connectionId, version: state.connection.version };
+    expect(await service.hasConnection(OWNER, connection)).toBe(true);
+    await expect(prepareCall(service, { expectedConnectionId: "unrelated-grant" })).rejects.toMatchObject({ code: "AI_KEY_CHANGED" });
+    expect(openai.sent.filter(({ url }) => url.endsWith("/input_tokens"))).toHaveLength(0);
+
+    const beforeCount = vi.fn(async () => {
+      expect(openai.sent.filter(({ url }) => url.endsWith("/input_tokens"))).toHaveLength(0);
+    });
+    const prepared = await prepareCall(service, { expectedConnectionId: connection.id, beforeSend: beforeCount });
+    expect(beforeCount).toHaveBeenCalledOnce();
+    const beforeSend = vi.fn(async () => {
+      await service.save(OWNER, { key: fictionalKey() });
+    });
+    await expect(service.execute(OWNER, prepared, { timeoutMs: 60_000, beforeSend })).rejects.toMatchObject({ code: "AI_KEY_CHANGED" });
+    expect(beforeSend).toHaveBeenCalledOnce();
+    expect(await service.hasConnection(OWNER, connection)).toBe(false);
+    expect(openai.sent.filter(({ url }) => url.endsWith("/v1/responses"))).toHaveLength(0);
+  });
+
+  it.each(["beforeSend", "reserveBeforeSend"] as const)("verifies the key before running %s", async (callback) => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const { service } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const state = await service.state(OWNER);
+    if (state.status !== "saved") throw new Error("Fictional key was not saved.");
+    const prepared = await prepareCall(service, { expectedConnectionId: state.connection.connectionId });
+    await service.save(OWNER, { key: fictionalKey() });
+    const reserve = vi.fn(async () => {});
+    const options = callback === "beforeSend" ? { beforeSend: reserve } : { reserveBeforeSend: reserve };
+    await expect(service.execute(OWNER, prepared, { timeoutMs: 60_000, ...options })).rejects.toMatchObject({ code: "AI_KEY_CHANGED" });
+    expect(reserve).not.toHaveBeenCalled();
+    expect(openai.sent.filter(({ url }) => url.endsWith("/v1/responses"))).toHaveLength(0);
+  });
+
+  it("preserves a takeoff reservation's request for a fresh bound before sending", async () => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const { service } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const requestNewBound = new Error("Fictional reservation requires a fresh bound");
+    const prepared = await prepareCall(service);
+    const reserve = vi.fn(async () => { throw requestNewBound; });
+    await expect(service.execute(OWNER, prepared, { timeoutMs: 60_000, reserveBeforeSend: reserve })).rejects.toBe(requestNewBound);
+    expect(reserve).toHaveBeenCalledOnce();
+    const forIntake = await prepareCall(service);
+    await expect(service.execute(OWNER, forIntake, { timeoutMs: 60_000, beforeSend: reserve })).rejects.toMatchObject({ code: "AI_KEY_UNEXPECTED" });
+    expect(openai.sent.filter(({ url }) => url.endsWith("/v1/responses"))).toHaveLength(0);
   });
 
   // Review round 2, item C: what was counted is what is sent, once.
@@ -787,6 +842,52 @@ describe("a structured call for the lab", () => {
     const [sent, reads] = [openai.sent.length, keychain.state.reads];
     expect((await failure(prepareCall(service, { expectedVersion: 1 }))).code).toBe("AI_KEY_CHANGED");
     expect([openai.sent.length, keychain.state.reads]).toEqual([sent, reads]);
+  });
+
+  it("does not send if the key changes during pre-dispatch admission", async () => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const { service } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const call = await prepareCall(service);
+    const error = await failure(service.execute(OWNER, call, {
+      timeoutMs: 60_000,
+      reserveBeforeSend: async () => { await service.save(OWNER, { key: fictionalKey() }); },
+    }));
+    expect(error).toMatchObject({ code: "AI_KEY_CHANGED", costNanoUsd: 0 });
+    expect(openai.sent.filter((request) => request.url.endsWith("/v1/responses"))).toEqual([]);
+  });
+
+  it.each(["AI_KEY_CHANGED", "AI_KEY_MISSING", "AI_KEY_KEYCHAIN_LOCKED"] as const)("records zero cost for %s before lab dispatch", async (code) => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const { service, keychain } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const call = await prepareCall(service);
+    if (code === "AI_KEY_CHANGED") await service.save(OWNER, { key: fictionalKey() });
+    else if (code === "AI_KEY_MISSING") await service.remove(OWNER);
+    else keychain.state.locked = true;
+    await expect(service.execute(OWNER, call, { timeoutMs: 60_000 })).rejects.toMatchObject({ code, costNanoUsd: 0 });
+    expect(openai.sent.filter(({ url }) => url.endsWith("/v1/responses"))).toHaveLength(0);
+  });
+
+  it.each(["metadata read failure", "cancellation"] as const)("records zero cost for a %s after reservation and before transport", async (stage) => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const { service } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const call = await prepareCall(service);
+    const controller = new AbortController();
+    const reserveBeforeSend = vi.fn(async () => {
+      if (stage === "cancellation") {
+        controller.abort();
+        return;
+      }
+      const record = path.join(directory, `${ownerKey(OWNER)}.json`);
+      await rm(record);
+      await mkdir(record);
+    });
+    await expect(service.execute(OWNER, call, { timeoutMs: 60_000, signal: controller.signal, reserveBeforeSend }))
+      .rejects.toMatchObject({ code: "AI_KEY_UNEXPECTED", costNanoUsd: 0 });
+    expect(reserveBeforeSend).toHaveBeenCalledOnce();
+    expect(openai.sent.filter(({ url }) => url.endsWith("/v1/responses"))).toHaveLength(0);
   });
 
   it("masks the key and any credential echoed in the answer, the model id and the request id", async () => {

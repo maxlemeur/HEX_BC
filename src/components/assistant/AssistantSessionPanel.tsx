@@ -13,7 +13,7 @@ import { defaultAiRequestSettings, AI_REQUEST_SOURCE_LABELS } from "@/lib/ai/req
 import { readAssistantStream } from "@/lib/assistant/client-stream";
 import { ASSISTANT_CEILING_MESSAGE, ASSISTANT_KEY_CEILING } from "@/lib/assistant/request-settings";
 import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
-import type { AssistantSessionContext, AssistantSourceLink } from "@/lib/assistant/session-context";
+import { ASSISTANT_HISTORY_LIMIT, ASSISTANT_HISTORY_MESSAGE_LIMIT, type AssistantSessionContext, type AssistantSourceLink } from "@/lib/assistant/session-context";
 import { isZeroReliabilityCriterion } from "@/lib/catalogue/workbook-reliability-filter";
 import {
   ASSISTANT_FILE_ACCEPT, ASSISTANT_FILE_FORMAT_MESSAGE, ASSISTANT_FILE_LIMIT_MESSAGE, ASSISTANT_MAX_FILE_BYTES, ASSISTANT_MAX_FILES,
@@ -138,8 +138,8 @@ export default function AssistantSessionPanel({ context, userId, tenantId, visib
     const attachments = files;
     const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: question, contextKey,
       ...(attachments.length ? { fileNames: attachments.map((file) => assistantFileName(file.name)) } : {}) };
-    const priorQuestions = messages.filter(({ role, contextKey: previous }) => role === "user" && previous === contextKey)
-      .slice(-6).map(({ text }) => text);
+    const history = messages.filter(({ text, contextKey: previous, interrupted }) => previous === contextKey && !interrupted && text.trim())
+      .slice(-ASSISTANT_HISTORY_LIMIT).map(({ role, text }) => ({ role, content: text.trim().slice(0, ASSISTANT_HISTORY_MESSAGE_LIMIT) }));
     setMessages((current) => [...current, userMessage].slice(-MAX_SAVED_MESSAGES));
     setInput("");
     setFiles([]);
@@ -164,7 +164,7 @@ export default function AssistantSessionPanel({ context, userId, tenantId, visib
       const response = await fetch("/api/assistant/session/messages", {
         method: "POST", credentials: "same-origin", signal: request.signal,
         headers: { "content-type": "application/json", accept: "text/event-stream" },
-        body: JSON.stringify({ content: question, context, priorQuestions, userId, tenantId,
+        body: JSON.stringify({ content: question, context, history, userId, tenantId,
           ...(analysisSnapshot ? { workbookLoaded: true } : {}),
           ...(encoded.length ? { files: encoded } : {}),
           aiSettings: { source: selection.source, model: selection.preferences.model, effort: selection.preferences.reasoningEffort,

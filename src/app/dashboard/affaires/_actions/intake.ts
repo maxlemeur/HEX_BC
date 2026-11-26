@@ -1,8 +1,15 @@
 "use server";
 
+import { takeoffPaymentChoiceSchema, type TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
+
 import { after } from "next/server";
-import { intakeCurrentBriefActive } from "@/lib/affaires/intake-current-brief-server";
-import { selectedIntakeConnection } from "@/lib/affaires/intake-payer-server";
+import { createIntakeAiRunner, intakeAiScopeArgs, readIntakeAiBatch, readIntakeAiOptions, resolveIntakeAiSelection, IntakeAiBudgetStopped } from "@/lib/affaires/intake-ai-server";
+import { intakeAiChoiceSchema, type IntakeAiChoice } from "@/lib/affaires/intake-ai-settings";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { buildIntakeAnalysisFeedback, type IntakeAnalysisAttempt } from "@/lib/affaires/intake-analysis-feedback";
+import { ApiError, badRequest, internalError, notFound } from "@/lib/http/api-error";
+import { isIntakeDecisionsSelected } from "@/lib/affaires/intake-decisions";
+import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { revalidatePath } from "next/cache";
 import { briefPlanSelectionSchema } from "@/lib/takeoff/brief-plan-choice";
 import { z } from "zod";
@@ -63,6 +70,7 @@ const confirmAffaireBriefInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   expectedUpdatedAt: z.string().datetime({ offset: true }),
   plans: briefPlanSelectionSchema,
+  paymentChoice: takeoffPaymentChoiceSchema.optional(),
   /** The digest of the payer notice the confirmation dialog showed, if it showed one. */
   payerNotice: z.string().regex(/^[0-9a-f]{64}$/, "Mention du forfait invalide.").nullable(),
 }).refine((input) => input.plans.length > 0 || input.payerNotice === null, "Aucun forfait pour une confirmation sans analyse.");
@@ -73,35 +81,62 @@ export type ConfirmAffaireBriefInput = z.infer<
 
 const readAffaireBriefChoicesInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
+  paymentChoice: takeoffPaymentChoiceSchema.optional(),
 });
 
 const launchOutcome = z.discriminatedUnion("outcome", [
-  z.object({ outcome: z.literal("launched"), launch_id: z.string().uuid(), piece_count: z.number().int().positive() }),
-  z.object({ outcome: z.literal("brief_only"), launch_id: z.string().uuid(), piece_count: z.literal(0) }),
-  z.object({ outcome: z.literal("already_running"), launch_id: z.string().uuid() }),
-  z.object({ outcome: z.literal("nothing_waiting"), launch_id: z.null() }),
+  z.object({ outcome: z.literal("launched"), batch_id: z.string().uuid(), piece_count: z.number().int().positive() }),
+  z.object({ outcome: z.literal("brief_only"), batch_id: z.string().uuid(), piece_count: z.literal(0) }),
+  z.object({ outcome: z.literal("already_running"), batch_id: z.string().uuid() }),
+  z.object({ outcome: z.literal("nothing_waiting"), batch_id: z.null() }),
 ]);
 
-export async function launchAffaireIntakeAnalysis(projectId: string) {
-  const { context, project } = await requireAffaireAccess(z.string().uuid().parse(projectId), "write");
-  const [active, connection] = await Promise.all([intakeCurrentBriefActive(context.supabase), selectedIntakeConnection(context)]);
-  const available = Boolean(connection);
-  const { data, error } = await context.supabase.rpc("start_affaire_intake_analysis", {
-    p_project_id: project.id, p_read_scans: available,
-    ...(active ? { p_profile_id: connection?.profileId ?? null, p_authorization_id: connection?.authorizationId ?? null } : {}),
+export async function readAffaireIntakeAiOptions(projectId: string) {
+  const { context } = await requireAffaireAccess(z.uuid().parse(projectId), "write");
+  return readIntakeAiOptions(context);
+}
+
+async function startIntakeAiBatch(
+  service: ReturnType<typeof createServiceRoleClient>,
+  owner: { userId: string; tenantId: string },
+  projectId: string,
+  choice: IntakeAiChoice,
+  retry: boolean,
+) {
+  const requested = intakeAiChoiceSchema.parse(choice);
+  if (retry && requested.source === "rules_only" && !isIntakeDecisionsSelected()) {
+    throw badRequest("Choisissez une source IA disponible pour relancer l’analyse.");
+  }
+  const selection = await resolveIntakeAiSelection(owner, requested);
+  const { data, error } = await service.rpc("start_affaire_intake_ai_batch", {
+    p_project_id: projectId, p_tenant_id: owner.tenantId, p_payer_id: owner.userId,
+    p_selection: selection, p_retry: retry,
   });
-  if (error) throw new Error("Impossible de réserver les pièces pour l’analyse.", { cause: error });
-  const result = launchOutcome.parse(data?.[0]);
-  if (result.outcome === "nothing_waiting") return { message: "Aucune pièce n’attend son lancement." };
-  if (result.outcome === "already_running") return { message: "Une analyse du dossier est déjà en cours." };
-  after(async () => {
-    try { await processAffaireIntakeAnalysisLaunch(result.launch_id, available ? context : null); }
-    catch { console.error("La reprise du lancement intake est nécessaire.", { launchId: result.launch_id }); }
-  });
-  revalidatePath(`/dashboard/affaires/${project.id}`);
-  return { message: result.outcome === "brief_only" ? "Préparation du brief lancée. Les pièces déjà classées gardent leur classement."
-    : available ? "Analyse lancée. La transcription des images et des PDF scannés utilise votre forfait ChatGPT." :
-    "Votre compte ChatGPT n’est pas connecté ou disponible. Les images et les PDF scannés ne seront pas transcrits. Le classement des pièces et la préparation du brief continuent avec les moyens disponibles." };
+  if (error) throw internalError("Impossible de réserver les pièces pour l’analyse.", error);
+  return data?.[0];
+}
+
+export async function launchAffaireIntakeAnalysis(projectId: string, choice: IntakeAiChoice) {
+  const { context, project } = await requireAffaireAccess(z.uuid().parse(projectId), "write");
+  try {
+    const result = launchOutcome.parse(await startIntakeAiBatch(createServiceRoleClient(), context, project.id, choice, false));
+    if (result.outcome === "nothing_waiting") return { message: "Aucune pièce n’attend son lancement." };
+    if (result.outcome === "already_running") return { message: "Une analyse du dossier est déjà en cours." };
+    after(async () => {
+      try {
+        await processAffaireIntakeAnalysisLaunch(result.batch_id, null,
+          { projectId: project.id, tenantId: context.tenantId, payerId: context.userId });
+      }
+      catch { console.error("La reprise du lancement intake est nécessaire.", { launchId: result.batch_id }); }
+    });
+    revalidatePath(`/dashboard/affaires/${project.id}`);
+    return { message: result.outcome === "brief_only"
+      ? "Préparation du brief lancée. Les pièces déjà classées gardent leur classement."
+      : "Analyse du dossier lancée." };
+  } catch (error) {
+    if (error instanceof ApiError && error.status < 500) return { message: error.message };
+    throw error;
+  }
 }
 
 export async function reclassifyAffaireDocument(
@@ -116,11 +151,113 @@ export async function reclassifyAffaireDocument(
   return result;
 }
 
-export async function retryAffaireDocumentAnalysis(input: { projectId: string; documentId: string }) {
-  const parsed = setAffaireDocumentAsPrimaryInputSchema.parse(input);
-  const result = await retryAffaireDocumentAnalysisServer(parsed);
-  revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
-  return result;
+export async function readAffaireIntakeRetryStatus(projectId: string, batchId: string) {
+  const { context, project } = await requireAffaireAccess(z.uuid().parse(projectId), "write");
+  const batch = await readIntakeAiBatch(createServiceRoleClient(), z.uuid().parse(batchId),
+    { projectId: project.id, tenantId: context.tenantId, payerId: context.userId });
+  if (!batch || batch.launch_id) {
+    return { finished: true, message: null };
+  }
+  return { finished: Boolean(batch.finished_at), message: batch.budget_stop_message };
+}
+
+export async function retryAffaireDocumentAnalysis(input: {
+  projectId: string; documentIds: string[]; choice: IntakeAiChoice;
+}) {
+  const projectId = z.uuid().parse(input.projectId);
+  const documentIds = [...new Set(z.array(z.uuid()).min(1).parse(input.documentIds).map(id => id.toLowerCase()))];
+  const { context, project } = await requireAffaireAccess(projectId, "write");
+  const service = createServiceRoleClient();
+  const { data: matching, error: documentsError } = await readAllRowsInChunks(documentIds, (chunk) =>
+    context.supabase.from("affaire_intake_documents").select("id,file_name", { count: "exact" })
+      .eq("tenant_id", context.tenantId).eq("project_id", project.id).in("id", chunk)
+      .is("deleted_at", null).is("deletion_token", null));
+  if (documentsError) throw internalError("Impossible de lire la sélection à relancer.", documentsError);
+  const byId = new Map(matching?.map(document => [document.id, document]));
+  const documents = documentIds.map(id => {
+    const document = byId.get(id);
+    if (!document) throw notFound("Une pièce de la sélection n’est plus disponible. Actualisez le dossier.");
+    return document;
+  });
+  let batchId: string;
+  try {
+    const reservation = await startIntakeAiBatch(service, context, project.id, input.choice, true);
+    batchId = z.uuid().parse(reservation?.batch_id);
+  } catch (error) {
+    if (error instanceof ApiError && error.status < 500) return { message: error.message, failures: [], analyzedDocumentIds: [], batchId: null };
+    throw error;
+  }
+
+  const scope = { projectId: project.id, tenantId: context.tenantId, payerId: context.userId };
+  const readBatch = async () => {
+    const batch = await readIntakeAiBatch(service, batchId, scope);
+    if (!batch || batch.launch_id) {
+      throw internalError("Impossible de vérifier le lot de relance.");
+    }
+    if (batch.budget_stop_message) throw new IntakeAiBudgetStopped(batch.budget_stop_message);
+    return createIntakeAiRunner(service, batch, null);
+  };
+  const ai = await readBatch();
+  const deferred: (() => Promise<void>)[] = [];
+  const attempts: IntakeAnalysisAttempt[] = [];
+  const analyzedDocumentIds: string[] = [];
+  let uploadId: string | undefined;
+  let remaining: string[] = [];
+  let stopped = false;
+  let budgetMessage: string | undefined;
+  for (const [index, document] of documents.entries()) {
+    try {
+      const result = await retryAffaireDocumentAnalysisServer({
+        projectId, documentId: document.id, ai, readAi: readBatch, defer: (effect) => deferred.push(effect),
+      });
+      if (result.analyzed) uploadId = result.uploadId;
+      analyzedDocumentIds.push(document.id);
+      attempts.push({ fileName: document.file_name, succeeded: !result.usedFallback,
+        manualPreserved: result.preservedManualClassification,
+        ...(result.usedFallback ? { reason: result.failure?.message ?? result.warning ?? "L’analyse IA n’a pas abouti." } : {}),
+      });
+      stopped = result.usedFallback && result.failure?.scope !== "document";
+    } catch (error) {
+      if (error instanceof IntakeAiBudgetStopped) budgetMessage = error.message;
+      attempts.push({ fileName: document.file_name, succeeded: false, manualPreserved: false,
+        reason: error instanceof IntakeAiBudgetStopped || (error instanceof ApiError && error.status < 500)
+          ? error.message : "Analyse interrompue. Vous pouvez relancer cette pièce." });
+      stopped = true;
+    }
+    if (stopped) {
+      remaining = documents.slice(index + 1).map(item => item.file_name);
+      break;
+    }
+  }
+  const hasDeferred = Boolean(deferred.length || (!stopped && uploadId));
+  const finish = async () => {
+    const { error } = await service.rpc("finish_affaire_intake_ai_retry", { ...intakeAiScopeArgs(scope), p_batch_id: batchId });
+    if (error) console.error("Impossible de clôturer le lot de relance.", { batchId });
+  };
+  if (hasDeferred) {
+    after(async () => {
+      // Start every reading while its reservation is fresh. Each effect cleans
+      // up its own piece, and the shared ledger fences further paid sends.
+      const readings = await Promise.allSettled(deferred.map(async effect => effect()));
+      for (const reading of readings) {
+        if (reading.status === "rejected") console.error("Impossible de clôturer une transcription de la relance.", { batchId });
+      }
+      if (!stopped && uploadId) {
+        try {
+          await refreshAffaireIntakeFromActiveDocuments({ supabase: service, project, uploadId, actorUserId: context.userId,
+            ai: await readBatch(), retry: true });
+        } catch (error) {
+          if (!(error instanceof IntakeAiBudgetStopped)) console.error("Impossible d’actualiser le brief après la relance.", { batchId });
+        }
+      }
+      await finish();
+    });
+  } else await finish();
+  revalidatePath(`/dashboard/affaires/${project.id}`);
+  const report = buildIntakeAnalysisFeedback(attempts, remaining);
+  return { ...report, message: budgetMessage ? `${report.message} ${budgetMessage}` : report.message,
+    batchId: hasDeferred && !budgetMessage ? batchId : null,
+    analyzedDocumentIds };
 }
 
 export async function setAffaireDocumentAsPrimary(
@@ -201,7 +338,7 @@ export async function updateAffaireBrief(input: UpdateAffaireBriefInput) {
 }
 
 /** The payer notice the brief's confirmation dialog shows, read when it opens; it changes nothing. */
-export async function readAffaireBriefChoices(input: { projectId: string }) {
+export async function readAffaireBriefChoices(input: { projectId: string; paymentChoice?: TakeoffPaymentChoice }) {
   const parsed = readAffaireBriefChoicesInputSchema.parse(input);
   return readAffaireBriefChoicesServer(parsed);
 }
