@@ -1018,9 +1018,9 @@ begin
         from public.takeoff_item_answer_decisions d where d.item_id=pg_temp.f(310);
     outcomes:=array[
       public.change_takeoff_entry_scope(pg_temp.tenant(),pg_temp.f(21),pg_temp.f(310),pg_temp.f(7510),
-        'attach',pg_temp.f(100),1,0)->>'outcome',
+        'attach',p_plan_id=>pg_temp.f(100),p_entry_revision=>1,p_plan_entry_revision=>0)->>'outcome',
       public.change_takeoff_entry_scope(pg_temp.tenant(),pg_temp.f(21),pg_temp.f(310),pg_temp.f(7511),
-        'withdraw',null,1,0)->>'outcome'];
+        'withdraw',p_plan_id=>null,p_entry_revision=>1,p_plan_entry_revision=>0)->>'outcome'];
     raise sqlstate 'ZX001';
   exception when sqlstate 'ZX001' then null;
   end;

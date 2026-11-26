@@ -368,7 +368,7 @@ select is(extensions.dblink_exec('race_a','begin'),'BEGIN','hold a replacement e
 select is((select r->>'outcome' from extensions.dblink('race_a',pg_temp.write_total(682,6)) as x(r jsonb)),
   'applied','six replaces four in the uncommitted transaction');
 select is(extensions.dblink_send_query('race_b',format(
-  'select public.change_takeoff_entry_scope(%L,%L,%L,%L,''attach'',%L,1,0)',
+  'select public.change_takeoff_entry_scope(%L,%L,%L,%L,''attach'',p_plan_id=>%L,p_entry_revision=>1,p_plan_entry_revision=>0)',
   pg_temp.tenant(),pg_temp.f(20),pg_temp.f(301),pg_temp.f(683),pg_temp.f(100))),1,'attach the version read at four');
 select ok(pg_temp.waits_for('race_b','race_a'),'transfer waits for the actual entry command');
 select is(extensions.dblink_exec('race_a','commit'),'COMMIT','the replacement commits');

@@ -945,7 +945,8 @@ select is((select count(*)::integer from public.takeoff_item_review_commands whe
 create function pg_temp.scope_change(intent integer, action text, plan integer, source_rev integer, plan_rev integer)
 returns jsonb language sql as $$
   select public.change_takeoff_entry_scope(pg_temp.f(10),pg_temp.f(20),pg_temp.f(302),pg_temp.f(intent),
-    action,case when plan is not null then pg_temp.f(plan) end,source_rev,plan_rev)
+    action,p_plan_id => case when plan is not null then pg_temp.f(plan) end,
+    p_entry_revision => source_rev,p_plan_entry_revision => plan_rev)
 $$;
 select pg_temp.sign_in(1);
 set local role authenticated;
@@ -976,6 +977,17 @@ select results_eq($$select plan_logical_id,quantity from public.takeoff_item_ent
 select results_eq($$select before->>'quantity',after->>'scope_action',actor_id,at is not null
   from public.takeoff_item_review_events where item_id=pg_temp.f(302) and after->>'scope_action'='withdraw'$$,
   $$values ('4'::text,'withdraw'::text,pg_temp.f(1),true)$$,'withdrawal records the value removed and the member');
+select is(pg_temp.review(pg_temp.cmd('enter_quantity',684,array[302],array[302],
+    jsonb_build_object('values',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(302),'quantity',5,'unit','u')),
+      'entry',jsonb_build_object('category','documented_calculation'))))->>'outcome','applied','a documented total after withdrawal');
+select is(pg_temp.scope_change(685,'attach',100,5,0)->>'outcome','stale','an unseen destination entry is preserved');
+select is(pg_temp.scope_change(685,'attach',100,5,1)->>'outcome','applied','replace the plan value at its confirmed revision');
+select results_eq($$select plan_logical_id,revision,quantity,previous_quantity,included from public.takeoff_item_entries
+  where item_id=pg_temp.f(302)$$,$$values (pg_temp.f(100),2,5::numeric,2::numeric,true)$$,
+  'the plan revision advances and keeps the previous quantity');
+select results_eq($$select before#>>'{destination,category}',after->>'category' from public.takeoff_item_review_events
+  where item_id=pg_temp.f(302) and after->>'scope_action'='attach' and before->>'revision'='5'$$,
+  $$values ('hypothesis'::text,'documented_calculation'::text)$$,'journal preserves the replaced plan entry');
 select pg_temp.sign_in(5);
 select throws_ok($$select pg_temp.scope_change(683,'withdraw',null,4,0)$$,'42501','TAKEOFF_ITEM_REVIEW_FORBIDDEN',
   'another tenant cannot replay the receipt');
