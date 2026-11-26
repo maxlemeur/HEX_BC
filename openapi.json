@@ -56862,7 +56862,8 @@
       },
       "ListCatalogueImportBatchesCursorParameter": {
         "type": "string",
-        "maxLength": 80
+        "maxLength": 80,
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2}),[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       },
       "ApiCatalogueImportBatchPage": {
         "type": "object",
@@ -56962,7 +56963,8 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "maxLength": 80
+                    "maxLength": 80,
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2}),[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
                   },
                   {
                     "type": "null"

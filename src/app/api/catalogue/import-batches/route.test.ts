@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { createClient } from "@supabase/supabase-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -30,6 +32,36 @@ describe("GET /api/catalogue/import-batches", () => {
 
     expect(response.status).toBe(400);
     expect(getAuthenticatedTenantContext).not.toHaveBeenCalled();
+  });
+
+  it("publishes the cursor syntax the route accepts, for the parameter and for next_cursor", () => {
+    type Schema = { $ref?: string; pattern?: string; anyOf?: Schema[]; properties?: Record<string, Schema> };
+    const spec = JSON.parse(readFileSync("openapi.json", "utf8")) as {
+      paths: Record<string, { get: { parameters: Array<{ name: string; schema: Schema }> } }>;
+      components: { schemas: Record<string, Schema> };
+    };
+    const resolve = (schema: Schema): Schema => (schema.$ref ? resolve(spec.components.schemas[schema.$ref.split("/").at(-1)!]) : schema);
+    const patternOf = (schema: Schema): RegExp => {
+      const resolved = resolve(schema);
+      const found = resolved.pattern ?? resolved.anyOf?.map(resolve).find((entry) => entry.pattern)?.pattern;
+      return new RegExp(found ?? "(?!)");
+    };
+    const parameter = spec.paths["/api/catalogue/import-batches"].get.parameters.find(({ name }) => name === "cursor")!;
+    const nextCursors: Schema[] = [];
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== "object") return;
+      for (const [key, value] of Object.entries(node)) {
+        if (key === "next_cursor" && value && typeof value === "object") nextCursors.push(value as Schema);
+        walk(value);
+      }
+    };
+    walk(spec.components.schemas.ApiCatalogueImportBatchPage);
+    expect(nextCursors.length).toBeGreaterThan(0);
+    for (const pattern of [patternOf(parameter.schema), ...nextCursors.map(patternOf)]) {
+      expect(pattern.test(`${CREATED_AT},${batchId(1)}`)).toBe(true);
+      expect(["abc", "2026-11-25T10:00:00Z", `${CREATED_AT},not-a-uuid`, `${CREATED_AT},${batchId(1)},x`]
+        .filter((cursor) => pattern.test(cursor))).toEqual([]);
+    }
   });
 
   it("pages through equal timestamps with tenant scope, visibility filtering and exact counts", async () => {

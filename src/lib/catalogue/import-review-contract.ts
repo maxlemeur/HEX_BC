@@ -129,10 +129,13 @@ export type CatalogueImportBatch = z.infer<typeof catalogueImportBatchSchema>;
 const importBatchPositionSchema = z.tuple([importBatchTimestamp, id]);
 export type CatalogueImportBatchPosition = z.infer<typeof importBatchPositionSchema>;
 
-export const catalogueImportBatchCursorSchema = z.string().max(80).refine(
-  (value) => importBatchPositionSchema.safeParse(value.split(",")).success,
-  "Curseur d’import invalide.",
-);
+/** « <date ISO avec décalage>,<UUID> » : published as a pattern so that a generated client checks the same syntax. */
+const IMPORT_BATCH_CURSOR_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}),[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+export const catalogueImportBatchCursorSchema = z.string().max(80)
+  .regex(IMPORT_BATCH_CURSOR_PATTERN, "Curseur d’import invalide.")
+  .refine((value) => importBatchPositionSchema.safeParse(value.split(",")).success, "Curseur d’import invalide.");
 
 export const catalogueImportBatchCursorParameterSchema = catalogueImportBatchCursorSchema.transform(
   (value) => importBatchPositionSchema.parse(value.split(",")),
