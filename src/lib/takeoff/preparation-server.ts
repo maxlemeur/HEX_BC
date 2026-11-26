@@ -2,6 +2,7 @@ import "server-only";
 
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { resolveTakeoffPayment, takeoffSelectionFingerprint } from "@/lib/takeoff/payment-server";
+import { takeoffPaymentSettingsChanged } from "@/lib/takeoff/payment-mandate-server";
 import type { TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
 
 import { createHash } from "node:crypto";
@@ -85,10 +86,11 @@ async function selectionForConfirmation(context: AuthenticatedTenantContext, inp
     ? (await resolveTakeoffPayment({ ...context, projectId: input.projectId }, input.paymentChoice, createServiceRoleClient())).selection
     : await getTakeoffExecutionSelection(context.supabase, context, "chatgpt"));
   if (takeoffSelectionFingerprint(selection) !== input.expectedExecutionFingerprint) {
+    if (input.paymentChoice) {
+      throw takeoffPaymentSettingsChanged("La connexion, le modèle, l’effort ou le budget du métré a changé. Vérifiez les réglages affichés et confirmez de nouveau.");
+    }
     throw new ApiError({ status: 409, code: "TAKEOFF_CHATGPT_SELECTION_CHANGED",
-      message: input.paymentChoice
-        ? "La connexion, le modèle, l’effort ou le budget du métré a changé. Vérifiez les réglages affichés et confirmez de nouveau."
-        : "Le compte, le modèle ou l’effort ChatGPT a changé. Vérifiez la sélection affichée et confirmez de nouveau." });
+      message: "Le compte, le modèle ou l’effort ChatGPT a changé. Vérifiez la sélection affichée et confirmez de nouveau." });
   }
   return selection;
 }
@@ -98,7 +100,8 @@ async function selectionForConfirmation(context: AuthenticatedTenantContext, inp
  * with a plan set, the preparation deduced from the dossier for that set. The automatic start seals the same deduction,
  * through the server's own client, without saving it over the member's draft.
  */
-export async function loadPreparation(context: Pick<AuthenticatedTenantContext, "supabase" | "tenantId">, projectId: string, planSetId?: string) {
+export async function loadPreparation(context: Pick<AuthenticatedTenantContext, "supabase" | "tenantId"> &
+  Partial<Pick<AuthenticatedTenantContext, "userId">>, projectId: string, planSetId?: string) {
   const [record, availableSources] = await Promise.all([
     readPreparationRecord(context, projectId), readPreparationSources(context, projectId),
   ]);
@@ -123,12 +126,17 @@ export async function loadPreparation(context: Pick<AuthenticatedTenantContext, 
     });
   }
   const needsSave = !record || JSON.stringify(saved) !== JSON.stringify(draft);
+  const confirmedAt = changedSourceIds.length || (planSetId && needsSave) ? null : record?.confirmed_at ?? null;
+  const ownConfirmation = confirmedAt && record?.confirmed_by === context.userId
+    ? storedPreparationSnapshotSchema.safeParse(record?.confirmed_snapshot) : null;
+  const execution = ownConfirmation?.success ? ownConfirmation.data.execution_selection : undefined;
   return {
     draft, revision: record?.revision ?? null, availableSources, changedSourceIds, needsSave,
-    confirmedAt: changedSourceIds.length || (planSetId && needsSave) ? null : record?.confirmed_at ?? null,
+    confirmedAt,
     confirmedBy: changedSourceIds.length || (planSetId && needsSave) ? null : record?.confirmed_by ?? null,
     sourceFingerprint: getPreparationSourcesFingerprint(availableSources),
     readiness: evaluateTakeoffPreparation(draft),
+    ...(execution && { confirmedExecutionFingerprint: takeoffSelectionFingerprint(execution) }),
   };
 }
 

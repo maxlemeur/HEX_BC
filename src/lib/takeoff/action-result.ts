@@ -3,6 +3,7 @@ export type TakeoffActionFailure = {
   code: string;
   message: string;
   retryable: boolean;
+  reloadSettings?: true;
 };
 
 export type SafeTakeoffActionResult<T> =
@@ -13,6 +14,7 @@ export class TakeoffActionError extends Error {
   readonly status: number;
   readonly code: string;
   readonly retryable: boolean;
+  readonly reloadSettings: boolean;
 
   constructor(failure: TakeoffActionFailure) {
     super(failure.message);
@@ -20,6 +22,7 @@ export class TakeoffActionError extends Error {
     this.status = failure.status;
     this.code = failure.code;
     this.retryable = failure.retryable;
+    this.reloadSettings = failure.reloadSettings === true;
   }
 }
 

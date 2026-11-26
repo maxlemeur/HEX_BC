@@ -21,6 +21,7 @@
     "39107160165 army-full (déclenchement, afee61bb, 1 worker)"
   ],
   "coldServers": [
+    "e2e/army/local/takeoff-payment-settings.e2e.ts",
     "e2e/army/local/chatgpt-local-decisions.e2e.ts",
     "e2e/army/local/chatgpt-local-intake-confirmation.e2e.ts",
     "e2e/army/local/chatgpt-local-intake-documents.e2e.ts",
@@ -31,6 +32,7 @@
   ],
   "neverTogether": [
     [
+      "e2e/army/local/takeoff-payment-settings.e2e.ts",
       "e2e/army/local/chatgpt-local-decisions.e2e.ts",
       "e2e/army/local/chatgpt-local-intake-confirmation.e2e.ts",
       "e2e/army/local/chatgpt-local-intake-documents.e2e.ts",

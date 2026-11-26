@@ -10,6 +10,7 @@ import {
   saveTakeoffPreparationAction,
 } from "@/app/dashboard/affaires/_actions/takeoff-preparation";
 import type { TakeoffPreparation, TakeoffPreparationProfile } from "@/lib/takeoff/preparation";
+import type { TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
 
 type PanelLoad = Awaited<ReturnType<typeof loadTakeoffPreparationPanelAction>>;
 type PreparationRecord = Extract<PanelLoad["preparation"], { ok: true }>["data"];
@@ -162,12 +163,16 @@ export function useTakeoffPreparation(projectId: string, planSetId?: string | nu
     }
   }, [save]);
 
-  const confirm = useCallback(async (planFileIds?: string[]) => {
-    const savedRevision = await saveOptions();
+  const confirm = useCallback(async (planFileIds?: string[], paymentChoice?: TakeoffPaymentChoice) => {
+    const execution = paymentChoice
+      ? unwrapTakeoffActionResult(await loadTakeoffExecutionPreviewAction({ projectId, paymentChoice })) : support?.chatGpt;
+    const newPayment = paymentChoice && record?.confirmedAt && record.confirmedExecutionFingerprint !== execution?.fingerprint;
+    const savedRevision = await (newPayment ? renew() : saveOptions());
     if (savedRevision === null) throw new Error("Enregistrez la préparation avant de confirmer.");
     const result = await confirmTakeoffPreparationAction({
-      projectId, expectedRevision: savedRevision, expectedExecutionFingerprint: support?.chatGpt?.fingerprint,
+      projectId, expectedRevision: savedRevision, expectedExecutionFingerprint: execution?.fingerprint,
       ...(planFileIds ? { planFileIds } : {}),
+      ...(paymentChoice && { paymentChoice }),
     });
     if (!result.ok && result.error.code === "TAKEOFF_CHATGPT_SELECTION_CHANGED") {
       const latest = await loadTakeoffExecutionPreviewAction().catch(() => null);
@@ -187,7 +192,7 @@ export function useTakeoffPreparation(projectId: string, planSetId?: string | nu
       revision: confirmed.revision,
       planFileCount: confirmed.retainedPlanFileIds.length, planFileIds: confirmed.retainedPlanFileIds,
     };
-  }, [projectId, saveOptions, support?.chatGpt?.fingerprint]);
+  }, [projectId, record, renew, saveOptions, support?.chatGpt]);
 
   /** Adopts a state returned by a server mutation (page triage) as the saved draft. */
   const adopt = useCallback((state: PreparationRecord) => {

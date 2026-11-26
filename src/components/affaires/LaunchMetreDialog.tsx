@@ -3,7 +3,7 @@
 import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { TakeoffActionError, unwrapTakeoffActionResult } from "@/lib/takeoff/action-result";
 import {
-  beginTakeoffLaunch, isSameTakeoffLaunch, readOutstandingTakeoffLaunch, settleTakeoffLaunch, type TakeoffLaunchCommand,
+  beginTakeoffLaunch, isSameTakeoffLaunch, readOutstandingTakeoffLaunch, settleTakeoffLaunch, sha256Hex, type TakeoffLaunchCommand,
 } from "@/lib/takeoff/launch-intent-key";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -37,6 +37,8 @@ import { isIntakeSyncedPlanSet } from "@/lib/takeoff/default-import-plan-set";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { describeTakeoffRelaunchChoice, type TakeoffRelaunchChoice } from "@/lib/takeoff/launch-request";
 import { cn } from "@/lib/utils";
+import { TAKEOFF_NANO_USD_PER_CENT, TAKEOFF_PAYMENT_CHOICE_REQUIRED, type TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
+import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
 
 export type LaunchMetrePlanSetOption = {
   id: string;
@@ -228,8 +230,10 @@ function LaunchMetreDialogContent({
   const [launchAlreadyRunning, setLaunchAlreadyRunning] = useState(false);
   const [launchSuccessVersionLabel, setLaunchSuccessVersionLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [paymentStale, setPaymentStale] = useState(false);
+  const [explicitPaymentRequired, setExplicitPaymentRequired] = useState(false);
   // A relaunch whose analysis lost a plan's copy: the plans it may read instead, none chosen until the member ticks them.
-  const [planChoice, setPlanChoice] = useState<{ preparationRevision: number; choice: TakeoffRelaunchChoice } | null>(null);
+  const [planChoice, setPlanChoice] = useState<{ preparationRevision: number; choice: TakeoffRelaunchChoice; paymentChoice?: TakeoffPaymentChoice } | null>(null);
   const [chosenPlans, setChosenPlans] = useState<Set<string>>(new Set());
   // An unanswered command of this member on the affaire (another tab's) whose content is not the plans now ticked.
   const [otherTabCommand, setOtherTabCommand] = useState<TakeoffLaunchCommand | null>(null);
@@ -367,7 +371,7 @@ function LaunchMetreDialogContent({
     [projectId, user?.profile?.id, user?.tenantId]);
 
   /** One command sent and its answer shown: the command keeps its key until an answer (a refusal included) settles it. */
-  const sendRequestCommand = useCallback(async (command: TakeoffLaunchCommand, planFileCount: number) => {
+  const sendRequestCommand = useCallback(async (command: TakeoffLaunchCommand, planFileCount: number, paymentChoice?: TakeoffPaymentChoice) => {
     setIsSubmitting(true);
     setErrorMessage(null);
     setPlanChoice(null);
@@ -376,12 +380,13 @@ function LaunchMetreDialogContent({
       const result = unwrapTakeoffActionResult(await relaunchTakeoffAction({
         projectId, planSetId: command.planSetId, preparationRevision: command.preparationRevision, intentKey: command.intentKey,
         predecessorJobId: command.predecessorJobId, ...(command.planFileIds ? { planFileIds: command.planFileIds } : {}),
+        ...(paymentChoice && { paymentChoice }),
       }));
       settleTakeoffLaunch(launchScope, command.intentKey);
       // Nothing was recorded: a plan of the analysis has no copy now; the member chooses which of its other plans to read,
       // a new command that names them.
       if (result.outcome === "plans_to_choose" && result.choice) {
-        setPlanChoice({ preparationRevision: command.preparationRevision, choice: result.choice });
+        setPlanChoice({ preparationRevision: command.preparationRevision, choice: result.choice, paymentChoice });
         setChosenPlans(new Set());
         return;
       }
@@ -405,32 +410,36 @@ function LaunchMetreDialogContent({
       // A refusal the server named decides the command: a new click is a new one. After a server error or a lost answer
       // the command may have been recorded: the next click replays it with the same key.
       if (error instanceof TakeoffActionError && error.status < 500) settleTakeoffLaunch(launchScope, command.intentKey);
+      setPaymentStale(error instanceof TakeoffActionError && error.reloadSettings);
+      if (error instanceof TakeoffActionError && error.code === TAKEOFF_PAYMENT_CHOICE_REQUIRED) setExplicitPaymentRequired(true);
       setErrorMessage(error instanceof TakeoffActionError ? error.message : "Impossible de lancer l'analyse.");
     } finally {
       setIsSubmitting(false);
     }
   }, [launchScope, onLaunched, projectId, toast]);
 
-  const handleRequestLaunch = useCallback(async (preparationRevision: number, planFileCount: number, planFileIds?: string[]) => {
+  const handleRequestLaunch = useCallback(async (preparationRevision: number, planFileCount: number, planFileIds?: string[], paymentChoice?: TakeoffPaymentChoice) => {
     if (!selectedPlanSet || !hasPlanFiles || launchMode.kind !== "request") return;
     if (launchMode.planDispatch && launchMode.predecessorJobId && !planFileIds?.length) return;
     const content = { predecessorJobId: launchMode.predecessorJobId, planSetId: selectedPlanSet.id, preparationRevision,
-      ...(planFileIds?.length ? { planFileIds } : {}) };
+      ...(planFileIds?.length ? { planFileIds } : {}),
+      ...(paymentChoice && { paymentFingerprint: sha256Hex(JSON.stringify(paymentChoice)) }) };
     // A command still unanswered is settled first, with its own content (its analysis may have finished since, and the
     // dialogue now names it): its replay answers with its receipt. Only an answered affaire offers a new command. The
     // plans the member ticks are sent as ticked: an unanswered command of other content (another tab's) is never sent in
     // their place. Setting it aside sends nothing. A new click confirms the selection then on screen.
     const outstanding = readOutstandingTakeoffLaunch(launchScope);
-    if (outstanding && (planFileIds?.length || outstanding.planFileIds) && !isSameTakeoffLaunch(outstanding, content)) {
+    if (outstanding && ((planFileIds?.length || outstanding.planFileIds) && !isSameTakeoffLaunch(outstanding, content)
+      || outstanding.paymentFingerprint !== content.paymentFingerprint)) {
       setOtherTabCommand(outstanding);
       return;
     }
-    await sendRequestCommand(outstanding ?? beginTakeoffLaunch(launchScope, content), planFileCount);
+    await sendRequestCommand(outstanding ?? beginTakeoffLaunch(launchScope, content), planFileCount, paymentChoice);
   }, [hasPlanFiles, launchMode, launchScope, selectedPlanSet, sendRequestCommand]);
 
-  const handleLaunch = useCallback(async (preparationRevision: number, planFileCount: number, planIds?: string[]) => {
+  const handleLaunch = useCallback(async (preparationRevision: number, planFileCount: number, planIds?: string[], paymentChoice?: TakeoffPaymentChoice) => {
     if (!selectedPlanSet || !hasPlanFiles) return;
-    if (launchMode.kind === "request") return handleRequestLaunch(preparationRevision, planFileCount, planIds);
+    if (launchMode.kind === "request") return handleRequestLaunch(preparationRevision, planFileCount, planIds, paymentChoice);
     if (launchMode.kind !== "version") return;
 
     setIsSubmitting(true);
@@ -456,6 +465,7 @@ function LaunchMetreDialogContent({
           versionId: selectedOption.id,
           ...DETAILED_TAKEOFF_PROCESSING,
           preparationRevision,
+          ...(paymentChoice && { paymentChoice }),
         }));
         createdJobId = result.jobId;
         existingStatus = result.existingStatus;
@@ -469,6 +479,7 @@ function LaunchMetreDialogContent({
           sourceVersionId: selectedOption.id,
           ...DETAILED_TAKEOFF_PROCESSING,
           preparationRevision,
+          ...(paymentChoice && { paymentChoice }),
         }));
         createdJobId = result.jobId;
         existingStatus = result.existingStatus;
@@ -513,6 +524,7 @@ function LaunchMetreDialogContent({
       setLaunchSuccess(true);
       onLaunched?.(createdJobId, resolvedVersionId);
     } catch (error) {
+      setPaymentStale(error instanceof TakeoffActionError && error.reloadSettings);
       setErrorMessage(
         error instanceof TakeoffActionError ? error.message : "Impossible de lancer l'analyse.",
       );
@@ -611,6 +623,9 @@ function LaunchMetreDialogContent({
                     return latest;
                   } : undefined}
                   onLaunch={handleLaunch}
+                  paymentSettingsStale={paymentStale}
+                  explicitPaymentRequired={explicitPaymentRequired}
+                  onReloadPaymentSettings={() => { setPaymentStale(false); setErrorMessage(null); setPlanChoice(null); }}
                   onBusyChange={setIsSubmitting}
                   onRegisterSave={registerPreparationSave}
                   documentControls={<div className="space-y-2">
@@ -661,8 +676,11 @@ function LaunchMetreDialogContent({
                       </label>
                     ))}
                   </fieldset>
-                  <Button type="button" disabled={isSubmitting || chosenPlans.size === 0}
-                    onClick={() => void handleRequestLaunch(planChoice.preparationRevision, chosenPlans.size, [...chosenPlans].sort())}>
+                  {planChoice.paymentChoice?.expectedMaxCostCents && <p className="text-sm">
+                    Plafond pour ces plans avec votre clé API OpenAI : {formatUsdCeiling(planChoice.paymentChoice.expectedMaxCostCents * TAKEOFF_NANO_USD_PER_CENT)}.
+                  </p>}
+                  <Button type="button" disabled={isSubmitting || chosenPlans.size === 0 || paymentStale}
+                    onClick={() => void handleRequestLaunch(planChoice.preparationRevision, chosenPlans.size, [...chosenPlans].sort(), planChoice.paymentChoice)}>
                     Relancer les plans choisis
                   </Button>
                 </section>

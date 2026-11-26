@@ -4,6 +4,8 @@ import { describeMarkCoverage } from "@/lib/takeoff/count-mark-schedule";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { CHATGPT_REASONING_EFFORT_LABELS, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { isTakeoffReadRefusal } from "@/components/takeoff/useTakeoffRequestActivity";
+import { TakeoffPaymentFields } from "@/components/takeoff/TakeoffPaymentFields";
+import { useTakeoffPaymentSettings } from "@/components/takeoff/useTakeoffPaymentSettings";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -13,6 +15,7 @@ import type { ItemDetailPlanView } from "@/lib/takeoff/item-detail-contracts";
 import type { ItemDetailLine } from "@/lib/takeoff/item-detail";
 import { fetchItemMeasureReadings, previewItemRemeasure, sendItemRemeasure } from "@/lib/takeoff/item-table-client";
 import { ITEM_REVIEW_COMMAND_VERSION, type ItemMeasureReadings, type ItemRemeasureCommand, type ItemRemeasurePreview } from "@/lib/takeoff/item-table-contracts";
+import { TAKEOFF_PAYMENT_SETTINGS_CHANGED } from "@/lib/takeoff/payment-choice";
 
 type Props = { projectId: string; line: ItemDetailLine; plan: ItemDetailPlanView["plan"]; page: number; listRevisionId: string | null;
   receipt: ItemDetailAddress["receipt"]; onFollow: (receipt: NonNullable<ItemDetailAddress["receipt"]>) => void;
@@ -55,6 +58,9 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
   const [changedCopy, setChangedCopy] = useState(false);
   const [needsPreview, setNeedsPreview] = useState(false);
   const [unsure, setUnsure] = useState(false);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
+  const [paymentStale, setPaymentStale] = useState(false);
+  const payment = useTakeoffPaymentSettings(projectId, open ? `measure:${line.itemId}:${plan.key}` : null);
   const operation = useRef(0);
   const submitting = useRef(false);
   const readGeneration = useRef(0);
@@ -98,9 +104,11 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
     return () => { live = false; clearTimeout(timer); };
   }, [projectId, line.itemId, plan.key, requestId, jobId, watch, onRefused]);
 
-  async function show(onlyPage: boolean, keepSetting = false, marks = keepSetting && proposeMarks) {
+  function show(onlyPage: boolean, keepSetting = false, marks = keepSetting && proposeMarks) {
     if (submitting.current || !plan.planFileId) return;
-    const id = ++operation.current;
+    operation.current++;
+    if (!open) payment.reload();
+    if (!keepSetting) setModel("");
     setSinglePage(onlyPage);
     setProposeMarks(marks);
     setOpen(true);
@@ -109,36 +117,53 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
     setNeedsPreview(false);
     setChangedCopy(false);
     setUnsure(false);
+    setPaymentStale(false);
+    setPreviewAttempt((value) => value + 1);
+  }
+  const loadPreview = useEffectEvent(async () => {
+    if (!plan.planFileId) return;
+    const id = ++operation.current;
     const scope = { kind: "plan" as const, planKey: plan.key };
-    const detail = { ...(marks && { proposeMarks: true as const }), fileId: plan.planFileId, generation: plan.generation, contentSha256: plan.contentSha256, page: onlyPage ? page : null };
+    const detail = { ...(proposeMarks && { proposeMarks: true as const }), fileId: plan.planFileId, generation: plan.generation, contentSha256: plan.contentSha256, page: singlePage ? page : null };
     const prior = line.readings.find((r) => r.planKey === plan.key)?.answer;
     const seen = { list_revision_id: listRevisionId, targets: [{ ...line.targets, answers: line.targets.answers.filter((a) => a.answerId === prior?.answerId) }] };
+    const choice = payment.choice;
     try {
-      const preview = await previewItemRemeasure(projectId, scope, [line.itemId], seen, detail);
+      const preview = choice
+        ? await previewItemRemeasure(projectId, scope, [line.itemId], seen, detail, undefined, choice)
+        : await previewItemRemeasure(projectId, scope, [line.itemId], seen, detail);
       if (operation.current !== id) return;
-      if (!keepSetting || !model) {
+      if (!model || payment.data) {
         setModel(preview.subscription.state === "ready" ? preview.subscription.model : "");
         setEffort(preview.subscription.state === "ready" ? preview.subscription.reasoningEffort : null);
       }
       setSummary({ preview, command: { command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: crypto.randomUUID(),
-        scope, detail, ...(preview.detail?.markSchedule && { mark_schedule: preview.detail.markSchedule }), host_proof: preview.detail?.hostProof ?? undefined, item_ids: [line.itemId], plan_keys: [plan.key], seen, preview_digest: preview.previewDigest } });
+        scope, detail, ...(choice && { payment_choice: choice }), ...(preview.detail?.markSchedule && { mark_schedule: preview.detail.markSchedule }), host_proof: preview.detail?.hostProof ?? undefined, item_ids: [line.itemId], plan_keys: [plan.key], seen, preview_digest: preview.previewDigest } });
     } catch (error) {
       if (isTakeoffReadRefusal(error) && onRefused(error)) return;
       if (operation.current === id) {
         setMessage(failure(error));
         setChangedCopy(isTakeoffApiError(error) && error.code === "TAKEOFF_ITEM_MEASURE_COPY_CHANGED");
+        setPaymentStale(isTakeoffApiError(error) && error.code === TAKEOFF_PAYMENT_SETTINGS_CHANGED);
         setNeedsPreview(true);
         onRefresh();
       }
     }
-  }
+  });
+  useEffect(() => {
+    const generation = operation;
+    if (open && payment.ready && !paymentStale) void loadPreview();
+    return () => { generation.current++; };
+  }, [open, payment.ready, payment.choice, paymentStale, previewAttempt]);
+
   async function confirm() {
-    if (!summary || submitting.current) return;
+    if (!summary || summary.command.payment_choice !== payment.choice || !payment.ready || paymentStale || submitting.current) return;
     submitting.current = true;
     setBusy(true);
     const id = operation.current;
     try {
-      const result = await sendItemRemeasure(projectId, { ...summary.command, setting: { model, reasoning_effort: effort } });
+      const result = await sendItemRemeasure(projectId, { ...summary.command,
+        setting: summary.command.payment_choice ? null : { model, reasoning_effort: effort } });
       if (id !== operation.current) return;
       setUnsure(false);
       if (result.outcome === "already_running") {
@@ -152,7 +177,8 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
         }
         setReadings(null);
         setOpen(false);
-        setMessage(`Demande enregistrée sur votre forfait. Reçu ${result.requestId}.`);
+        const sourceLabel = summary.command.payment_choice?.source === "personal_api_key" ? "avec votre clé API" : "sur votre forfait";
+        setMessage(`Demande enregistrée ${sourceLabel}. Reçu ${result.requestId}.`);
         if (result.receipt?.jobId === jobId) setWatch((n) => n + 1);
       }
     } catch (error) {
@@ -160,6 +186,7 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
       setMessage(failure(error));
       const lost = !isTakeoffApiError(error) || !error.status || error.status === 200 || error.status >= 500;
       setChangedCopy(isTakeoffApiError(error) && error.code === "TAKEOFF_ITEM_MEASURE_COPY_CHANGED");
+      setPaymentStale(isTakeoffApiError(error) && error.code === TAKEOFF_PAYMENT_SETTINGS_CHANGED);
       setUnsure(lost);
       setNeedsPreview(!lost);
       if (!lost) onRefresh();
@@ -168,7 +195,7 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
       if (id === operation.current) setBusy(false);
     }
   }
-  const preview = summary?.preview;
+  const preview = payment.ready && summary?.command.payment_choice === payment.choice ? summary?.preview : null;
   const selected = preview?.models?.find((m) => m.id === model);
   return <section className="shrink-0 space-y-1 border-t border-border px-3 py-2 text-xs">
     <Button size="xs" variant="outline" onClick={() => void show(false)}>
@@ -194,6 +221,10 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
     <Dialog open={open} onOpenChange={(value) => { if (!value && !submitting.current && !unsure) { operation.current++; setOpen(false); } }}>
       <DialogContent><DialogHeader><DialogTitle>Mesurer ce poste</DialogTitle>
         <DialogDescription>{line.label} · {line.expectedUnit ?? "Unité non renseignée"} · {plan.name}</DialogDescription></DialogHeader>
+        <TakeoffPaymentFields settings={payment} disabled={busy || unsure} stale={paymentStale} onReload={() => {
+          payment.reload();
+          show(singlePage, true);
+        }} />
         <label className="grid gap-1 text-sm">Portée <NativeSelect size="sm" value={singlePage ? "page" : "plan"} disabled={busy || unsure} onChange={(e) => void show(e.target.value === "page", true)}>
           <option value="plan">Toutes les pages admises du plan</option><option value="page">Page affichée seule · {page}</option>
         </NativeSelect></label>
@@ -212,8 +243,8 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
           {preview.detail ? <><p>Pages admises · {preview.detail.pages.length ? preview.detail.pages.join(", ") : `Tout le plan (${preview.detail.pageCount ?? "nombre inconnu"} pages)`}</p>
             <p>Couverture précédente · {preview.detail.previousPages.join(", ") || "Aucune page connue"}</p>
             <p>{effects[preview.detail.effect]}</p></> : null}
-          <p>Niveau · Détaillé</p><p>Forfait de {preview.payer.name ?? "la personne connectée"}</p>
-          {preview.subscription.state === "unavailable" ? <p role="alert">{preview.subscription.reason}</p> : <>
+          <p>Niveau · Détaillé</p><p>{preview.payment?.source === "personal_api_key" ? "Clé API" : "Forfait"} de {preview.payer.name ?? "la personne connectée"}</p>
+          {preview.subscription.state === "unavailable" ? <p role="alert">{preview.subscription.reason}</p> : !payment.explicitChoice && <>
             <label className="grid gap-1 text-sm">Modèle <NativeSelect size="sm" value={model} disabled={busy || unsure} onChange={(e) => { setModel(e.target.value); setEffort(null); }}>
               {!selected ? <option value={model}>{model} (indisponible)</option> : null}
               {preview.models?.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</NativeSelect></label>
@@ -228,9 +259,9 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
         {message ? <p role="alert">{message}</p> : null}
         <DialogFooter><Button variant="outline" disabled={busy || unsure} onClick={() => { operation.current++; setOpen(false); }}>Fermer</Button>
           {changedCopy ? <Button onClick={onOpenCurrent}>Ouvrir la copie actuelle du plan</Button>
-            : needsPreview || preview?.running ? <Button disabled={busy} onClick={() => void show(singlePage, true)}>Relire le récapitulatif</Button>
-            : <Button disabled={!preview?.detail || !selected || (effort !== null && !selected.reasoningEfforts.includes(effort)) || preview.reading.state !== "ready" || busy}
-              onClick={() => void confirm()}>{unsure ? "Retrouver le reçu" : "Mesurer avec mon forfait"}</Button>}</DialogFooter>
+            : (needsPreview || preview?.running) && !paymentStale ? <Button disabled={busy} onClick={() => show(singlePage, true)}>Relire le récapitulatif</Button>
+            : <Button disabled={!preview?.detail || (!payment.choice && (!selected || (effort !== null && !selected.reasoningEfforts.includes(effort)))) || preview.reading.state !== "ready" || busy || paymentStale}
+              onClick={() => void confirm()}>{unsure ? "Retrouver le reçu" : payment.value.source === "personal_api_key" ? "Mesurer avec ma clé API" : "Mesurer avec mon forfait"}</Button>}</DialogFooter>
       </DialogContent>
     </Dialog>
   </section>;

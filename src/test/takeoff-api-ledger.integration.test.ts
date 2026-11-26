@@ -139,7 +139,7 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before com
       if (saved.outcome !== "saved" || saved.state.status !== "saved") throw new Error("Fictional key was not saved");
       const { connectionId } = saved.state.connection;
       await api.saveAnalysisPreferences(owner, { billingSource: "personal_api_key", apiModel: model, apiReasoningEffort: "medium" }, connectionId);
-      const paymentChoice = { model, effort, expectedConnectionId: connectionId };
+      const paymentChoice = { model, effort, expectedConnectionId: connectionId, expectedMaxCostCents: 100 };
       const preview = await loadTakeoffExecutionPreviewAction({ projectId, paymentChoice });
       expect(preview).toMatchObject({ ok: true, data: { model, reasoningEffort: effort } });
       await expect(loadTakeoffExecutionPreviewAction({ projectId, paymentChoice: { ...paymentChoice, expectedConnectionId: randomUUID() } }))

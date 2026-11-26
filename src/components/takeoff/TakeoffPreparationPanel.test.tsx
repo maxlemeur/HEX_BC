@@ -11,9 +11,12 @@ import { TakeoffPreparationPanel } from "@/components/takeoff/TakeoffPreparation
 import { createEmptyTakeoffPreparation, evaluateTakeoffPreparation, takeoffPreparationSourceSchema, type TakeoffPreparation } from "@/lib/takeoff/preparation";
 import { buildDeducedTakeoffPreparation, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
 import type { RelaunchPlanChoice } from "@/lib/takeoff/relaunch-plan-choice-server";
+import { FIXTURE_KEY_CONNECTION, fixtureTakeoffPaymentOptions, NO_PAYMENT_OPTIONS } from "@/lib/takeoff/payment-settings.test-fixtures";
 
 const readRelaunchPlans = vi.hoisted(() => vi.fn());
+const readPayment = vi.hoisted(() => vi.fn());
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
+  readTakeoffPaymentOptionsAction: readPayment,
   readRelaunchPlanChoiceAction: readRelaunchPlans,
   launchPreparedTakeoffFromPlanSetAction: vi.fn(),
   launchPreparedTakeoffFromSourceVersionPlanSetAction: vi.fn(),
@@ -71,6 +74,7 @@ function state() {
 }
 
 beforeEach(() => {
+  readPayment.mockReset().mockResolvedValue(NO_PAYMENT_OPTIONS);
   // Reset rather than clear: a `*Once` queue left by a test that failed early must not answer this one.
   for (const mock of [...Object.values(actions), ...Object.values(pageContributions)]) mock.mockReset();
   pageContributions.launch.mockResolvedValue({ version_id: VERSION_ID, pages: [], jobs: [], unidentified_item_ids: [], other_takeoff_line_count: 0 });
@@ -106,6 +110,37 @@ async function openOptions() {
 }
 
 describe("TakeoffPreparationPanel", () => {
+  it("shows the key profile defaults and seals the changed model and effort for one launch", async () => {
+    const defaults = fixtureTakeoffPaymentOptions();
+    readPayment.mockResolvedValue(defaults);
+    actions.chatGpt.mockImplementation(async (input) => input ? success({ fingerprint: "c".repeat(64) }) : null);
+    const onLaunch = vi.fn();
+    render(<TakeoffPreparationPanel {...props} onLaunch={onLaunch} />);
+    expect(await screen.findByLabelText("Source IA")).toHaveValue("personal_api_key");
+    expect(screen.getByLabelText("Modèle")).toHaveValue("gpt-6.1-sol");
+    expect(screen.getByText(/Plafond pour cette demande.*25.*US/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Modèle"), { target: { value: "gpt-6.2-sol" } });
+    fireEvent.change(screen.getByLabelText(/effort|raisonnement/i), { target: { value: "high" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
+    const choice = { source: "personal_api_key", model: "gpt-6.2-sol", effort: "high", expectedConnectionId: FIXTURE_KEY_CONNECTION, expectedMaxCostCents: 2500 };
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(6, 1, undefined, choice));
+    expect(actions.confirm).toHaveBeenCalledWith(expect.objectContaining({ paymentChoice: choice, expectedExecutionFingerprint: "c".repeat(64) }));
+    expect(actions.saveProfile).not.toHaveBeenCalled();
+    cleanup();
+    render(<TakeoffPreparationPanel {...props} onLaunch={onLaunch} />);
+    expect(await screen.findByLabelText("Modèle")).toHaveValue("gpt-6.1-sol");
+  });
+
+  it("keeps the existing preparation confirmation on an untouched ChatGPT default", async () => {
+    readPayment.mockResolvedValue(fixtureTakeoffPaymentOptions("chatgpt_plan"));
+    actions.chatGpt.mockResolvedValue({ model: "modele-forfait", reasoningEffort: "medium", fingerprint: "d".repeat(64) });
+    const onLaunch = vi.fn();
+    render(<TakeoffPreparationPanel {...props} onLaunch={onLaunch} />);
+    expect(await screen.findByLabelText("Source IA")).toHaveValue("chatgpt_plan");
+    fireEvent.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(6, 1));
+    expect(actions.confirm).toHaveBeenCalledWith({ projectId: PROJECT_ID, expectedRevision: 5, expectedExecutionFingerprint: "d".repeat(64) });
+  });
   it("keeps the member's unticked plan and launch count during and after reconnecting", async () => {
     stored.sources = [SOURCE, SECOND_PLAN];
     availableSources = stored.sources;

@@ -141,8 +141,8 @@ export async function launchTakeoffFromSourceVersionPlanSet(
     ...processing,
   });
   // Check the local provider before creating a new business version.
-  await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot, usesTakeoffApiKey(snapshot) ? parsed.projectId : undefined);
   await assertTakeoffPaymentMatches(context, parsed.projectId, snapshot, parsed.paymentChoice);
+  await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot, usesTakeoffApiKey(snapshot) ? parsed.projectId : undefined);
   const copyScope = {
     context, projectId: parsed.projectId, sourceVersionId: parsed.sourceVersionId, preparationRevision: parsed.preparationRevision!,
   };

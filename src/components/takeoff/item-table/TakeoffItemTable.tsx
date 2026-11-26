@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { RevisionQuantities } from "@/components/takeoff/contribution-revision/RevisionQuantities";
 import { useContributionRevisions } from "@/components/takeoff/contribution-revision/useContributionRevisions";
@@ -15,6 +15,8 @@ import { ChevronDown } from "lucide-react";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
 import { itemTableLineDetailHref } from "@/lib/takeoff/item-detail-address";
 import { isTakeoffReadRefusal } from "../useTakeoffRequestActivity";
+import { useTakeoffPaymentSettings } from "../useTakeoffPaymentSettings";
+import { TAKEOFF_PAYMENT_SETTINGS_CHANGED, type TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
 import { ITEM_AGGREGATE_STATES } from "@/lib/takeoff/item-answer-aggregation";
 import { ITEM_LINE_DECISIONS, type ItemSetAsideReason, type ItemTableScope } from "@/lib/takeoff/item-table";
 import {
@@ -304,7 +306,10 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string; seen?: ItemRemeasureSeen }>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null }>({ value: null, error: null });
+  const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null; choice?: TakeoffPaymentChoice }>({ value: null, error: null });
+  const [paymentStale, setPaymentStale] = useState(false);
+  const remeasureIntent = dialog?.gesture === "remeasure" ? dialog.intentKey : null;
+  const payment = useTakeoffPaymentSettings(projectId, remeasureIntent);
   // The send belongs to the plan's scope it was opened from: another scope (a filter, the browser's history) closes it.
   const [sending, setSending] = useState<{ jobId: string; planName: string; scope: string } | null>(null);
 
@@ -421,38 +426,56 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const seenOfSelection = useCallback((): ItemRemeasureSeen => ({ list_revision_id: data?.list?.revisionId ?? null,
     targets: Object.values(selection.items).map(({ target }) => target) }), [data?.list?.revisionId, selection]);
 
-  const openRemeasure = useCallback(async () => {
+  const openRemeasure = () => {
     const intentKey = newIntent();
     setDialog({ gesture: "remeasure", intentKey, seen: seenOfSelection() });
     setPreview({ value: null, error: null });
+    setPaymentStale(false);
+  };
+  const readRemeasure = useEffectEvent((active: () => boolean) => {
+    if (!dialog?.seen) return;
+    const { intentKey, seen } = dialog;
+    const choice = payment.choice;
     // The preview is shown in the dialog it was asked for only: one closed, or opened again since, never receives it.
     const completion = forDialog({ screen: screenKey, item: intentKey });
-    try {
-      const value = await previewItemRemeasure(projectId, selection.scope, Object.keys(selection.items), seenOfSelection());
-      if (completion.current()) setPreview({ value, error: null });
-    } catch (caught) {
-      if (completion.current()) {
-        setPreview({ value: null, error: isTakeoffApiError(caught) ? caught.message : "Impossible de préparer la nouvelle mesure." });
+    const ids = seen.targets.map(({ itemId }) => itemId);
+    const request = choice
+      ? previewItemRemeasure(projectId, selection.scope, ids, seen, undefined, undefined, choice)
+      : previewItemRemeasure(projectId, selection.scope, ids, seen);
+    void request.then((value) => {
+      if (active() && completion.current()) setPreview({ value, error: null, choice });
+    }, (caught) => {
+      if (active() && completion.current()) {
+        setPaymentStale(isTakeoffApiError(caught) && caught.code === TAKEOFF_PAYMENT_SETTINGS_CHANGED);
+        setPreview({ value: null, error: isTakeoffApiError(caught) ? caught.message : "Impossible de préparer la nouvelle mesure.", choice });
       }
-    }
-  }, [projectId, selection, seenOfSelection, forDialog, screenKey]);
+    });
+  });
+  useEffect(() => {
+    let active = true;
+    if (remeasureIntent && payment.ready && !paymentStale) readRemeasure(() => active);
+    return () => { active = false; };
+  }, [remeasureIntent, payment.ready, payment.choice, paymentStale, screenKey]);
+  const shownPreview = payment.ready && preview.choice === payment.choice ? preview : null;
 
   const confirmRemeasure = useCallback(async () => {
-    if (!dialog || !preview.value) return;
+    if (!dialog || !shownPreview?.value || paymentStale || busy) return;
     setBusy(true);
     const started = selection;
     const completion = forSelection({ screen: screenKey, item: selectionToken(started) });
     try {
       const result = await sendItemRemeasure(projectId, { command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: dialog.intentKey,
-        scope: selection.scope, item_ids: preview.value.items.map(({ itemId }) => itemId),
-        plan_keys: preview.value.plans.map(({ key: planKey }) => planKey),
-        // The profile's setting as it is: the Mac reads a request with its payer's profile.
-        setting: null, preview_digest: preview.value.previewDigest,
+        scope: selection.scope, item_ids: shownPreview.value.items.map(({ itemId }) => itemId),
+        plan_keys: shownPreview.value.plans.map(({ key: planKey }) => planKey),
+        setting: null, preview_digest: shownPreview.value.previewDigest,
+        ...(shownPreview.choice && { payment_choice: shownPreview.choice }),
         seen: dialog.seen ?? seenOfSelection() });
       if (completion.ownScreen()) {
         setNotice(result.outcome === "already_running"
           ? { tone: "info", text: "Une analyse de l’affaire est en cours : la sélection reste prête pour la nouvelle mesure." }
-          : { tone: "success", text: "Nouvelle mesure demandée : les postes seront lus de nouveau sur votre forfait." });
+          : { tone: "success", text: shownPreview.choice?.source === "personal_api_key"
+            ? "Nouvelle mesure demandée : les postes seront lus de nouveau avec votre clé API."
+            : "Nouvelle mesure demandée : les postes seront lus de nouveau sur votre forfait." });
       }
       if (result.outcome !== "already_running") {
         if (completion.current()) updateSelection(emptyItemSelection(started.scope));
@@ -461,12 +484,17 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
       }
       setDialog(null);
     } catch (caught) {
+      if (isTakeoffApiError(caught) && caught.code === TAKEOFF_PAYMENT_SETTINGS_CHANGED) {
+        setPaymentStale(true);
+        setPreview({ ...shownPreview, error: caught.message });
+        return;
+      }
       setDialog(null);
       await failure(caught, started);
     } finally {
       setBusy(false);
     }
-  }, [dialog, preview.value, projectId, selection, updateSelection, failure, refresh, seenOfSelection, forSelection, screenKey]);
+  }, [dialog, shownPreview, paymentStale, busy, projectId, selection, updateSelection, failure, refresh, seenOfSelection, forSelection, screenKey]);
 
   // « Tous les résultats du filtre »: applied only if the member still holds the selection and the filter it was asked for.
   const selectFilter = useCallback(async () => {
@@ -901,7 +929,12 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
           onOpenChange={(open) => { if (!open) setSending(null); }} onSent={() => void refresh()} />
       ) : null}
       {dialog?.gesture === "remeasure" ? (
-        <RemeasureDialog scopeLabel={label} busy={busy} preview={preview.value} loadError={preview.error}
+        <RemeasureDialog scopeLabel={label} busy={busy} preview={shownPreview?.value ?? null} loadError={shownPreview?.error ?? null}
+          payment={payment} paymentStale={paymentStale} onReloadPayment={() => {
+            setPreview({ value: null, error: null });
+            setPaymentStale(false);
+            payment.reload();
+          }}
           onClose={() => setDialog(null)} onConfirm={() => void confirmRemeasure()} />
       ) : null}
     </JourneyPanel>

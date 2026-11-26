@@ -20,6 +20,9 @@ import { resolveDeducedPlanVersions, restorePlanSetOptions } from "@/lib/takeoff
 import { describeTakeoffRelaunchChoice } from "@/lib/takeoff/launch-request";
 import type { RelaunchPlanChoice, RelaunchPlanState } from "@/lib/takeoff/relaunch-plan-choice-server";
 import { describeTakeoffRequestUnitState } from "@/lib/takeoff/request-activity";
+import type { TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
+import { TakeoffPaymentFields } from "./TakeoffPaymentFields";
+import { useTakeoffPaymentSettings } from "./useTakeoffPaymentSettings";
 
 const STEPS = ["Mes documents", "Ce que je veux mesurer", "Points à préciser", "Vérifier et lancer"];
 const PLAN_STATE_LABELS: Record<RelaunchPlanState, string> = {
@@ -38,7 +41,10 @@ export type TakeoffPreparationPanelProps = {
   planChoice?: "required";
   relaunchPlans?: RelaunchPlanChoice;
   onRefreshRelaunchPlans?: () => Promise<RelaunchPlanChoice>;
-  onLaunch: (revision: number, planFileCount: number, planIds?: string[]) => Promise<void>;
+  onLaunch: (revision: number, planFileCount: number, planIds?: string[], paymentChoice?: TakeoffPaymentChoice) => Promise<void>;
+  paymentSettingsStale?: boolean;
+  explicitPaymentRequired?: boolean;
+  onReloadPaymentSettings?: () => void;
   onBusyChange?: (busy: boolean) => void;
   onRegisterSave?: (save: () => Promise<number | null>) => void;
   disabled?: boolean;
@@ -54,7 +60,7 @@ export function TakeoffPreparationPanel(props: TakeoffPreparationPanelProps) {
   return <TakeoffPreparationPanelContent key={`${user?.tenantId ?? "unknown"}:${user?.profile?.id ?? "unknown"}:${props.projectId}`} {...props} />;
 }
 
-function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, documentControls, destinationControls, onLaunch, onBusyChange, onRegisterSave, planChoice, relaunchPlans, onRefreshRelaunchPlans, launchDisabled = false, launchNotice = null, analysisOnly = false, disabled = false }: TakeoffPreparationPanelProps) {
+function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, documentControls, destinationControls, onLaunch, onBusyChange, onRegisterSave, planChoice, relaunchPlans, onRefreshRelaunchPlans, paymentSettingsStale, explicitPaymentRequired, onReloadPaymentSettings, launchDisabled = false, launchNotice = null, analysisOnly = false, disabled = false }: TakeoffPreparationPanelProps) {
   const { record, support, draft, updateDraft, saveState, error, save, saveOptions, renew, reload, confirm, adopt, addProfile } = useTakeoffPreparation(projectId, planSetId);
   const [planChoices, setPlanChoices] = useState<Record<string, boolean>>({});
   const [triaging, setTriaging] = useState(false);
@@ -66,6 +72,11 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
   const [renewedRevision, setRenewedRevision] = useState<number | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  const [paymentStale, setPaymentStale] = useState(false);
+  const payment = useTakeoffPaymentSettings(projectId, launchDisabled ? null : "preparation");
+  const stale = paymentStale || paymentSettingsStale;
+  const keyPayment = payment.value.source === "personal_api_key";
+  const paymentReady = payment.ready && (!explicitPaymentRequired || Boolean(payment.explicitChoice));
   const availableSources = useMemo(() => record?.availableSources ?? [], [record?.availableSources]);
   const isRelaunch = relaunchPlans !== undefined;
   const effective = useMemo(() => {
@@ -103,7 +114,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
   const readiness = useMemo(() => effective && launchSources && evaluateTakeoffPreparation({ ...effective, sources: launchSources }),
     [effective, launchSources]);
   async function launch() {
-    if (!readiness?.can_launch || locked || launchDisabled || emptyChoice) return;
+    if (!readiness?.can_launch || locked || launchDisabled || emptyChoice || stale || !paymentReady) return;
     setConfirming(true);
     onBusyChange?.(true);
     setLaunchError(null);
@@ -129,7 +140,8 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
           return;
         }
       }
-      const confirmed = await confirm(choosePlans ? chosen : undefined);
+      const choice = payment.choice ?? (explicitPaymentRequired || !support?.chatGpt ? payment.explicitChoice : undefined);
+      const confirmed = await confirm(choosePlans ? chosen : undefined, choice);
       if (confirmed === null) {
         setShowOptions(true);
         setStep(0);
@@ -139,9 +151,11 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
         setLaunchError("Les plans retenus ont changé pendant la confirmation. Vérifiez la sélection avant de relancer.");
         return;
       }
-      if (choosePlans) await onLaunch(confirmed.revision, confirmed.planFileCount, confirmed.planFileIds);
+      if (choice) await onLaunch(confirmed.revision, confirmed.planFileCount, choosePlans ? confirmed.planFileIds : undefined, choice);
+      else if (choosePlans) await onLaunch(confirmed.revision, confirmed.planFileCount, confirmed.planFileIds);
       else await onLaunch(confirmed.revision, confirmed.planFileCount);
     } catch (cause) {
+      setPaymentStale(cause instanceof TakeoffActionError && cause.reloadSettings);
       setLaunchError(cause instanceof TakeoffActionError ? cause.message : "Impossible de confirmer le lancement. Vos réponses sont conservées.");
     } finally { setConfirming(false); onBusyChange?.(false); }
   }
@@ -166,20 +180,20 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
 
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-2">
-      <p className="text-sm font-medium">Analyse détaillée avec votre forfait ChatGPT</p>
+      <p className="text-sm font-medium">{keyPayment ? "Analyse détaillée avec votre clé API OpenAI" : "Analyse détaillée avec votre forfait ChatGPT"}</p>
       <button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} disabled={locked} aria-expanded={showOptions} onClick={() => { setShowOptions(!showOptions); if (showOptions) setStep(3); }}>Options du métré</button>
     </div>
-    <p className="text-sm text-muted-foreground">
+    {!keyPayment && !payment.choice && <p className="text-sm text-muted-foreground">
       {support.chatGpt ? `${support.chatGpt.model} · Effort ${support.chatGpt.reasoningEffort ? CHATGPT_REASONING_EFFORT_LABELS[support.chatGpt.reasoningEffort].toLocaleLowerCase("fr") : "par défaut"}.` : "Connectez votre forfait ChatGPT et choisissez un modèle dans Mon profil pour lancer le métré."}{" "}
       <Link href="/dashboard/profile" className="underline">Gérer mon forfait ChatGPT</Link>
-    </p>
+    </p>}
     {relaunchPlans?.withoutCopy.length ? (
       <Alert variant="warning"><AlertDescription>
         {describeTakeoffRelaunchChoice({ withoutCopy: relaunchPlans.withoutCopy, remaining: [] })}
       </AlertDescription></Alert>
     ) : null}
     {choosePlans && <fieldset disabled={locked} className="space-y-2">
-      <legend className="text-sm font-medium">{isRelaunch ? "Plans à relancer" : "Plans à lancer avec mon forfait"}</legend>
+      <legend className="text-sm font-medium">{isRelaunch ? "Plans à relancer" : keyPayment ? "Plans à lancer avec ma clé API" : "Plans à lancer avec mon forfait"}</legend>
       {availablePlans.map((plan) => {
         const id = plan.document_id;
         const state = relaunchPlans?.states[id] ?? "not_analysed";
@@ -213,7 +227,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       <span className={saveState === "error" ? "text-danger" : "text-muted-foreground"}>{saveLabel}</span>
       {showOptions && <button type="button" disabled={locked || saveState === "saving"} className="text-primary underline disabled:opacity-50" onClick={() => void saveOptions().catch(() => undefined)}>Enregistrer maintenant</button>}
     </div>
-    {(error || launchError) && <Alert variant="danger"><AlertDescription>{error ?? launchError}<button type="button" className="mt-2 block text-sm underline" onClick={() => { setLaunchError(null); void reload(); }}>Reprendre la dernière préparation</button><span className="mt-1 block text-xs">La reprise remplace les réponses affichées par la dernière révision enregistrée.</span></AlertDescription></Alert>}
+    {(error || launchError) && <Alert variant="danger"><AlertDescription>{error ?? launchError}{!paymentStale && <><button type="button" className="mt-2 block text-sm underline" onClick={() => { setLaunchError(null); void reload(); }}>Reprendre la dernière préparation</button><span className="mt-1 block text-xs">La reprise remplace les réponses affichées par la dernière révision enregistrée.</span></>}</AlertDescription></Alert>}
     {record && record.changedSourceIds.length > 0 && <Alert variant="warning"><AlertDescription>Des documents ont changé depuis la dernière préparation. Vérifiez les sources concernées et les confirmations rouvertes ; les analyses précédentes sont conservées.</AlertDescription></Alert>}
     {/* Keep the proposal and its question ordering active while navigating the steps. */}
     {showOptions && <div hidden={step !== 1}>
@@ -239,12 +253,18 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
     </div>}
     {launchNotice && <p role="status" className="text-sm text-muted-foreground">{launchNotice}</p>}
     {selectionNotice && <p role="status" className="text-sm text-muted-foreground">{selectionNotice}</p>}
+    {step === 3 && !launchDisabled && <TakeoffPaymentFields settings={payment} disabled={locked} stale={stale} onReload={() => {
+      setPaymentStale(false);
+      setLaunchError(null);
+      onReloadPaymentSettings?.();
+      payment.reload();
+    }} />}
     {isRelaunch && emptyChoice && <p role="status" className="text-sm text-muted-foreground">
       {availablePlans.length ? "Cochez au moins un plan à relancer." : "Aucun plan actif dans ce jeu de plans."}
     </p>}
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
       {showOptions && <button type="button" className={buttonVariants({ variant: "outline", size: "md" })} disabled={locked || step === 0} onClick={() => setStep((value) => value - 1)}>Retour</button>}
-      {step < 3 ? <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked} onClick={() => setStep((value) => value + 1)}>Continuer</button> : <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked || launchDisabled || emptyChoice || !readiness?.can_launch || saveState === "error"} onClick={() => void launch()}>{renewing ? "Nouvelle préparation…" : confirming ? "Confirmation et lancement…" : isRelaunch ? `Relancer ${chosen.length} plan${chosen.length > 1 ? "s" : ""} avec mon forfait` : "Confirmer et lancer le métré"}</button>}
+      {step < 3 ? <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked} onClick={() => setStep((value) => value + 1)}>Continuer</button> : <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked || launchDisabled || emptyChoice || !readiness?.can_launch || saveState === "error" || stale || !paymentReady} onClick={() => void launch()}>{renewing ? "Nouvelle préparation…" : confirming ? "Confirmation et lancement…" : isRelaunch ? `Relancer ${chosen.length} plan${chosen.length > 1 ? "s" : ""} avec ${keyPayment ? "ma clé API" : "mon forfait"}` : "Confirmer et lancer le métré"}</button>}
     </div>
   </div>;
 }

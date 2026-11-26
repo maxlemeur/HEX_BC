@@ -2,7 +2,7 @@ import "server-only";
 
 import { TAKEOFF_NANO_USD_PER_CENT, type TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
 import { assertTakeoffApiConnection, readTakeoffApiMandate, takeoffPaymentHostId,
-  takeoffPaymentError, usesTakeoffApiKey, type TakeoffApiMandate } from "@/lib/takeoff/payment-mandate-server";
+  takeoffPaymentChoiceRequired, usesTakeoffApiKey, type TakeoffApiMandate } from "@/lib/takeoff/payment-mandate-server";
 import { resolveTakeoffPayment } from "@/lib/takeoff/payment-server";
 import { databaseError, gestureResult, payerNoticeDigest, readPayerSubscription, selectionParameters,
   type GestureRow } from "./launch-payer-server";
@@ -160,7 +160,8 @@ export async function confirmAffaireBriefWithTakeoff(input: {
     const { data: expected, error } = await payerNoticeDigest(service, { ...context, projectId: input.projectId }, subscription.selection);
     if (error) databaseError(error, "Impossible de vérifier le mandat de paiement du métré.");
     if (!input.notice || expected !== input.notice) return { outcome: "choice_refused" as const, takeoff: null,
-      code: "TAKEOFF_PAYER_NOTICE_CHANGED", message: "Le payeur, les réglages ou le budget du métré ont changé. Rechargez la mention de paiement." };
+      code: "TAKEOFF_PAYER_NOTICE_CHANGED", reloadSettings: true as const,
+      message: "Le payeur, les réglages ou le budget du métré ont changé. Rechargez la mention de paiement." };
   }
   const { data, error } = await service.rpc("confirm_affaire_brief_plan_choice", {
     p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId,
@@ -205,7 +206,7 @@ export async function assumeTakeoffLaunchRequest(input: {
       .eq("tenant_id", context.tenantId).eq("project_id", projectId).eq("id", input.requestId).maybeSingle();
     if (error) databaseError(error, "Impossible de vérifier le mandat du métré.");
     if (usesTakeoffApiKey({ execution_selection: mandate?.mandate_selection })) {
-      throw takeoffPaymentError("Choisissez qui paiera le métré avant de reprendre la demande.");
+      throw takeoffPaymentChoiceRequired("Choisissez qui paiera le métré avant de reprendre la demande.");
     }
   }
   const subscription = input.paymentChoice
@@ -796,7 +797,7 @@ export async function launchTakeoffRelaunch(input: {
     return { outcome: recorded.outcome as TakeoffRelaunchResult["outcome"], requestId: recorded.request_id, jobId: recorded.job_id };
   }
   if (commandPlans.predecessorUsedKey && !input.paymentChoice) {
-    throw takeoffPaymentError("Choisissez qui paiera cette nouvelle analyse du métré.");
+    throw takeoffPaymentChoiceRequired("Choisissez qui paiera cette nouvelle analyse du métré.");
   }
   if (await isTakeoffPlanDispatchActive(service)) {
     // No receipt: the plans of the analysis it replaces are read at their current copies.
@@ -853,7 +854,7 @@ async function relaunchSeal(service: Service, input: RelaunchInput) {
     snapshot.confirmed_by = context.userId;
     snapshot.confirmed_at = new Date().toISOString();
   } else if (snapshot.execution_selection?.source === "personal_api_key") {
-    throw takeoffPaymentError("Choisissez qui paiera la nouvelle analyse du métré.");
+    throw takeoffPaymentChoiceRequired("Choisissez qui paiera la nouvelle analyse du métré.");
   }
   const owner = await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot,
     snapshot.execution_selection?.source === "personal_api_key" ? input.projectId : undefined);

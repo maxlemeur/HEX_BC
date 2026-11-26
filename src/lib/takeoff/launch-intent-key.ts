@@ -15,6 +15,8 @@ export type TakeoffLaunchCommand = {
   preparationRevision: number;
   /** The plans the member chose to read (a command that names them); none for the plans of the analysis it replaces. */
   planFileIds?: string[];
+  /** Fingerprint of the payment settings shown when this command was confirmed. */
+  paymentFingerprint?: string;
 };
 
 type Entry = { outstanding: TakeoffLaunchCommand | null; settled: string[] };
@@ -89,7 +91,8 @@ function toCommand(value: unknown): TakeoffLaunchCommand | null {
     && (entry.planFileIds === undefined || (Array.isArray(entry.planFileIds) && entry.planFileIds.length > 0
       && entry.planFileIds.every((id) => typeof id === "string" && UUID.test(id))))
     ? { intentKey: entry.intentKey, predecessorJobId: entry.predecessorJobId, planSetId: entry.planSetId,
-      preparationRevision: entry.preparationRevision, ...(entry.planFileIds ? { planFileIds: [...entry.planFileIds] } : {}) }
+      preparationRevision: entry.preparationRevision, ...(entry.planFileIds ? { planFileIds: [...entry.planFileIds] } : {}),
+      ...(typeof entry.paymentFingerprint === "string" && { paymentFingerprint: entry.paymentFingerprint }) }
     : null;
 }
 
@@ -122,7 +125,8 @@ function writeEntry(storage: Storage | null, name: string, entry: Entry) {
 export function isSameTakeoffLaunch(command: TakeoffLaunchCommand, content: Omit<TakeoffLaunchCommand, "intentKey">) {
   const plans = (ids: string[] | undefined) => [...(ids ?? [])].map((id) => id.toLowerCase()).sort().join();
   return command.predecessorJobId === content.predecessorJobId && command.planSetId === content.planSetId
-    && command.preparationRevision === content.preparationRevision && plans(command.planFileIds) === plans(content.planFileIds);
+    && command.preparationRevision === content.preparationRevision && plans(command.planFileIds) === plans(content.planFileIds)
+    && command.paymentFingerprint === content.paymentFingerprint;
 }
 
 /** The member's command on this affaire whose answer is unknown, if any: it is sent again before anything new. */

@@ -29,6 +29,7 @@ const LOCAL_BUSINESS_JOURNEYS = [
   "e2e/army/local/affaire-register.e2e.ts",
   "e2e/army/local/intake-cad.e2e.ts",
   "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
+  "e2e/army/local/takeoff-payment-settings.e2e.ts",
   "e2e/army/local/chatgpt-local-decisions.e2e.ts",
   "e2e/army/local/chatgpt-local-intake-confirmation.e2e.ts",
   "e2e/army/local/chatgpt-local-intake-documents.e2e.ts",

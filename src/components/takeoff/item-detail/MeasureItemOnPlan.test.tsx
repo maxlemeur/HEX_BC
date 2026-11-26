@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { basinLine, DETAIL_PROJECT, JOB_RDC, MEMBER, PLAN_RDC, planViews, SET } from "@/lib/takeoff/item-detail.test-fixtures";
 import { itemDetailHref, readItemDetailAddress } from "@/lib/takeoff/item-detail-address";
@@ -8,6 +8,11 @@ import { TakeoffApiError } from "@/lib/takeoff/client-http";
 import { fetchItemMeasureReadings, previewItemRemeasure, sendItemRemeasure } from "@/lib/takeoff/item-table-client";
 import type { ItemRemeasureResult } from "@/lib/takeoff/item-table-contracts";
 import { MeasureItemOnPlan } from "./MeasureItemOnPlan";
+import { NO_PAYMENT_OPTIONS } from "@/lib/takeoff/payment-settings.test-fixtures";
+
+const readPayment = vi.hoisted(() => vi.fn());
+vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({ readTakeoffPaymentOptionsAction: readPayment }));
+beforeEach(() => { readPayment.mockResolvedValue(NO_PAYMENT_OPTIONS); });
 
 vi.mock("@/lib/takeoff/item-table-client", () => ({
   fetchItemMeasureReadings: vi.fn(), previewItemRemeasure: vi.fn(), sendItemRemeasure: vi.fn(),

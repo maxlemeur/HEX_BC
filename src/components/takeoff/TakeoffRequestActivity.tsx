@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
-import { assumeTakeoffLaunchRequestAction } from "@/app/dashboard/affaires/_actions/takeoff";
 import { TakeoffPlanLocationDialog } from "@/components/takeoff/TakeoffPlanLocationDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -27,6 +26,7 @@ import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { describeTakeoffJobFailure } from "@/lib/takeoff/visible-status";
 
 import { useTakeoffRequestActivity } from "./useTakeoffRequestActivity";
+import { TakeoffAssumeControls } from "./TakeoffAssumeControls";
 
 const TakeoffItemSendDialog = dynamic(
   () => import("@/components/takeoff/item-send/TakeoffItemSendDialog").then((module) => module.TakeoffItemSendDialog),
@@ -214,14 +214,7 @@ function RequestUnits({ projectId, request, onLocate, onCommand, onSendItems, pe
 
 /** What the request's units cannot say: its reason, its gesture, the plans set aside and the dossier's changes since. */
 function RequestNotes({ projectId, request, onChanged }: { projectId: string; request: Activity; onChanged: () => void }) {
-  const [gesture, setGesture] = useState<{ pending: boolean; error: string | null }>({ pending: false, error: null });
   const action = request.action;
-  const take = async (kind: "take_on" | "resume") => {
-    setGesture({ pending: true, error: null });
-    const result = await assumeTakeoffLaunchRequestAction({ projectId, requestId: request.id, seenRevision: action!.mandateRevision, action: kind });
-    setGesture({ pending: false, error: result.ok ? null : result.error.message });
-    onChanged();
-  };
   const changed = request.dossierChanged;
   const OMITTED: Record<Activity["plansOmitted"][number]["reason"], string> = {
     alternate: "autre indice retenu", identical_copy: "copie identique", unsupported_format: "format non lu",
@@ -233,12 +226,8 @@ function RequestNotes({ projectId, request, onChanged }: { projectId: string; re
     <>
       {request.reason ? <p className="text-sm text-foreground-secondary">{request.reason.message}</p> : null}
       {action && (action.kind === "take_on" || action.kind === "resume") && action.label ? (
-        <div className="space-y-2">
-          <Button type="button" variant="primary" size="sm" disabled={gesture.pending} onClick={() => void take(action.kind as "take_on" | "resume")}>
-            {gesture.pending ? "Enregistrement…" : action.label}
-          </Button>
-          {gesture.error ? <p className="text-sm text-danger" role="alert">{gesture.error}</p> : null}
-        </div>
+        <TakeoffAssumeControls key={`${request.id}:${action.mandateRevision}`} projectId={projectId} requestId={request.id}
+          revision={action.mandateRevision} action={action.kind} label={action.label} busyLabel="Enregistrement…" onChanged={onChanged} />
       ) : action?.kind === "open_mac" ? (
         <p className="text-sm text-muted-foreground">Ouvrez MergeOne sur le Mac connecté pour reprendre ce métré avec votre forfait.</p>
       ) : null}

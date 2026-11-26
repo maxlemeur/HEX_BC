@@ -5,10 +5,18 @@ import { ApiError } from "@/lib/http/api-response";
 import { TakeoffError } from "@/lib/takeoff/errors";
 import { TakeoffPreparationNotReadyError } from "@/lib/takeoff/preparation";
 import type { SafeTakeoffActionResult, TakeoffActionFailure } from "@/lib/takeoff/action-result";
+import { TAKEOFF_PAYMENT_SETTINGS_CHANGED } from "@/lib/takeoff/payment-choice";
 
 const DEFAULT_FAILURE_MESSAGE = "Impossible de terminer cette étape. Rechargez la préparation pour retrouver les réponses enregistrées, puis réessayez.";
 
+export function takeoffPaymentRefusal(error: unknown) {
+  if (!(error instanceof ApiError) || error.code !== TAKEOFF_PAYMENT_SETTINGS_CHANGED) return null;
+  return { status: error.status, code: error.code, message: error.message, retryable: false, reloadSettings: true } as const;
+}
+
 function expectedFailure(error: unknown, failureMessage: string): TakeoffActionFailure {
+  const paymentRefusal = takeoffPaymentRefusal(error);
+  if (paymentRefusal) return paymentRefusal;
   const details = error instanceof TakeoffError ? error.details : null;
   if (details && typeof details === "object" && "reason" in details && details.reason === "TAKEOFF_FLAG_INVALID" &&
       "flag" in details && (details.flag === "MERGEONE_TAKEOFF_VECTORS" || details.flag === "MERGEONE_TAKEOFF_RULES")) {
