@@ -5,10 +5,12 @@ import { createRequire } from "node:module";
 import { extname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { stripVTControlCharacters } from "node:util";
+import { parseDevArguments, supabaseDevEnvironment } from "./dev-supabase-env.mjs";
 
 const fastWindowMs = 15_000;
 const fastCompileThreshold = 12;
 const fastRenderThreshold = 8;
+const hostedRenderThreshold = 20;
 const slowWindowMs = 165_000;
 const slowRenderThreshold = 6;
 const compileToRenderMs = 45_000;
@@ -52,11 +54,11 @@ function replaceTurbopackCache(cacheParent, cacheDir, expected) {
     if (!preservePrevious) rmSync(staging, { recursive: true, force: true });
   }
   if (hasCachedData) {
-    console.log("Discarding the Turbopack dev cache because its checkout or lockfile changed, or its state could not be verified.");
+    console.log("Discarding the Turbopack dev cache because its checkout, lockfile or Supabase target changed, or its state could not be verified.");
   }
 }
 
-async function prepareTurbopackCache() {
+async function prepareTurbopackCache(target) {
   let commit;
   try {
     commit = execFileSync("git", ["rev-parse", "--verify", "HEAD"], {
@@ -66,7 +68,7 @@ async function prepareTurbopackCache() {
     throw new Error("Git could not identify this checkout.", { cause: error });
   }
   const lockfile = createHash("sha256").update(readFileSync("package-lock.json")).digest("hex");
-  const expected = `${JSON.stringify({ version: 1, commit, lockfile })}\n`;
+  const expected = `${JSON.stringify({ version: 2, commit, lockfile, target })}\n`;
   const devDir = join(".next", "dev");
   const cacheParent = join(devDir, "cache");
   const cacheDir = join(cacheParent, "turbopack");
@@ -112,7 +114,7 @@ function renderedPage(text) {
   return pathname;
 }
 
-export function createReloadLoopMonitor() {
+export function createReloadLoopMonitor({ hosted = false } = {}) {
   const fastActivity = [];
   const fastCounts = new Map();
   const slowActivity = new Map();
@@ -132,6 +134,9 @@ export function createReloadLoopMonitor() {
       const count = fastCounts.get(expired) - 1;
       if (count > 0) fastCounts.set(expired, count);
       else fastCounts.delete(expired);
+    }
+    if (hosted && pathname && fastCounts.get(pathname) >= hostedRenderThreshold) {
+      return { pathname, count: fastCounts.get(pathname), windowMs: fastWindowMs };
     }
     if ((fastCounts.get(undefined) ?? 0) >= fastCompileThreshold) {
       for (const [path, count] of fastCounts) {
@@ -170,17 +175,26 @@ export function createReloadLoopMonitor() {
   };
 }
 
-async function startDevServer() {
-  // Bind to loopback unless the caller passes --hostname or -H. That opt-out is
-  // explicit. A production build never enables the personal integration.
-  const forwarded = process.argv.slice(2);
-  const usesDefaultDevCache = process.env.E2E_ARMY !== "1" &&
-    !forwarded.some((arg) => ["--webpack", "--help", "-h", "--version", "-v"].includes(arg));
+export async function startDevServer({ chatgpt = false } = {}) {
+  let forwarded, mode, hostnames, backend, informational;
+  try {
+    ({ forwarded, mode, hostnames } = parseDevArguments(process.argv.slice(2)));
+    informational = forwarded.length === 1 && ["--help", "-h", "--version", "-v"].includes(forwarded[0]);
+    if (!informational) backend = supabaseDevEnvironment(mode, hostnames, process.env);
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+    return;
+  }
+  const usesDefaultDevCache = !informational && process.env.E2E_ARMY !== "1" && !forwarded.includes("--webpack");
   if (usesDefaultDevCache) {
     try {
       const lockfile = lstatSync("package-lock.json", { throwIfNoEntry: false });
       if (lockfile && !lockfile.isFile()) throw new Error("Could not read package-lock.json.");
-      if (lockfile && !(await prepareTurbopackCache())) {
+      const target = createHash("sha256").update(JSON.stringify([
+        mode, backend.NEXT_PUBLIC_SUPABASE_URL, backend.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      ])).digest("hex");
+      if (lockfile && !(await prepareTurbopackCache(target))) {
         console.error("Could not prepare the Turbopack dev cache. Next is already running in this checkout.");
         process.exitCode = 1;
         return;
@@ -190,15 +204,14 @@ async function startDevServer() {
       console.warn(`Could not prepare the Turbopack dev cache. ${reason}. Starting Next.`);
     }
   }
-  const explicitHostname = forwarded.some((arg) =>
-    arg === "--hostname" || arg.startsWith("--hostname=") || arg === "-H" || (arg.startsWith("-H") && arg.length > 2));
+  if (!informational) console.log(`Supabase target: ${mode}`);
   const child = spawn(process.execPath, [
     "node_modules/next/dist/bin/next", "dev",
-    ...(explicitHostname ? [] : ["--hostname", "127.0.0.1"]),
+    ...(hostnames.length ? [] : ["--hostname", "127.0.0.1"]),
     ...forwarded,
   ], {
     stdio: ["inherit", "pipe", "inherit"],
-    env: { ...process.env, MERGEONE_CHATGPT_LOCAL: "1" },
+    env: { ...process.env, ...(chatgpt ? { MERGEONE_CHATGPT_LOCAL: "1" } : {}), ...backend },
   });
 
   let stopReason;
@@ -213,7 +226,7 @@ async function startDevServer() {
   }
 
   child.stdout.pipe(process.stdout, { end: false });
-  const observeLine = createReloadLoopMonitor();
+  const observeLine = createReloadLoopMonitor({ hosted: mode === "production" });
   const lines = createInterface({ input: child.stdout });
   lines.on("line", (line) => {
     if (stopReason) return;
@@ -231,4 +244,4 @@ async function startDevServer() {
   child.on("error", () => { process.exitCode = 1; });
 }
 
-if (import.meta.main) await startDevServer();
+if (import.meta.main) await startDevServer({ chatgpt: true });

@@ -1240,6 +1240,7 @@
         "e2e/army/local/api-key-provider-fixture.mjs",
         "e2e/army/local/profile-provider-fixture.mjs",
         "scripts/dev-chatgpt-local.mjs",
+        "scripts/dev-local.mjs",
         "e2e/army/local/chatgpt-server-support.ts",
         "e2e/army/local/chatgpt-local-journey-support.ts",
         "e2e/army/local/engine-v3-takeoff-journey.ts",
