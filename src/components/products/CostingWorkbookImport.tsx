@@ -59,6 +59,7 @@ import { CorrectionsJournal } from "./costing-workbook/CorrectionsJournal";
 import { RejectedWorkbookEdits } from "./costing-workbook/RejectedWorkbookEdits";
 import { boundedPage, DECISIONS_PER_PAGE, formatCount, plural, ReviewPager, WorkbookEditorProvider, type WorkbookReview } from "./costing-workbook/shared";
 import { SupplierReferenceReview } from "./costing-workbook/SupplierReferenceReview";
+import { useWorkbookColumnPreferences, WorkbookPreviewColumnDialog } from "./costing-workbook/WorkbookPreviewColumns";
 
 /**
  * Imports the office's costing workbook (« bible de chiffrage ») into the catalogue (TI-690, TI-711): its
@@ -85,16 +86,23 @@ const CORRECTIONS_INPUT_ID = "costing-workbook-corrections-file";
 const NETWORK_FAILURE = "Le serveur n’a pas répondu. Vérifiez la connexion, puis réessayez.";
 const UNREADABLE_FILE = "Ce fichier n’a pas pu être lu comme un classeur Excel.";
 
-type Phase = "idle" | "reading" | "previewing" | "changing-catalogue" | "importing";
+type Phase = "idle" | "reading" | "choosing-columns" | "previewing" | "changing-catalogue" | "importing";
 
 type Mode = "articles" | "supplier-references";
 type Report = CostingWorkbookImportReport | CostingWorkbookSupplierReferenceReport;
 type Replacement = { rows: CostingWorkbookRows; name: string; replay?: ReturnType<typeof reapplyWorkbookJournal> };
+type PendingColumnChoice = {
+  fileName: string;
+  rows: CostingWorkbookRows;
+  inspection: ReturnType<typeof inspectCostingWorkbookColumns>;
+  showPreview: () => void;
+};
 const INITIAL_SUPPLIER_REVIEW: WorkbookReview = { page: 0, view: "", search: "" };
 const INITIAL_ARTICLE_REVIEW: WorkbookReview = { page: 0, view: "proposed", search: "" };
 
 const PHASE_LABELS: Record<Exclude<Phase, "idle">, string> = {
   reading: "Lecture du classeur…",
+  "choosing-columns": "Choix des colonnes de l’aperçu…",
   previewing: "Comparaison avec le catalogue…",
   "changing-catalogue": "Mise à jour des fournisseurs…",
   importing: "Création des brouillons…",
@@ -175,7 +183,9 @@ export function CostingWorkbookImport({
   onImported,
   onImportRecorded,
 }: Readonly<CostingWorkbookImportProps>) {
-  const isAdmin = useOptionalUserContext()?.profile?.tenant_role === "admin";
+  const profile = useOptionalUserContext()?.profile;
+  const isAdmin = profile?.tenant_role === "admin";
+  const [columnPreferences, setColumnPreferences] = useWorkbookColumnPreferences(profile?.id);
   const [mode, setMode] = useState<Mode>("articles");
   const modeRef = useRef<Mode>("articles");
   const [fileName, setFileName] = useState<string | null>(null);
@@ -193,6 +203,8 @@ export function CostingWorkbookImport({
   const revisionRef = useRef(0);
   const [dirtyEditors, setDirtyEditors] = useState<ReadonlySet<string>>(new Set());
   const [replacement, setReplacement] = useState<Replacement | null>(null);
+  const [columnChoice, setColumnChoice] = useState<PendingColumnChoice | null>(null);
+  const layoutWorkbook = useRef<CostingWorkbookRows | null>(null);
   const [previews, setPreviews] = useState<Partial<Record<Mode, Report>>>({});
   const [results, setResults] = useState<Partial<Record<Mode, Report>>>({});
   const [supplierReview, setSupplierReview] = useState(INITIAL_SUPPLIER_REVIEW);
@@ -373,12 +385,17 @@ export function CostingWorkbookImport({
 
   function changeMode(choice: Mode) {
     if (choice === mode || isBusy) return;
-    modeRef.current = choice;
-    setMode(choice);
-    if (!rows) return;
-    setError(null);
-    setCanRetry(false);
-    if (!previews[choice] && !results[choice]) void runPreview(choice, rows);
+    function showMode() {
+      modeRef.current = choice;
+      setMode(choice);
+      if (!rows) return;
+      setError(null);
+      setCanRetry(false);
+      if (!previews[choice] && !results[choice]) void runPreview(choice, rows);
+      else setPhase("idle");
+    }
+    if (choice === "articles" && fileName && baseRows && rows && offerColumnChoice(fileName, baseRows, rows, showMode)) return;
+    showMode();
   }
 
   /** The same sheet against the catalogue as it is now: after a fix made in the catalogue, or to see an import's rest. */
@@ -413,17 +430,23 @@ export function CostingWorkbookImport({
     previewEdits(baseRows, nextEdits);
   }
 
-  function previewEdits(base: CostingWorkbookRows, nextEdits: WorkbookEdit[]) {
+  function previewEdits(base: CostingWorkbookRows, nextEdits: WorkbookEdit[], onApply?: () => void) {
     const nextRows = applyWorkbookFileEdits(base, nextEdits);
-    advanceRevision();
-    setDuplicateSearch(null);
-    setEdits(nextEdits);
     // A preview is drawn from the rows: once they lose a required column (a header mapping undone), the one on
     // screen can no longer be read against them, and the next answer is the format refusal.
     const readable = inspectCostingWorkbookColumns(nextRows).missingRequired.length === 0;
-    setPreviews((previous) => (readable ? { [mode]: previous[mode] } : {}));
-    setResults({});
-    void runPreview(mode, nextRows);
+    function showPreview() {
+      onApply?.();
+      advanceRevision();
+      setDuplicateSearch(null);
+      setEdits(nextEdits);
+      setPreviews((previous) => (readable ? { [mode]: previous[mode] } : {}));
+      setResults({});
+      void runPreview(mode, nextRows);
+    }
+    if (mode === "articles" && fileName && readable && inspection?.missingRequired.length
+      && offerColumnChoice(fileName, base, nextRows, showPreview)) return;
+    showPreview();
   }
 
   function applyEdits(added: WorkbookEdit[]) {
@@ -463,7 +486,7 @@ export function CostingWorkbookImport({
       if (edits.length > 0 && originalRows && rows) {
         setReplacement({ ...next, replay: reapplyWorkbookJournal(workbookJournalRows(journal, originalRows, rows), next.rows) });
       } else {
-        replaceWorkbook(next, false);
+        configureWorkbook(next, false);
       }
     } catch (readError) {
       if (!isCurrentRevision(expected)) return;
@@ -472,11 +495,34 @@ export function CostingWorkbookImport({
     }
   }
 
+  function configureWorkbook(next: Replacement, keep: boolean) {
+    if (mode === "articles" && offerColumnChoice(
+      next.name, next.rows, applyWorkbookFileEdits(next.rows, keep ? next.replay?.edits ?? [] : []),
+      () => replaceWorkbook(next, keep),
+    )) return;
+    replaceWorkbook(next, keep);
+  }
+
+  function offerColumnChoice(fileName: string, workbook: CostingWorkbookRows, rows: CostingWorkbookRows, showPreview: () => void) {
+    if (layoutWorkbook.current === workbook) return false;
+    const inspection = inspectCostingWorkbookColumns(rows);
+    if (inspection.missingRequired.length > 0) return false;
+    setReplacement(null);
+    setPhase("choosing-columns");
+    setColumnChoice({
+      fileName, rows, inspection,
+      showPreview: () => { layoutWorkbook.current = workbook; showPreview(); },
+    });
+    return true;
+  }
+
   function replaceWorkbook(next: Replacement, keep: boolean) {
     const reapplied = keep ? next.replay : undefined;
     const nextEdits = reapplied?.edits ?? [];
+    if (layoutWorkbook.current !== next.rows) layoutWorkbook.current = null;
     advanceRevision();
     setReplacement(null);
+    setColumnChoice(null);
     setBaseRows(next.rows);
     setFileName(next.name);
     assistant.loadProviders();
@@ -523,11 +569,10 @@ export function CostingWorkbookImport({
         setNotice(`Aucune correction à appliquer dans ce fichier${left ? ` (${left})` : " : la colonne « Correction à renseigner » est vide"}.`);
         return;
       }
-      setNotice(
-        `${formatCount(read.edits.length)} ${plural(read.edits.length, "correction lue", "corrections lues")} dans ${file.name}${left ? ` ; ${left}` : ""}.`,
-      );
       const original = workbookFileOriginalRows(baseRows, [...edits, ...read.edits], headerRow);
-      previewEdits(baseRows, mergeWorkbookEdits(original, edits, read.edits));
+      previewEdits(baseRows, mergeWorkbookEdits(original, edits, read.edits), () => {
+        setNotice(`${formatCount(read.edits.length)} ${plural(read.edits.length, "correction lue", "corrections lues")} dans ${file.name}${left ? ` ; ${left}` : ""}.`);
+      });
     } catch (readError) {
       if (!isCurrentRevision(expected)) return;
       setPhase("idle");
@@ -815,6 +860,8 @@ export function CostingWorkbookImport({
                   onShowSupplierReferences={() => changeMode("supplier-references")}
                   onValidate={isAdmin && articlePreview.review_tenant_id ? (selection) => void runImport(selection) : undefined}
                   editorDirty={editorDirty}
+                  columnPreferences={columnPreferences}
+                  onColumnPreferencesChange={setColumnPreferences}
                 />
               ) : null}
             </TabsContent>
@@ -843,6 +890,12 @@ export function CostingWorkbookImport({
           </WorkbookEditorProvider>
         ) : null}
       </Tabs>
+      {columnChoice ? (
+        <WorkbookPreviewColumnDialog fileName={columnChoice.fileName} rows={columnChoice.rows}
+          inspection={columnChoice.inspection} preferences={columnPreferences}
+          onCancel={() => { setColumnChoice(null); setPhase("idle"); }}
+          onConfirm={(next) => { setColumnPreferences(next); setColumnChoice(null); columnChoice.showPreview(); }} />
+      ) : null}
       <AlertDialog open={replacement !== null} onOpenChange={(open) => {
         if (!open && replacement) {
           setReplacement(null);
@@ -857,8 +910,8 @@ export function CostingWorkbookImport({
           <RejectedWorkbookEdits entries={replacement?.replay?.skipped ?? []} />
           <AlertDialogFooter className="sm:flex-wrap">
             <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <Button variant="outline" onClick={() => { if (replacement) replaceWorkbook(replacement, false); }}>Abandonner les corrections</Button>
-            <Button onClick={() => { if (replacement) replaceWorkbook(replacement, true); }}>Reprendre les corrections</Button>
+            <Button variant="outline" onClick={() => { if (replacement) configureWorkbook(replacement, false); }}>Abandonner les corrections</Button>
+            <Button onClick={() => { if (replacement) configureWorkbook(replacement, true); }}>Reprendre les corrections</Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

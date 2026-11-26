@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import * as XLSX from "xlsx";
-import { expect } from "e2e";
+import { expect, type Screen } from "e2e";
 
 import { COSTING_WORKBOOK_SHEET } from "@/lib/catalogue/costing-workbook";
 import type { CostingWorkbookImportReport, CostingWorkbookSupplierReferenceReport } from "@/lib/catalogue/costing-workbook-contract";
@@ -65,17 +65,34 @@ async function supplyTypes(browser: Browser) {
   return response.body.data.items;
 }
 
+function workbookColumnDialog(screen: Screen) {
+  return screen.getByRole("dialog", "Colonnes à afficher", { exact: true });
+}
+
+async function showWorkbookPreview(screen: Screen) {
+  await workbookColumnDialog(screen).getByRole("button", "Afficher l’aperçu", { exact: true }).tap({ timeout: 30_000 });
+}
+
 armyTest(
   "CAT02 filters workbook display columns without changing the imported draft",
   { session: "army", tags: ["critical", "catalogue"] },
   async ({ app, screen, browser, army }) => {
     const reference = `${army.runPrefix}-CHOIX-COLONNES`;
+    const otherReference = `${army.runPrefix}-FILTRE-EXACT`;
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
       HEADERS,
       row({
+        ID: otherReference, Caractéristique: "Tube", Matériau: "Inox", Type_ligne: "Art",
+        Dimension: "DN150", Unité: "ml", "PR. FO": 20, "Fiabilité (/10)": 10,
+      }),
+      ...Array.from({ length: 14 }, (_, index) => row({
+        ID: `${army.runPrefix}-FILTRE-TEMOIN-${index + 1}`, Caractéristique: `Profilé témoin ${index + 1}`,
+        Matériau: "Inox", Type_ligne: "Art", Dimension: "DN20", Unité: "ml", "PR. FO": 25, "Fiabilité (/10)": 8,
+      })),
+      row({
         ID: reference, Caractéristique: "Tube", Matériau: "Inox", Type_ligne: "Art",
-        Dimension: "DN20", Unité: "ml", "PR. FO": 12.5, "Fiabilité (/10)": 8, Commentaire: "Repère de préfiltre",
+        Dimension: "DN15", Unité: "ml", "PR. FO": 12.5, "Fiabilité (/10)": 0, Commentaire: "Repère de préfiltre",
       }),
     ]), COSTING_WORKBOOK_SHEET);
     const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
@@ -85,20 +102,60 @@ armyTest(
 
     await app.open("/dashboard/products/import-workbook");
     await screen.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(workbookPath);
-    const importButton = screen.getByRole("button", "Importer 1 brouillon", { exact: true });
-    await expect(importButton).toBeEnabled({ timeout: 30_000 });
+    const importButton = screen.getByRole("button", "Importer 16 brouillons", { exact: true });
 
     const table = screen.getByRole("table", "Articles proposés en brouillon", { exact: true });
-    const columns = screen.getByRole("button", "Colonnes à afficher", { exact: true });
-    await columns.tap();
-    await screen.getByRole("checkbox", /^Commentaire · /).tap();
-    await screen.getByRole("checkbox", /^Prix · /).tap();
-    await columns.tap();
+    const dialog = workbookColumnDialog(screen);
+    await expect(dialog).toBeVisible({ timeout: 30_000 });
+    await expect(table).toBeHidden();
+    await dialog.getByRole("checkbox", /^Commentaire · /).tap();
+    await dialog.getByRole("checkbox", /^Prix · /).tap();
+    await dialog.getByRole("checkbox", "Fiabilité (/10) · A", { exact: true }).tap();
+    await dialog.getByRole("checkbox", "Dimension · D", { exact: true }).tap();
+    await dialog.getByRole("button", "Monter Dimension · D", { exact: true }).tap();
+    await showWorkbookPreview(screen);
+    await expect(importButton).toBeEnabled({ timeout: 30_000 });
+    await app.open("/dashboard/products");
+    await app.open("/dashboard/products/import-workbook");
+    await screen.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(workbookPath);
+    await expect(dialog.getByRole("checkbox", /^Commentaire · /)).toBeChecked({ timeout: 30_000 });
+    await expect(dialog.getByRole("checkbox", /^Prix · /)).not.toBeChecked();
+    await showWorkbookPreview(screen);
+    await expect(importButton).toBeEnabled({ timeout: 30_000 });
+    const headers = await table.getByRole("columnheader").allTextContents();
+    expect(headers).toContain("Dimension");
+    expect(headers).toContain("Fiabilité (/10)");
+    expect(headers.indexOf("Dimension")).toBeLessThan(headers.indexOf("Fiabilité (/10)"));
     await expect(table.getByText("Repère de préfiltre", { exact: true })).toBeVisible();
     await expect(table.getByText(/12,50\s*€/)).toBeHidden();
+    const pageSize = screen.getByRole("combobox", "Résultats par page", { exact: true });
+    await pageSize.selectOption({ value: "15" });
+    await expect(table.getByText(reference, { exact: true })).toBeHidden();
+    await expect(table.getByText(otherReference, { exact: true })).toBeVisible();
 
+    for (const [label, exact, similar] of [
+      ["Fiabilité (/10) · A", "0", "10"],
+      ["Dimension · D", "DN15", "DN150"],
+    ]) {
+      const header = table.getByRole("button", `${label} · filtrer`, { exact: true });
+      await header.tap();
+      await expect(screen.getByRole("combobox", "Mode de filtre", { exact: true })).toHaveValue("values");
+      const picker = screen.getByRole("combobox", `Valeur exacte ${label}`, { exact: true });
+      await picker.tap();
+      await picker.fill(exact);
+      await expect(screen.getByRole("option", similar, { exact: true })).toBeVisible();
+      await screen.getByRole("option", exact, { exact: true }).tap();
+      await expect(table.getByText(reference, { exact: true })).toBeVisible();
+      await expect(table.getByText(otherReference, { exact: true })).toBeHidden();
+      await screen.getByRole("button", "Effacer le filtre", { exact: true }).tap();
+      await header.tap();
+    }
+
+    await pageSize.selectOption({ value: "all" });
+    await expect(table.getByRole("row")).toHaveCount(17);
     const filterButton = table.getByRole("button", /^Commentaire · P · filtrer/);
     await filterButton.tap();
+    await screen.getByRole("combobox", "Mode de filtre", { exact: true }).selectOption({ value: "contains" });
     const search = screen.getByRole("searchbox", "Filtre Commentaire · P", { exact: true });
     await search.fill("Inexistant");
     await expect(table.getByText("Aucun article ne correspond à la recherche.", { exact: true })).toBeVisible();
@@ -113,10 +170,10 @@ armyTest(
     await expect(table.getByText("Repère de préfiltre", { exact: true })).toBeVisible();
     expect(await cataloguePage(browser, reference, "draft")).toEqual([]);
     await importButton.tap();
-    await expect(screen.getByText("Import terminé : 1 brouillon créé.", { exact: true })).toBeVisible();
+    await expect(screen.getByText("Import terminé : 16 brouillons créés.", { exact: true })).toBeVisible();
     const drafts = await cataloguePage(browser, reference, "draft");
     expect(drafts).toMatchObject([{
-      reference, catalogue_status: "draft", unit_price_cents: 1250, dimensions: "DN20", unit: "ml", reliability_score: 8,
+      reference, catalogue_status: "draft", unit_price_cents: 1250, dimensions: "DN15", unit: "ml", reliability_score: 0,
     }]);
     await recordEvidence(army, "catalogue-workbook-column-selection", { reference, draft: drafts[0] });
   },
@@ -225,7 +282,7 @@ armyTest(
     // The preview: nothing written, the counts in words.
     const [previewResponse] = await Promise.all([
       browser.waitForResponse("**/api/catalogue/workbook-import"),
-      fileInput.setInputFiles(workbookPath),
+      fileInput.setInputFiles(workbookPath).then(() => showWorkbookPreview(screen)),
     ]);
     expect(previewResponse.status).toBe(200);
     await expect(importPage.getByRole("combobox", "Propositions", { exact: true })).toHaveValue("");
@@ -351,7 +408,7 @@ armyTest(
     const again = await openImport();
     const [againResponse] = await Promise.all([
       browser.waitForResponse("**/api/catalogue/workbook-import"),
-      again.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(workbookPath),
+      again.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(workbookPath).then(() => showWorkbookPreview(screen)),
     ]);
     expect(againResponse.status).toBe(200);
     expect((await readReport(againResponse)).report).toEqual({
@@ -433,6 +490,7 @@ armyTest(
 
     const page = screen.getByRole("region", "Importer le classeur de chiffrage", { exact: true });
     await page.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(workbookPath);
+    await showWorkbookPreview(screen);
     const family = page.getByRole("combobox", "Famille du classeur", { exact: true });
     const table = page.getByRole("table", "Articles proposés en brouillon", { exact: true });
     await family.selectOption({ value: "family:I4L" });
@@ -562,6 +620,7 @@ armyTest(
     const articlesMode = importPage.getByRole("tab", "Articles en brouillon", { exact: true });
     const referencesMode = importPage.getByRole("tab", "Références fournisseur", { exact: true });
     await articlesMode.tap();
+    await showWorkbookPreview(screen);
     await expect(importPage.getByRole("tabpanel", "Articles en brouillon", { exact: true })
       .getByText("1 nouvel article en brouillon", { exact: true })).toBeVisible({ timeout: 30_000 });
     const selectedFile = await browser.evaluate(() =>
@@ -748,6 +807,7 @@ armyTest(
     await importPage.getByRole("button", "Importer 1 référence", { exact: true }).tap();
     await expect(importPage.getByText("1 référence importée, à vérifier.", { exact: true })).toBeVisible({ timeout: 30_000 });
     await articlesMode.tap();
+    await showWorkbookPreview(screen);
     await expect(importPage.getByText("1 nouvel article en brouillon", { exact: true })).toBeVisible({ timeout: 30_000 });
     await referencesMode.tap();
     await expect(importPage.getByText("1 référence importée, à vérifier.", { exact: true })).toBeVisible();
@@ -967,6 +1027,7 @@ armyTest(
     await browser.goto("/dashboard/products/import-workbook", { waitUntil: "domcontentloaded" });
     const again = screen.getByRole("region", "Importer le classeur de chiffrage", { exact: true });
     await again.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(workbookPath);
+    await showWorkbookPreview(screen);
     await again.getByRole("button", "Importer 1 brouillon", { exact: true }).tap({ timeout: 30_000 });
     await expect(again.getByText("Import terminé : 1 brouillon créé.", { exact: true })).toBeVisible({ timeout: 30_000 });
     const [draft] = await cataloguePage(browser, draftRef, "draft");

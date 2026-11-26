@@ -1,11 +1,12 @@
 "use client";
 
-import { createContext, useContext, useEffect, useId, useState } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
 
 import { CheckIcon, CopyIcon, PencilIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import {
   workbookCellAddress,
   workbookCellText,
@@ -16,6 +17,12 @@ import type { CostingWorkbookRows } from "@/lib/catalogue/costing-workbook-file"
 /** Pieces the two previews of the costing workbook import share (TI-711). */
 
 export const DECISIONS_PER_PAGE = 30;
+const REVIEW_PAGE_SIZES = [15, DECISIONS_PER_PAGE, 50, 100];
+export type ReviewPageSize = number | "all";
+
+export function reviewPageLength(total: number, pageSize: ReviewPageSize): number {
+  return pageSize === "all" ? Math.max(total, 1) : pageSize;
+}
 
 export const formatCount = (value: number) => value.toLocaleString("fr-FR");
 
@@ -94,29 +101,54 @@ export function WorkbookReviewLayout({ groups, active, onSelect, children }: Rea
   );
 }
 
-export function ReviewPager({ page, total, onSelect, suffix = "" }: Readonly<{
+export function ReviewPager({ page, total, onSelect, suffix = "", disabled = false, pageSize = DECISIONS_PER_PAGE, onPageSizeChange }: Readonly<{
   page: number;
   total: number;
   onSelect: (page: number) => void;
   suffix?: string;
+  disabled?: boolean;
+  pageSize?: ReviewPageSize;
+  onPageSizeChange?: (pageSize: ReviewPageSize) => void;
 }>) {
-  if (total <= DECISIONS_PER_PAGE) return null;
-  const start = page * DECISIONS_PER_PAGE;
-  const end = Math.min(start + DECISIONS_PER_PAGE, total);
+  const pageLength = reviewPageLength(total, pageSize);
+  const pageCount = Math.ceil(total / pageLength);
+  if (!onPageSizeChange && pageCount <= 1) return null;
+  const start = page * pageLength;
+  const end = Math.min(start + pageLength, total);
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span aria-live="polite" className="text-xs tabular-nums text-muted-foreground">
-        {`${formatCount(start + 1)}–${formatCount(end)} sur ${formatCount(total)}${suffix}`}
+        {total > 0 ? `${formatCount(start + 1)}–${formatCount(end)} sur ${formatCount(total)}${suffix}` : "0 résultat"}
       </span>
-      <Button variant="outline" size="sm" disabled={page === 0} onClick={() => onSelect(page - 1)}>Précédente</Button>
-      <Button variant="outline" size="sm" disabled={end >= total} onClick={() => onSelect(page + 1)}>Suivante</Button>
+      {onPageSizeChange ? (
+        <NativeSelect size="sm" aria-label="Résultats par page" wrapperClassName="w-32"
+          disabled={disabled} value={pageSize} onChange={(event) => {
+            const value = event.currentTarget.value;
+            onPageSizeChange(value === "all" ? "all" : Number(value));
+          }}>
+          {REVIEW_PAGE_SIZES.map((size) => <option key={size} value={size}>{size} / page</option>)}
+          <option value="all">Tout afficher</option>
+        </NativeSelect>
+      ) : null}
+      {pageCount > 1 ? (
+        <>
+          <Button variant="outline" size="sm" disabled={disabled || page === 0} onClick={() => onSelect(page - 1)}>Précédente</Button>
+          {onPageSizeChange ? (
+            <NativeSelect size="sm" aria-label="Aller à la page" wrapperClassName="w-28"
+              disabled={disabled} value={page} onChange={(event) => onSelect(Number(event.currentTarget.value))}>
+              {Array.from({ length: pageCount }, (_, index) => <option key={index} value={index}>Page {formatCount(index + 1)}</option>)}
+            </NativeSelect>
+          ) : null}
+          <Button variant="outline" size="sm" disabled={disabled || end >= total} onClick={() => onSelect(page + 1)}>Suivante</Button>
+        </>
+      ) : null}
     </div>
   );
 }
 
 /** The page within bounds: a search or a correction may leave fewer pages than the one shown. */
-export function boundedPage(page: number, total: number) {
-  return Math.min(page, Math.max(0, Math.ceil(total / DECISIONS_PER_PAGE) - 1));
+export function boundedPage(page: number, total: number, pageSize: ReviewPageSize = DECISIONS_PER_PAGE) {
+  return Math.min(page, Math.max(0, Math.ceil(total / reviewPageLength(total, pageSize)) - 1));
 }
 
 /** Where a value sits in Excel: its row and column name, and its address to copy into Excel's name box. */
@@ -158,17 +190,20 @@ export function WorkbookCell({ row, slot, column, field = `F${slot}_ref` }: Read
  * and the preview is computed again; the Excel file is not written. Without a column (a header absent from the
  * workbook), the value is only shown.
  */
-export function EditableValue({ row, column, empty = "—", className, mono = false, display }: Readonly<{
+export function EditableValue({ row, column, empty = "—", className, mono = false, display, cell = false }: Readonly<{
   row: number;
   column?: number;
   empty?: string;
   className?: string;
   mono?: boolean;
+  cell?: boolean;
   /** What to show instead of the cell's own text (a formatted price); the correction still edits the cell. */
   display?: React.ReactNode;
 }>) {
   const { rows, busy, applyEdits, setEditorDirty } = useWorkbookEditor();
   const inputId = useId();
+  const cellButton = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
   const [draft, setDraft] = useState<string | null>(null);
   const value = column === undefined ? "" : workbookCellText(rows, row, column);
   const dirty = draft !== null && draft.trim() !== value;
@@ -177,13 +212,23 @@ export function EditableValue({ row, column, empty = "—", className, mono = fa
     setEditorDirty(inputId, true);
     return () => setEditorDirty(inputId, false);
   }, [dirty, inputId, setEditorDirty]);
+  useEffect(() => {
+    if (busy || draft !== null || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    cellButton.current?.focus();
+  }, [busy, draft]);
   if (column === undefined) return <span className={className}>{display ?? empty}</span>;
   const address = workbookCellAddress(row, column);
+
+  function closeEditor() {
+    restoreFocus.current = cell;
+    setDraft(null);
+  }
 
   function submit() {
     if (draft === null || busy) return;
     const next = draft.trim();
-    setDraft(null);
+    closeEditor();
     if (next !== value) applyEdits([{ row, column: column!, value: next || null }]);
   }
 
@@ -207,23 +252,43 @@ export function EditableValue({ row, column, empty = "—", className, mono = fa
               submit();
             } else if (event.key === "Escape") {
               event.preventDefault();
-              setDraft(null);
+              closeEditor();
             }
           }}
         />
         <Button variant="outline" size="icon-xs" aria-label={`Appliquer la correction de ${address}`} disabled={busy} onClick={submit}>
           <CheckIcon aria-hidden="true" />
         </Button>
-        <Button variant="ghost" size="icon-xs" aria-label={`Annuler la correction de ${address}`} onClick={() => setDraft(null)}>
+        <Button variant="ghost" size="icon-xs" aria-label={`Annuler la correction de ${address}`} onClick={closeEditor}>
           <XIcon aria-hidden="true" />
         </Button>
       </span>
     );
   }
 
+  const text = display ?? (value || empty);
+  const textClass = `min-w-0 ${mono ? "font-mono text-xs" : ""} ${value || display ? "" : "text-muted-foreground"} ${className ?? ""}`;
+  if (cell) {
+    return (
+      <Button ref={cellButton} variant="ghost" disabled={busy} aria-label={`Corriger la cellule ${address}`} aria-describedby={inputId}
+        title={`Corriger ${address} dans l’aperçu`}
+        className={`block h-auto w-full rounded-sm p-0 font-normal whitespace-normal wrap-anywhere [text-align:inherit] hover:bg-primary/5 ${textClass}`}
+        onClick={() => setDraft(value)}
+        onKeyDown={(event) => {
+          if (event.key === "F2") {
+            event.preventDefault();
+            setDraft(value);
+          }
+        }}
+      >
+        <span id={inputId}>{text}</span>
+      </Button>
+    );
+  }
+
   return (
     <span className="inline-flex min-w-0 max-w-full items-start gap-1">
-      <span className={`min-w-0 ${mono ? "font-mono text-xs" : ""} ${value || display ? "" : "text-muted-foreground"} ${className ?? ""}`}>{display ?? (value || empty)}</span>
+      <span className={textClass}>{text}</span>
       {/* One per cell of the preview: a plain button with its name, not a tooltip trigger per cell. */}
       <Button
         variant="ghost"
