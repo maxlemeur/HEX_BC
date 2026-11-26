@@ -12,7 +12,7 @@ import { readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
 import { RETIRED_OPENAI_MODEL } from "@/lib/ai/chatgpt-model-preferences";
 import { callStructuredAi, getStructuredAiAvailability } from "@/lib/ai/structured-ai";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
-import { conflict } from "@/lib/http/api-response";
+import { conflict, unprocessableEntity } from "@/lib/http/api-response";
 
 import {
   MATERIAL_REQUEST_PHOTO_ANALYSIS_TIMEOUT_MS,
@@ -79,8 +79,12 @@ export function materialRequestAnalysisUnavailable(message: string, status: Mate
   return conflict(message, { status }, MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE);
 }
 
-export function materialRequestAnalysisSettingsUnavailable(message: string) {
+function materialRequestAnalysisSettingsUnavailable(message: string) {
   return conflict(message, undefined, "MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE");
+}
+
+export function materialRequestAnalysisModelUnavailable(message: string) {
+  return unprocessableEntity(message, undefined, "MATERIAL_REQUEST_ANALYSIS_MODEL_UNAVAILABLE");
 }
 
 /** Resolve billing once before reading an attachment and run it on the same verified connection. */
@@ -90,7 +94,7 @@ export async function prepareMaterialRequestDocumentAnalysis(
 ) {
   const { preferences, billingSource, connectionId } = settings;
   if (preferences?.model === RETIRED_OPENAI_MODEL) {
-    throw materialRequestAnalysisSettingsUnavailable("Ce modèle n’est plus proposé. Rechargez la demande pour reprendre.");
+    throw materialRequestAnalysisModelUnavailable("Ce modèle n’est plus proposé. Rechargez la demande pour reprendre.");
   }
   const source = billingSource ?? "chatgpt_plan";
   const availability = await getMaterialRequestPhotoAnalysisAvailability(context, preferences !== undefined, source);
@@ -104,9 +108,12 @@ export async function prepareMaterialRequestDocumentAnalysis(
   if (apiState) {
     const requestHeaders = await headers();
     assertLocalChatGptHost(requestHeaders.get("host"), requestHeaders.get("x-forwarded-proto"));
-    if (apiState.status !== "saved" || apiState.connection.connectionId !== connectionId || !preferences ||
-        !apiState.connection.offeredModels.some((model) => model.id === preferences.model)) {
+    if (apiState.status !== "saved" || apiState.connection.connectionId !== connectionId || !preferences) {
       throw materialRequestAnalysisSettingsUnavailable("La clé ou les modèles disponibles ont changé. Rechargez la demande pour reprendre.");
+    }
+    const model = apiState.connection.offeredModels.find((entry) => entry.id === preferences.model);
+    if (!model || (preferences.reasoningEffort !== null && !model.reasoningEfforts.includes(preferences.reasoningEffort))) {
+      throw materialRequestAnalysisModelUnavailable("Ce modèle ou ce niveau d’effort n’est pas disponible pour cette clé API OpenAI.");
     }
   }
 

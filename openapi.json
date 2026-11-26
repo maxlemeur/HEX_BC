@@ -3070,7 +3070,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ou clé API à configurer) ; le message dit quoi faire. details.status : disabled ou unavailable. MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE : la source, la clé ou les modèles disponibles ont changé.",
+            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ou clé API à configurer) ; le message dit quoi faire. details.status : disabled ou unavailable. MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE : la source ou la connexion a changé, ou les préférences de la clé API sont absentes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3090,7 +3090,7 @@
             }
           },
           "422": {
-            "description": "MATERIAL_REQUEST_PHOTO_UNREADABLE : le PDF ne peut pas être ouvert (verrouillé, endommagé ou vide).",
+            "description": "MATERIAL_REQUEST_PHOTO_UNREADABLE : le PDF ne peut pas être ouvert (verrouillé, endommagé ou vide). MATERIAL_REQUEST_ANALYSIS_MODEL_UNAVAILABLE : le modèle ou l’effort demandé n’est pas disponible pour cette source.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5442,6 +5442,16 @@
           },
           "413": {
             "description": "La pièce dépasse la taille acceptée pour la comparaison.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "MATERIAL_REQUEST_ANALYSIS_MODEL_UNAVAILABLE : le modèle ou l’effort demandé n’est pas disponible pour cette source.",
             "content": {
               "application/json": {
                 "schema": {

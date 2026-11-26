@@ -18,6 +18,7 @@ import {
 import type { MaterialRequestPhotoAnalysisAvailability } from "@/lib/material-requests/photo-analysis";
 
 import { formatQuantity } from "./format";
+import { MaterialRequestAnalysisPreferences } from "./MaterialRequestAnalysisPreferences";
 
 const STATUS = {
   missing: { label: "Absent du devis", variant: "danger" },
@@ -165,7 +166,7 @@ export function MaterialRequestQuoteComparison({
   useEffect(() => () => pending.current?.abort(), []);
 
   const run = async () => {
-    if (!file || !settings?.preferences || pending.current) return;
+    if (availability.status !== "available" || !file || !settings?.preferences || pending.current) return;
     const controller = new AbortController();
     pending.current = controller;
     setBusy(true);
@@ -202,13 +203,17 @@ export function MaterialRequestQuoteComparison({
 
   return (
     <div className="min-w-0 space-y-2 rounded-md border border-border bg-surface-subtle p-3">
+      {files.length > 1 ? (
+        <NativeSelect aria-label="Pièce à comparer" size="sm" value={file.id} disabled={busy}
+          onChange={(event) => setSelectedId(event.currentTarget.value)}>
+          {files.map((entry) => <option key={entry.id} value={entry.id}>{entry.file_name}</option>)}
+        </NativeSelect>
+      ) : null}
+      {availability.status === "available" && settings?.preferences ? (
+        <MaterialRequestAnalysisPreferences id={settingsId} models={settings.models} preferences={settings.preferences}
+          disabled={busy} onChange={(preferences) => setSettings({ ...settings, preferences })} />
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
-        {files.length > 1 ? (
-          <NativeSelect aria-label="Pièce à comparer" size="sm" value={file.id} disabled={busy}
-            onChange={(event) => setSelectedId(event.currentTarget.value)}>
-            {files.map((entry) => <option key={entry.id} value={entry.id}>{entry.file_name}</option>)}
-          </NativeSelect>
-        ) : null}
         <Button type="button" size="sm" variant="outline" loading={busy}
           disabled={availability.status !== "available" || !settings?.preferences}
           aria-describedby={settingsId} onClick={() => void run()}>
