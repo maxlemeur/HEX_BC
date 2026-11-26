@@ -29,7 +29,8 @@ async function retainAndSend(ui: NativeUi, scenario: "rule" | "gap" | "both") {
       where job_id='${plan.jobId}';`);
   }
   const address = `/dashboard/affaires/${seeded.projectId}/takeoff`;
-  const dialog = screen.getByRole("dialog");
+  const dialog = screen.getByRole("dialog", "Retenir cette mesure", { exact: true });
+  const sendDialog = screen.getByRole("dialog", "Envoyer le plan « sanitaires.pdf » au devis", { exact: true });
   const retain = screen.getByRole("button", "Retenir cette mesure", { exact: true });
   await app.open(address);
   await waitForHydration(ui.browser);
@@ -40,9 +41,10 @@ async function retainAndSend(ui: NativeUi, scenario: "rule" | "gap" | "both") {
       await screen.getByRole("button", "Rouvrir la contribution pour la justifier à nouveau").click();
     }
     await screen.getByRole("button", /^Accepter/).click();
-    await dialog.getByLabel("Motif").selectOption({ value: "system_documented" });
-    await dialog.getByLabel("Référence du système").fill("Système fictif documenté dans la notice sanitaire.");
-    await dialog.getByRole("button", "Confirmer l’acceptation").click();
+    const justification = screen.getByRole("dialog", "Justifier l’acceptation", { exact: true });
+    await justification.getByLabel("Motif").selectOption({ value: "system_documented" });
+    await justification.getByLabel("Référence du système").fill("Système fictif documenté dans la notice sanitaire.");
+    await justification.getByRole("button", "Confirmer l’acceptation").click();
     await expect(screen.getByText(/poste reste à retenir/)).toBeVisible();
     await expect(screen.getByText("1 poste à retenir", { exact: true })).toBeVisible();
     await screen.getByRole("link", /Revenir au poste/).click();
@@ -70,15 +72,15 @@ async function retainAndSend(ui: NativeUi, scenario: "rule" | "gap" | "both") {
   const line = await seedRetainDestination(seeded.projectId, item, owner.tenantId, owner.userId, scenario === "both" ? 2 : reference);
   await app.open(address);
   await screen.getByRole("button", "Envoyer ce plan au devis : « sanitaires.pdf »", { exact: true }).click();
-  await expect(dialog.getByTestId(`item-send-line-${item}-dpgf`)).toContainText("3 u");
+  await expect(sendDialog.getByTestId(`item-send-line-${item}-dpgf`)).toContainText("3 u");
   if (scenario === "both") {
-    await expect(dialog).toContainText("Référence DPGF · 2 u · Quantité cumulée · 3 u · Écart · 1 u");
-    await expect(dialog.getByRole("button", /^Envoyer « sanitaires.pdf »/)).toBeDisabled();
+    await expect(sendDialog).toContainText("Référence DPGF · 2 u · Quantité cumulée · 3 u · Écart · 1 u");
+    await expect(sendDialog.getByRole("button", /^Envoyer « sanitaires.pdf »/)).toBeDisabled();
     expect(await countOwnedReceipts(seeded.projectId)).toBe(0);
     expect((await readOwnedLines(seeded.projectId)).find(row => row.id === line)?.quantity).toBe(2);
-    await dialog.getByRole("checkbox", /vérifié le rapprochement/).check();
+    await sendDialog.getByRole("checkbox", /vérifié le rapprochement/).check();
   }
-  await dialog.getByRole("button", /^Envoyer « sanitaires.pdf »/).click();
+  await sendDialog.getByRole("button", /^Envoyer « sanitaires.pdf »/).click();
   await expect(ui.browser).toHaveURL(new RegExp(`focusItemId=${line}$`), { timeout: 60_000 });
   expect((await readOwnedLines(seeded.projectId)).find(({ id }) => id === line)?.quantity).toBe(3);
   expect(await countOwnedReceipts(seeded.projectId)).toBe(1);

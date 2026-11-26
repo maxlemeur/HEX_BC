@@ -301,7 +301,9 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
   const view = resolution.state === "ready" ? resolution.view : null;
   const answer = choice.kind === "reading" && choice.current ? choice.reading.answer : null;
   const reviewId = answer?.outcome === "measured" && !gone && onGesture ? answer.answerId : null;
-  const measure = useSWR(reviewId ? ["poste-measure", viewerKey, projectId, reviewId, fresh[itemId]?.line?.targets, version] : null,
+  // Returning from the targeted review starts a new reader. Wait for its review before offering a decision:
+  // a freshly justified row can still have exactly the same quantity, decision revision and plan.
+  const measure = useSWR(reviewId ? ["poste-measure", viewerKey, projectId, reviewId, readerIdentity(reader), fresh[itemId]?.line?.targets, version] : null,
     () => fetchMeasureReview(projectId, reviewId!), { shouldRetryOnError: false });
   useEffect(() => { if (isRightRefusal(measure.error)) onRefused(measure.error); }, [measure.error, onRefused]);
   const review = measure.data && measure.data.answer_id === reviewId && measure.data.item_id === itemId
