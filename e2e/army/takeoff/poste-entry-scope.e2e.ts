@@ -115,9 +115,10 @@ test("POSTE-PORTEE04 une saisie modifiée reste en place, puis son retrait rend 
   await f.dialog.getByRole("button", "Retirer", { exact: true }).click();
   await expect(f.dialog).toContainText("La saisie a changé");
   expect(await readOwnedEntries(f.seeded.projectId)).toEqual([expect.objectContaining({ quantity: 5 })]);
-  await f.open();
-  await f.expand();
+  await f.button("Revenir au poste").click();
+  await expect(ui.screen.getByText(/Total saisi pour toute l’affaire · 5 u/)).toBeVisible();
   await f.button(withdraw).click();
+  await expect(f.dialog).toContainText("5 u");
   await f.dialog.getByRole("button", "Retirer", { exact: true }).click();
   await expect(ui.screen.getByText(/Saisie de l’affaire retirée/).first()).toBeVisible();
   expect(await readOwnedEntries(f.seeded.projectId)).toEqual([]);
@@ -130,9 +131,10 @@ test("POSTE-PORTEE05 une part au devis empêche le retrait et le rattachement du
   await f.save();
   await f.send();
   await seedLegacyTotal(f.seeded.projectId);
-  await f.open();
-  await f.expand();
+  await f.button("Revenir au poste").click();
+  await expect(ui.screen.getByText(/Total saisi pour toute l’affaire · 5 u/)).toBeVisible();
   await f.button(withdraw).click();
+  await expect(f.dialog).toContainText("5 u");
   await f.dialog.getByRole("button", "Retirer", { exact: true }).click();
   await expect(f.dialog).toContainText("Une part de ce poste est déjà au devis");
   await f.dialog.getByRole("button", "Revenir au poste", { exact: true }).click();
@@ -175,4 +177,67 @@ test("POSTE-PORTEE06 le retrait confirmé du dernier apport libère le rattachem
   await expect(ui.screen.getByText(/Saisie rattachée au plan/).first()).toBeVisible();
   expect((await querySql(`select quantity from public.takeoff_item_entries where project_id='${f.seeded.projectId}'
     and plan_logical_id='${f.seeded.plans[1].fileId}'`)).at(-1)).toMatch(/^6(?:\.0+)?$/);
+});
+
+test("POSTE-PORTEE07 une autre portée présente la saisie exacte avant de la remplacer", options, async ({ ui }) => {
+  const f = await prepare(ui, ["origine.pdf", "destination.pdf"]);
+  await querySql(`update public.profiles set full_name='Camille du métré' where id='${f.owner.userId}'`);
+  await f.open("?postePlan=" + f.seeded.plans[1].fileId);
+  await f.entry("0,0004");
+  await f.save();
+  await f.open("?postePlan=" + f.seeded.plans[0].fileId.toUpperCase());
+  await f.entry("4");
+  await expect(f.scope).toHaveValue(f.seeded.plans[0].fileId);
+  await f.scope.selectOption({ label: "destination.pdf" });
+  await expect(f.dialog).toContainText("0,0004 u");
+  await expect(f.dialog).toContainText("Relevé chantier");
+  await expect(f.dialog).toContainText("Camille du métré");
+  await expect(f.dialog).toContainText(/\d{2}\/\d{2}\/\d{4}/);
+  await f.dialog.getByLabel("Note (facultative)").press("Enter");
+  expect(await readOwnedEntries(f.seeded.projectId)).toEqual([expect.objectContaining({ quantity: 0.0004 })]);
+  await f.dialog.getByRole("button", "Remplacer la saisie", { exact: true }).click();
+  await expect(ui.screen.getByTestId("poste-notice")).toContainText("saisi");
+  expect(await readOwnedEntries(f.seeded.projectId)).toEqual([expect.objectContaining({ quantity: 4 })]);
+  await f.open();
+  await f.entry("0,0005");
+  await f.scope.selectOption({ label: "Total de toute l’affaire" });
+  await f.save();
+  await f.entry("3");
+  await f.scope.selectOption({ label: "destination.pdf" });
+  await expect(f.dialog).toContainText("Le total de l’affaire garde la priorité");
+  await f.button("Annuler").click();
+  await f.expand();
+  await f.button(attach).click();
+  await f.dialog.getByLabel("Plan de destination").selectOption({ label: "destination.pdf" });
+  await f.dialog.getByRole("button", "Rattacher", { exact: true }).click();
+  await expect(f.dialog).toContainText("0,0005 u");
+  await expect(f.dialog).toContainText("4 u");
+});
+
+test("POSTE-PORTEE08 chaque valeur sur son plan, même avec une lecture mesurée sur un autre plan", options, async ({ ui }) => {
+  const labels = ["Vanne", "Évier", "Baignoire"];
+  const owner = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "PORTEE", calcPolicy: "absent" });
+  const seeded = await seedItemSendAffaire(owner, { name: ui.army.runPrefix + "-plans", labels,
+    plans: await Promise.all(["bas.pdf", "haut.pdf"].map(async (name, index) => ({
+      name, pdf: await fictionalSendPlanPdf(name), measures: { [labels[index]]: { quantity: 1, page: 1 } },
+    }))) });
+  await ui.app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
+  await waitForHydration(ui.browser);
+  for (const [index, item] of labels.entries()) {
+    await ui.screen.getByRole("textbox", `Quantité saisie pour « ${item} »`).fill(String(index + 2));
+  }
+  await ui.screen.getByRole("button", "Enregistrer les saisies (3)").click();
+  const dialog = ui.screen.getByRole("dialog");
+  await dialog.getByLabel("Portée de la saisie").selectOption({ label: "Chaque valeur sur son plan" });
+  await dialog.getByLabel("Ce qui fonde ces quantités").selectOption({ value: "site_survey" });
+  await expect(dialog.getByLabel("Plan pour Vanne")).toHaveValue(seeded.plans[1].fileId);
+  await expect(dialog.getByLabel("Plan pour Évier")).toHaveValue(seeded.plans[0].fileId);
+  await expect(dialog.getByRole("button", "Enregistrer", { exact: true })).toBeDisabled();
+  await dialog.getByLabel("Plan pour Baignoire").selectOption({ label: "bas.pdf" });
+  await dialog.getByRole("button", "Enregistrer", { exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  for (const [index, item] of labels.entries()) {
+    expect((await querySql(`select plan_logical_id || '/' || trim_scale(quantity)::text from public.takeoff_item_entries
+      where item_id='${seeded.items[item]}'`)).at(-1)).toBe(`${seeded.plans[index === 0 ? 1 : 0].fileId}/${index + 2}`);
+  }
 });

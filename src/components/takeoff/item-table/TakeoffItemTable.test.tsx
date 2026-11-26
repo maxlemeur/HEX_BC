@@ -685,3 +685,18 @@ it("targets the second contribution when only it needs a justification", async (
   await waitFor(() => expect(link).toHaveAttribute("href", expect.stringContaining(`contribution=${second}`)));
   expect(new URL(link.getAttribute("href")!, "http://localhost").searchParams.get("line")).toBe(second);
 });
+
+it("retries an uncertain entry with exactly the frozen command, including its intention", async () => {
+  client.sendItemReviewCommand.mockRejectedValueOnce(new TypeError("response lost"))
+    .mockResolvedValue({ outcome: "applied", applied: [], skipped: [] });
+  renderTable();
+  fireEvent.change(await screen.findByRole("textbox", { name: "Quantité saisie pour « Baignoire »" }), { target: { value: "3" } });
+  fireEvent.click(screen.getByRole("button", { name: "Enregistrer les saisies (1)" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  fireEvent.change(dialog.getByLabelText("Portée de la saisie"), { target: { value: "affaire" } });
+  fireEvent.change(dialog.getByLabelText("Ce qui fonde ces quantités"), { target: { value: "site_survey" } });
+  fireEvent.click(dialog.getByRole("button", { name: "Enregistrer" }));
+  fireEvent.click(await dialog.findByRole("button", { name: "Réessayer la même saisie" }));
+  await waitFor(() => expect(client.sendItemReviewCommand).toHaveBeenCalledTimes(2));
+  expect(client.sendItemReviewCommand.mock.calls[1]).toEqual(client.sendItemReviewCommand.mock.calls[0]);
+});
