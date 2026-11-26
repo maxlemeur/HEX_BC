@@ -32,14 +32,14 @@ update public.feature_flags set enabled = true where tenant_id = pg_temp.f(10) a
 insert into public.tenant_memberships (tenant_id, user_id, role, is_default) values
   (pg_temp.f(10), pg_temp.f(1), 'engineer', true), (pg_temp.f(10), pg_temp.f(2), 'director', true);
 insert into public.estimate_projects (id, tenant_id, user_id, name)
-select pg_temp.f(project), pg_temp.f(10), pg_temp.f(1), 'Affaire fictive ' || project from generate_series(20,24) project;
+select pg_temp.f(project), pg_temp.f(10), pg_temp.f(1), 'Affaire fictive ' || project from generate_series(20,26) project;
 insert into public.plan_sets (id, tenant_id, project_id, name)
-select pg_temp.f(project + 20), pg_temp.f(10), pg_temp.f(project), 'Plans fictifs' from generate_series(20,24) project;
+select pg_temp.f(project + 20), pg_temp.f(10), pg_temp.f(project), 'Plans fictifs' from generate_series(20,26) project;
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
 select pg_temp.f(100 + n + 10 * (project - 20)), pg_temp.f(10), pg_temp.f(project + 20), 'fictif-' || n || '.pdf',
   concat_ws('/', pg_temp.f(10), pg_temp.f(project + 20), pg_temp.f(100 + n + 10 * (project - 20)), 'fictif-' || n || '.pdf'),
   'application/pdf', 8, 9
-from generate_series(1, 2) n cross join generate_series(20,24) project;
+from generate_series(1, 2) n cross join generate_series(20,26) project;
 
 create function pg_temp.digest(plan uuid) returns text language sql immutable as $$
   select encode(sha256(convert_to(plan::text, 'UTF8')), 'hex')
@@ -108,7 +108,8 @@ create function pg_temp.confirm(project integer) returns void language sql as $$
     pg_temp.f(1), pg_temp.f(1))
 $$;
 set local session_replication_role = replica;
-select pg_temp.confirm(20), pg_temp.confirm(21), pg_temp.confirm(22), pg_temp.confirm(23), pg_temp.confirm(24);
+select pg_temp.confirm(20), pg_temp.confirm(21), pg_temp.confirm(22), pg_temp.confirm(23), pg_temp.confirm(24),
+  pg_temp.confirm(25), pg_temp.confirm(26);
 set local session_replication_role = origin;
 insert into private.takeoff_launch_activation (active_from) values (now() - interval '1 minute');
 insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 minute');
@@ -321,6 +322,89 @@ select is((select count(call_id) from generate_series(1,4) n cross join lateral
   'the four confirmed tiles remain available on the new lease');
 select is((select count(*) from private.takeoff_api_calls where mandate_id=pg_temp.f(224) and scope_id=pg_temp.request(24)),
   5::bigint, 'the two leases can reserve at most one PDF and four tiles in all');
+update public.takeoff_jobs set status='failed',analysis_outcome='failure' where id=pg_temp.unit(24,1);
+
+-- Owner decision of 2026-11-27: a key's request has no token ceiling. Its mandate seals dollars, and says so.
+select throws_ok($$select public.seal_takeoff_api_mandate(pg_temp.f(225),pg_temp.f(10),pg_temp.f(25),pg_temp.f(1),
+  pg_temp.settings() - 'maxTokens')$$, '22023', 'TAKEOFF_API_MANDATE_INVALID', 'a mandate says whether it has a token ceiling');
+select throws_ok($$select public.seal_takeoff_api_mandate(pg_temp.f(225),pg_temp.f(10),pg_temp.f(25),pg_temp.f(1),
+  pg_temp.settings() || '{"maxTokens":0}')$$, '22023', 'TAKEOFF_API_MANDATE_INVALID', 'a token ceiling of zero is not a mandate');
+select throws_ok($$select public.seal_takeoff_api_mandate(pg_temp.f(225),pg_temp.f(10),pg_temp.f(25),pg_temp.f(1),
+  pg_temp.settings() || '{"maxTokens":null,"maxNanoUsd":null}')$$, '22023', 'TAKEOFF_API_MANDATE_INVALID',
+  'a mandate without a token ceiling still needs its dollar ceiling');
+select lives_ok($$select public.seal_takeoff_api_mandate(pg_temp.f(225),pg_temp.f(10),pg_temp.f(25),pg_temp.f(1),
+  pg_temp.settings() || '{"maxTokens":null}')$$, 'the payer seals a mandate bounded in dollars only');
+select is(public.read_takeoff_api_mandate(pg_temp.f(225),pg_temp.f(10),pg_temp.f(25),pg_temp.f(1)) -> 'maxTokens', 'null'::jsonb,
+  'the sealed mandate reads back without a token ceiling');
+select is((select outcome from pg_temp.launch(25, payment => pg_temp.selection(225))), 'admitted',
+  'a request funded in dollars only is admitted');
+select is(pg_temp.claim(1,940,project=>25),1::bigint,'its first plan has a live lease');
+-- Twenty-six calls of a one-page plan read against the list reserve 780,000 tokens at the ledger's estimate.
+-- One reservation per turn of the loop: a set-returning call that names no column of a series is made once for all its rows.
+create function pg_temp.reserve_calls(calls integer, token integer, project integer) returns bigint language plpgsql as $$
+declare
+  reserved bigint := 0;
+begin
+  for turn in 1..calls loop
+    if (select call_id from pg_temp.reserve(1,token,'pdf',10000000,30000,project=>project)) is not null then
+      reserved := reserved + 1;
+    end if;
+  end loop;
+  return reserved;
+end;
+$$;
+select is(pg_temp.reserve_calls(26,940,25),26::bigint,
+  'twenty-six calls are reserved past the 400,000 tokens a mandate used to carry');
+select is((select sum(bound_tokens) from private.takeoff_api_calls where mandate_id=pg_temp.f(225)), 780000::numeric,
+  'each reservation records its call’s token estimate');
+select results_eq($$select reason, remaining_nano_usd, remaining_tokens from pg_temp.reserve(1,940,'pdf',project=>25)$$,
+  $$values (null::text,24740000000::bigint,null::bigint)$$, 'the balance of a mandate without a token ceiling is its dollars');
+create temp table call_b as select call_id from pg_temp.reserve(1,940,'pdf',1000000000,100000,project=>25);
+select ok(public.settle_takeoff_api_call((select call_id from call_b),pg_temp.unit(25,1),pg_temp.f(10),pg_temp.f(25),
+  pg_temp.f(1),pg_temp.f(940),500000000,2000000), 'a call settles with more tokens than its own estimate');
+select is((select reason from pg_temp.reserve(1,940,'pdf',project=>25)), null::text,
+  'tokens past a call’s estimate stop nothing while its cost stays within the dollars it reserved');
+select is((select actual_tokens from private.takeoff_api_calls where id=(select call_id from call_b)), 2000000::bigint,
+  'the tokens a call used are recorded');
+select is(public.read_takeoff_launch_request_units(pg_temp.f(10),pg_temp.f(25),pg_temp.request(25))->'usage',
+  '{"tokens_observed":2000000,"cost_cents_observed":50,"unknown_calls":0}'::jsonb, 'the activity still shows the tokens and the cost');
+-- 25 $ sealed, 26 abandoned-or-live bounds of 0.01 $ and one call settled at 0.50 $: 24.24 $ left.
+select is((select remaining_nano_usd from pg_temp.reserve(1,940,'pdf',project=>25)), 24240000000::bigint,
+  'every reservation and settlement counts in dollars');
+update private.takeoff_api_calls set actual_nano_usd=bound_nano_usd, actual_tokens=bound_tokens, settled_at=clock_timestamp()
+where mandate_id=pg_temp.f(225) and settled_at is null;
+select is((select reason from pg_temp.reserve(1,940,'pdf',24240000001,1,project=>25)), 'REPREPARE',
+  'a bound past the dollars left sends nothing and is prepared again');
+select is((select reason from pg_temp.reserve(1,940,'pdf',24240000000,null,true,project=>25)), 'BUDGET_EXHAUSTED',
+  'a call that cannot fit the dollars left stops the request at its ceiling, with no token number sent');
+select is((select reason from pg_temp.reserve(1,940,'pdf',1,1,project=>25)), 'BUDGET_EXHAUSTED',
+  'no call follows the stop at the dollar ceiling');
+select is((select count(*) from private.takeoff_api_calls where mandate_id=pg_temp.f(225)), 27::bigint,
+  'the refused calls reserved nothing');
+update public.takeoff_jobs set status='failed',analysis_outcome='failure' where id=pg_temp.unit(25,1);
+
+-- A mandate sealed before the decision carries a token number: it stays readable and bounds nothing.
+select public.seal_takeoff_api_mandate(pg_temp.f(226),pg_temp.f(10),pg_temp.f(26),pg_temp.f(1),pg_temp.settings());
+select is((select outcome from pg_temp.launch(26, payment => pg_temp.selection(226))), 'admitted',
+  'a request whose mandate carries the former token ceiling is admitted');
+select is(pg_temp.claim(1,941,project=>26),1::bigint,'its first plan has a live lease');
+create temp table call_c as select call_id from pg_temp.reserve(1,941,'pdf',1000000000,500000,project=>26);
+select ok((select call_id is not null from call_c), 'a call past the token number its mandate carries is reserved');
+select is((select reason from pg_temp.reserve(1,941,'pdf',1000000000,500000,true,project=>26)), 'CAPACITY_HELD',
+  'only the dollars held by a live reservation make a preparation wait');
+select ok(public.settle_takeoff_api_call((select call_id from call_c),pg_temp.unit(26,1),pg_temp.f(10),pg_temp.f(26),
+  pg_temp.f(1),pg_temp.f(941),1000000001,10), 'a call settles one nano-dollar past the dollars it reserved');
+select is((select reason from pg_temp.reserve(1,941,'pdf',1,1,project=>26)), 'BUDGET_EXHAUSTED',
+  'a call that cost more than the dollars it reserved stops its request');
+
+-- Replacing the three functions kept their rights: the service role alone executes them.
+select is((select count(*) from (values
+    ('public.seal_takeoff_api_mandate(uuid,uuid,uuid,uuid,jsonb)'),
+    ('public.reserve_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,boolean,text,bigint,bigint,boolean,text)'),
+    ('public.settle_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,uuid,bigint,bigint)')) f(signature)
+  cross join (values ('anon'), ('authenticated'), ('service_role')) r(role)
+  where has_function_privilege(r.role, f.signature, 'execute') is distinct from (r.role = 'service_role')), 0::bigint,
+  'the mandate, reservation and settlement functions stay reserved to the service role');
 
 select * from finish();
 rollback;

@@ -404,7 +404,8 @@ async function sealAutomaticSnapshot(service: Service, input: {
   if ("blocked" in order) return { state: "blocked", reason: order.blocked, pieces: [] };
   const manifest = buildTakeoffLaunchManifest({ intent: "initial", sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
     omittedPlans, omittedReferences: sealed.omittedReferences, preparationRevision: snapshot.preparation_revision,
-    budget: { tokens: input.apiMandate?.maxTokens ?? config.maxTotalTokens,
+    // A key's mandate seals dollars only: the manifest's tokens stay the tenant's figure, an estimate nothing enforces on it.
+    budget: { tokens: config.maxTotalTokens,
       cost_cents: input.apiMandate ? input.apiMandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT : config.maxCostCents }, order: order.order });
   return { snapshot, manifest, sourceFile, pageCounts: sealed.planPageCounts, items: order.items };
 }
@@ -863,10 +864,8 @@ async function relaunchSeal(service: Service, input: RelaunchInput) {
       message: "Confirmez à nouveau la préparation pour utiliser votre forfait ChatGPT." });
   }
   const config = await getTakeoffLevelCProcessingConfigForTenant(context.tenantId, { supabase: service });
-  if (explicit?.apiMandate) {
-    config.maxTotalTokens = explicit.apiMandate.maxTokens;
-    config.maxCostCents = explicit.apiMandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT;
-  }
+  // A key's mandate seals dollars only (no token ceiling): the manifest's tokens stay the tenant's figure, an estimate.
+  if (explicit?.apiMandate) config.maxCostCents = explicit.apiMandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT;
   return { snapshot, owner, config, payment: explicit };
 }
 

@@ -8,6 +8,7 @@ import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import type { TakeoffChunkingRuntimeConfig } from "@/lib/takeoff/chunking";
 import { TAKEOFF_PAID_CALL_ESTIMATE_TOKENS } from "@/lib/takeoff/launch-call-ledger";
 import { describeTakeoffLaunchReason, readTakeoffLaunchUnit, type AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
+import { usesTakeoffApiKey } from "@/lib/takeoff/payment-mandate-server";
 import { planPosteBatches } from "@/lib/takeoff/poste-exchange";
 import { boundPosteReadingRequest, describePosteReadingBounds, posteReadingBoundsOfManifest, postesAskedBy } from "@/lib/takeoff/poste-reading-bounds";
 import { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
@@ -84,19 +85,25 @@ export async function readTakeoffItemListOrder(supabase: Supabase,
  * request's envelope; then its own plan's calls against the attempt's budget, what its sealed share has left (the
  * ledger's balance). Beyond them it stops with the bounds' own reason, nothing spent: past a ceiling the plans to reduce,
  * past the budget what is left (a request whose earlier attempts spent its share is relaunched).
+ *
+ * A job paid by a personal key has no token budget (owner decision of 2026-11-27): its ceilings are checked the same,
+ * its calls are counted, and neither its manifest's token shares nor a token balance stops it. Its dollar ceiling is
+ * reserved call by call in its own ledger (`reserve_takeoff_api_call`), which refuses the call that would pass it.
  */
 function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manifest: AnyTakeoffLaunchManifest; items: readonly Poste[];
   pageCount: number; maxPage: number; config: TakeoffChunkingRuntimeConfig & { maxTotalTokens: number }; planFile: { plan_file_id: string }; fileName: string; paidClassifier?: boolean }) {
   const unit = readTakeoffLaunchUnit(job.preparation_snapshot)!;
+  const viaKey = usesTakeoffApiKey(job.preparation_snapshot);
   const request = posteReadingBoundsOfManifest(input.manifest, input.config, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, input.items,
     input.paidClassifier === undefined ? takeoffVectorGroupCallsBound
-      : (pages) => job.created_by ? takeoffVectorGroupCallsBound(Math.min(pages,input.pageCount),input.paidClassifier) : 0, new Map([[unit.key, input.pageCount]]));
+      : (pages) => job.created_by ? takeoffVectorGroupCallsBound(Math.min(pages,input.pageCount),input.paidClassifier) : 0, new Map([[unit.key, input.pageCount]]),
+    viaKey ? "none" : "sealed");
   const own = request?.units.find((entry) => entry.key === unit.key);
   if (!request || !own) throw failure(job.id, "Le plan de cette analyse n’est pas une unité de sa demande : relancez la lecture de ce plan.");
   const attempt = boundPosteReadingRequest({ batches: planPosteBatches(input.items).map((batch) => batch.length),
     units: [{ key: unit.key, pieces: [{ id: input.planFile.plan_file_id, name: input.fileName }], pages: input.pageCount,
       maxPage: input.maxPage,
-      budgetTokens: unit.budget?.tokens ?? input.config.maxTotalTokens, vectorCalls: own.classifierCalls }],
+      budgetTokens: viaKey ? Number.POSITIVE_INFINITY : unit.budget?.tokens ?? input.config.maxTotalTokens, vectorCalls: own.classifierCalls }],
     requestBudgetTokens: input.config.maxTotalTokens, chunking: input.config, estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
   const bounds = !request.ok ? request : attempt;
   if (bounds.ok) return own;
@@ -187,6 +194,7 @@ export async function processItemListLevelC(input: {
   assertSealedPages(job, input.order.manifest, readPages);
   if (!requestBudget) throw failure(job.id, "Le budget de la demande de cette analyse est introuvable.");
   // Its budget is what its sealed share has left (sized from its admitted calls), never the first format's per-job budget.
+  // Paid by a personal key: no token budget (infinite here), and the dollar ceiling its mandate sealed.
   const config = { ...prepared.config, maxTotalTokens: requestBudget.remainingTokens, maxCostCents: requestBudget.remainingCostCents };
   if (!job.project_id) throw failure(job.id, "L’affaire de cette analyse est introuvable.");
   let items: Poste[];

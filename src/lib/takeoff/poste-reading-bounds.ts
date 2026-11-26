@@ -124,7 +124,9 @@ export type PosteReadingLimit = "calls" | "fragments" | "budget" | "answer_bytes
  * page count) and its share of the budget.
  */
 export type PosteReadingUnitInput = {
-  key: string; pieces: TakeoffLaunchPiece[]; pages: number; budgetTokens: number;
+  key: string; pieces: TakeoffLaunchPiece[]; pages: number;
+  /** Its share of the token budget; infinite when no token budget bounds it (a request paid by a personal key). */
+  budgetTokens: number;
   /** Its highest original page (its pages 1 to `pages` when not given). */
   maxPage?: number;
   /** The most paid calls its vector classifier may make (none when it does not run). */
@@ -214,10 +216,12 @@ export function boundPosteReadingRequest(input: {
  * `countedPages` gives the pages a worker counted on a unit's own PDF (by unit key), in their place. `items`: the items
  * the order asks (its asked_item_ids when it names some, else every item of the sealed revision; their batches are
  * counted by their bytes); `vectorCalls`: the most calls the vector classifier may make on a unit of so many vector pages.
+ * `tokenBudget: "none"`: a request paid by a personal key, whose only ceiling is its mandate's dollars, reserved call by
+ * call in its own ledger: the token shares and envelope its manifest carries bound nothing (they stay an estimate).
  */
 export function posteReadingBoundsOfManifest(manifest: AnyTakeoffLaunchManifest, chunking: TakeoffChunkingRuntimeConfig,
   estimateTokensPerCall: number, items: readonly Poste[], vectorCalls: (vectorPages: number) => number = () => 0,
-  countedPages: ReadonlyMap<string, number> = new Map()): PosteReadingBounds | null {
+  countedPages: ReadonlyMap<string, number> = new Map(), tokenBudget: "sealed" | "none" = "sealed"): PosteReadingBounds | null {
   if (manifest.order.kind !== "item_list") return null;
   const asked = manifest.order.list.asked_item_ids;
   if (asked ? items.length !== asked.length || items.some((item) => !asked.includes(item.id.toLowerCase()))
@@ -236,13 +240,14 @@ export function posteReadingBoundsOfManifest(manifest: AnyTakeoffLaunchManifest,
     const plan = manifest.plans.find((entry) => entry.entry_key === key);
     return plan?.pages.length ? Math.max(...plan.pages) : plan?.page_count ?? pagesOf.get(key) ?? 1;
   }));
+  const sealed = (tokens: number) => tokenBudget === "none" ? Number.POSITIVE_INFINITY : tokens;
   const units: PosteReadingUnitInput[] = manifest.format_version === 2
-    ? manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: unit.budget.tokens,
+    ? manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: sealed(unit.budget.tokens),
       pages: pages(unit), maxPage: maxPage(unit), vectorCalls: vectorCalls(unit.vector_pages) }))
-    : manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: manifest.budget.tokens,
+    : manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: sealed(manifest.budget.tokens),
       pages: pages(unit), maxPage: maxPage(unit), vectorCalls: vectorCalls(TAKEOFF_LAUNCH_VECTOR_PAGES) }));
   return boundPosteReadingRequest({ batches: planPosteBatches(items).map((batch) => batch.length), units,
-    requestBudgetTokens: manifest.budget.tokens, chunking, estimateTokensPerCall });
+    requestBudgetTokens: sealed(manifest.budget.tokens), chunking, estimateTokensPerCall });
 }
 
 /**

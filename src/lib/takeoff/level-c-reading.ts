@@ -157,8 +157,9 @@ async function readSealedApiBudget(job: TakeoffJobProcessingRow) {
   const mandate = await readTakeoffApiMandate(createServiceRoleClient(), {
     tenantId: job.tenant_id, projectId: job.project_id ?? "", userId: job.created_by ?? "",
   }, parsed);
-  // The exact remaining balance is read before every call. The reader still uses the sealed envelope for its bounds.
-  return { remainingTokens: mandate.maxTokens, remainingCostCents: mandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT };
+  // A key's only ceiling is its mandate's dollars: no token number bounds its reading, whatever its mandate was sealed with.
+  // The exact remaining balance is read before every call. The reader still uses the sealed dollar envelope for its bounds.
+  return { remainingTokens: Number.POSITIVE_INFINITY, remainingCostCents: mandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT };
 }
 
 export async function processLevelCChunks(input: {

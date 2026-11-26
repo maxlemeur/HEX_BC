@@ -582,7 +582,8 @@ describe("TakeoffItemTable", () => {
 
   it("ties a one-request model and effort to the key remeasure preview and confirmation", async () => {
     readPayment.mockResolvedValue(fixtureTakeoffPaymentOptions());
-    client.previewItemRemeasure.mockResolvedValue(fixtureRemeasurePreview({ items: [{ itemId: fixtureItemId(5), label: "Receveur de douche" }] }));
+    client.previewItemRemeasure.mockResolvedValue(fixtureRemeasurePreview({ items: [{ itemId: fixtureItemId(5), label: "Receveur de douche" }],
+      payment: { source: "personal_api_key", maxCostCents: 2500 } }));
     client.sendItemRemeasure.mockResolvedValue({ outcome: "admitted", requestId: "55555555-5555-4555-8555-555555555555" });
     renderTable();
     await screen.findByRole("row", { name: /Receveur de douche/ });
@@ -590,6 +591,10 @@ describe("TakeoffItemTable", () => {
     fireEvent.click(screen.getByRole("button", { name: "Demander une nouvelle mesure (1)" }));
     expect(await screen.findByLabelText("Source IA")).toHaveValue("personal_api_key");
     expect(screen.getByText(/Plafond pour cette demande.*25.*US/)).toBeVisible();
+    // With the key the request's bound is its dollar ceiling: no token budget is announced.
+    const reading = await screen.findByTestId("poste-remeasure-reading");
+    expect(reading).toHaveTextContent("1 poste lu sur 2 plans, en 2 appels payants. Plafond de cette demande : 25,00 $ US (2 appels payants).");
+    expect(reading).not.toHaveTextContent(/jeton|Budget réservé/);
     fireEvent.change(screen.getByLabelText("Modèle"), { target: { value: "gpt-6.2-sol" } });
     fireEvent.change(screen.getByLabelText("Effort de raisonnement"), { target: { value: "high" } });
     const choice = { source: "personal_api_key", expectedConnectionId: FIXTURE_KEY_CONNECTION, expectedMaxCostCents: 2500, model: "gpt-6.2-sol", effort: "high" };

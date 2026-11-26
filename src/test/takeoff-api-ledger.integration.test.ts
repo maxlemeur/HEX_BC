@@ -24,7 +24,7 @@ vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: "local
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => session }));
 
 it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before commit", "after commit"] as const)(
-  "replays the known PDF settlement after a fault %s and refuses the next chunk at the sealed ceiling",
+  "replays the known PDF settlement after a fault %s and refuses the next chunk at the sealed dollar ceiling",
   async (fault) => {
     expect(process.env.RLS_E2E_EPHEMERAL).toBe("1");
     expect(process.env.RLS_E2E_LOCAL).toBe("1");
@@ -56,6 +56,9 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before com
       vi.stubEnv("MERGEONE_TAKEOFF_DECISIONS", "0");
       vi.stubEnv("TAKEOFF_MODULE_FORCE_ENABLED", "1");
       vi.stubEnv("TAKEOFF_LEVEL_C_MAX_COST_CENTS", "100");
+      // The tenant's token ceiling of a detailed reading, below the 160,000 tokens one call of this plan counts: it bounds
+      // the ChatGPT plan only. A key's request has no token ceiling (owner decision of 2026-11-27).
+      vi.stubEnv("TAKEOFF_LEVEL_C_MAX_TOTAL_TOKENS", "100000");
       vi.stubEnv("PORT", "3163");
       scopes[E2E_SECRET_STORE] = {
         kind: "e2e-memory", placeLabel: "Trousseau fictif",
@@ -175,6 +178,11 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before com
         expectedExecutionFingerprint: preview.data.fingerprint });
       if (!confirmed.ok) throw new Error(confirmed.error.message);
       expect(mandates()).toBe("1");
+      const sql = (query: string) => execFileSync(process.env.E2E_ARMY_LOCAL_PSQL!, ["-X", "-At", "-d", process.env.E2E_ARMY_LOCAL_DB_URL!,
+        "-c", query], { encoding: "utf8" }).trim();
+      // The mandate seals the dollar ceiling shown, and no token ceiling.
+      expect(sql(`select settings->>'maxNanoUsd', settings->'maxTokens' from private.takeoff_api_mandates where project_id = '${projectId}'`))
+        .toBe("1000000000|null");
 
       const launched = await launchPreparedTakeoffFromPlanSetAction({ projectId, planSetId, versionId, level: "C", provider: "chatgpt",
         preparationRevision: confirmed.data.revision!, paymentChoice });
@@ -189,6 +197,14 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before com
       expect(settlements[2].sentAt - settlements[1].sentAt).toBeGreaterThanOrEqual(950);
       expect(JSON.parse(settlements[0].body)).toMatchObject({ p_cost: 310000000, p_tokens: 151000 });
       expect(ledger()).toMatch(/^\d+\|310000000$/);
+      // One call was reserved past the tenant's token ceiling and its tokens are recorded; the request stopped on dollars.
+      const [boundTokens, actualTokens] = sql(`select bound_tokens, actual_tokens from private.takeoff_api_calls where job_id = '${jobId}'`)
+        .split("|").map(Number);
+      expect(boundTokens).toBeGreaterThan(160_000);
+      expect(actualTokens).toBe(151_000);
+      expect(sql(`select reason from private.takeoff_api_budget_stops s join private.takeoff_api_mandates m on m.id = s.mandate_id
+        where m.project_id = '${projectId}'`)).toBe("BUDGET_EXHAUSTED");
+      expect(sql(`select error_message from public.takeoff_jobs where id = '${jobId}'`)).toContain("Le plafond en dollars de cette demande");
       const account = await api.state(owner);
       expect(account.analysisPreferences?.apiReasoningEffort).toBe("medium");
     } finally {

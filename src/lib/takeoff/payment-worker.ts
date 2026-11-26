@@ -47,6 +47,12 @@ function apiInput(prompt: string, attachments: StructuredCallFile[]) {
   return { prompt, files };
 }
 
+/**
+ * The provider of a job paid by its creator's personal key. Its mandate's dollar ceiling is the request's only bound
+ * (owner decision of 2026-11-27): before each call the ledger gives the dollars left, the call is prepared within them,
+ * its dollar bound is reserved before it is sent, and what it cost is settled after. No token number bounds a call or the
+ * request; the tokens a call used are recorded with its settlement, for the activity.
+ */
 export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, lease: () => string | null,
   service = createServiceRoleClient(), access = openAiApiKeyAccess()): Promise<LocalTakeoffProvider> {
   const pinned = takeoffExecutionSelectionSchema.safeParse((job.preparation_snapshot as { execution_selection?: unknown } | null)?.execution_selection);
@@ -60,7 +66,7 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
   await assertTakeoffApiConnection(owner, mandate);
   const stopForBudget = () => new TakeoffError({
     status: 422, code: TakeoffErrorCode.TAKEOFF_REQUEST_BUDGET_EXHAUSTED, retryable: false, jobId: job.id,
-    message: "Le budget de ce métré avec la clé API OpenAI est épuisé. Les résultats déjà enregistrés sont conservés.",
+    message: "Le plafond en dollars de cette demande avec la clé API OpenAI est atteint. Les résultats déjà enregistrés sont conservés.",
   });
   const stopForLedger = (tileAttempted = false) => new TakeoffError({
     status: 409, code: TakeoffErrorCode.TAKEOFF_USAGE_UNRECORDED, retryable: false, jobId: job.id,
@@ -89,6 +95,9 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
       });
       const row = data?.[0];
       if (error || !row) throw stopForLedger();
+      // A bound is prepared again when the dollars left no longer hold it. Refused with dollars to hold it, the ledger
+      // follows another rule than this worker (one older than the dollar-only ceiling): preparing again would never end.
+      if (row.reason === "REPREPARE" && !exhausted && bound !== undefined && row.remaining_nano_usd >= bound) throw stopForLedger();
       if (row.reason === "CAPACITY_HELD" || row.reason === "REPREPARE") {
         throw new ReprepareApiCall(row.reason === "CAPACITY_HELD");
       }
@@ -129,12 +138,12 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
           const prepared = await access.prepare(owner, {
             model: mandate.model, reasoningEffort: mandate.reasoningEffort, expectedVersion: mandate.connectionVersion,
             expectedConnectionId: mandate.connectionId, schema: options.schema,
-            ...input, allotmentNanoUsd: balance.remaining_nano_usd, maxTotalTokens: balance.remaining_tokens,
+            ...input, allotmentNanoUsd: balance.remaining_nano_usd,
             outputCap: branch === "vector_group" ? 4_096 : 32_768, minOutputTokens: branch === "vector_group" ? 256 : 1_024,
             signal: options.signal,
           }).catch(async (error: unknown) => {
             if (isApiKeyError(error) && error.code === "AI_KEY_CEILING") {
-              await reserve(balance.remaining_nano_usd, balance.remaining_tokens, true);
+              await reserve(balance.remaining_nano_usd, undefined, true);
             }
             throw error;
           });
@@ -167,9 +176,8 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
         halted = stopForLedger();
         throw tile ? stopForLedger(true) : halted;
       }
-      if (answer.costNanoUsd > prepared.boundNanoUsd || totalTokens > prepared.inputTokens + prepared.maxOutputTokens) {
-        throw stopForBudget();
-      }
+      // A call that cost more than the dollars it reserved stops the request. Its tokens are recorded, never compared.
+      if (answer.costNanoUsd > prepared.boundNanoUsd) throw stopForBudget();
       if (answer.schemaError && branch === "vector_group") {
         throw new LocalGroupsRequestError("La réponse OpenAI n’a pas le format attendu pour les groupes.", totalTokens);
       }

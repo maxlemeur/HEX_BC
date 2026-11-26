@@ -106,8 +106,10 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   const prepared = await readMeasurePreparation(context, input.projectId);
   if (!prepared.everyPlan) return { refusal: prepared.refusal };
   const { confirmed, planSetId, service, order, items, everyPlan } = prepared;
-  const config = input.apiMandate ? { ...prepared.config, maxTotalTokens: input.apiMandate.maxTokens,
-    maxCostCents: input.apiMandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT } : prepared.config;
+  // A personal key's request is bounded by the dollar ceiling of its mandate alone. The token numbers its manifest carries
+  // (sized below from its calls) are an estimate: nothing compares them with what the key spends.
+  const config = input.apiMandate ? { ...prepared.config, maxCostCents: input.apiMandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT }
+    : prepared.config;
   const copyOf = new Map(everyPlan.manifest.plans.map((plan) => [plan.logical_id.toLowerCase(), plan.plan_file_id]));
   const scope = input.planKeys.map((key) => copyOf.get(key.toLowerCase()));
   if (!scope.length || scope.some((id) => !id)) {
@@ -204,8 +206,9 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
       return { refusal: MARK_SCOPE_REFUSAL };
     }
     const estimate = markSchedule.total_calls * TAKEOFF_PAID_CALL_ESTIMATE_TOKENS;
-    if (estimate > config.maxTotalTokens) return { refusal: "Les lectures et les propositions dépassent le budget du métré. Choisissez la page affichée seule ou désactivez les propositions." };
-    const tokens = Math.min(config.maxTotalTokens, estimate * POSTE_READING_BUDGET_MARGIN);
+    // The plan's token budget refuses a schedule past it. A key has none: its confirmed calls and its dollar ceiling bound it.
+    if (!input.apiMandate && estimate > config.maxTotalTokens) return { refusal: "Les lectures et les propositions dépassent le budget du métré. Choisissez la page affichée seule ou désactivez les propositions." };
+    const tokens = input.apiMandate ? estimate * POSTE_READING_BUDGET_MARGIN : Math.min(config.maxTotalTokens, estimate * POSTE_READING_BUDGET_MARGIN);
     sized.manifest.budget = { ...sized.manifest.budget, tokens };
     sized.manifest.units[0].budget = { ...sized.manifest.units[0].budget, tokens };
   }

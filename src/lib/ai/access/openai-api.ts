@@ -94,8 +94,6 @@ export type ApiKeyPrepareInput<T> = {
   outputCap: number;
   /** Below this output budget the call cannot hold a useful answer: refused. */
   minOutputTokens: number;
-  /** An optional total token balance for this request, across its paid calls. */
-  maxTotalTokens?: number;
   /** Caller cancellation signal, combined with the counting timeout. */
   signal?: AbortSignal;
 };
@@ -874,13 +872,12 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       if (input.beforeSend) {
         await input.beforeSend();
         await readConnection(owner, connection.version, connection.connection_id);
-      } else if (input.maxTotalTokens !== undefined && input.expectedConnectionId) {
+      } else if (input.expectedConnectionId) {
+        // The connection the caller named is read again once the request is serialized, before it is counted.
         await readConnection(owner, connection.version, connection.connection_id);
       }
       const inputTokens = await countWith(deps, secret, request, input.signal);
-      const cap = input.maxTotalTokens === undefined ? input.outputCap
-        : Math.max(0, Math.min(input.outputCap, input.maxTotalTokens - inputTokens));
-      const maxOutputTokens = maxOutputWithin({ model: input.model, inputTokens, allotmentNanoUsd: input.allotmentNanoUsd, cap });
+      const maxOutputTokens = maxOutputWithin({ model: input.model, inputTokens, allotmentNanoUsd: input.allotmentNanoUsd, cap: input.outputCap });
       if (maxOutputTokens < input.minOutputTokens) {
         const smallest = boundCountedCall({ model: input.model, inputTokens, maxOutputTokens: input.minOutputTokens });
         throw new ApiKeyError("AI_KEY_CEILING", { detail: { ceiling: formatUsdCeiling(input.allotmentNanoUsd),
