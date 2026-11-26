@@ -510,6 +510,8 @@ declare
   tokens_left bigint;
   reserved uuid;
   schedule jsonb;
+  classifier_calls integer;
+  lane_calls integer;
   capacity_held boolean;
 begin
   job := private.lock_takeoff_paying_job(p_job_id, p_lease_token);
@@ -546,8 +548,8 @@ begin
     return query select refusal, 0::bigint, 0::bigint, null::uuid;
     return;
   end if;
+  schedule := private.takeoff_confirmed_count_mark_schedule(job);
   if p_branch = 'count_tile' then
-    schedule := private.takeoff_confirmed_count_mark_schedule(job);
     if not exists (
       select 1 from jsonb_array_elements(schedule -> 'pages') s
       cross join lateral generate_series(1, case when (s->>'width_points')::numeric > 700 then 6 else 4 end) t(i)
@@ -566,6 +568,19 @@ begin
     and c.settled_at is not null and (c.actual_nano_usd is null or c.actual_tokens is null)) then
     return query select 'USAGE_UNKNOWN'::text, 0::bigint, 0::bigint, null::uuid;
     return;
+  end if;
+  if schedule is not null and p_branch <> 'count_tile' then
+    select private.takeoff_count_mark_classifier_calls(private.takeoff_launch_unit(r.manifest, job.launch_unit_key),
+      jsonb_array_length(schedule -> 'pages')) into classifier_calls
+    from public.takeoff_launch_requests r where r.id = job.launch_request_id;
+    lane_calls := case p_branch when 'pdf' then (schedule ->> 'other_calls')::integer - classifier_calls
+      when 'vector_group' then classifier_calls else 0 end;
+    -- The confirmed lane counts every reservation, across leases, just like the subscription ledger.
+    if (select count(*) from private.takeoff_api_calls c where c.mandate_id = mandate.id and c.scope_id = billing_scope
+      and c.branch = p_branch) >= lane_calls then
+      return query select 'BUDGET_EXHAUSTED'::text, 0::bigint, 0::bigint, null::uuid;
+      return;
+    end if;
   end if;
   select (mandate.settings->>'maxNanoUsd')::bigint - coalesce(sum(coalesce(c.actual_nano_usd, c.bound_nano_usd)), 0),
     (mandate.settings->>'maxTokens')::bigint - coalesce(sum(coalesce(c.actual_tokens, c.bound_tokens)), 0)
@@ -630,6 +645,68 @@ begin
   end if;
   return true;
 end;
+$$;
+
+-- The two existing activity readers keep their service-role grants and expose only aggregate usage.
+-- Unsettled reservations still hold their bound in the budget. Only settled receipts contribute to activity.
+create function private.takeoff_api_request_usage(request public.takeoff_launch_requests)
+returns table (tokens_observed bigint, cost_cents_observed bigint, unknown_calls bigint)
+language sql stable set search_path = '' as $$
+  select coalesce(sum(c.actual_tokens) filter (where c.actual_nano_usd is not null), 0)::bigint,
+    floor(coalesce(sum(c.actual_nano_usd), 0) / 10000000)::bigint,
+    count(*) filter (where c.actual_nano_usd is null or c.actual_tokens is null)
+  from private.takeoff_api_calls c
+  join private.takeoff_api_mandates m on m.id = c.mandate_id
+    and m.tenant_id = request.tenant_id and m.project_id = request.project_id
+  where c.scope_id = request.id and c.settled_at is not null
+    and c.mandate_id = case when request.mandate_selection->>'source' = 'personal_api_key'
+      then (request.mandate_selection->>'authorizationId')::uuid end
+$$;
+revoke all on function private.takeoff_api_request_usage(public.takeoff_launch_requests) from public, anon, authenticated, service_role;
+
+create or replace function public.read_takeoff_launch_request_units(p_tenant_id uuid, p_project_id uuid, p_request_id uuid)
+returns jsonb language sql stable security definer set search_path = '' as $$
+  select jsonb_build_object(
+    'request_id', r.id,
+    'format', case when r.manifest -> 'format_version' = '2'::jsonb then 'per_plan' else 'grouped' end,
+    'plans', jsonb_array_length(coalesce(r.manifest -> 'plans', '[]'::jsonb)),
+    'units', coalesce((
+      select jsonb_agg(jsonb_build_object(
+          'key', j.launch_unit_key,
+          'ordinal', coalesce((u.value ->> 'ordinal')::integer, 1),
+          'plan_file_id', p.value ->> 'plan_file_id', 'logical_id', p.value ->> 'logical_id', 'name', p.value ->> 'name',
+          'pages', coalesce(p.value -> 'pages', '[]'::jsonb),
+          'job_id', j.id,
+          'state', private.takeoff_unit_state(j.status::text, j.analysis_outcome, j.error_code, j.started_at),
+          'reason_code', case when j.error_code = any (case when r.manifest -> 'format_version' = '2'::jsonb
+              then private.takeoff_plan_public_failure_codes() else private.takeoff_public_failure_codes() end)
+            and private.takeoff_unit_state(j.status::text, j.analysis_outcome, j.error_code, j.started_at) in ('failed', 'not_started')
+            then j.error_code end,
+          'retry_at', case when j.status = 'failed' and j.analysis_outcome is null then j.next_retry_at end,
+          'updated_at', j.updated_at)
+        order by coalesce((u.value ->> 'ordinal')::integer, 1), j.id)
+      from public.takeoff_jobs j
+      left join lateral (select private.takeoff_launch_unit(r.manifest, j.launch_unit_key) as value) u on true
+      left join lateral (select e.value from jsonb_array_elements(r.manifest -> 'plans') e(value)
+        where r.manifest -> 'format_version' = '2'::jsonb and e.value ->> 'entry_key' = u.value #>> '{plans,0}') p on true
+      where j.launch_request_id = r.id), '[]'::jsonb),
+    'usage', jsonb_build_object('tokens_observed', r.tokens_observed + api.tokens_observed,
+      'cost_cents_observed', r.cost_cents_observed + api.cost_cents_observed,
+      'unknown_calls', api.unknown_calls
+        + (select count(*) from private.takeoff_launch_usage l where l.request_id = r.id and l.state = 'unknown')))
+  from public.takeoff_launch_requests r
+  cross join lateral private.takeoff_api_request_usage(r) api
+  where r.id = p_request_id and r.tenant_id = p_tenant_id and r.project_id = p_project_id
+$$;
+
+create or replace function public.read_takeoff_launch_unknown_calls(p_tenant_id uuid, p_project_id uuid, p_request_ids uuid[])
+returns table (request_id uuid, unknown_calls bigint)
+language sql stable security definer set search_path = '' as $$
+  select r.id, api.unknown_calls
+    + (select count(*) from private.takeoff_launch_usage l where l.request_id = r.id and l.state = 'unknown')
+  from public.takeoff_launch_requests r
+  cross join lateral private.takeoff_api_request_usage(r) api
+  where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.id = any (p_request_ids)
 $$;
 
 -- Recover from the hosted sweep even when the credential holder is offline. The Mac can also run this for its own queue.
