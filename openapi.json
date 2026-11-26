@@ -9977,7 +9977,7 @@
           "Catalogue"
         ],
         "summary": "Importer le classeur de chiffrage en articles brouillons",
-        "description": "Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, 6000 au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture peut être choisi par ligne (supply_type_rows), par famille du classeur (supply_type_families), ou par code inféré (supply_types), dans cet ordre. Par défaut, il reçoit le type de l’entreprise qui porte le code inféré. L’aperçu donne les types de fourniture de l’entreprise et les articles déjà présents dont le prix de référence ou l’unité diffère du classeur (catalogue_differences), sans les modifier. Les références fournisseur des nouveaux articles sont comptées. La reprise des références a sa propre action. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report (ce qui a été créé). Relancer le même classeur crée le reste.",
+        "description": "Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, 6000 au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture peut être choisi par ligne (supply_type_rows), par famille du classeur (supply_type_families), ou par code inféré (supply_types), dans cet ordre. Par défaut, il reçoit le type de l’entreprise qui porte le code inféré. L’aperçu donne les types de fourniture de l’entreprise et les articles déjà présents dont le prix de référence ou l’unité diffère du classeur (catalogue_differences), sans les modifier. Les références fournisseur des nouveaux articles sont comptées. La reprise des références a sa propre action. confirm=false : aperçu, rien n’est écrit. À la confirmation, selected_rows limite le lot aux lignes Excel sélectionnées. La confirmation requiert alors expected_tenant_id égal au review_tenant_id de l’aperçu. Une ligne de la sélection devenue indisponible refuse le lot avant toute écriture. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report (ce qui a été créé). Relancer le même classeur crée le reste.",
         "requestBody": {
           "description": "Lignes de l’onglet All_data, confirmation et types de fourniture choisis à l’écran.",
           "required": true,
@@ -58626,6 +58626,23 @@
             "type": "string",
             "maxLength": 255
           },
+          "expected_tenant_id": {
+            "description": "Entreprise de l’aperçu. Requise pour confirmer une sélection de lignes.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "selected_rows": {
+            "description": "Lignes Excel des brouillons à créer. Utilisé uniquement lors de la confirmation.",
+            "minItems": 1,
+            "maxItems": 6000,
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 6000
+            }
+          },
           "supply_types": {
             "type": "object",
             "propertyNames": {
@@ -58735,6 +58752,11 @@
                     "type": "null"
                   }
                 ]
+              },
+              "review_tenant_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
               "proposed_articles": {
                 "type": "array",

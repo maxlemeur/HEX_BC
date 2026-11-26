@@ -7,6 +7,7 @@ import {
   type CostingWorkbookSupplierOccurrence,
 } from "@/lib/catalogue/costing-workbook";
 import type { CostingWorkbookSupplierReferenceReport } from "@/lib/catalogue/costing-workbook-contract";
+import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import { levenshteinDistance, normalizeCompareText } from "@/lib/text/fuzzy-compare";
 
 /**
@@ -19,7 +20,7 @@ export type SupplierDecision = CostingWorkbookSupplierReferenceReport["for_decis
 export type SupplierDecisionReason = SupplierDecision["reason"];
 
 /** What the office checks on a proposed draft before importing it. */
-export type ArticleFinding = "price_missing" | "unit_defaulted" | "supply_type_defaulted" | "without_supply_type" | "material_missing";
+export type ArticleFinding = "price_missing" | "unit_defaulted" | "supply_type_defaulted" | "without_supply_type" | "material_missing" | "unit_unknown" | "reference_repeated" | "possible_duplicate";
 
 export const ARTICLE_FINDINGS: Record<ArticleFinding, { label: string; short: string }> = {
   price_missing: { label: "Sans prix (0 €)", short: "sans prix" },
@@ -27,15 +28,25 @@ export const ARTICLE_FINDINGS: Record<ArticleFinding, { label: string; short: st
   supply_type_defaulted: { label: "Classé « divers » par défaut", short: "classé par défaut" },
   without_supply_type: { label: "Sans type de fourniture", short: "sans type" },
   material_missing: { label: "Sans matière", short: "sans matière" },
+  unit_unknown: { label: "Unité non reconnue", short: "unité non reconnue" },
+  reference_repeated: { label: "Référence répétée dans le classeur", short: "référence répétée" },
+  possible_duplicate: { label: "Doublon possible au catalogue", short: "doublon possible" },
 };
 
-export function articleFindings(article: CostingWorkbookArticle, withoutSupplyType: boolean): ArticleFinding[] {
+export function articleFindings(
+  article: CostingWorkbookArticle,
+  withoutSupplyType: boolean,
+  { typeChosen = false, referenceRepeated = false, possibleDuplicate = false } = {},
+): ArticleFinding[] {
   const findings: ArticleFinding[] = [];
   if (article.unit_price_cents === 0) findings.push("price_missing");
   if (article.unit_defaulted) findings.push("unit_defaulted");
+  else if (!normalizeMeasurementUnit(article.unit).unitCode) findings.push("unit_unknown");
   if (withoutSupplyType) findings.push("without_supply_type");
-  else if (article.supply_type_defaulted) findings.push("supply_type_defaulted");
+  else if (article.supply_type_defaulted && !typeChosen) findings.push("supply_type_defaulted");
   if (!article.material) findings.push("material_missing");
+  if (referenceRepeated) findings.push("reference_repeated");
+  if (possibleDuplicate) findings.push("possible_duplicate");
   return findings;
 }
 

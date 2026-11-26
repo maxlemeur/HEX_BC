@@ -54,6 +54,11 @@ export const COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN = "COSTING_WORKBOOK_SUPPLY_TYP
  * comes first.
  */
 export const costingWorkbookArticlesSchema = costingWorkbookImportSchema.extend({
+  expected_tenant_id: z.uuid().optional()
+    .describe("Entreprise de l’aperçu. Requise pour confirmer une sélection de lignes."),
+  selected_rows: z.array(z.number().int().min(1).max(COSTING_WORKBOOK_MAX_ROWS))
+    .min(1).max(COSTING_WORKBOOK_MAX_ROWS).optional()
+    .describe("Lignes Excel des brouillons à créer. Utilisé uniquement lors de la confirmation."),
   supply_types: z.partialRecord(z.enum(COSTING_WORKBOOK_SUPPLY_KINDS), z.uuid()).optional(),
   supply_type_families: z.array(z.object({ family_code: z.string().min(1).max(4000), supply_type_id: z.uuid() }).strict())
     .max(COSTING_WORKBOOK_MAX_ROWS).optional(),
@@ -70,6 +75,7 @@ export type CostingWorkbookImportReport = {
   /** Drafts to create (preview) or created (confirmed). */
   new_articles: number;
   /** Workbook rows of the proposed drafts, available in the preview. */
+  review_tenant_id?: string;
   proposed_articles?: Array<{ row: number; without_supply_type: boolean }>;
   /** The company's supply types, for the screen to offer one where a proposed code has none (preview only). */
   supply_types?: Array<{ id: string; code: string; name: string }>;
