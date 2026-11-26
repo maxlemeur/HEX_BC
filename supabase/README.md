@@ -33,6 +33,10 @@ chemin des identifiants privés, `stop` arrête les services en gardant les
 données et `destroy --yes` efface cette pile après confirmation explicite.
 Les données et le compte de développement sont des fichiers uniques à
 conserver sous `~/.supabase/`, indépendamment des builds régénérables.
+Tant qu'elle tourne, cette pile occupe une des places de piles natives de
+l'utilisateur (trois par défaut, `NATIVE_STACK_MAX_RUNS`) : `db:ci:local` et les
+campagnes TesterArmy en disposent d'une de moins. L'arrêter avec `stop` avant
+une série de campagnes ; les données sont conservées.
 Pour une pile de recette jetable, utiliser
 [la boucle de développement](../docs/testing/tester-army-local-development.md).
 
