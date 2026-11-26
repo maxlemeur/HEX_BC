@@ -10,6 +10,10 @@ const label = "Robinet laiton";
 const attach = "Rattacher cette saisie à un plan";
 const withdraw = "Retirer la saisie de l’affaire";
 
+async function storedPlan(project: string) {
+  return (await querySql(`select plan_logical_id from public.takeoff_item_entries where project_id='${project}'`)).at(-1);
+}
+
 async function prepare(ui: NativeUi, names: string[]) {
   const owner = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "SCOPE", calcPolicy: "absent" });
   const seeded = await seedItemSendAffaire(owner, { name: ui.army.runPrefix + "-portée", labels: [label],
@@ -62,8 +66,8 @@ test("POSTE-PORTEE02 rattache le total, puis envoie sa quantité sur le plan", o
   await f.dialog.getByLabel("Plan de destination").selectOption({ label: "sanitaires.pdf" });
   await f.dialog.getByRole("button", "Rattacher", { exact: true }).click();
   await expect(ui.screen.getByText(/Saisie rattachée au plan/).first()).toBeVisible();
-  expect(await readOwnedEntries(f.seeded.projectId)).toEqual([expect.objectContaining({ plan_logical_id: f.seeded.plans[0].fileId,
-    quantity: 4, unit: "u", category: "site_survey", included: true })]);
+  expect(await readOwnedEntries(f.seeded.projectId)).toEqual([expect.objectContaining({ quantity: 4, unit: "u", category: "site_survey", included: true })]);
+  expect(await storedPlan(f.seeded.projectId)).toBe(f.seeded.plans[0].fileId);
   await f.send();
 });
 
@@ -89,7 +93,8 @@ test("POSTE-PORTEE03 la collision présente la saisie en place avant un remplace
   expect(await readOwnedEntries(f.seeded.projectId)).toHaveLength(2);
   await f.dialog.getByRole("button", "Remplacer la saisie du plan", { exact: true }).click();
   await expect(ui.screen.getByText(/Saisie du plan remplacée/).first()).toBeVisible();
-  expect(await readOwnedEntries(f.seeded.projectId)).toEqual([expect.objectContaining({ plan_logical_id: f.seeded.plans[0].fileId, quantity: 4 })]);
+  expect(await readOwnedEntries(f.seeded.projectId)).toEqual([expect.objectContaining({ quantity: 4 })]);
+  expect(await storedPlan(f.seeded.projectId)).toBe(f.seeded.plans[0].fileId);
 });
 
 test("POSTE-PORTEE04 une saisie modifiée reste en place, puis son retrait rend le poste aux lectures", options, async ({ ui }) => {
@@ -111,21 +116,58 @@ test("POSTE-PORTEE04 une saisie modifiée reste en place, puis son retrait rend 
   expect(await readOwnedEntries(f.seeded.projectId)).toEqual([]);
 });
 
-test("POSTE-PORTEE05 une part envoyée empêche le retrait du total", options, async ({ ui }) => {
+test("POSTE-PORTEE05 une part vivante dans un devis émis empêche le retrait et le rattachement du total", options, async ({ ui }) => {
   const f = await prepare(ui, ["sud.pdf"]);
   await f.entry("4");
   await expect(f.scope).toHaveValue(f.seeded.plans[0].fileId);
   await f.save();
   await f.send();
-  // Historical coexistence of a whole entry and a live part, as in the SQL regression fixture.
-  await querySql(`insert into public.takeoff_item_entries(tenant_id,project_id,item_id,quantity,unit,category,included,
-    revision,actor_id,entered_at,command_id) select tenant_id,project_id,item_id,6,unit,category,included,1,actor_id,now(),command_id
-    from public.takeoff_item_entries where project_id='${f.seeded.projectId}' and plan_logical_id is not null`);
+  await seedLegacyTotal(f.seeded.projectId);
+  const [line] = (await readOwnedLines(f.seeded.projectId)).filter(row => row.item_type === "line");
+  await querySql(`update public.estimate_versions set status='sent',seal_hash=repeat('1',64) where id='${line.version_id}'`);
   await f.open();
   await f.expand();
   await f.button(withdraw).click();
   await f.dialog.getByRole("button", "Retirer", { exact: true }).click();
   await expect(f.dialog).toContainText("Une part de ce poste est déjà au devis");
+  await f.dialog.getByRole("button", "Fermer", { exact: true }).click();
+  await f.button(attach).click();
+  await f.dialog.getByLabel("Plan de destination").selectOption({ label: "sud.pdf" });
+  await f.dialog.getByRole("button", "Rattacher", { exact: true }).click();
+  await expect(f.dialog).toContainText("Une part de ce poste est déjà au devis");
   expect(await readOwnedEntries(f.seeded.projectId)).toHaveLength(2);
   expect(await countOwnedReceipts(f.seeded.projectId)).toBe(1);
+});
+
+async function seedLegacyTotal(project: string) {
+  // Historical coexistence of a whole entry and a live part, as in the SQL regression fixture.
+  await querySql(`insert into public.takeoff_item_entries(tenant_id,project_id,item_id,quantity,unit,category,included,
+    revision,actor_id,entered_at,command_id) select tenant_id,project_id,item_id,6,unit,category,included,1,actor_id,now(),command_id
+    from public.takeoff_item_entries where project_id='${project}' and plan_logical_id is not null`);
+}
+
+test("POSTE-PORTEE06 le retrait confirmé du dernier apport libère le rattachement à un plan éligible", options, async ({ ui }) => {
+  const f = await prepare(ui, ["aile-a.pdf", "aile-b.pdf"]);
+  await f.entry("4");
+  await f.scope.selectOption({ label: "aile-a.pdf" });
+  await f.save();
+  await f.send();
+  await f.open("?postePlan=" + f.seeded.plans[0].fileId);
+  await ui.screen.getByRole("link", `Détail de « ${label} » sur le plan`, { exact: true }).click();
+  await ui.screen.getByText("Retirer cet apport du devis", { exact: true }).click();
+  await ui.screen.getByLabel("Motif du retrait").selectOption({ value: "duplicate" });
+  await f.button("Préparer le retrait").click();
+  await f.button("Prévisualiser la correction").click();
+  await f.button("Confirmer la correction").click();
+  await expect(ui.screen.getByText(/Correction confirmée/).first()).toBeVisible();
+  expect((await readOwnedParts(f.seeded.projectId)).filter(row => row.state === "live")).toEqual([]);
+  await seedLegacyTotal(f.seeded.projectId);
+  await f.open();
+  await f.expand();
+  await f.button(attach).click();
+  await f.dialog.getByLabel("Plan de destination").selectOption({ label: "aile-b.pdf" });
+  await f.dialog.getByRole("button", "Rattacher", { exact: true }).click();
+  await expect(ui.screen.getByText(/Saisie rattachée au plan/).first()).toBeVisible();
+  expect((await querySql(`select quantity from public.takeoff_item_entries where project_id='${f.seeded.projectId}'
+    and plan_logical_id='${f.seeded.plans[1].fileId}'`)).at(-1)).toMatch(/^6(?:\.0+)?$/);
 });

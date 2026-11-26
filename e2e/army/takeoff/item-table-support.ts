@@ -206,7 +206,7 @@ select 'ITEM_TABLE_SEEDED';
 }
 
 export type OwnedDecision = { item_id: string; kind: string; reason: string | null; note: string | null; revision: number; actor_id: string };
-export type OwnedEntry = { item_id: string; plan_logical_id: string | null; quantity: number; unit: string; category: string; note: string | null; included: boolean };
+export type OwnedEntry = { item_id: string; quantity: number; unit: string; category: string; note: string | null; included: boolean };
 export type OwnedRow = { id: string; is_verified: boolean; verified_by: string | null; is_excluded: boolean; exclusion_reason: string | null };
 export type OwnedAnswer = { item_id: string; outcome: string; quantity: number | null };
 
@@ -217,7 +217,7 @@ async function json<T>(sql: string): Promise<T> {
 export const readOwnedDecisions = (projectId: string) => json<OwnedDecision[]>(`select coalesce(jsonb_agg(to_jsonb(d) order by d.item_id), '[]')
   from (select item_id, kind, reason, note, revision, actor_id from public.takeoff_item_answer_decisions where project_id = '${projectId}') d;`);
 export const readOwnedEntries = (projectId: string) => json<OwnedEntry[]>(`select coalesce(jsonb_agg(to_jsonb(e) order by e.item_id), '[]')
-  from (select item_id, plan_logical_id, quantity, unit, category, note, included from public.takeoff_item_entries where project_id = '${projectId}') e;`);
+  from (select item_id, quantity, unit, category, note, included from public.takeoff_item_entries where project_id = '${projectId}') e;`);
 export const readOwnedRows = (jobId: string) => json<OwnedRow[]>(`select coalesce(jsonb_agg(to_jsonb(r) order by r.id), '[]')
   from (select id, is_verified, verified_by, is_excluded, exclusion_reason from public.takeoff_items where job_id = '${jobId}') r;`);
 export const readOwnedAnswers = (projectId: string) => json<OwnedAnswer[]>(`select coalesce(jsonb_agg(to_jsonb(a) order by a.item_id), '[]')
