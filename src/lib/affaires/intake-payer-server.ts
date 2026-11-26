@@ -1,8 +1,8 @@
 import "server-only";
 import { z } from "zod";
 
-import { hasLocalChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
-import { getLocalChatGptCredential, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { hasLocalChatGptStore, readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
+import { getLocalChatGptCredential, hasLocalChatGptPlanAccess, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export class IntakePayerAccessLost extends Error {
@@ -42,4 +42,13 @@ export async function selectedIntakeConnection(owner: ChatGptOwner) {
 
 export async function hostCanReadIntakeScans(owner: ChatGptOwner) {
   return Boolean(await selectedIntakeConnection(owner));
+}
+
+/** The explicit plan settings can outlive later profile model/effort changes. */
+export async function readSelectedIntakePlanConnection(owner: ChatGptOwner) {
+  if (!isLocalChatGptEnabled()) return null;
+  const store = await readChatGptStore(owner).catch(() => null);
+  const profile = store?.profiles.find((entry) => entry.id === store.selectedId);
+  return profile?.authorizationId && hasLocalChatGptPlanAccess(profile)
+    ? { profileId: profile.id, authorizationId: profile.authorizationId } : null;
 }

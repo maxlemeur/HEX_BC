@@ -25,6 +25,7 @@ beforeEach(() => {
     global: { fetch: async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/rpc/intake_payer_can_write")) return Response.json(true);
+      if (url.pathname.endsWith("/rpc/read_affaire_intake_ai_batch")) return Response.json(null);
       if (url.pathname.endsWith("/rpc/stop_affaire_intake_analysis")) {
         const { p_upload_id } = JSON.parse(String(init?.body));
         retired.push(p_upload_id);

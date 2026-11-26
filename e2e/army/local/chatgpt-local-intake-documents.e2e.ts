@@ -254,6 +254,7 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
     const retry = screen.getByRole("button", "Relancer l’analyse (1)", { exact: true });
     await expect(retry).toBeEnabled();
     await retry.click();
+    await screen.getByRole("button", "Démarrer la relance", { exact: true }).click();
     await expect(screen.getByText(/1 classement manuel conservé/)).toBeVisible(DEV_SERVER_WORK);
     const after = (await documents())[0];
     for (const field of ["document_kind", "classification_status", "classification_source", "classified_by", "classified_at",
@@ -272,6 +273,7 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
     await setDecisionsControl({ timeoutWriting: true });
     try {
       await retry.click();
+      await screen.getByRole("button", "Démarrer la relance", { exact: true }).click();
       await expect(screen.getByText(/0 pièce analysée. 1 pièce non analysée./)).toBeVisible();
       const failed = (await documents())[0];
       for (const field of ["document_kind", "classification_status", "classification_source", "classified_by", "classified_at",
@@ -438,7 +440,11 @@ for (const active of [false, true]) test(`INTFRESH${active ? "02" : "01"} a hand
     expect((await oldPiece())?.classification_status).toBe("queued");
     if (!active) {
       await expect(retry).toHaveCount(0);
-      expect((await action("retryAffaireDocumentAnalysis", { documentId })).digest).toBeTruthy();
+      const beforeRejectedRetry = (await sends()).length;
+      await action("retryAffaireDocumentAnalysis", {
+        documentIds: [documentId], choice: { source: "chatgpt_plan", model: "army-plan-model", effort: null },
+      });
+      expect((await sends()).length).toBe(beforeRejectedRetry);
       expect((await oldPiece())?.classification_status).toBe("queued");
       // A genuine terminal failure was already retryable before cut-over.
       await querySql(`update public.affaire_intake_documents set classification_status='failed' where id='${documentId}'`);
@@ -453,6 +459,7 @@ for (const active of [false, true]) test(`INTFRESH${active ? "02" : "01"} a hand
     let worker: Promise<Response> | undefined;
     try {
       await retry.click();
+      await screen.getByRole("button", "Démarrer la relance", { exact: true }).click();
       await expect.poll(async () => (await sends()).slice(beforeRetry), DEV_SERVER_WORK).toEqual(["intake-classification"]);
       const reserved = () => client.from("affaire_intake_documents").select("updated_at,issues").eq("id", documentId).single();
       const version = (await reserved()).data!;
@@ -934,7 +941,7 @@ for (const unavailableAt of ["classification", "transcription", "lease expiry"] 
         await readFile(path.join(directory, second.file_name)), { contentType: "image/png" });
       expect(restored.error).toBeNull();
       const retry = await callServerAction(browser, await serverActionId("retryAffaireDocumentAnalysis", actionManifest()),
-        { projectId, documentId: second.id });
+        { projectId, documentIds: [second.id], choice: { source: "chatgpt_plan", model: "army-plan-model", effort: null } });
       expect(retry).toMatchObject({ status: 200, digest: null });
       await expect.poll(async () => (await client.from("affaire_intake_document_transcriptions").select("status")
         .eq("document_id", second.id).maybeSingle()).data?.status, DEV_SERVER_WORK).toBe("completed");
@@ -986,6 +993,7 @@ test("INTOCR03 a historical Drive reconnection during an individual transcriptio
     await signInAs({ app, screen, browser }, caller.email);
     await ui.app.open(`/dashboard/affaires/${projectId}?intakeDocument=${piece}#intake`);
     await screen.getByRole("button", "Relancer l’analyse de photo.png", { exact: true }).click();
+    await screen.getByRole("button", "Démarrer la relance", { exact: true }).click();
     const expected = [{ page: null, fixtureProfile: "second" }];
     await expect.poll(async () => (await pages()).slice(before), DEV_SERVER_WORK).toEqual(expected);
     expect((await sibling.attach()).resumed).toEqual([lot]);
@@ -1070,6 +1078,7 @@ test("INTOCR02 the analysis retry reads a stopped transcription again after its 
     const retry = screen.getByRole("button", "Relancer l’analyse de bon-relance-ARMY.png", { exact: true });
     await expect(retry).toBeEnabled(DEV_SERVER_WORK);
     await retry.click();
+    await screen.getByRole("button", "Démarrer la relance", { exact: true }).click();
     await expect(screen.getByText(/1 pièce analysée\./)).toBeVisible(DEV_SERVER_WORK);
     await expect.poll(readings, DEV_SERVER_WORK).toBe(readingsAtArrival + 1);
     expect(await transcription()).toMatchObject({ status: "failed", error_code: "MODEL_UNAVAILABLE" });
@@ -1096,6 +1105,7 @@ test("INTOCR02 the analysis retry reads a stopped transcription again after its 
     await ui.app.open(desk);
     await expect(retry).toBeEnabled(DEV_SERVER_WORK);
     await retry.click();
+    await screen.getByRole("button", "Démarrer la relance", { exact: true }).click();
     await expect(screen.getByText(/1 pièce analysée\./)).toBeVisible(DEV_SERVER_WORK);
 
     // The assistant reads the image with its stored text, and cites the piece's page.
@@ -1185,6 +1195,7 @@ test("INTWORD01 Word analysis reports per-file failures and preserves manual cho
       await expect(details).not.toBeVisible();
     }
     await screen.getByRole("button", "Relancer l’analyse (4)", { exact: true }).click();
+    await screen.getByRole("button", "Démarrer la relance", { exact: true }).click();
     await expect(screen.getByText(/3 pièces analysées. 1 pièce non analysée./)).toBeVisible(DEV_SERVER_WORK);
     await expect(screen.getByText("01-corrompu.docx : Le fichier Word est invalide ou corrompu. Réenregistrez-le en DOCX ou exportez-le en PDF.", { exact: true })).toBeVisible();
     await expect(screen.getByText(/sélection restante/)).toHaveCount(0);

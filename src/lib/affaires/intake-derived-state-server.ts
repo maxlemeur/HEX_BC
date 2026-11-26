@@ -1,3 +1,5 @@
+import type { IntakeAiRunner } from "@/lib/affaires/intake-ai-server";
+import type { IntakeAiReceipt } from "@/lib/affaires/intake-ai-settings";
 import { intakeCurrentBriefActive, readIntakeBriefState } from "@/lib/affaires/intake-current-brief-server";
 import { z } from "zod";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -45,6 +47,10 @@ export async function refreshAffaireBriefFromDocuments(input: {
   briefOnly?: boolean;
   renewLease?: () => Promise<void>;
   aiOwner?: ChatGptOwner | null;
+  /** Supplied only by a worker or action holding an explicit AI batch. Historical callers use the plan. */
+  ai?: IntakeAiRunner;
+  /** A retry offers analysis proposals. Preserve published and manually edited briefs. */
+  retry?: boolean;
   /** False when the caller must not wait on Drive (a deletion only retires copies). */
   readDrive?: boolean;
   /** A provenance-only confirmation can keep an up-to-date brief after reconciliation. */
@@ -53,6 +59,10 @@ export async function refreshAffaireBriefFromDocuments(input: {
   const service = createServiceRoleClient();
   const actor = input.actorUserId ? { userId: input.actorUserId, tenantId: input.project.tenant_id } : null;
   const checkRight = input.renewLease ?? (() => requireIntakePayerRight(actor, input.project.id, service));
+  if (input.retry) {
+    const existing = await fetchAffaireBriefForProject({ supabase: input.supabase, projectId: input.project.id });
+    if (existing) return existing.draft;
+  }
   const uploadedDocuments = input.documents.filter(
     (document) => document.upload_status === "uploaded" && document.classification_status !== "awaiting_launch"
   );
@@ -115,6 +125,7 @@ export async function refreshAffaireBriefFromDocuments(input: {
   // Another lot may have published while a historical worker was interrupted.
   // A current receipt lets that worker finish without replacing the newer publication.
   let published = existing?.draft ?? null;
+  if (input.retry && existing) return syncGaps();
   const current = existing?.brief.generation_metadata.input_revision === snapshot.revision;
   let resume = current && Boolean(input.claim) && !input.claim?.launch;
   if (input.claim?.launch && input.claim.attemptCount > 1 && current && existing?.brief.upload_id === input.uploadId) {
@@ -129,10 +140,12 @@ export async function refreshAffaireBriefFromDocuments(input: {
       if (await needsLaunch()) throw new IntakeBriefNeedsLaunch();
     } : checkRight;
     let draft;
+    let aiReceipt: IntakeAiReceipt | undefined;
     try {
       draft = snapshot.documents.length ? await generateAffaireBriefDraft({
         project, uploadId: input.uploadId, documents: snapshot.documents, missingPieces,
         renewLease: mayGenerate, aiOwner: input.claim ? input.aiOwner : actor,
+        ai: input.ai, onReceipt: (receipt) => { aiReceipt = receipt; },
       }) : null;
       await mayGenerate();
     } catch (error) {
@@ -140,7 +153,7 @@ export async function refreshAffaireBriefFromDocuments(input: {
       throw error;
     }
     published = await persistAffaireBriefDraft({
-      ...input, service, project, draft, existing, expectedRevision: snapshot.revision,
+      ...input, service, project, draft, existing, aiReceipt, expectedRevision: snapshot.revision,
       expectedBriefUpdatedAt: snapshot.brief_updated_at, leaseToken: input.claim?.leaseToken ?? null,
     });
   }
@@ -200,6 +213,8 @@ export async function refreshAffaireIntakeFromActiveDocuments(input: {
   actorUserId: string;
   readDrive?: boolean;
   reuseBriefForConfirmation?: boolean;
+  ai?: IntakeAiRunner;
+  retry?: boolean;
 }) {
   // Further edits to a hand-classified first deposit also stay metadata-only
   // until a member presses. A legacy upload already carries its analysis request.
@@ -229,6 +244,6 @@ export async function refreshAffaireIntakeFromActiveDocuments(input: {
     documents,
     actorUserId: input.actorUserId,
     readDrive: input.readDrive,
-    reuseBriefForConfirmation: input.reuseBriefForConfirmation,
+    reuseBriefForConfirmation: input.reuseBriefForConfirmation, ai: input.ai, retry: input.retry,
   });
 }
