@@ -404,7 +404,7 @@
     "20261126011254_workbook_undo_release_kept_article_locks.sql": "68ec924ebf3c3ceff205e3669cd7125ea3aca64feb3857048ac26d127c7ea77a",
     "20261126100842_workbook_undo_authorization_and_batch_indexes.sql": "eaf3165602bb2c6bcb164917718be45eb629baa742e8cda1d95c2b71fd7295d7",
     "20261126145712_material_request_original_workbooks.sql": "520a0893d22ee3f223225260e39ac9082ca21b8f6130a8a88eaf0eb0cdf056ea",
-    "20261126151913_separate_estimate_generation_execution_lock.sql": "3554778590cef070884256dc480cdf780e4a576b1d870fefc072447cbdea0ff0",
-    "20261126154030_takeoff_retain_measure.sql": "9571b43647a5ea0b87f712500732890a14a0661aca513b21253fe4a733e571bf"
+    "20261126154030_takeoff_retain_measure.sql": "9571b43647a5ea0b87f712500732890a14a0661aca513b21253fe4a733e571bf",
+    "20261126160921_separate_estimate_generation_execution_lock.sql": "3554778590cef070884256dc480cdf780e4a576b1d870fefc072447cbdea0ff0"
   }
 }
