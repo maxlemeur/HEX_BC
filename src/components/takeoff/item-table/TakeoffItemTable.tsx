@@ -302,7 +302,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- read back once per scope, then read their lines again
   }, [draftsKey, scopeKey]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string; seen?: ItemRemeasureSeen }>(null);
+  const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string; screen?: string; seen?: ItemRemeasureSeen }>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null }>({ value: null, error: null });
@@ -613,7 +613,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                   </Button>
                 ) : null}
                 {entryValues.length > 0 ? (
-                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => setDialog({ gesture: "entry", intentKey: newIntent() })}>
+                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => setDialog({ gesture: "entry", intentKey: newIntent(), screen: screenKey })}>
                     Enregistrer les saisies ({entryValues.length})
                   </Button>
                 ) : null}
@@ -888,7 +888,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
         <ReinstateDialog scopeLabel={label} busy={busy} eligible={counts.reinstate} onClose={() => setDialog(null)}
           onConfirm={() => void runCommand({ ...base(dialog.intentKey), gesture: "reinstate" }, "réintégré", dropApplied)} />
       ) : null}
-      {dialog?.gesture === "entry" ? (
+      {canReview && dialog?.gesture === "entry" && dialog.screen === screenKey ? (
         <EntryDialog key={screenKey + dialog.intentKey} projectId={projectId} viewScope={address.scope}
           onRefused={withdrawOnRefusal} values={entryValues} onClose={() => setDialog(null)}
           onFinished={(result, error) => {

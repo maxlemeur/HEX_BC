@@ -758,3 +758,38 @@ it("resumes a two-plan batch at the uncertain group, using the same intention on
   expect(commands[0].intent_key).not.toBe(commands[1].intent_key);
   expect(screen.getByTestId("poste-notice")).toHaveTextContent("2 postes saisis");
 });
+
+it("shows both colleagues' entries on another plan before replacing either in a batch", async () => {
+  searchParams = new URLSearchParams({ postePlan: RDC });
+  const data = table({ scope: { kind: "plan", planKey: RDC } });
+  client.fetchItemTable.mockResolvedValue(data);
+  const candidates = table().page.lines.filter(line => [fixtureItemId(3), fixtureItemId(4)].includes(line.itemId));
+  client.fetchFrozenItemSelection.mockResolvedValue({ missing: [], items: candidates.map((line, index) => ({
+    itemId: line.itemId, target: { ...line.targets, answers: line.targets.answers.map(a => ({ ...a,
+      entryRevision: a.answerId === line.readings.find(r => r.planKey === R1)!.answer!.answerId ? 7 + index : 0 })) },
+    eligible: ["enter_quantity"], wholeEntry: null,
+    entryPlans: line.readings.map(r => ({ key: r.planKey, name: r.planName, answerId: r.answer!.answerId, eligible: true,
+      entry: r.planKey === R1 ? { quantity: 2 + index, unit: "u", category: "site_survey", author: ["Léa", "Paul"][index],
+        at: "2026-11-22T08:00:00Z", note: null, revision: 7 + index } : null })),
+  })) });
+  client.sendItemReviewCommand.mockResolvedValue({ outcome: "applied", applied: [], skipped: [] });
+  renderTable();
+  for (const name of ["Baignoire", "Vanne DN32"]) {
+    fireEvent.change(await screen.findByLabelText(`Quantité saisie pour « ${name} »`), { target: { value: "4" } });
+  }
+  fireEvent.click(screen.getByText("Enregistrer les saisies (2)"));
+  const dialog = within(await screen.findByRole("dialog"));
+  await dialog.findByRole("option", { name: "Plan R+1" });
+  fireEvent.change(dialog.getByLabelText("Portée de la saisie"), { target: { value: R1 } });
+  fireEvent.change(dialog.getByLabelText("Ce qui fonde ces quantités"), { target: { value: "site_survey" } });
+  for (const [index, author] of ["Léa", "Paul"].entries()) {
+    expect(dialog.getAllByRole("listitem")[index]).toHaveTextContent(`${2 + index} u · Relevé chantier · ${author}, le 22/11/2026`);
+  }
+  fireEvent.keyDown(dialog.getByLabelText("Note (facultative)"), { key: "Enter" });
+  expect(client.sendItemReviewCommand).not.toHaveBeenCalled();
+  fireEvent.click(dialog.getByRole("button", { name: "Remplacer les 2 saisies" }));
+  await waitFor(() => expect(client.sendItemReviewCommand).toHaveBeenCalledOnce());
+  const command = client.sendItemReviewCommand.mock.calls[0][1];
+  expect(command.scope).toEqual({ kind: "plan", planKey: R1 });
+  expect(command.targets).toEqual(candidates.map((line, index) => expect.objectContaining({ itemId: line.itemId, entryRevision: 7 + index })));
+});
