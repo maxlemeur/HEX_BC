@@ -400,7 +400,7 @@ describe("askChoiceQuestions on the ChatGPT plan", () => {
 
     const [options, owner, override] = vi.mocked(callStructuredAi).mock.calls[0];
     expect(owner).toEqual(OWNER);
-    expect(override).toBeUndefined();
+    expect(override).toEqual(PLAN_DEFAULT);
     expect(options.context).toEqual({ tenantId: OWNER.tenantId, promptVersion: "tache-fictive-v1" });
     expect(options.files).toBeUndefined();
     expect(options.timeoutMs).toBe(100_000);
@@ -653,6 +653,26 @@ describe("availability", () => {
     expect(api.prepare).not.toHaveBeenCalled();
     expect(api.execute).not.toHaveBeenCalled();
   };
+
+  it.each([
+    ["unreadable-record notice", () => api.state.mockResolvedValue({ status: "empty", placeLabel: "Sur ce Mac", notice: "Descriptif illisible." })],
+    ["unreadable-record notice without a keychain", () => api.state.mockResolvedValue({ status: "unavailable", message: "Trousseau indisponible.", notice: "Descriptif illisible." })],
+    ["failed read", () => api.state.mockRejectedValue(new ApiKeyError("AI_KEY_UNEXPECTED"))],
+  ])("offers no default payer to a connected subscriber on %s", async (_label, arrange) => {
+    arrange();
+    expect(await readChoiceProviderOptions(OWNER)).toMatchObject({
+      defaultProvider: null,
+      providers: { chatgpt_plan: { available: true }, personal_api_key: { available: false } },
+    });
+    expectNoProviderCall();
+  });
+
+  it("keeps the normal ChatGPT default when no record has been saved", async () => {
+    api.state.mockResolvedValue({ status: "empty", placeLabel: "Sur ce Mac" });
+    expect(await readChoiceProviderOptions(OWNER)).toMatchObject({
+      defaultProvider: "chatgpt_plan", providers: { chatgpt_plan: { available: true } },
+    });
+  });
 
   it("returns the profile default even when its key is unavailable", async () => {
     api.state.mockResolvedValue({ status: "empty", analysisPreferences: { billingSource: "personal_api_key", apiModel: null } });

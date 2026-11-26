@@ -74,7 +74,7 @@ export type ApiKeyConnectionView = {
 };
 
 export type ApiKeyAccessState = (
-  | { status: "unavailable"; message: string }
+  | { status: "unavailable"; message: string; notice?: string }
   | { status: "empty"; placeLabel: string; /** Something the member should know about the last change (a deferred Keychain cleanup). */ notice?: string }
   | { status: "saved"; connection: ApiKeyConnectionView }
 ) & { analysisPreferences?: AiAnalysisPreferences };

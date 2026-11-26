@@ -150,14 +150,10 @@ async function localHostAllowed(): Promise<boolean> {
   }
 }
 
-async function planAvailability(owner: ChoiceOwner, allowUnselectedModel = false): Promise<Availability> {
-  if (!isLocalChatGptEnabled()) return { available: false, message: PLAN_ELSEWHERE };
-  if (!(await localHostAllowed())) return { available: false, message: PLAN_OTHER_HOST };
-  return getStructuredAiAvailability(owner, { allowUnselectedModel });
-}
-
 async function planOptions(owner: ChoiceOwner) {
-  const availability = await planAvailability(owner, true);
+  if (!isLocalChatGptEnabled()) return { available: false, message: PLAN_ELSEWHERE, ...NO_MODELS };
+  if (!(await localHostAllowed())) return { available: false, message: PLAN_OTHER_HOST, ...NO_MODELS };
+  const availability = await getStructuredAiAvailability(owner, { allowUnselectedModel: true });
   if (!availability.available) return { ...availability, ...NO_MODELS };
   try {
     const options = await readLocalChatGptModelOptions(owner);
@@ -168,20 +164,22 @@ async function planOptions(owner: ChoiceOwner) {
   }
 }
 
-type ApiKeySetup = Availability & { defaultProvider: AiBillingSource; call: (ModelOptions & { expectedVersion: number }) | null };
+type ApiKeySetup = Availability & { defaultProvider: AiBillingSource | null; call: (ModelOptions & { expectedVersion: number }) | null };
 
 /** From MergeOne's own record only: the Keychain is not opened and OpenAI is not called. */
 async function apiKeySetup(owner: ChoiceOwner): Promise<ApiKeySetup> {
-  let defaultProvider: AiBillingSource = DEFAULT_AI_ANALYSIS_PREFERENCES.billingSource;
-  const refused = (message: string): ApiKeySetup => ({ available: false, message, defaultProvider, call: null });
+  const initialProvider = DEFAULT_AI_ANALYSIS_PREFERENCES.billingSource;
+  const refused = (message: string, defaultProvider: ApiKeySetup["defaultProvider"] = initialProvider): ApiKeySetup =>
+    ({ available: false, message, defaultProvider, call: null });
   if (!isLocalChatGptEnabled()) return refused(apiKeyErrorMessage("AI_KEY_KEYCHAIN_UNAVAILABLE"));
   if (!(await localHostAllowed())) return refused(apiKeyErrorMessage("AI_KEY_LOCAL_ONLY"));
   try {
     const state = await openAiApiKeyAccess().state(owner);
     const settings = state.analysisPreferences;
-    defaultProvider = settings?.billingSource ?? defaultProvider;
-    if (state.status === "unavailable") return refused(state.message);
-    if (state.status !== "saved" || !settings) return refused(MISSING_API_KEY);
+    // A notice from state() means the local record exists but could not be read.
+    const defaultProvider = "notice" in state && state.notice ? null : settings?.billingSource ?? initialProvider;
+    if (state.status === "unavailable") return refused(state.message, defaultProvider);
+    if (state.status !== "saved" || !settings) return refused(MISSING_API_KEY, defaultProvider);
     const models = state.connection.offeredModels;
     // The member's default API model and effort: see the header for why the usage named here has no effect.
     const preferences = resolveApiAnalysisPreferences({
@@ -189,7 +187,7 @@ async function apiKeySetup(owner: ChoiceOwner): Promise<ApiKeySetup> {
       apiModel: settings.apiModel,
       ...(settings.apiReasoningEffort === undefined ? {} : { apiReasoningEffort: settings.apiReasoningEffort }),
     }, models, "photos");
-    if (!preferences) return refused(MISSING_API_KEY);
+    if (!preferences) return refused(MISSING_API_KEY, defaultProvider);
     return {
       available: true,
       defaultProvider,
@@ -197,7 +195,7 @@ async function apiKeySetup(owner: ChoiceOwner): Promise<ApiKeySetup> {
       call: { models, preferences, expectedVersion: state.connection.version },
     };
   } catch (error) {
-    return refused(isApiKeyError(error) ? error.message : apiKeyErrorMessage("AI_KEY_UNEXPECTED"));
+    return refused(isApiKeyError(error) ? error.message : apiKeyErrorMessage("AI_KEY_UNEXPECTED"), null);
   }
 }
 
@@ -344,7 +342,7 @@ function reasonOf(error: unknown): keyof typeof FAILURE_MESSAGES {
   return "PROVIDER_ERROR";
 }
 
-function planSender(owner: ChoiceOwner, task: Task, preferences?: ChatGptPreferences): Sender {
+function planSender(owner: ChoiceOwner, task: Task, preferences: ChatGptPreferences): Sender {
   return async (chunk, timeoutMs) => {
     try {
       // The owner is the member the caller authorized; the local host was checked before the first request.
@@ -454,13 +452,9 @@ async function openSender(provider: ChoiceProvider, owner: ChoiceOwner, task: Ta
     return availability.available ? decisionsSender(owner, task) : availability.message;
   }
   if (provider === "chatgpt_plan") {
-    if (selection) {
-      const options = await planOptions(owner);
-      if (!options.preferences) return options.message;
-      return planSender(owner, task, resolveChoiceModel({ models: options.models, preferences: options.preferences }, selection));
-    }
-    const availability = await planAvailability(owner);
-    return availability.available ? planSender(owner, task) : availability.message;
+    const { models, preferences, message } = await planOptions(owner);
+    if (!preferences) return message;
+    return planSender(owner, task, selection ? resolveChoiceModel({ models, preferences }, selection) : preferences);
   }
   const setup = await apiKeySetup(owner);
   if (!setup.call) return setup.message;

@@ -211,7 +211,7 @@ const personalSource = availability.extend({
 
 /** Answer of GET /api/catalogue/workbook-import/suggestions (the `data` of the envelope). */
 export const costingWorkbookSuggestionProvidersResponseSchema = z.object({
-  defaultProvider: z.enum(AI_BILLING_SOURCES),
+  defaultProvider: z.enum(AI_BILLING_SOURCES).nullable().describe("La source préférée dans Mon profil. La valeur null indique que les préférences sont illisibles."),
   providers: z.object({ chatgpt_plan: personalSource, personal_api_key: personalSource, decisions: availability }),
 });
 export type CostingWorkbookSuggestionProvidersResponse = z.infer<typeof costingWorkbookSuggestionProvidersResponseSchema>;

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -9,9 +9,19 @@ vi.mock("@/lib/ai/choice-questions", () => ({
   askChoiceQuestions: vi.fn(),
   readChoiceProviderOptions: vi.fn(),
 }));
+vi.mock("next/headers", async (importOriginal) => ({
+  ...await importOriginal<typeof import("next/headers")>(), headers: async () => new Headers({ host: "127.0.0.1:3000" }),
+}));
+vi.mock("@/lib/ai/chatgpt-local-auth", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ai/chatgpt-local-auth")>(), getLocalChatGptCredential: vi.fn(),
+}));
+vi.mock("@/lib/ai/access/openai-api", () => ({ openAiApiKeyAccess: () => ({ state: async () => ({ status: "empty" }) }) }));
+vi.mock("@/lib/ai/structured-ai", () => ({ callStructuredAi: vi.fn(), getStructuredAiAvailability: vi.fn() }));
 
 import { GET, maxDuration, POST } from "@/app/api/catalogue/workbook-import/suggestions/route";
+import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import { askChoiceQuestions, readChoiceProviderOptions } from "@/lib/ai/choice-questions";
+import { callStructuredAi, getStructuredAiAvailability } from "@/lib/ai/structured-ai";
 import {
   COSTING_WORKBOOK_SUGGESTION_PROVIDERS,
   COSTING_WORKBOOK_SUGGESTIONS_MAX_BODY_BYTES,
@@ -112,6 +122,11 @@ beforeEach(() => {
   vi.mocked(readChoiceProviderOptions).mockResolvedValue(OPTIONS);
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
 describe("GET /api/catalogue/workbook-import/suggestions", () => {
   it("answers the providers the member can ask, without asking any (3, 4)", async () => {
     const fake = seed();
@@ -177,6 +192,43 @@ describe("POST /api/catalogue/workbook-import/suggestions", () => {
     expect(answer.data?.items[1]).toMatchObject({ suggestion: { supplier_id: POINT_P, confidence: 0.8, source: "ai" } });
     expect(costingWorkbookSuggestionsResponseSchema.safeParse(answer.data).success).toBe(true);
     expect(vi.mocked(askChoiceQuestions).mock.calls[0][0]).toMatchObject({ ...selection, owner: { userId: ADMIN, tenantId: TENANT } });
+  });
+
+  it.each([null, "plan-retired"])("uses the same ChatGPT defaults for GET and POST with omitted settings when the saved model is %s", async (savedModel) => {
+    seed();
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("PORT", "3000");
+    vi.stubEnv("MERGEONE_DEV_HOSTS", "");
+    vi.stubEnv("MERGEONE_DEV_SUPABASE_TARGET", "");
+    vi.mocked(getLocalChatGptCredential).mockResolvedValue({
+      model: savedModel, reasoningEffort: "low", accessToken: "fictional-token", profileId: "fictional-plan", authorizationId: null,
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ models: [{
+      slug: "gpt-6.2-sol", display_name: "Modèle proposé", visibility: "list", supported_reasoning_levels: ["high"],
+    }] })));
+    vi.mocked(getStructuredAiAvailability).mockImplementation(async (_owner, options) => ({
+      available: options?.allowUnselectedModel === true || savedModel !== null, message: "Connexion ChatGPT configurée.",
+    }));
+    vi.mocked(callStructuredAi).mockImplementation(async (options, _owner, preferences) => ({
+      data: options.schema.parse({ reponses: [{ question: "q1", choix: "c1", confiance: 0.9 }] }),
+      model: preferences?.model ?? savedModel ?? "modele-par-defaut-fictif", provider: "chatgpt",
+      tokenCount: 0, tokenUsage: { inputTokens: 0, reasoningTokens: 0, outputTokens: 0, totalTokens: 0 },
+      costCents: 0, durationMs: 0, promptVersion: options.context?.promptVersion ?? "fixture",
+    }));
+    const arbiter = await vi.importActual<typeof import("@/lib/ai/choice-questions")>("@/lib/ai/choice-questions");
+    vi.mocked(readChoiceProviderOptions).mockImplementation(arbiter.readChoiceProviderOptions);
+    vi.mocked(askChoiceQuestions).mockImplementation(arbiter.askChoiceQuestions);
+
+    const sources = await read<CostingWorkbookSuggestionProvidersResponse>(await GET());
+    expect(sources).toMatchObject({ status: 200, data: { providers: { chatgpt_plan: {
+      available: true, preferences: { model: "gpt-6.2-sol", reasoningEffort: "high" },
+    } } } });
+    expect(callStructuredAi).not.toHaveBeenCalled();
+
+    const suggestion = await send({ ...BODIES.suppliers, provider: "chatgpt_plan" });
+    const expected = sources.data?.providers.chatgpt_plan.preferences;
+    expect(suggestion).toMatchObject({ status: 200, data: { status: "available", provider: "chatgpt_plan", model: expected?.model } });
+    expect(callStructuredAi).toHaveBeenCalledWith(expect.anything(), { userId: ADMIN, tenantId: TENANT }, expected);
   });
 
   it("returns the French 422 even when deterministic matching finds an answer", async () => {

@@ -499,10 +499,10 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     const store = deps.secretStore();
     const file = await readAiAccessFile(deps.directory(), owner);
     const preferences = file.analysis_preferences || file.photo_preferences ? { analysisPreferences: readAnalysisPreferences(file) } : {};
-    if (!store) return { status: "unavailable", message: new ApiKeyError("AI_KEY_KEYCHAIN_UNAVAILABLE").message, ...preferences };
+    const recordNotice = wasUnreadable(file) ? { notice: UNREADABLE_RECORD } : {};
+    if (!store) return { status: "unavailable", message: new ApiKeyError("AI_KEY_KEYCHAIN_UNAVAILABLE").message, ...preferences, ...recordNotice };
     if (file.connections.openai) return { ...view(store, file.connections.openai), ...preferences };
-    return wasUnreadable(file) ? { status: "empty", placeLabel: store.placeLabel, notice: UNREADABLE_RECORD }
-      : { status: "empty", placeLabel: store.placeLabel, ...preferences };
+    return { status: "empty", placeLabel: store.placeLabel, ...preferences, ...recordNotice };
   }
 
   /** Deletes items left by an interrupted replacement or removal (under the lock); one still locked waits for the next time. */

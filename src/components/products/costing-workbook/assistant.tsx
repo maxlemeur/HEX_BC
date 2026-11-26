@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useId, useState } from "react";
+import { createContext, useContext, useId, useRef, useState } from "react";
 
 import { SparklesIcon } from "lucide-react";
 
@@ -40,6 +40,8 @@ export type WorkbookAssistant = {
   provider: SuggestionProvider | null;
   preferences: ChatGptPreferences | null;
   requestOptions: Pick<CostingWorkbookSuggestionsRequest, "provider" | "model" | "reasoning_effort">;
+  settingsLocked: boolean;
+  lockSettings: () => (() => void) | null;
   chooseProvider: (provider: SuggestionProvider | null) => void;
   chooseModel: (model: string) => void;
   chooseEffort: (effort: ChatGptReasoningEffort | null) => void;
@@ -48,6 +50,7 @@ export type WorkbookAssistant = {
 
 const NO_ASSISTANT: WorkbookAssistant = {
   sources: null, provider: null, preferences: null, requestOptions: {},
+  settingsLocked: false, lockSettings: () => () => undefined,
   chooseProvider: () => undefined, chooseModel: () => undefined, chooseEffort: () => undefined, loadProviders: () => undefined,
 };
 const WorkbookAssistantContext = createContext<WorkbookAssistant>(NO_ASSISTANT);
@@ -63,27 +66,39 @@ export function useWorkbookAssistantState(): WorkbookAssistant {
   const [sources, setSources] = useState<WorkbookAssistant["sources"]>(null);
   const [provider, setProvider] = useState<SuggestionProvider | null>(null);
   const [preferences, setPreferences] = useState<ChatGptPreferences | null>(null);
+  const [settingsLocked, setSettingsLocked] = useState(false);
+  const settingsLock = useRef(false);
   const providers = typeof sources === "object" ? sources?.providers : undefined;
 
+  function lockSettings() {
+    if (settingsLock.current) return null;
+    settingsLock.current = true;
+    setSettingsLocked(true);
+    return () => {
+      settingsLock.current = false;
+      setSettingsLocked(false);
+    };
+  }
+
   function loadProviders() {
-    if (sources !== null && sources !== "error") return;
+    if (settingsLock.current || (sources !== null && sources !== "error")) return;
     setSources("loading");
     void fetchSuggestionProviders().then((answer) => {
-      const preferred = answer.providers[answer.defaultProvider];
-      setProvider(preferred.available ? answer.defaultProvider : null);
-      setPreferences(preferred.available ? preferred.preferences : null);
+      const preferred = answer.defaultProvider ? answer.providers[answer.defaultProvider] : null;
+      setProvider(preferred?.available ? answer.defaultProvider : null);
+      setPreferences(preferred?.available ? preferred.preferences : null);
       setSources(answer);
     }, () => setSources("error"));
   }
 
   function chooseProvider(next: SuggestionProvider | null) {
-    if (!providers || (next && !providers[next].available)) return;
+    if (settingsLock.current || !providers || (next && !providers[next].available)) return;
     setProvider(next);
     setPreferences(personalOptions(providers, next)?.preferences ?? null);
   }
 
   function chooseModel(id: string) {
-    if (!providers || !preferences) return;
+    if (settingsLock.current || !providers || !preferences) return;
     const model = personalOptions(providers, provider)?.models.find((entry) => entry.id === id);
     if (!model) return;
     const effort = preferences.reasoningEffort;
@@ -94,11 +109,11 @@ export function useWorkbookAssistantState(): WorkbookAssistant {
   }
 
   function chooseEffort(reasoningEffort: ChatGptReasoningEffort | null) {
-    if (preferences) setPreferences({ ...preferences, reasoningEffort });
+    if (!settingsLock.current && preferences) setPreferences({ ...preferences, reasoningEffort });
   }
 
   const requestOptions = provider ? { provider, ...(preferences && { model: preferences.model, reasoning_effort: preferences.reasoningEffort }) } : {};
-  return { sources, provider, preferences, requestOptions, chooseProvider, chooseModel, chooseEffort, loadProviders };
+  return { sources, provider, preferences, requestOptions, settingsLocked, lockSettings, chooseProvider, chooseModel, chooseEffort, loadProviders };
 }
 
 export function confidenceLabel(confidence: number | null) {
@@ -108,12 +123,12 @@ export function confidenceLabel(confidence: number | null) {
 /** The choice of the AI source, with why a source cannot be chosen here. */
 export function AssistantProviderSelect() {
   const selectId = useId();
-  const { sources, provider, preferences, chooseProvider, chooseModel, chooseEffort, loadProviders } = useWorkbookAssistant();
+  const { sources, provider, preferences, settingsLocked, chooseProvider, chooseModel, chooseEffort, loadProviders } = useWorkbookAssistant();
   if (sources === "error") {
     return (
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span role="alert">Les sources d’IA n’ont pas pu être lues. Les propositions suivent les règles seules.</span>
-        <Button variant="ghost" size="xs" onClick={loadProviders}>Recharger les sources d’IA</Button>
+        <Button variant="ghost" size="xs" disabled={settingsLocked} onClick={loadProviders}>Recharger les sources d’IA</Button>
       </div>
     );
   }
@@ -123,8 +138,10 @@ export function AssistantProviderSelect() {
   const { providers, defaultProvider } = sources;
   const options = personalOptions(providers, provider);
   const model = options?.models.find((entry) => entry.id === preferences?.model);
-  const message = provider ? providers[provider].message : !providers[defaultProvider].available
-    ? `Source par défaut indisponible : ${providers[defaultProvider].message}` : null;
+  const defaultSource = defaultProvider ? providers[defaultProvider] : null;
+  const defaultMessage = defaultSource === null ? "Les préférences de Mon profil n’ont pas pu être lues."
+    : !defaultSource.available ? `Source par défaut indisponible : ${defaultSource.message}` : null;
+  const message = provider ? providers[provider].message : defaultMessage;
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-end gap-3">
@@ -135,6 +152,7 @@ export function AssistantProviderSelect() {
           <NativeSelect
             id={selectId}
             value={provider ?? ""}
+            disabled={settingsLocked}
             aria-describedby={message ? `${selectId}-source-info` : undefined}
             onChange={(event) => chooseProvider((event.currentTarget.value || null) as SuggestionProvider | null)}
           >
@@ -150,12 +168,13 @@ export function AssistantProviderSelect() {
           <>
             <div className="min-w-0 space-y-1.5">
               <FieldLabel htmlFor={`${selectId}-model`}>Modèle</FieldLabel>
-              <NativeSelect id={`${selectId}-model`} value={preferences.model} onChange={(event) => chooseModel(event.currentTarget.value)}>
+              <NativeSelect id={`${selectId}-model`} value={preferences.model} disabled={settingsLocked}
+                onChange={(event) => chooseModel(event.currentTarget.value)}>
                 {options.models.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
               </NativeSelect>
             </div>
             <ReasoningEffortSelect id={`${selectId}-effort`} efforts={model?.reasoningEfforts ?? []}
-              value={preferences.reasoningEffort} disabled={!model} onChange={chooseEffort} />
+              value={preferences.reasoningEffort} disabled={settingsLocked || !model} onChange={chooseEffort} />
           </>
         ) : null}
       </div>

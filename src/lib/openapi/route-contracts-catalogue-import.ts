@@ -113,7 +113,7 @@ export const catalogueImportContracts: RouteContract[] = [
     path: "/api/catalogue/workbook-import/suggestions",
     summary: "Lire les sources d’IA disponibles pour les propositions de l’import",
     description:
-      "Donne la source par défaut de Mon profil et la disponibilité des sources. Pour le forfait ChatGPT et la clé API OpenAI personnelle, donne aussi les modèles proposés, leurs niveaux de raisonnement et les réglages initiaux. Le forfait utilise son catalogue de modèles. Aucune inférence n’est lancée.",
+      "Donne la source par défaut de Mon profil et la disponibilité des sources. Si les préférences sont illisibles, aucune source n’est présélectionnée (defaultProvider vaut null). Pour le forfait ChatGPT et la clé API OpenAI personnelle, donne aussi les modèles proposés, leurs niveaux de raisonnement et les réglages utilisés par défaut dans les demandes. Le forfait utilise son catalogue de modèles. Aucune inférence n’est lancée.",
     tags: ["Catalogue"],
     success: [{
       status: "200", description: "Disponibilité des sources de propositions.",
@@ -128,7 +128,7 @@ export const catalogueImportContracts: RouteContract[] = [
     description:
       "Propose, pour une tâche (fournisseurs, articles, types de fourniture, colonnes, codes fournisseur), ce que les règles trouvent ; avec provider, la source d’IA choisie arbitre seulement ce que les règles laissent indécis, parmi leurs candidats ou « aucun ». Rien n’est écrit : une proposition s’applique quand le bureau la retient à l’écran. Aucun repli d’une source vers une autre. Réservé aux administrateurs et aux ingénieurs.",
     tags: ["Catalogue"],
-    body: { schema: costingWorkbookSuggestionsRequestSchema, description: "Tâche, éléments à proposer et source d’IA éventuelle. Pour le forfait ChatGPT ou la clé API OpenAI, model et reasoning_effort sont facultatifs et ponctuels. À défaut, la demande utilise les préférences de Mon profil, ou le niveau par défaut du modèle si un autre modèle est demandé seul." },
+    body: { schema: costingWorkbookSuggestionsRequestSchema, description: "Tâche, éléments à proposer et source d’IA éventuelle. Pour le forfait ChatGPT ou la clé API OpenAI, model et reasoning_effort sont facultatifs et ponctuels. À défaut, la demande utilise les réglages initiaux de la source renvoyés par GET, ou le niveau par défaut du modèle si un autre modèle est demandé seul." },
     extraErrors: [{ status: "422", description: "Modèle ou niveau de raisonnement non proposé, ou réglage envoyé sans source compatible." }],
     success: [{
       status: "200", description: "Propositions pour la tâche demandée.",
