@@ -297,6 +297,8 @@ function GeneratedOuvrageDialogSession({
       setDraftId(draft.draftId);
       setDraftStatus(draft.status);
       setSummary(draft.summary);
+      // A resumed draft keeps saying whether the model or the fallback produced it.
+      setGenerationKind(draft.generationKind);
       setCandidates(initUiCandidates(draft.candidates));
       setSubdetailByCandidateId({});
       setErrorMessage(null);

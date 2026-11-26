@@ -511,6 +511,9 @@ armyTest("GO06 two real local fallback generations discard the previous pending 
     expect(resumedCandidates).toHaveLength(1); expect(resumedCandidates[0].candidateId).toBe(generated[1].candidateId);
     expect(resumedCandidates[0].sources).toEqual(generated[1].sources);
     await expect(ui.screen.getByTestId(`candidate-card-${generated[1].candidateId}`)).toBeVisible();
+    // The resumed fallback draft is still labelled as such, not as model proposals.
+    await expect(ui.screen.getByText("Résultat de secours tiré du texte source.", { exact: true })).toBeVisible();
+    await expect(ui.screen.getByText("Propositions du modèle IA.", { exact: true })).toHaveCount(0);
     const final = await observe("GO06-replacement-reloaded-and-resumed");
     const candidate = final.rows.candidates.find((row) => row.id === generated[1].candidateId)!;
     expect([candidate.designation, candidate.unit, candidate.quantity, candidate.resolution_status, candidate.suggested_lot_id]).toEqual([generated[1].designation, "m", 6, "pending", g.sectionB]);
