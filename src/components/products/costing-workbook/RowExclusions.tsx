@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { ArrowUpIcon, ChevronDownIcon, Loader2Icon, Settings2Icon, SparklesIcon } from "lucide-react";
 
 import { AssistantAiSettingsMenu, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
-import { useDashboardAssistant } from "@/components/assistant/AssistantDock";
+import { useDashboardAssistant } from "@/components/assistant/dock-context";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { FieldLabel } from "@/components/ui/field";

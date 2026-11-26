@@ -10,7 +10,7 @@ import {
 } from "@/app/dashboard/_actions/assistant";
 import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
 import { effectiveAiChoice, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
-import type { AssistantScope } from "@/components/assistant/AssistantDock";
+import type { AssistantScope } from "@/components/assistant/dock-context";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useDashboardAssistant } from "@/components/assistant/AssistantDock";
+import { useDashboardAssistant } from "@/components/assistant/dock-context";
 import WorkbookImportWorkspace from "@/components/products/costing-workbook/WorkbookImportWorkspace";
 
 export default function ImportCostingWorkbookPage() {

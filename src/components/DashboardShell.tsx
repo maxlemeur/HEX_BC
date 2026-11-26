@@ -12,7 +12,7 @@ import {
 } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
-import { useDashboardAssistant } from "@/components/assistant/AssistantDock";
+import { useDashboardAssistant } from "@/components/assistant/dock-context";
 import { TimaxMark, TimaxWordmark } from "@/components/brand/timax-logo";
 import { useUserContext } from "@/lib/auth/user-context";
 import { DashboardNavigationProvider } from "@/components/dashboard/DashboardNavigationContext";

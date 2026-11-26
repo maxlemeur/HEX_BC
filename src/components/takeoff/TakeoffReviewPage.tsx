@@ -118,7 +118,7 @@ import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guar
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import { checkApplyGuard, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
 import { comparisonSelectionPatches } from "@/lib/takeoff/comparison-selection";
-import { useAssistantScreen } from "@/components/assistant/AssistantDock";
+import { useAssistantScreen } from "@/components/assistant/dock-context";
 import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 import type {
   TakeoffDpgfComparisonResponse,

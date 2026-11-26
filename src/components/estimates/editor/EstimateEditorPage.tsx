@@ -19,7 +19,7 @@ import type { SettingsSection } from "@/lib/estimates/editor-settings-state";
 import { useEstimateEditorActivityController } from "@/hooks/useEstimateEditorActivityController";
 import { useEstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorState } from "@/hooks/useEstimateEditorState";
-import { useAssistantScreen } from "@/components/assistant/AssistantDock";
+import { useAssistantScreen } from "@/components/assistant/dock-context";
 import { CircleXIcon, FileSearchIcon } from "lucide-react";
 
 const backToAffairesLink = (
