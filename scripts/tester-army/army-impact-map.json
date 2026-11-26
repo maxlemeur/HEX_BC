@@ -1280,6 +1280,23 @@
       ]
     },
     {
+      "id": "takeoff-payment-settings",
+      "note": "Choix du payeur, du modèle et de l’effort avant le lancement, le brief, la prise en charge et la relance du métré. Forfait et clé en fixture.",
+      "paths": [
+        "src/lib/takeoff/payment-*.ts",
+        "src/components/takeoff/TakeoffPaymentFields.tsx",
+        "src/components/takeoff/TakeoffAssumeControls.tsx",
+        "src/components/takeoff/useTakeoffPaymentSettings.ts",
+        "e2e/fixtures/sample-plan.pdf",
+        "e2e/army/local/api-key-provider-fixture.mjs",
+        "e2e/army/local/chatgpt-local-journey-support.ts",
+        "e2e/army/takeoff/takeoff-payment-settings.e2e.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/takeoff-payment-settings.e2e.ts"
+      ]
+    },
+    {
       "id": "takeoff-lab",
       "note": "Labo métré (TI-661) : essais, verdicts et stats sur ChatGPT local, Decisions et la clé API OpenAI en fixture ; mise en page outil de DashboardShell.",
       "paths": [

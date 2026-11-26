@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "note": "Partition des parcours TesterArmy en jobs parallèles (docs/testing/tester-army-ci.md, « Jobs parallèles »), lue par select-journeys.ts. seconds : durée mesurée de chaque fichier (somme de ses tests), voir measured pour les campagnes et la méthode de mesure les plus récentes ; elle ne sert qu'à équilibrer les shards, jamais à choisir les parcours. Un fichier absent compte defaultSeconds. Un fichier n'est jamais coupé entre deux shards. workers : celui de chaque shard, contrôlé par l'agrégation. takeoff : les parcours du métré qu'une PR atteint (job army-takeoff de e2e-army-critical.yml), exécutés par la suite full à 1 worker, où ils sont qualifiés. secondsPerShard : charge de parcours mesurée qu'un job porte avant qu'un autre vaille sa pile et son build ; ce seuil reste le même pour une sélection partielle.",
   "measured": [
+    "Lot 11, 26/11/2026 (diagnostic local 01a2194a-f6da-71c0-a408-f0482b9208bf, 1 worker) : 190,64 s pour les quatre tentatives des choix de paiement. Estimation provisoire de 191 s, car les choix ont atteint les écrans mais la fixture demandait un modèle absent du catalogue.",
     "45634650854 (PR #579, five passed Critical shards, two workers): refreshed the seven cold-server files and legacy-editor-parity from the sum of first-attempt passed test durations per file, rounded up to seconds. On the 96 files of independent run 45651161712 (#588), these weights reduce the slowest estimated shard from 624 to 557 seconds before fixture changes. This compares planner costs and excludes hooks.",
     "45599843671 (main, #567, 294fd0249, shard 1/5, 2 workers): 33 intake tests passed in 993.525 s. Documents: 14 tests, 380.287 s. Confirmation (AUTO01–11): 11 tests, 320.914 s. Recovery (INTRIGHT01, INTHOST01, INTPROFILE01, RELANCE01–05): 8 tests, 292.324 s. Round each sum up, excluding server warmup. All five Critical shards passed; the aggregate job timed out downloading a GitHub action.",
     "45599843671, 45551829341 and 45546090768 (main, five green Critical shard jobs each, 2 workers): refreshed the other 93 observed Critical file weights, including 20 that used defaultSeconds. Median across runs of the sum of passed test durations per file (median across shards for the repeated login setup), rounded up to whole seconds. Files without a measurement retain their previous weight.",
@@ -21,18 +22,17 @@
     "39107160165 army-full (déclenchement, afee61bb, 1 worker)"
   ],
   "coldServers": [
-    "e2e/army/local/takeoff-payment-settings.e2e.ts",
     "e2e/army/local/chatgpt-local-decisions.e2e.ts",
     "e2e/army/local/chatgpt-local-intake-confirmation.e2e.ts",
     "e2e/army/local/chatgpt-local-intake-documents.e2e.ts",
     "e2e/army/local/chatgpt-local-intake-recovery.e2e.ts",
     "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
     "e2e/army/local/profile-polish.e2e.ts",
-    "e2e/army/local/takeoff-lab.e2e.ts"
+    "e2e/army/local/takeoff-lab.e2e.ts",
+    "e2e/army/takeoff/takeoff-payment-settings.e2e.ts"
   ],
   "neverTogether": [
     [
-      "e2e/army/local/takeoff-payment-settings.e2e.ts",
       "e2e/army/local/chatgpt-local-decisions.e2e.ts",
       "e2e/army/local/chatgpt-local-intake-confirmation.e2e.ts",
       "e2e/army/local/chatgpt-local-intake-documents.e2e.ts",
@@ -208,6 +208,7 @@
     "e2e/army/takeoff/intake-dossier.e2e.ts": 7,
     "e2e/army/takeoff/quantity-rules.e2e.ts": 45,
     "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts": 24,
+    "e2e/army/takeoff/takeoff-payment-settings.e2e.ts": 191,
     "e2e/army/takeoff/team-b-user-stories.e2e.ts": 68,
     "e2e/army/takeoff/worker-lifecycle.e2e.ts": 52
   }

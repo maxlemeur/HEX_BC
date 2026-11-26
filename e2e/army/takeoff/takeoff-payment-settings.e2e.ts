@@ -7,13 +7,13 @@ import { apiRequest, createEstimateViaWizard, recordEvidence } from "../critical
 import { hydratedUi, waitForHydration } from "../critical/hydration-support";
 import { createPlanSet, ownedTakeoffJobs, uploadSamplePlan } from "../critical/plans-support";
 import { takeoffZone } from "../critical/preparation-support";
-import { activateOwnedPlanDispatch, deactivateOwnedPlanDispatch } from "../takeoff/plan-dispatch-support";
-import { ownedPlanChoices, readOwnedAffaireJobs, readOwnedBrief, readOwnedLaunchRequests } from "./automatic-start-support";
-import { querySql } from "./calculation-gate-support";
-import { chatGptLocalServer, writeDecisionsControl, writePlanFixture, type ChatGptLocalServer } from "./chatgpt-local-journey-support";
-import { createIntakePlanActions, DEV_SERVER_WORK } from "./chatgpt-local-intake-support";
-import { createLocalChatGptOwner, TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
-import { callServerAction, serverActionId } from "./engine-v3-creators-support";
+import { activateOwnedPlanDispatch, deactivateOwnedPlanDispatch } from "./plan-dispatch-support";
+import { ownedPlanChoices, readOwnedAffaireJobs, readOwnedBrief, readOwnedLaunchRequests } from "../local/automatic-start-support";
+import { querySql } from "../local/calculation-gate-support";
+import { chatGptLocalServer, writeDecisionsControl, writePlanFixture, type ChatGptLocalServer } from "../local/chatgpt-local-journey-support";
+import { createIntakePlanActions, DEV_SERVER_WORK } from "../local/chatgpt-local-intake-support";
+import { createLocalChatGptOwner, TAKEOFF_JOURNEY_WAVES } from "../local/chatgpt-server-support";
+import { callServerAction, serverActionId } from "../local/engine-v3-creators-support";
 
 const server = chatGptLocalServer({ apiKeyFixture: true });
 let local: ChatGptLocalServer;
@@ -41,7 +41,7 @@ async function saveProfileKey(ui: ReturnType<typeof hydratedUi>) {
   expect(status).toBe(200);
 }
 
-async function prepares(fixtures: Parameters<typeof hydratedUi>[0], label: string) {
+async function prepareAffaire(fixtures: Parameters<typeof hydratedUi>[0], label: string) {
   const owner = await createLocalChatGptOwner();
   await dossier.signInAs(fixtures, owner.email);
   const ui = hydratedUi(fixtures, local.origin);
@@ -61,14 +61,14 @@ async function showOverride(surface: PaymentSurface, scope = "cette demande") {
   await expect(model).toHaveValue(defaultSettings.apiModel);
   await expect(effort).toHaveValue(defaultSettings.apiReasoningEffort);
   await expect(surface.getByText(new RegExp(`Plafond pour ${scope} avec votre clé API OpenAI.*25.*US`))).toBeVisible();
-  await model.selectOption({ value: "gpt-6.1-sol" });
+  await model.selectOption({ value: "gpt-6.2-sol" });
   await effort.selectOption({ value: "high" });
 }
 
 async function assertSealedPayingChoice(projectId: string) {
   if (!/^[0-9a-f-]{36}$/u.test(projectId)) throw new Error("Invalid fixture affaire.");
   expect(await querySql(`select distinct settings->>'model', settings->>'reasoningEffort', settings->>'maxNanoUsd'
-    from private.takeoff_api_mandates where project_id = '${projectId}';`)).toEqual(["gpt-6.1-sol|high|25000000000"]);
+    from private.takeoff_api_mandates where project_id = '${projectId}';`)).toEqual(["gpt-6.2-sol|high|25000000000"]);
 }
 
 async function providerReads() {
@@ -85,7 +85,7 @@ describe("Paid takeoff request settings", () => {
   const options = { tags: ["critical", "local", "chatgpt", "premetre"], session: "army", trace: "off", timeout: 300_000 } as const;
 
   test("PAIDMETRE01 a draft's preparation sends the chosen key model under the cap shown at 375 px", options, async ({ app, screen, browser }) => {
-    const { ui, army, ids } = await prepares({ app, screen, browser }, "lancement");
+    const { ui, army, ids } = await prepareAffaire({ app, screen, browser }, "lancement");
     const plans = await createPlanSet(ui, army, ids, "Plans fictifs");
     await uploadSamplePlan(ui, army, plans);
     await saveProfileKey(ui);
@@ -104,7 +104,7 @@ describe("Paid takeoff request settings", () => {
     await expect(dialog.getByText("Analyse transmise au traitement", { exact: true })).toBeVisible(DEV_SERVER_WORK);
     await expect.poll(async () => (await ownedTakeoffJobs(ui.browser, ids).list()).map((job) => job.status),
       { timeout: 120_000 }).toEqual(["completed"]);
-    expect((await providerReads()).slice(before)).toMatchObject([{ model: "gpt-6.1-sol", reasoningEffort: "high" }]);
+    expect((await providerReads()).slice(before)).toMatchObject([{ model: "gpt-6.2-sol", reasoningEffort: "high" }]);
     await assertSealedPayingChoice(ids.projectId);
     expect((await readProfile(ui.browser)).analysisPreferences).toMatchObject(defaultSettings);
     await recordEvidence(army, "paidmetre01-lancement", { screenshot, observed: { width: 375, ceilingUsd: 25, unchangedProfile: true } });
@@ -113,7 +113,7 @@ describe("Paid takeoff request settings", () => {
   test("PAIDMETRE02 the brief confirms the payer notice for the specifically selected key settings", options, async ({ app, screen, browser }) => {
     await activateOwnedPlanDispatch();
     try {
-      const { ui, army, ids, owner } = await prepares({ app, screen, browser }, "brief");
+      const { ui, army, ids, owner } = await prepareAffaire({ app, screen, browser }, "brief");
       await dossier.uploadDossierPlan(ui, ids.projectId, PLAN_NAME, owner.email);
       await dossier.waitForDossierAnalysis(ui, ids.projectId);
       await saveProfileKey(ui);
@@ -126,8 +126,8 @@ describe("Paid takeoff request settings", () => {
 
       await dialog.getByRole("button", "Confirmer et analyser 1 plan", { exact: true }).click();
 
-      await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map((request) => [request.state, request.payer_id, request.mandate_kind]),
-        { timeout: 120_000 }).toEqual([["closed", owner.userId, "confirmation"]]);
+      await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map((request) => [request.state, request.payer_id, request.mandate_kind, request.outcome]),
+        { timeout: 120_000 }).toEqual([["closed", owner.userId, "confirmation", "success"]]);
       await assertSealedPayingChoice(ids.projectId);
       expect((await readOwnedBrief(ids.projectId))?.status).toBe("confirme");
       await recordEvidence(army, "paidmetre02-brief", { screenshot, observed: { ceilingUsd: 25, plans: 1 } });
@@ -139,7 +139,7 @@ describe("Paid takeoff request settings", () => {
   test("PAIDMETRE03 the member takes the waiting plan on with their key and reads it within the shown cap", options, async ({ app, screen, browser }) => {
     await activateOwnedPlanDispatch();
     try {
-      const { ui, army, ids, owner } = await prepares({ app, screen, browser }, "prise-en-charge");
+      const { ui, army, ids, owner } = await prepareAffaire({ app, screen, browser }, "prise-en-charge");
       await dossier.uploadDossierPlan(ui, ids.projectId, PLAN_NAME, owner.email);
       await dossier.openBriefConfirmation(ui, ids.projectId, owner.userId, true);
       const brief = (await readOwnedBrief(ids.projectId))!;
@@ -157,8 +157,8 @@ describe("Paid takeoff request settings", () => {
 
       await zone.getByRole("button", "Prendre en charge avec ma clé API", { exact: true }).click();
 
-      await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map((request) => [request.state, request.payer_id]),
-        { timeout: 120_000 }).toEqual([["closed", owner.userId]]);
+      await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map((request) => [request.state, request.payer_id, request.outcome]),
+        { timeout: 120_000 }).toEqual([["closed", owner.userId, "success"]]);
       await assertSealedPayingChoice(ids.projectId);
       await recordEvidence(army, "paidmetre03-prise-en-charge", { screenshot, observed: { ceilingUsd: 25, plans: 1 } });
     } finally {
@@ -170,7 +170,7 @@ describe("Paid takeoff request settings", () => {
     await activateOwnedPlanDispatch();
     let subscription: string | undefined;
     try {
-      const { ui, army, ids, owner } = await prepares({ app, screen, browser }, "relance");
+      const { ui, army, ids, owner } = await prepareAffaire({ app, screen, browser }, "relance");
       subscription = await writePlanFixture(owner.email, null, false);
       await dossier.uploadDossierPlan(ui, ids.projectId, PLAN_NAME, owner.email);
       await (await dossier.openBriefConfirmation(ui, ids.projectId, owner.userId, true)).click();
@@ -197,6 +197,7 @@ describe("Paid takeoff request settings", () => {
       await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map((request) => [request.state, request.units_expected]),
         { timeout: 120_000 }).toEqual([["closed", 1], ["closed", 1]]);
       await assertSealedPayingChoice(ids.projectId);
+      expect((await readOwnedLaunchRequests(ids.projectId))[1].outcome).toBe("success");
       expect((await readOwnedLaunchRequests(ids.projectId))[1].manifest_plans).toEqual((await readOwnedLaunchRequests(ids.projectId))[0].manifest_plans);
       await recordEvidence(army, "paidmetre04-relance", { screenshot, observed: { ceilingUsd: 25, plans: 1 } });
     } finally {

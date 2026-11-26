@@ -14,13 +14,14 @@ import type { RelaunchPlanChoice } from "@/lib/takeoff/relaunch-plan-choice-serv
 import { FIXTURE_KEY_CONNECTION, fixtureTakeoffPaymentOptions, NO_PAYMENT_OPTIONS } from "@/lib/takeoff/payment-settings.test-fixtures";
 
 const readRelaunchPlans = vi.hoisted(() => vi.fn());
+const relaunch = vi.hoisted(() => vi.fn());
 const readPayment = vi.hoisted(() => vi.fn());
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   readTakeoffPaymentOptionsAction: readPayment,
   readRelaunchPlanChoiceAction: readRelaunchPlans,
   launchPreparedTakeoffFromPlanSetAction: vi.fn(),
   launchPreparedTakeoffFromSourceVersionPlanSetAction: vi.fn(),
-  relaunchTakeoffAction: vi.fn(),
+  relaunchTakeoffAction: relaunch,
 }));
 vi.mock("@/components/feedback/toast-provider", () => ({ useToast: () => ({}) }));
 
@@ -75,6 +76,7 @@ function state() {
 
 beforeEach(() => {
   readPayment.mockReset().mockResolvedValue(NO_PAYMENT_OPTIONS);
+  relaunch.mockReset();
   // Reset rather than clear: a `*Once` queue left by a test that failed early must not answer this one.
   for (const mock of [...Object.values(actions), ...Object.values(pageContributions)]) mock.mockReset();
   pageContributions.launch.mockResolvedValue({ version_id: VERSION_ID, pages: [], jobs: [], unidentified_item_ids: [], other_takeoff_line_count: 0 });
@@ -140,6 +142,26 @@ describe("TakeoffPreparationPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
     await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(6, 1));
     expect(actions.confirm).toHaveBeenCalledWith({ projectId: PROJECT_ID, expectedRevision: 5, expectedExecutionFingerprint: "d".repeat(64) });
+  });
+
+  it("relaunches only the reread plan with the newly shown profile choice and ceiling", async () => {
+    readPayment.mockResolvedValue(fixtureTakeoffPaymentOptions("personal_api_key", 3100));
+    const remaining = { ...relaunchPlans, currentIds: [SOURCE.document_id], defaultIds: [SOURCE.document_id] };
+    readRelaunchPlans.mockReset().mockResolvedValue(success(remaining));
+    relaunch.mockResolvedValue(success({ outcome: "admitted", jobId: "fictif" }));
+    actions.chatGpt.mockImplementation(async (input) => input ? success({ fingerprint: "c".repeat(64) }) : null);
+    render(<SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      <LaunchMetreDialog open onOpenChange={vi.fn()} projectId={PROJECT_ID} currentVersion={null}
+        plansContext={{ defaultPlanSetId: PLAN_SET_ID }} availablePlanSets={[{ id: PLAN_SET_ID, name: "Plans plomberie", fileCount: 1 }]}
+        launchMode={{ kind: "request", predecessorJobId: VERSION_ID, planDispatch: true, singlePlan: true }} />
+    </SWRConfig>);
+    expect(await screen.findByLabelText("Source IA")).toHaveValue("personal_api_key");
+    expect(screen.getByText(/Plafond pour cette demande.*31.*US/)).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: /Plan plomberie R\+1/ })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Relancer 1 plan avec ma clé API" }));
+    await waitFor(() => expect(relaunch).toHaveBeenCalledWith(expect.objectContaining({ predecessorJobId: VERSION_ID,
+      planFileIds: [SOURCE.document_id], paymentChoice: { source: "personal_api_key", model: "gpt-6.1-sol", effort: "medium",
+        expectedConnectionId: FIXTURE_KEY_CONNECTION, expectedMaxCostCents: 3100 } })));
   });
   it("keeps the member's unticked plan and launch count during and after reconnecting", async () => {
     stored.sources = [SOURCE, SECOND_PLAN];

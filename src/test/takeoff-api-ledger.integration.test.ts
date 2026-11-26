@@ -156,6 +156,14 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before com
         } };
       draft.sources = draft.sources.map((source) => ({ ...source, active: true, confirmed: true }));
       const review = await saveTakeoffPreparation({ projectId, draft, expectedRevision: null });
+      vi.stubEnv("TAKEOFF_LEVEL_C_MAX_COST_CENTS", "200");
+      await expect(confirmTakeoffPreparationAction({ projectId, expectedRevision: review.revision!, paymentChoice,
+        expectedExecutionFingerprint: preview.data.fingerprint })).resolves.toMatchObject({ ok: false, error: {
+        code: "TAKEOFF_PAYMENT_SETTINGS_CHANGED", reloadSettings: true,
+      } });
+      expect(execFileSync(process.env.E2E_ARMY_LOCAL_PSQL!, ["-X", "-At", "-d", process.env.E2E_ARMY_LOCAL_DB_URL!, "-c",
+        `select count(*) from private.takeoff_api_mandates where project_id = '${projectId}'`], { encoding: "utf8" }).trim()).toBe("0");
+      vi.stubEnv("TAKEOFF_LEVEL_C_MAX_COST_CENTS", "100");
       const confirmed = await confirmTakeoffPreparationAction({ projectId, expectedRevision: review.revision!, paymentChoice,
         expectedExecutionFingerprint: preview.data.fingerprint });
       if (!confirmed.ok) throw new Error(confirmed.error.message);

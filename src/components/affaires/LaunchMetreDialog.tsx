@@ -625,6 +625,7 @@ function LaunchMetreDialogContent({
                   onLaunch={handleLaunch}
                   paymentSettingsStale={paymentStale}
                   explicitPaymentRequired={explicitPaymentRequired}
+                  onPaymentSettingsChange={() => setPlanChoice(null)}
                   onReloadPaymentSettings={() => { setPaymentStale(false); setErrorMessage(null); setPlanChoice(null); }}
                   onBusyChange={setIsSubmitting}
                   onRegisterSave={registerPreparationSave}

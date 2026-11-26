@@ -45,6 +45,7 @@ export type TakeoffPreparationPanelProps = {
   paymentSettingsStale?: boolean;
   explicitPaymentRequired?: boolean;
   onReloadPaymentSettings?: () => void;
+  onPaymentSettingsChange?: () => void;
   onBusyChange?: (busy: boolean) => void;
   onRegisterSave?: (save: () => Promise<number | null>) => void;
   disabled?: boolean;
@@ -60,7 +61,7 @@ export function TakeoffPreparationPanel(props: TakeoffPreparationPanelProps) {
   return <TakeoffPreparationPanelContent key={`${user?.tenantId ?? "unknown"}:${user?.profile?.id ?? "unknown"}:${props.projectId}`} {...props} />;
 }
 
-function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, documentControls, destinationControls, onLaunch, onBusyChange, onRegisterSave, planChoice, relaunchPlans, onRefreshRelaunchPlans, paymentSettingsStale, explicitPaymentRequired, onReloadPaymentSettings, launchDisabled = false, launchNotice = null, analysisOnly = false, disabled = false }: TakeoffPreparationPanelProps) {
+function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, documentControls, destinationControls, onLaunch, onBusyChange, onRegisterSave, planChoice, relaunchPlans, onRefreshRelaunchPlans, paymentSettingsStale, explicitPaymentRequired, onReloadPaymentSettings, onPaymentSettingsChange, launchDisabled = false, launchNotice = null, analysisOnly = false, disabled = false }: TakeoffPreparationPanelProps) {
   const { record, support, draft, updateDraft, saveState, error, save, saveOptions, renew, reload, confirm, adopt, addProfile } = useTakeoffPreparation(projectId, planSetId);
   const [planChoices, setPlanChoices] = useState<Record<string, boolean>>({});
   const [triaging, setTriaging] = useState(false);
@@ -155,6 +156,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       else if (choosePlans) await onLaunch(confirmed.revision, confirmed.planFileCount, confirmed.planFileIds);
       else await onLaunch(confirmed.revision, confirmed.planFileCount);
     } catch (cause) {
+      if (cause instanceof TakeoffActionError && cause.code === "TAKEOFF_CHATGPT_SELECTION_CHANGED") payment.reload();
       setPaymentStale(cause instanceof TakeoffActionError && cause.reloadSettings);
       setLaunchError(cause instanceof TakeoffActionError ? cause.message : "Impossible de confirmer le lancement. Vos réponses sont conservées.");
     } finally { setConfirming(false); onBusyChange?.(false); }
@@ -253,7 +255,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
     </div>}
     {launchNotice && <p role="status" className="text-sm text-muted-foreground">{launchNotice}</p>}
     {selectionNotice && <p role="status" className="text-sm text-muted-foreground">{selectionNotice}</p>}
-    {step === 3 && !launchDisabled && <TakeoffPaymentFields settings={payment} disabled={locked} stale={stale} onReload={() => {
+    {step === 3 && !launchDisabled && <TakeoffPaymentFields settings={payment} disabled={locked} stale={stale} onChange={onPaymentSettingsChange} onReload={() => {
       setPaymentStale(false);
       setLaunchError(null);
       onReloadPaymentSettings?.();
