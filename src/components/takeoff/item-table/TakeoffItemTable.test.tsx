@@ -700,3 +700,31 @@ it("retries an uncertain entry with exactly the frozen command, including its in
   await waitFor(() => expect(client.sendItemReviewCommand).toHaveBeenCalledTimes(2));
   expect(client.sendItemReviewCommand.mock.calls[1]).toEqual(client.sendItemReviewCommand.mock.calls[0]);
 });
+
+it("shows a whole-affaire entry and its priority per poste before confirming the destination revision", async () => {
+  const source = { itemId: fixtureItemId(3), scope: "affaire" as const, planKey: null, revision: 4, quantity: 2.0004, unit: "u",
+    category: "site_survey" as const, note: "Relevé initial", included: true, actorId: "22222222-2222-4222-8222-222222222222",
+    at: "2026-11-22T08:00:00Z", previous: null };
+  const data = table({ entries: [source] });
+  client.fetchItemTable.mockResolvedValue(data);
+  const line = data.page.lines.find(l => l.itemId === source.itemId)!;
+  client.fetchFrozenItemSelection.mockResolvedValue({ missing: [], items: [{ itemId: line.itemId, target: line.targets,
+    eligible: ["enter_quantity"], wholeEntry: { ...source, author: "Léa Martin" },
+    entryPlans: line.readings.map(r => ({ key: r.planKey, name: r.planName, answerId: r.answer!.answerId, eligible: true, entry: null })) }] });
+  client.sendItemReviewCommand.mockResolvedValue({ outcome: "applied", applied: [], skipped: [] });
+  renderTable();
+  fireEvent.change(await screen.findByLabelText("Quantité saisie pour « Baignoire »"), { target: { value: "4" } });
+  fireEvent.click(screen.getByText("Enregistrer les saisies (1)"));
+  const dialog = within(await screen.findByRole("dialog"));
+  await dialog.findByRole("option", { name: "Plan RDC" });
+  fireEvent.change(dialog.getByLabelText("Portée de la saisie"), { target: { value: RDC } });
+  expect(await dialog.findByText(/Le total de l’affaire garde la priorité/)).toBeVisible();
+  fireEvent.change(dialog.getByLabelText("Portée de la saisie"), { target: { value: "affaire" } });
+  expect(screen.getByRole("dialog")).toHaveTextContent("2,0004 u · Relevé chantier · Léa Martin, le 22/11/2026");
+  fireEvent.change(dialog.getByLabelText("Ce qui fonde ces quantités"), { target: { value: "site_survey" } });
+  fireEvent.keyDown(dialog.getByLabelText("Note (facultative)"), { key: "Enter" });
+  expect(client.sendItemReviewCommand).not.toHaveBeenCalled();
+  fireEvent.click(dialog.getByRole("button", { name: "Remplacer la saisie" }));
+  await waitFor(() => expect(client.sendItemReviewCommand).toHaveBeenCalledOnce());
+  expect(client.sendItemReviewCommand.mock.calls[0][1].targets).toEqual([line.targets]);
+});

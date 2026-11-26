@@ -851,3 +851,22 @@ describe("the retention panel checks the current measure", () => {
     expect(evidence().queryByText(expiry)).toBeNull();
   });
 });
+
+it("keeps F2's uncertain entry and retries the identical command before refreshing its detail", async () => {
+  client.sendItemReviewCommand.mockRejectedValueOnce(new TypeError("response lost"))
+    .mockResolvedValue({ outcome: "replayed", applied: [{ itemId: ITEMS.notFound, label: "Poste", answers: 1 }], skipped: [] });
+  open(ITEMS.notFound, PLAN_RDC, JOB_RDC);
+  await settle();
+  fireEvent.keyDown(screen.getByRole("listbox"), { key: "F2" });
+  fireEvent.change(dialog().getByLabelText("Quantité"), { target: { value: "2" } });
+  fireEvent.click(dialog().getByRole("button", { name: "Continuer" }));
+  fireEvent.change(dialog().getByLabelText("Portée de la saisie"), { target: { value: PLAN_RDC } });
+  fireEvent.change(dialog().getByLabelText("Ce qui fonde ces quantités"), { target: { value: "site_survey" } });
+  fireEvent.click(dialog().getByRole("button", { name: "Enregistrer" }));
+  await settle();
+  fireEvent.click(dialog().getByRole("button", { name: "Réessayer la même saisie" }));
+  await settle();
+  expect(client.sendItemReviewCommand.mock.calls).toHaveLength(2);
+  expect(client.sendItemReviewCommand.mock.calls[1]).toEqual(client.sendItemReviewCommand.mock.calls[0]);
+  expect(screen.getByTestId("poste-detail-decision")).toHaveTextContent("Poste saisi");
+});
