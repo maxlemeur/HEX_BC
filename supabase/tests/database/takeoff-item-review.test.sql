@@ -994,6 +994,9 @@ select results_eq($$select quantity from public.takeoff_item_entries where item_
 select throws_ok($$select pg_temp.scope_change(683,'withdraw',null,4,0)$$,'23505','TAKEOFF_ITEM_REVIEW_INTENT_CONFLICT',
   'another authorised reviewer cannot replay the original member receipt');
 select pg_temp.sign_in(1);
+select throws_ok($$select pg_temp.scope_change(685,'replace',100,5,0)$$,'22023','TAKEOFF_ITEM_REVIEW_INVALID',
+  'an explicit replacement requires an observed positive revision');
+select is(pg_temp.scope_change(685,'replace',100,5,2)->>'outcome','stale','an outdated replacement preserves both entries');
 select is(pg_temp.scope_change(685,'replace',100,5,1)->>'outcome','applied','replace the plan value at its confirmed revision');
 select results_eq($$select plan_logical_id,revision,quantity,previous_quantity,included from public.takeoff_item_entries
   where item_id=pg_temp.f(302)$$,$$values (pg_temp.f(100),2,5::numeric,2::numeric,true)$$,
@@ -1001,6 +1004,12 @@ select results_eq($$select plan_logical_id,revision,quantity,previous_quantity,i
 select results_eq($$select before#>>'{destination,category}',after->>'category' from public.takeoff_item_review_events
   where item_id=pg_temp.f(302) and after->>'scope_action'='replace' and before->>'revision'='5'$$,
   $$values ('hypothesis'::text,'documented_calculation'::text)$$,'journal preserves the replaced plan entry');
+select is(pg_temp.scope_change(685,'replace',100,5,1)->>'replayed','true','the same explicit replacement replays');
+select is(pg_temp.review(pg_temp.cmd('enter_quantity',688,array[302],array[302],
+    jsonb_build_object('values',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(302),'quantity',8,'unit','u')),
+      'entry',jsonb_build_object('category','documented_calculation'))))->>'outcome','applied','the released writer recreates the total');
+select is((select revision from public.takeoff_item_entries where item_id=pg_temp.f(302) and plan_logical_id is null),
+  6,'recreating after an explicit replacement also advances beyond the removed revision');
 select pg_temp.sign_in(5);
 select throws_ok($$select pg_temp.scope_change(683,'withdraw',null,4,0)$$,'42501','TAKEOFF_ITEM_REVIEW_FORBIDDEN',
   'another tenant cannot replay the receipt');

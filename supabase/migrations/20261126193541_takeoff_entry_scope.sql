@@ -3,10 +3,10 @@
 set local lock_timeout = '2s';
 
 create index takeoff_item_send_parts_project_item_idx
-  on public.takeoff_item_send_parts (project_id, item_id);
+  on public.takeoff_item_send_parts (project_id, item_id) where state = 'live';
 
 create index takeoff_entry_scope_history_idx on public.takeoff_item_review_events (tenant_id, project_id, item_id, id desc)
-  where after->>'scope_action' in ('attach', 'withdraw');
+  where after->>'scope_action' in ('attach', 'replace', 'withdraw');
 
 -- The released writer starts a missing entry at revision one. After a withdrawal or
 -- transfer even an old client must distinguish a recreated total from the one it read.
@@ -17,7 +17,7 @@ begin
   select (e.before->>'revision')::integer into removed_revision
     from public.takeoff_item_review_events e
     where (e.tenant_id,e.project_id,e.item_id) = (new.tenant_id,new.project_id,new.item_id)
-      and e.after->>'scope_action' in ('attach','withdraw')
+      and e.after->>'scope_action' in ('attach','replace','withdraw')
     order by e.id desc limit 1;
   new.revision := coalesce(removed_revision, 0) + 1;
   return new;
@@ -51,6 +51,7 @@ begin
   if p_item_id is null or p_intent_key is null or
     (p_entry_revision > 0 and p_plan_entry_revision >= 0 and
       ((p_action='attach' and p_plan_id is not null) or
+       (p_action='replace' and p_plan_id is not null and p_plan_entry_revision>0) or
        (p_action='withdraw' and p_plan_id is null and p_plan_entry_revision=0))) is not true then
     raise exception 'TAKEOFF_ITEM_REVIEW_INVALID' using errcode='22023';
   end if;
@@ -76,28 +77,52 @@ begin
   select * into source from public.takeoff_item_entries
     where (tenant_id,project_id,item_id)=(p_tenant_id,p_project_id,p_item_id) and plan_logical_id is null for update;
   if source.revision is distinct from p_entry_revision then return '{"outcome":"stale"}'; end if;
-  -- Historical and replaced parts count too, on every plan and every estimate version.
-  if exists (select from public.takeoff_item_send_parts where (tenant_id,project_id,item_id)=(p_tenant_id,p_project_id,p_item_id))
-    then return '{"outcome":"sent"}'; end if;
-
-  changed_at := clock_timestamp();
-  if p_action='attach' then
-    if not exists (select from private.takeoff_item_reading_states(p_tenant_id,p_project_id,p_plan_id) l
-      where l.item_id=p_item_id and l.state in ('not_found','uncertain'))
-      or exists (select from private.takeoff_item_table_pairs(p_tenant_id,p_project_id,p_plan_id) p
-        where p.item_id=p_item_id and p.sent) then return '{"outcome":"ineligible"}'; end if;
+  if p_plan_id is not null then
     select * into destination from public.takeoff_item_entries
       where (tenant_id,project_id,item_id,plan_logical_id)=(p_tenant_id,p_project_id,p_item_id,p_plan_id) for update;
     if coalesce(destination.revision,0) <> p_plan_entry_revision then return '{"outcome":"stale"}'; end if;
-    insert into public.takeoff_item_entries as e (tenant_id,project_id,item_id,plan_logical_id,quantity,unit,category,note,
-      included,revision,previous_quantity,previous_unit,actor_id,entered_at,command_id)
-      values (p_tenant_id,p_project_id,p_item_id,p_plan_id,source.quantity,source.unit,source.category,source.note,
-        source.category <> 'hypothesis',p_plan_entry_revision+1,destination.quantity,destination.unit,actor,changed_at,receipt)
-      on conflict (tenant_id,project_id,item_id,plan_logical_id) do update set
-        quantity=excluded.quantity,unit=excluded.unit,category=excluded.category,note=excluded.note,included=excluded.included,
-        revision=excluded.revision,previous_quantity=e.quantity,previous_unit=e.unit,actor_id=actor,
-        entered_at=changed_at,command_id=receipt
-      returning * into written;
+  end if;
+
+  -- All estimate versions count, including issued versions. Revision keeps old parts as replaced.
+  if exists (select from public.takeoff_item_send_parts where state='live'
+    and (tenant_id,project_id,item_id)=(p_tenant_id,p_project_id,p_item_id)) then return '{"outcome":"sent"}'; end if;
+
+  changed_at := clock_timestamp();
+  if p_plan_id is not null then
+    -- A dossier piece keeps its logical identity across generation or copy changes.
+    -- FOR SHARE waits out an uncommitted deletion and protects the predicate through commit.
+    perform 1 from public.affaire_intake_documents d
+      where (d.tenant_id,d.project_id,d.id)=(p_tenant_id,p_project_id,p_plan_id) and d.document_kind='plans'
+        and d.upload_status='uploaded' and d.deleted_at is null and d.deletion_token is null for share;
+    if not found then
+      -- A standalone upload is its own logical source while the recorded file still belongs to this affaire.
+      perform 1 from public.plan_files f
+        join public.plan_sets s on (s.id,s.tenant_id)=(f.plan_set_id,f.tenant_id)
+        join public.takeoff_plan_location_sources l on (l.plan_file_id,l.plan_set_id,l.project_id,l.tenant_id)
+          =(f.id,s.id,s.project_id,s.tenant_id)
+        where (f.tenant_id,s.project_id,f.id)=(p_tenant_id,p_project_id,p_plan_id)
+          and l.source_kind='plan_file' and l.source_id=f.id and f.metadata->>'source' is distinct from 'affaire-intake'
+          and (public.can_access_takeoff_project(s.project_id,s.tenant_id)
+            or private.can_read_takeoff_plan_evidence(f.tenant_id,s.id,f.id,f.file_path))
+        for share of f,s,l;
+      if not found then return '{"outcome":"ineligible"}'; end if;
+    end if;
+    if not exists (select from private.takeoff_item_reading_states(p_tenant_id,p_project_id,p_plan_id) l
+      where l.item_id=p_item_id and l.state in ('not_found','uncertain')) then return '{"outcome":"ineligible"}'; end if;
+    if p_action='attach' and destination.id is not null then
+      return jsonb_build_object('outcome','collision','entry',private.takeoff_item_entry_document(destination));
+    end if;
+    if p_action='replace' then
+      update public.takeoff_item_entries set quantity=source.quantity,unit=source.unit,category=source.category,
+        note=source.note,included=source.category <> 'hypothesis',revision=destination.revision+1,
+        previous_quantity=destination.quantity,previous_unit=destination.unit,actor_id=actor,entered_at=changed_at,command_id=receipt
+        where id=destination.id returning * into strict written;
+    else
+      insert into public.takeoff_item_entries (tenant_id,project_id,item_id,plan_logical_id,quantity,unit,category,note,
+        included,revision,actor_id,entered_at,command_id)
+        values (p_tenant_id,p_project_id,p_item_id,p_plan_id,source.quantity,source.unit,source.category,source.note,
+          source.category <> 'hypothesis',1,actor,changed_at,receipt) returning * into written;
+    end if;
   end if;
 
   delete from public.takeoff_item_entries where id=source.id;

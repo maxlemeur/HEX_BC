@@ -220,13 +220,13 @@ create temp table race_pids(label text primary key, pid integer);
 insert into race_pids
 select session.name, (select backend.pid from extensions.dblink(session.name, 'select pg_backend_pid()') as backend(pid integer))
 from (values ('race_setup'), ('race_a'), ('race_b'), ('race_c')) as session(name);
-create function pg_temp.waits_for(p_waiting text, p_holding text) returns boolean language plpgsql as $$
+create function pg_temp.waits_for(p_waiting text, p_holding text, p_queued text default null) returns boolean language plpgsql as $$
 declare
   waiting integer := (select pid from race_pids where label = p_waiting);
-  holding integer := (select pid from race_pids where label = p_holding);
+  holders integer[] := array(select pid from race_pids where label in (p_holding,p_queued));
 begin
   for attempt in 1..400 loop
-    if holding = any(pg_catalog.pg_blocking_pids(waiting)) then return true; end if;
+    if holders && pg_catalog.pg_blocking_pids(waiting) then return true; end if;
     perform pg_catalog.pg_sleep(0.025);
   end loop;
   return false;
@@ -1020,12 +1020,14 @@ select is(extensions.dblink_exec('race_a',format($seed$insert into public.takeof
   (tenant_id,project_id,item_id,quantity,unit,category,included,revision,actor_id,entered_at,command_id)
   select tenant_id,project_id,item_id,4,'u','site_survey',true,1,%L,now(),command_id from public.takeoff_item_answer_decisions
   where item_id=%L$seed$,pg_temp.f(1),pg_temp.f(310))),'INSERT 0 1','a legacy total exists on the same poste');
+select is(extensions.dblink_send_query('race_b', pg_temp.send_sql(812, '21-again')), 1, 'its lost answer is sent again meanwhile');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the second waits for the affaire');
 select is(extensions.dblink_send_query('race_c',format(
   'select public.change_takeoff_entry_scope(%L,%L,%L,%L,''attach'',1,0,%L)',pg_temp.tenant(),pg_temp.f(21),
   pg_temp.f(310),pg_temp.f(7543),pg_temp.plan_file(21))),1,'the member tries to attach the total');
-select ok(pg_temp.waits_for('race_c','race_a'),'transfer waits for the first part to commit');
-select is(extensions.dblink_send_query('race_b', pg_temp.send_sql(812, '21-again')), 1, 'its lost answer is sent again meanwhile');
-select ok(pg_temp.waits_for('race_b', 'race_a'), 'the second waits for the affaire');
+-- The replay is already in the row-lock queue. Both waits lead to the in-flight first send.
+select ok(pg_temp.waits_for('race_c','race_a','race_b'),
+  'transfer waits in the first-send lock queue');
 select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the first commits');
 select is((select r->>'outcome' from extensions.dblink_get_result('race_c',false) x(r jsonb)),'sent',
   'the waiting transfer sees the committed first part');
