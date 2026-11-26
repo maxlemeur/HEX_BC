@@ -17,7 +17,8 @@ import type { TakeoffPaidCall, TakeoffPaidCallBranch, TakeoffPaidCallLedger } fr
 import { takeoffExecutionSelectionSchema, type TakeoffExecutionSelection } from "@/lib/takeoff/preparation";
 import { assertTakeoffWorkerConfiguration } from "@/lib/takeoff/default-on-flags";
 import { DETAILED_TAKEOFF_PROCESSING } from "@/lib/takeoff/preparation-from-dossier";
-import { assertTakeoffApiConnection, readTakeoffApiMandate, takeoffPaymentHostId, takeoffPaymentError, usesExplicitTakeoffPayment, usesTakeoffApiKey } from "@/lib/takeoff/payment-mandate-server";
+import { assertTakeoffApiConnection, readTakeoffApiMandate, takeoffPaymentHostId, takeoffPaymentError, usesExplicitTakeoffPayment, usesTakeoffApiKey,
+  type TakeoffApiMandate } from "@/lib/takeoff/payment-mandate-server";
 import { rejectedTakeoffProviderAnswer } from "@/lib/takeoff/rejected-provider-answer";
 
 export function parseTakeoffProvider(value: unknown): TakeoffProvider {
@@ -146,8 +147,9 @@ export function assertPinnedTakeoffSelection(snapshot: unknown, userId: string, 
   return true;
 }
 
+/** `unsealed`: the key's mandate this gesture just resolved and records only once nothing refuses it (never read back). */
 export async function getConfirmedTakeoffExecutionOwner(supabase: ServerSupabaseClient, owner: ChatGptOwner, snapshot: unknown,
-  projectId?: string) {
+  projectId?: string, unsealed?: TakeoffApiMandate) {
   assertTakeoffWorkerConfiguration();
   const pinned = takeoffExecutionSelectionSchema.safeParse((snapshot as { execution_selection?: unknown } | null)?.execution_selection);
   if (pinned.success && pinned.data.source === "personal_api_key") {
@@ -155,7 +157,8 @@ export async function getConfirmedTakeoffExecutionOwner(supabase: ServerSupabase
     if (!projectId || (snapshot as { confirmed_by?: unknown }).confirmed_by !== owner.userId) {
       throw takeoffPaymentError("Confirmez à nouveau la préparation avec votre propre clé API OpenAI.");
     }
-    const mandate = await readTakeoffApiMandate(createServiceRoleClient(), { ...owner, projectId }, pinned.data);
+    const mandate = unsealed?.hostId === pinned.data.hostId ? unsealed
+      : await readTakeoffApiMandate(createServiceRoleClient(), { ...owner, projectId }, pinned.data);
     if (mandate.hostId !== takeoffPaymentHostId(await getChatGptHostId())) {
       throw takeoffPaymentError("Ouvrez MergeOne sur le Mac qui détient la clé API OpenAI de ce métré.");
     }

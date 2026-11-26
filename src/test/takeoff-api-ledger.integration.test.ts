@@ -161,12 +161,20 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before com
         expectedExecutionFingerprint: preview.data.fingerprint })).resolves.toMatchObject({ ok: false, error: {
         code: "TAKEOFF_PAYMENT_SETTINGS_CHANGED", reloadSettings: true,
       } });
-      expect(execFileSync(process.env.E2E_ARMY_LOCAL_PSQL!, ["-X", "-At", "-d", process.env.E2E_ARMY_LOCAL_DB_URL!, "-c",
-        `select count(*) from private.takeoff_api_mandates where project_id = '${projectId}'`], { encoding: "utf8" }).trim()).toBe("0");
+      const mandates = () => execFileSync(process.env.E2E_ARMY_LOCAL_PSQL!, ["-X", "-At", "-d", process.env.E2E_ARMY_LOCAL_DB_URL!, "-c",
+        `select count(*) from private.takeoff_api_mandates where project_id = '${projectId}'`], { encoding: "utf8" }).trim();
+      expect(mandates()).toBe("0");
       vi.stubEnv("TAKEOFF_LEVEL_C_MAX_COST_CENTS", "100");
+      // The payment is accepted, the recap it was shown with is not the one confirmed: refused late, still no mandate.
+      await expect(confirmTakeoffPreparationAction({ projectId, expectedRevision: review.revision!, paymentChoice,
+        expectedExecutionFingerprint: "0".repeat(64) })).resolves.toMatchObject({ ok: false, error: {
+        code: "TAKEOFF_PAYMENT_SETTINGS_CHANGED", reloadSettings: true,
+      } });
+      expect(mandates()).toBe("0");
       const confirmed = await confirmTakeoffPreparationAction({ projectId, expectedRevision: review.revision!, paymentChoice,
         expectedExecutionFingerprint: preview.data.fingerprint });
       if (!confirmed.ok) throw new Error(confirmed.error.message);
+      expect(mandates()).toBe("1");
 
       const launched = await launchPreparedTakeoffFromPlanSetAction({ projectId, planSetId, versionId, level: "C", provider: "chatgpt",
         preparationRevision: confirmed.data.revision!, paymentChoice });

@@ -22,21 +22,35 @@ export function takeoffSelectionFingerprint(selection: TakeoffExecutionSelection
     selection.reasoningEffort, selection.authorizationId ?? null, ...(selection.source ? [selection.source] : [])])).digest("hex");
 }
 
-export async function readTakeoffPaymentOptions(scope: TakeoffPaymentScope) {
+/**
+ * What the takeoff screens offer a payer. The plan's models come from the catalogue this process already holds unless
+ * the member asks to reload them (`live`): opening a screen never waits for ChatGPT. `planSetting` is what a request
+ * sent without a choice pins, as on the profile.
+ */
+export async function readTakeoffPaymentOptions(scope: TakeoffPaymentScope, planCatalogue: "live" | "cached" = "cached") {
   const service = createServiceRoleClient();
   await assertTakeoffPayer(service, scope);
   const [{ defaultSource, options }, { readLocalChatGptSubscription }, budget] = await Promise.all([
-    readAiRequestOptions(scope, policy), import("@/lib/ai/chatgpt-takeoff"),
+    readAiRequestOptions(scope, policy, planCatalogue), import("@/lib/ai/chatgpt-takeoff"),
     getTakeoffLevelCProcessingConfigForTenant(scope.tenantId, { supabase: service }),
   ]);
   const plan = await readLocalChatGptSubscription(scope);
-  return { defaultSource, options, chatGptConnectionId: plan.selection?.authorizationId ?? null, maxCostCents: budget.maxCostCents };
+  return { defaultSource, options, chatGptConnectionId: plan.selection?.authorizationId ?? null, maxCostCents: budget.maxCostCents,
+    planSetting: plan.selection ? { model: plan.selection.model, reasoningEffort: plan.selection.reasoningEffort } : null };
 }
 
-/** Resolve inside the authenticated gesture. Only the opaque mandate reference goes in public snapshots. */
-export async function resolveTakeoffPayment(scope: TakeoffPaymentScope, input: TakeoffPaymentChoice, service: Service,
-  persist = true): Promise<{ selection: TakeoffExecutionSelection & { authorizationId: string; source: AiBillingSource };
-    preferences: ChatGptPreferences; apiMandate?: TakeoffApiMandate }> {
+export type ResolvedTakeoffPayment = {
+  selection: TakeoffExecutionSelection & { authorizationId: string; source: AiBillingSource };
+  preferences: ChatGptPreferences; apiMandate?: TakeoffApiMandate;
+};
+
+/**
+ * Resolve inside the authenticated gesture; it reads and writes nothing. Only the opaque mandate reference goes in public
+ * snapshots. A key's mandate is content-addressed here and recorded by `sealTakeoffPayment`, once nothing can refuse the
+ * gesture any more.
+ */
+export async function resolveTakeoffPayment(scope: TakeoffPaymentScope, input: TakeoffPaymentChoice,
+  service: Service): Promise<ResolvedTakeoffPayment> {
   const choice = takeoffPaymentChoiceSchema.parse(input);
   await assertTakeoffPayer(service, scope);
   const { expectedConnectionId, expectedMaxCostCents, ...settings } = choice;
@@ -62,20 +76,30 @@ export async function resolveTakeoffPayment(scope: TakeoffPaymentScope, input: T
     maxTokens: config.maxTotalTokens, maxNanoUsd: expectedMaxCostCents * TAKEOFF_NANO_USD_PER_CENT });
   // The exact same object produces the same brief-notice digest at preview and confirmation.
   const id = deriveDeterministicJobId(scope.tenantId, JSON.stringify([scope.projectId.toLowerCase(), scope.userId, mandate]));
-  if (persist) {
-    const { error } = await service.rpc("seal_takeoff_api_mandate", {
-      p_id: id, p_tenant_id: scope.tenantId, p_project_id: scope.projectId, p_payer_id: scope.userId, p_settings: mandate,
-    });
-    if (error) throw takeoffPaymentError("Impossible d’enregistrer le mandat de paiement du métré.");
-  }
   return { selection: { source: "personal_api_key", profileId: id, authorizationId: id, hostId: mandate.hostId,
     model: "personal_api_key", reasoningEffort: null }, preferences: resolved.preferences, apiMandate: mandate };
+}
+
+/**
+ * Record a key's mandate, immediately before the call that creates the request, the job or the confirmed preparation
+ * naming it: every check that can refuse the gesture has passed. The row is the mandate's content under its own digest
+ * (sealing it twice changes nothing) and spends nothing alone: a call is reserved only by a job of an admitted request
+ * that names it. The plan needs no mandate.
+ */
+export async function sealTakeoffPayment(scope: TakeoffPaymentScope, payment: Pick<ResolvedTakeoffPayment, "selection" | "apiMandate"> | null | undefined,
+  service: Service) {
+  if (!payment?.apiMandate) return;
+  const { error } = await service.rpc("seal_takeoff_api_mandate", {
+    p_id: payment.selection.authorizationId, p_tenant_id: scope.tenantId, p_project_id: scope.projectId, p_payer_id: scope.userId,
+    p_settings: payment.apiMandate,
+  });
+  if (error) throw takeoffPaymentError("Impossible d’enregistrer le mandat de paiement du métré.");
 }
 
 export async function assertTakeoffPaymentMatches(owner: ChatGptOwner, projectId: string,
   snapshot: unknown, choice?: TakeoffPaymentChoice) {
   if (!choice) return;
-  const { selection } = await resolveTakeoffPayment({ ...owner, projectId }, choice, createServiceRoleClient(), false);
+  const { selection } = await resolveTakeoffPayment({ ...owner, projectId }, choice, createServiceRoleClient());
   const pinned = (snapshot as { execution_selection?: TakeoffExecutionSelection } | null)?.execution_selection;
   if (!pinned || takeoffSelectionFingerprint(pinned) !== takeoffSelectionFingerprint(selection)) {
     throw takeoffPaymentSettingsChanged("Confirmez de nouveau la préparation avec les réglages de paiement que vous avez choisis.");

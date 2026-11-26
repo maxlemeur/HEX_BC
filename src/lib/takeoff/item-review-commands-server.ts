@@ -17,7 +17,7 @@ import { noteLength } from "@/lib/takeoff/rules/verification";
 import { asRecord } from "@/lib/value-guards";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TAKEOFF_NANO_USD_PER_CENT, type TakeoffPaymentChoice } from "./payment-choice";
-import { resolveTakeoffPayment } from "./payment-server";
+import { resolveTakeoffPayment, sealTakeoffPayment } from "./payment-server";
 import type { Database } from "@/types/database";
 import { quantityEntryError } from "./quantity-entry";
 import { ITEM_INELIGIBILITIES, planItemReviewCommand, type ItemIneligibility, type ItemTableScope } from "./item-table";
@@ -381,7 +381,7 @@ function sealedSelection(selection: TakeoffExecutionSelection, setting: ItemReme
 export async function previewItemRemeasure(projectId: string, input: RemeasureInput & { paymentChoice?: TakeoffPaymentChoice }) {
   const access = await requireReviewer(projectId);
   const payment = input.paymentChoice
-    ? await resolveTakeoffPayment({ ...access.context, projectId }, input.paymentChoice, createServiceRoleClient(), false) : undefined;
+    ? await resolveTakeoffPayment({ ...access.context, projectId }, input.paymentChoice, createServiceRoleClient()) : undefined;
   return (await remeasurePreview(input, access, payment)).preview;
 }
 
@@ -395,8 +395,9 @@ export async function runItemRemeasure(projectId: string, command: ItemRemeasure
   // The member's right first (requireReviewer: the right to launch on the affaire), a replay included.
   const access = await requireReviewer(projectId);
   if (command.payment_choice && command.setting) invalid("Utilisez les réglages de paiement affichés pour cette nouvelle mesure.");
-  const payment = command.payment_choice
-    ? await resolveTakeoffPayment({ ...access.context, projectId }, command.payment_choice, createServiceRoleClient()) : undefined;
+  const service = createServiceRoleClient();
+  const payer = { ...access.context, projectId };
+  const payment = command.payment_choice ? await resolveTakeoffPayment(payer, command.payment_choice, service) : undefined;
   let setting = command.setting;
   if (payment) {
     setting = command.detail ? { model: payment.selection.model, reasoning_effort: payment.selection.reasoningEffort } : null;
@@ -451,7 +452,9 @@ export async function runItemRemeasure(projectId: string, command: ItemRemeasure
   // What is admitted is what was confirmed: a plan made since on other revisions, plans, calls or budget is stale.
   if (canonical(command.mark_schedule ?? null) !== canonical(planned.plan.markSchedule ?? null) || !samePlan(confirmed, planned.plan)) staleRefusal(items);
   const answer = await launchTakeoffItemRemeasure(access.context, { projectId: access.project.id, intentKey: command.intent_key,
-    plan: planned.plan, selection: sealed, targets, confirmation, host: (await headers()).get("host") });
+    plan: planned.plan, selection: sealed, targets, confirmation, host: (await headers()).get("host"),
+    // What was confirmed is what is admitted: a key's mandate is recorded only now.
+    ...(payment?.apiMandate && { beforeAdmission: () => sealTakeoffPayment(payer, payment, service) }) });
   if (answer.outcome === "stale") {
     staleRefusal(answer.stale.map((itemId) => ({ itemId, label: labels.get(itemId.toLowerCase()) ?? null })));
   }

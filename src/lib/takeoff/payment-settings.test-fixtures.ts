@@ -24,5 +24,5 @@ export function fixtureTakeoffPaymentOptions(defaultSource: AiBillingSource = "p
     preferences: { model: "modele-forfait", reasoningEffort: "medium" as const },
     models: [{ ...models[0], id: "modele-forfait", name: "Modèle forfait" }] };
   return { ok: true, data: { defaultSource, options: { personal_api_key: key, chatgpt_plan: plan }, maxCostCents,
-    chatGptConnectionId: FIXTURE_PLAN_CONNECTION } };
+    chatGptConnectionId: FIXTURE_PLAN_CONNECTION, planSetting: plan.preferences } };
 }
