@@ -10419,7 +10419,7 @@
           "Catalogue"
         ],
         "summary": "Proposer des corrections pour l’import du classeur de chiffrage",
-        "description": "Propose, pour une tâche (fournisseurs, articles, types de fourniture, colonnes, codes fournisseur), ce que les règles trouvent ; avec provider, la source d’IA choisie arbitre seulement ce que les règles laissent indécis, parmi leurs candidats ou « aucun ». Rien n’est écrit : une proposition s’applique quand le bureau la retient à l’écran. Aucun repli d’une source vers une autre. Réservé aux administrateurs et aux ingénieurs.",
+        "description": "Propose des corrections pour les fournisseurs, articles, types de fourniture, colonnes ou codes fournisseur, à partir de règles et d’un arbitrage IA facultatif. La tâche row_exclusions requiert une source d’IA et un critère libre, et propose les numéros Excel à écarter parmi les lignes envoyées. La réponse indique le nombre de lignes analysées, y compris celles à conserver. Les propositions s’appliquent à l’aperçu après confirmation dans l’interface. Aucun repli d’une source vers une autre. Réservé aux administrateurs et aux ingénieurs.",
         "requestBody": {
           "description": "Tâche, éléments à proposer et source d’IA éventuelle. Pour le forfait ChatGPT ou la clé API OpenAI, model et reasoning_effort sont facultatifs et ponctuels. À défaut, la demande utilise les réglages initiaux de la source renvoyés par GET, ou le niveau par défaut du modèle si un autre modèle est demandé seul.",
           "required": true,
@@ -60049,6 +60049,79 @@
               "values"
             ],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "task": {
+                "type": "string",
+                "const": "row_exclusions"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "chatgpt_plan",
+                  "personal_api_key",
+                  "decisions"
+                ]
+              },
+              "model": {
+                "description": "Modèle proposé par la source choisie.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoning_effort": {
+                "description": "Niveau de raisonnement proposé par le modèle. La valeur null sélectionne Automatique.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "criterion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "lines": {
+                "minItems": 1,
+                "maxItems": 50,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "row": {
+                      "type": "integer",
+                      "minimum": 2,
+                      "maximum": 6000
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 700
+                    }
+                  },
+                  "required": [
+                    "row",
+                    "description"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "task",
+              "provider",
+              "criterion",
+              "lines"
+            ],
+            "additionalProperties": false
           }
         ]
       },
@@ -60686,6 +60759,82 @@
                   "model",
                   "status",
                   "message",
+                  "items"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "const": "row_exclusions"
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key",
+                          "decisions"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic",
+                      "available",
+                      "partial",
+                      "unavailable",
+                      "failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "analysed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
+                  },
+                  "items": {
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "row": {
+                          "type": "integer",
+                          "minimum": 2,
+                          "maximum": 6000
+                        }
+                      },
+                      "required": [
+                        "row"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "task",
+                  "provider",
+                  "model",
+                  "status",
+                  "message",
+                  "analysed",
                   "items"
                 ],
                 "additionalProperties": false

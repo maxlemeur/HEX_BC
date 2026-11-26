@@ -84,12 +84,12 @@ export function confidenceLabel(confidence: number | null) {
 }
 
 /** The choice of the AI source, with why a source cannot be chosen here. */
-export function AssistantProviderSelect() {
+export function AssistantProviderSelect({ required = false }: Readonly<{ required?: boolean }> = {}) {
   const { sources, selection, settingsLocked, chooseSettings, loadProviders } = useWorkbookAssistant();
   if (sources === "error") {
     return (
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span role="alert">Les sources d’IA n’ont pas pu être lues. Les propositions suivent les règles seules.</span>
+        <span role="alert">{required ? "Les sources d’IA n’ont pas pu être lues." : "Les sources d’IA n’ont pas pu être lues. Les propositions suivent les règles seules."}</span>
         <Button variant="ghost" size="xs" disabled={settingsLocked} onClick={loadProviders}>Recharger les sources d’IA</Button>
       </div>
     );
@@ -101,8 +101,8 @@ export function AssistantProviderSelect() {
     <AiRequestSettings sources={sources.providers} defaultSource={sources.defaultProvider} value={selection}
       onChange={chooseSettings} locked={settingsLocked}
       sourcePicker={{
-        label: <><SparklesIcon className="size-3.5" aria-hidden="true" /> Propositions</>,
-        rulesOnlyLabel: "Règles seules, sans IA",
+        label: <><SparklesIcon className="size-3.5" aria-hidden="true" /> {required ? "Source d’IA" : "Propositions"}</>,
+        rulesOnlyLabel: required ? undefined : "Règles seules, sans IA",
       }}
       keyCeiling={{ nanoUsd: AI_REQUEST_CEILINGS_NANO_USD.shortQuestion }} />
   );

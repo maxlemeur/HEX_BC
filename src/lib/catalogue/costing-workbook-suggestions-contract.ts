@@ -10,6 +10,7 @@ import {
   COSTING_WORKBOOK_REQUIRED_COLUMNS,
   type CostingWorkbookColumn,
 } from "./costing-workbook";
+import { COSTING_WORKBOOK_MAX_ROWS } from "./costing-workbook-contract";
 
 /**
  * Contract of /api/catalogue/workbook-import/suggestions, shared by the import screen and the route: proposals
@@ -20,9 +21,9 @@ import {
  *  - POST answers the proposals of one task. Without `provider` they come from the deterministic pass alone
  *    (`status: "deterministic"`, `provider: null`). With a provider, that pass runs first and the provider is asked
  *    only for what it left undecided and that has something to choose from; `status` and `message` are then the
- *    provider's (`unavailable` and `failed` keep the deterministic proposals).
+ *    provider's (`unavailable` and `failed` keep the deterministic proposals). Row exclusions require a provider.
  *
- * `items` has one entry per entry of the request, in its order. A `suggestion` whose identifier is null means
+ * Except for row exclusions, `items` has one entry per entry of the request, in its order. A `suggestion` whose identifier is null means
  * « none of the candidates » (the arbiter answered « aucun »); `suggestion: null` means nothing could be proposed.
  */
 
@@ -39,7 +40,11 @@ export const COSTING_WORKBOOK_SUGGESTION_LIMITS = {
   headers: 60,
   samples: 3,
   supplierCodes: 300,
+  rowExclusions: 50,
 } as const;
+
+export const COSTING_WORKBOOK_ROW_CRITERION_MAX_LENGTH = 1000;
+export const COSTING_WORKBOOK_ROW_DESCRIPTION_MAX_LENGTH = 700;
 
 const COLUMNS: readonly CostingWorkbookColumn[] = [...COSTING_WORKBOOK_REQUIRED_COLUMNS, ...COSTING_WORKBOOK_OPTIONAL_COLUMNS];
 
@@ -115,9 +120,22 @@ const supplierCodesRequest = z.object({
   values: z.array(name).min(1).max(COSTING_WORKBOOK_SUGGESTION_LIMITS.supplierCodes),
 }).strict();
 
+const sheetRow = z.number().int().min(2).max(COSTING_WORKBOOK_MAX_ROWS);
+const rowExclusionsRequest = z.object({
+  task: z.literal("row_exclusions"),
+  ...aiSelection,
+  provider: providerSchema,
+  criterion: z.string().trim().min(1).max(COSTING_WORKBOOK_ROW_CRITERION_MAX_LENGTH),
+  lines: z.array(z.object({
+    row: sheetRow,
+    description: z.string().trim().min(1).max(COSTING_WORKBOOK_ROW_DESCRIPTION_MAX_LENGTH),
+  }).strict()).min(1).max(COSTING_WORKBOOK_SUGGESTION_LIMITS.rowExclusions)
+    .refine((lines) => distinct(lines.map((line) => line.row)), "Chaque ligne porte un numéro Excel distinct."),
+}).strict();
+
 /** Body of POST /api/catalogue/workbook-import/suggestions. */
 export const costingWorkbookSuggestionsRequestSchema = z.discriminatedUnion("task", [
-  suppliersRequest, articlesRequest, supplyTypesRequest, columnsRequest, supplierCodesRequest,
+  suppliersRequest, articlesRequest, supplyTypesRequest, columnsRequest, supplierCodesRequest, rowExclusionsRequest,
 ]);
 export type CostingWorkbookSuggestionsRequest = z.infer<typeof costingWorkbookSuggestionsRequestSchema>;
 export type CostingWorkbookSuggestionTask = CostingWorkbookSuggestionsRequest["task"];
@@ -189,9 +207,16 @@ const supplierCodesResponse = z.object({
   })),
 });
 
+const rowExclusionsResponse = z.object({
+  task: z.literal("row_exclusions"),
+  ...outcome,
+  analysed: z.number().int().min(0).max(COSTING_WORKBOOK_SUGGESTION_LIMITS.rowExclusions),
+  items: z.array(z.object({ row: sheetRow })).max(COSTING_WORKBOOK_SUGGESTION_LIMITS.rowExclusions),
+});
+
 /** Answer of POST /api/catalogue/workbook-import/suggestions (the `data` of the envelope). */
 export const costingWorkbookSuggestionsResponseSchema = z.discriminatedUnion("task", [
-  suppliersResponse, articlesResponse, supplyTypesResponse, columnsResponse, supplierCodesResponse,
+  suppliersResponse, articlesResponse, supplyTypesResponse, columnsResponse, supplierCodesResponse, rowExclusionsResponse,
 ]);
 export type CostingWorkbookSuggestionsResponse = z.infer<typeof costingWorkbookSuggestionsResponseSchema>;
 export type CostingWorkbookSuggestionsResponseOf<Task extends CostingWorkbookSuggestionTask> =

@@ -7,6 +7,7 @@ import { expect } from "e2e";
 
 import { COSTING_WORKBOOK_SHEET } from "@/lib/catalogue/costing-workbook";
 import type { CostingWorkbookImportReport, CostingWorkbookSupplierReferenceReport } from "@/lib/catalogue/costing-workbook-contract";
+import type { CostingWorkbookSuggestionsRequest } from "@/lib/catalogue/costing-workbook-suggestions-contract";
 import type { CatalogueImportBatchPage } from "@/lib/catalogue/import-review-contract";
 
 import { apiRequest, armyTest, recordEvidence } from "./fixtures";
@@ -64,6 +65,102 @@ async function supplyTypes(browser: Browser) {
   expect(response.status).toBe(200);
   return response.body.data.items;
 }
+
+armyTest(
+  "CAT06 the costing workbook previews AI row exclusions and imports only the rows the user keeps",
+  { session: "army", tags: ["critical", "catalogue"], timeout: 180_000 },
+  async ({ app, screen, browser, army }) => {
+    const refs = ["GALVA-A", "GALVA-B", "INOX"].map((suffix) => `${army.runPrefix}-${suffix}`);
+    const sheet = [
+      ["Classeur fictif"],
+      HEADERS,
+      row({ ID: refs[0], "Type_ligne": "Art", "Caractéristique": "Tube acier galvanisé", "Matériau": "Acier galvanisé", "Unité": "ml", "PR. FO": 12,
+        F1_nom: `${army.runPrefix} Fournisseur fictif`, F1_ref: "TG-12" }),
+      [],
+      row({ ID: refs[1], "Type_ligne": "Art", "Caractéristique": "Coude galvanisé", "Matériau": "Acier galvanisé", "Unité": "u", "PR. FO": 9,
+        F1_nom: `${army.runPrefix} Fournisseur fictif`, F1_ref: "CG-09" }),
+      row({ ID: refs[2], "Type_ligne": "Art", "Caractéristique": "Tube inox", "Matériau": "Inox 304L", "Unité": "ml", "PR. FO": 18 }),
+    ];
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(sheet), COSTING_WORKBOOK_SHEET);
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
+    await mkdir(directory, { recursive: true });
+    const filename = path.join(directory, "bible-exclusions-ia.xlsx");
+    await writeFile(filename, XLSX.write(book, { bookType: "xlsx", type: "buffer" }) as Buffer);
+
+    const criterion = "Supprime les articles en acier galvanisé.";
+    const requests: CostingWorkbookSuggestionsRequest[] = [];
+    await browser.route("**/api/catalogue/workbook-import/suggestions", async (route) => {
+      if (route.request.method === "GET") {
+        await route.fulfill({ json: { ok: true, data: {
+          defaultProvider: "chatgpt_plan",
+          providers: {
+            chatgpt_plan: { available: true, message: "", models: [
+              { id: "plan-a", name: "Forfait A", reasoningEfforts: ["low"], defaultReasoningEffort: "low" },
+              { id: "plan-b", name: "Forfait B", reasoningEfforts: ["medium"], defaultReasoningEffort: "medium" },
+            ], preferences: { model: "plan-a", reasoningEffort: "low" } },
+            personal_api_key: { available: false, message: "", models: [], preferences: null },
+            decisions: { available: false, message: "" },
+          },
+        } } });
+        return;
+      }
+      const request = JSON.parse(route.request.postData ?? "{}") as CostingWorkbookSuggestionsRequest;
+      requests.push(request);
+      await route.fulfill({ json: { ok: true, data: {
+        task: "row_exclusions", provider: "chatgpt_plan", model: "plan-b", analysed: 3, status: "available", message: "",
+        items: [{ row: 3 }, { row: 5 }],
+      } } });
+    });
+
+    await app.open("/dashboard/products/import-workbook");
+    await screen.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(filename);
+    const importThree = screen.getByRole("button", "Importer 3 brouillons", { exact: true });
+    await expect(importThree).toBeEnabled({ timeout: 30_000 });
+    const trigger = screen.getByRole("button", "Supprimer des lignes avec l’IA", { exact: true });
+    const dialog = screen.getByRole("dialog", "Supprimer des lignes avec l’IA", { exact: true });
+    async function suggest() {
+      await trigger.tap();
+      await dialog.getByRole("textbox", "Quelles lignes souhaitez-vous supprimer ?", { exact: true }).fill(criterion);
+      await dialog.getByRole("combobox", "Modèle", { exact: true }).selectOption({ value: "plan-b" });
+      await dialog.getByRole("button", "Analyser 3 lignes", { exact: true }).tap();
+      await expect(dialog.getByText("2 lignes proposées sur 3 lignes analysées", { exact: true })).toBeVisible();
+      await expect(dialog.getByRole("button", "Écarter les lignes sélectionnées", { exact: true })).toBeDisabled();
+    }
+    await suggest();
+    expect(requests[0]).toMatchObject({
+      task: "row_exclusions", criterion, provider: "chatgpt_plan", model: "plan-b", reasoning_effort: "medium",
+      lines: refs.map((ref, index) => ({ row: [3, 5, 6][index], description: expect.stringContaining(ref) })),
+    });
+    await dialog.getByRole("button", "Annuler", { exact: true }).tap();
+    await expect(importThree).toBeEnabled();
+    expect(await cataloguePage(browser, army.runPrefix, "draft")).toEqual([]);
+
+    async function excludeOne() {
+      await suggest();
+      await dialog.getByRole("checkbox", /^Ligne Excel 3\b/).check();
+      await dialog.getByRole("button", "Écarter 1 ligne de l’import", { exact: true }).tap();
+      await expect(screen.getByText("1 ligne écartée de l’import", { exact: true })).toBeVisible();
+      await expect(screen.getByRole("button", "Importer 2 brouillons", { exact: true })).toBeEnabled({ timeout: 30_000 });
+    }
+    await excludeOne();
+    await screen.getByRole("button", "Réintégrer les lignes écartées", { exact: true }).tap();
+    await expect(importThree).toBeEnabled({ timeout: 30_000 });
+    await excludeOne();
+    const [supplierPreview] = await Promise.all([
+      browser.waitForResponse("**/api/catalogue/workbook-import/supplier-references"),
+      screen.getByRole("tab", "Références fournisseur", { exact: true }).tap(),
+    ]);
+    expect(supplierPreview.status).toBe(200);
+    const { data } = await supplierPreview.json<Envelope<CostingWorkbookSupplierReferenceReport>>();
+    expect(data.for_decision).toMatchObject([{ row: 5, slot: 1 }]);
+    await screen.getByRole("tab", "Articles en brouillon", { exact: true }).tap();
+    await screen.getByRole("button", "Importer 2 brouillons", { exact: true }).tap();
+    await expect(screen.getByText("Import terminé : 2 brouillons créés.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    const persisted = await cataloguePage(browser, army.runPrefix, "draft");
+    expect(persisted.map(({ reference }) => reference).sort()).toEqual(refs.slice(1).sort());
+  },
+);
 
 armyTest(
   "CAT02 the costing workbook becomes catalogue drafts after a preview, and a second import creates nothing",
