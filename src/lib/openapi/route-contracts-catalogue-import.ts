@@ -7,6 +7,8 @@ import {
 } from "@/lib/catalogue/costing-workbook-suggestions-contract";
 import {
   bulkProductsSchema,
+  catalogueImportBatchCursorSchema,
+  catalogueImportBatchPageSchema,
   createSupplierAliasSchema,
   pendingSupplierReferencePageSchema,
   PENDING_REFERENCE_PAGE_SIZES,
@@ -92,10 +94,17 @@ export const catalogueImportContracts: RouteContract[] = [
     id: "list-catalogue-import-batches",
     method: "get",
     path: "/api/catalogue/import-batches",
-    summary: "Lister les imports récents du classeur de chiffrage",
+    summary: "Lister les imports du classeur de chiffrage",
     description:
-      "Les dix derniers imports de l’entreprise active, avec ce qu’ils ont créé qui existe encore (total) et ce qui reste à valider ou à vérifier (open). can_undo dit si l’appelant peut annuler l’import.",
+      "Jusqu’à dix imports de l’entreprise active, par date de création décroissante puis par identifiant décroissant. Un import d’articles vide reste visible si son annulation a commencé ou est terminée.",
     tags: ["Catalogue"],
+    queryParameters: [
+      { name: "cursor", schema: catalogueImportBatchCursorSchema, description: "Valeur next_cursor de la page précédente, au format date ISO 8601,UUID. Omettre pour la première page." },
+    ],
+    success: [{
+      status: "200", description: "Imports et curseur de la page suivante (null en fin de liste).",
+      schema: successResponseSchemaDefinition("ApiCatalogueImportBatchPage", catalogueImportBatchPageSchema),
+    }],
   },
   {
     id: "undo-catalogue-import-batch",

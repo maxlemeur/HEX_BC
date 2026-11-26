@@ -8598,15 +8598,26 @@
         "tags": [
           "Catalogue"
         ],
-        "summary": "Lister les imports récents du classeur de chiffrage",
-        "description": "Les dix derniers imports de l’entreprise active, avec ce qu’ils ont créé qui existe encore (total) et ce qui reste à valider ou à vérifier (open). can_undo dit si l’appelant peut annuler l’import.",
+        "summary": "Lister les imports du classeur de chiffrage",
+        "description": "Jusqu’à dix imports de l’entreprise active, par date de création décroissante puis par identifiant décroissant. Un import d’articles vide reste visible si son annulation a commencé ou est terminée.",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Valeur next_cursor de la page précédente, au format date ISO 8601,UUID. Omettre pour la première page.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListCatalogueImportBatchesCursorParameter"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Operation executee avec succes.",
+            "description": "Imports et curseur de la page suivante (null en fin de liste).",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/ApiCatalogueImportBatchPage"
                 }
               }
             }
@@ -56848,6 +56859,129 @@
             ]
           }
         ]
+      },
+      "ListCatalogueImportBatchesCursorParameter": {
+        "type": "string",
+        "maxLength": 80
+      },
+      "ApiCatalogueImportBatchPage": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "maxItems": 10,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "workbook_articles",
+                        "workbook_supplier_references"
+                      ]
+                    },
+                    "source_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "undo_started_at": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "undone_at": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991,
+                      "description": "Articles ou références de cet import qui existent encore."
+                    },
+                    "open": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991,
+                      "description": "Brouillons à valider ou références à vérifier."
+                    },
+                    "can_undo": {
+                      "type": "boolean",
+                      "description": "L’appelant peut annuler l’import."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "kind",
+                    "source_name",
+                    "created_at",
+                    "undo_started_at",
+                    "undone_at",
+                    "total",
+                    "open",
+                    "can_undo"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "next_cursor": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "next_cursor"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "UndoCatalogueImportBatchBatchIdParameter": {
         "type": "string",

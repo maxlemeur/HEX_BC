@@ -255,15 +255,17 @@ export function ArticlePreview({
                       {`${formatCount(toCheck)} ${plural(toCheck, "article à vérifier", "articles à vérifier")} :`}
                     </span>
                     {availableFindings.map((finding) => (
-                      <button
+                      <Button
                         key={finding}
                         type="button"
+                        variant="ghost"
+                        size="xs"
                         aria-pressed={finding === activeFinding}
-                        className="rounded-full border border-border px-2.5 py-0.5 text-xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:font-semibold aria-pressed:text-primary"
+                        className="h-auto rounded-full border-border px-2.5 py-0.5 font-normal whitespace-normal text-foreground transition-none focus-visible:outline-offset-0 active:not-aria-[haspopup]:scale-100 aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:font-semibold aria-pressed:text-primary hover:aria-pressed:text-primary"
                         onClick={() => onReviewChange({ ...review, page: 0, filter: finding === activeFinding ? undefined : finding })}
                       >
                         {`${ARTICLE_FINDINGS[finding].label} · ${formatCount(findingCounts.get(finding) ?? 0)}`}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 ) : null}

@@ -108,22 +108,42 @@ export type BulkValidateResult = { action: "validate"; validated: number; incomp
 export type BulkAssignResult = { action: "assign-supply-type"; updated: number };
 export type BulkProductsResult = BulkValidateResult | BulkAssignResult;
 
-export type CatalogueImportBatchKind = "workbook_articles" | "workbook_supplier_references";
+const importBatchKinds = z.enum(["workbook_articles", "workbook_supplier_references"]);
+export type CatalogueImportBatchKind = z.infer<typeof importBatchKinds>;
 
 /** An import of the costing workbook, with what is left to do on it. */
-export type CatalogueImportBatch = {
-  id: string;
-  kind: CatalogueImportBatchKind;
-  source_name: string | null;
-  created_at: string;
-  undo_started_at: string | null;
-  undone_at: string | null;
-  /** Articles or references the import created that still exist. */
-  total: number;
-  /** Among them: drafts not yet validated, references not yet checked. */
-  open: number;
-  /** The member may undo it: an administrator, or its author. */
-  can_undo: boolean;
-};
+const importBatchTimestamp = z.iso.datetime({ offset: true });
+const catalogueImportBatchSchema = z.object({
+  id,
+  kind: importBatchKinds,
+  source_name: z.string().nullable(),
+  created_at: importBatchTimestamp,
+  undo_started_at: importBatchTimestamp.nullable(),
+  undone_at: importBatchTimestamp.nullable(),
+  total: z.number().int().nonnegative().describe("Articles ou références de cet import qui existent encore."),
+  open: z.number().int().nonnegative().describe("Brouillons à valider ou références à vérifier."),
+  can_undo: z.boolean().describe("L’appelant peut annuler l’import."),
+});
+export type CatalogueImportBatch = z.infer<typeof catalogueImportBatchSchema>;
+
+const importBatchPositionSchema = z.tuple([importBatchTimestamp, id]);
+export type CatalogueImportBatchPosition = z.infer<typeof importBatchPositionSchema>;
+
+export const catalogueImportBatchCursorSchema = z.string().max(80).refine(
+  (value) => importBatchPositionSchema.safeParse(value.split(",")).success,
+  "Curseur d’import invalide.",
+);
+
+export const catalogueImportBatchCursorParameterSchema = catalogueImportBatchCursorSchema.transform(
+  (value) => importBatchPositionSchema.parse(value.split(",")),
+);
+
+export const CATALOGUE_IMPORT_BATCH_PAGE_SIZE = 10;
+
+export const catalogueImportBatchPageSchema = z.object({
+  items: z.array(catalogueImportBatchSchema).max(CATALOGUE_IMPORT_BATCH_PAGE_SIZE),
+  next_cursor: catalogueImportBatchCursorSchema.nullable(),
+});
+export type CatalogueImportBatchPage = z.infer<typeof catalogueImportBatchPageSchema>;
 
 export type UndoImportResult = { deleted: number; kept: number };

@@ -9,11 +9,13 @@ import { buildCatalogueAccess, canAddToCatalogue, canEditCatalogueRecord } from 
 import { readEngineersCanEditShared } from "@/lib/catalogue/access-server";
 import { workbookSupplierNameKey } from "@/lib/catalogue/costing-workbook";
 import {
+  CATALOGUE_IMPORT_BATCH_PAGE_SIZE,
   REFERENCE_QUEUE_CHANGED,
   REVIEW_REFERENCES_MAX,
   type BulkProductsInput,
   type BulkProductsResult,
-  type CatalogueImportBatch,
+  type CatalogueImportBatchPage,
+  type CatalogueImportBatchPosition,
   type CreateSupplierAliasInput,
   type PendingReferencesQuery,
   type PendingSupplierReferencePage,
@@ -272,16 +274,23 @@ export async function bulkUpdateProducts(input: BulkProductsInput): Promise<Bulk
   return result;
 }
 
-/** Imports listed for an undo or a follow-up: the latest ones are the ones the office still works on. */
-const LISTED_BATCHES = 10;
-
-export async function listCatalogueImportBatches(): Promise<{ items: CatalogueImportBatch[] }> {
+export async function listCatalogueImportBatches(position?: CatalogueImportBatchPosition): Promise<CatalogueImportBatchPage> {
   const { supabase, tenantId, tenantRole, userId } = await getAuthenticatedTenantContext();
-  const batches = await supabase.from("catalogue_import_batches")
-    .select("id, kind, source_name, created_at, created_by, undo_started_at, undone_at")
-    .eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(LISTED_BATCHES);
+  const query = supabase.from("catalogue_import_batches")
+    .select("id, kind, source_name, created_at, created_by, undo_started_at, undone_at, products!products_import_batch_fkey()")
+    .eq("tenant_id", tenantId)
+    // An empty article import is visible once its undo has started. The FK includes the tenant.
+    .or("kind.neq.workbook_articles,undo_started_at.not.is.null,undone_at.not.is.null,products.not.is.null")
+    .limit(1, { referencedTable: "products" })
+    .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(CATALOGUE_IMPORT_BATCH_PAGE_SIZE + 1);
+  if (position) {
+    const [createdAt, id] = position;
+    query.or(`created_at.lt.${createdAt},and(created_at.eq.${createdAt},id.lt.${id})`);
+  }
+  const batches = await query;
   if (batches.error) throw mapSupabaseError(batches.error, "Impossible de lire les imports du catalogue.");
 
+  const rows = batches.data ?? [];
   const counted = ({ count: rows, error }: { count: number | null; error: SupabaseErrorLike | null }) => {
     if (error) throw mapSupabaseError(error, "Impossible de lire les imports du catalogue.");
     return rows ?? 0;
@@ -291,7 +300,7 @@ export async function listCatalogueImportBatches(): Promise<{ items: CatalogueIm
     .eq("tenant_id", tenantId).eq("import_batch_id", batchId);
   const references = (batchId: string) => supabase.from("supplier_catalog_items").select("id", { count: "exact", head: true })
     .eq("tenant_id", tenantId).eq("import_batch_id", batchId);
-  const items = await Promise.all((batches.data ?? []).map(async (batch) => {
+  const items = await Promise.all(rows.slice(0, CATALOGUE_IMPORT_BATCH_PAGE_SIZE).map(async (batch) => {
     const kind = batch.kind;
     const [total, open] = kind === "workbook_articles"
       ? await Promise.all([articles(batch.id).then(counted), articles(batch.id).eq("catalogue_status", "draft").then(counted)])
@@ -302,7 +311,8 @@ export async function listCatalogueImportBatches(): Promise<{ items: CatalogueIm
       can_undo: !batch.undone_at && canAddToCatalogue(tenantRole) && (tenantRole === "admin" || batch.created_by === userId),
     };
   }));
-  return { items };
+  const last = items.at(-1);
+  return { items, next_cursor: last && rows.length > CATALOGUE_IMPORT_BATCH_PAGE_SIZE ? `${last.created_at},${last.id}` : null };
 }
 
 const undoAnswerSchema = z.object({
