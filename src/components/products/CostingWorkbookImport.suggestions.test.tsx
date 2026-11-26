@@ -125,7 +125,13 @@ async function openImport(user: ReturnType<typeof userEvent.setup>, file = workb
 }
 
 async function chooseDecisions(user: ReturnType<typeof userEvent.setup>) {
+  await toggleAiSettings(user);
   await user.selectOptions(await screen.findByLabelText("Propositions"), "API Decisions");
+  await toggleAiSettings(user);
+}
+
+async function toggleAiSettings(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Réglages IA" }));
 }
 
 async function openSupplierReferences(user: ReturnType<typeof userEvent.setup>) {
@@ -151,6 +157,7 @@ describe("CostingWorkbookImport, proposals", () => {
   it("starts with rules and explains why the profile default is unavailable, even when Decisions is available (1)", async () => {
     const user = userEvent.setup();
     await openImport(user);
+    await toggleAiSettings(user);
     const select = await screen.findByLabelText("Propositions");
     expect(sent.filter((call) => call.url === SUGGESTIONS).map((call) => call.method)).toEqual(["GET"]);
     expect(select).toHaveValue("");
@@ -168,7 +175,9 @@ describe("CostingWorkbookImport, proposals", () => {
     ["personal_api_key", "key-a", "low", ["Clé A"]],
   ] as const)("prefills the profile source %s and its own model and effort", async (defaultProvider, model, effort, labels) => {
     answers.sources = () => ok({ defaultProvider, providers: PERSONAL_SOURCES });
-    await openImport(userEvent.setup());
+    const user = userEvent.setup();
+    await openImport(user);
+    await toggleAiSettings(user);
 
     expect(await screen.findByLabelText("Propositions")).toHaveValue(defaultProvider);
     const modelSelect = screen.getByLabelText("Modèle");
@@ -184,10 +193,12 @@ describe("CostingWorkbookImport, proposals", () => {
     answers.sources = () => ok({ defaultProvider: null, providers: { ...UNAVAILABLE_SOURCES, chatgpt_plan: PERSONAL_SOURCES.chatgpt_plan } });
     await openImport(user);
 
+    await toggleAiSettings(user);
     const source = await screen.findByLabelText("Propositions");
     expect(source).toHaveValue("");
     expect(source).toHaveAccessibleDescription("Les préférences de Mon profil n’ont pas pu être lues.");
     expect(within(source).getByRole("option", { name: "Forfait ChatGPT" })).toBeEnabled();
+    await toggleAiSettings(user);
     await user.click(screen.getByRole("button", { name: "Doublons possibles" }));
     await user.click(screen.getByRole("button", { name: "Chercher les doublons" }));
     await waitFor(() => expect(suggestions()).toHaveLength(1));
@@ -198,15 +209,14 @@ describe("CostingWorkbookImport, proposals", () => {
     const user = userEvent.setup();
     answers.sources = () => ok({ defaultProvider: "chatgpt_plan", providers: PERSONAL_SOURCES });
     await openImport(user);
-    await user.click(screen.getByRole("button", { name: "Supprimer des lignes avec l’IA" }));
-    const dialog = within(screen.getByRole("dialog"));
-    await user.selectOptions(await dialog.findByLabelText("Source d’IA"), "personal_api_key");
-    expect(dialog.getByLabelText("Modèle")).toHaveValue("key-a");
+    await toggleAiSettings(user);
+    await user.selectOptions(await screen.findByLabelText("Propositions"), "personal_api_key");
+    expect(screen.getByLabelText("Modèle")).toHaveValue("key-a");
 
     answers.sources = () => respond(503, {});
-    await user.click(dialog.getByRole("button", { name: "Actualiser les sources d’IA" }));
-    await dialog.findByText("Les sources d’IA n’ont pas pu être lues.");
-    await user.click(dialog.getByRole("button", { name: "Fermer" }));
+    await user.click(screen.getByRole("button", { name: "Actualiser les sources d’IA" }));
+    await screen.findByText(/Les sources d’IA n’ont pas pu être lues/);
+    await toggleAiSettings(user);
     await user.click(screen.getByRole("button", { name: "Doublons possibles" }));
     await user.click(screen.getByRole("button", { name: "Chercher les doublons" }));
     await waitFor(() => expect(suggestions()).toHaveLength(1));
@@ -217,16 +227,19 @@ describe("CostingWorkbookImport, proposals", () => {
     const user = userEvent.setup();
     answers.sources = () => ok({ defaultProvider: "chatgpt_plan", providers: PERSONAL_SOURCES });
     await openImport(user);
+    await toggleAiSettings(user);
     await user.selectOptions(await screen.findByLabelText("Modèle"), "plan-b");
     const effort = screen.getByLabelText("Effort de raisonnement");
     expect(effort).toHaveValue("medium");
     expect(within(effort).queryByRole("option", { name: "Élevé" })).not.toBeInTheDocument();
+    await toggleAiSettings(user);
     await user.click(screen.getByRole("button", { name: "Doublons possibles" }));
     await user.click(screen.getByRole("button", { name: /chercher les doublons.*avec l’IA/i }));
     await waitFor(() => expect(suggestions()).toEqual([expect.objectContaining({
       task: "articles", provider: "chatgpt_plan", model: "plan-b", reasoning_effort: "medium",
     })]));
     expect(sent.filter((call) => /profile|profil|ai-access/.test(call.url))).toEqual([]);
+    await toggleAiSettings(user);
     await user.selectOptions(screen.getByLabelText("Propositions"), "");
     expect(screen.queryByLabelText("Modèle")).not.toBeInTheDocument();
   });
@@ -413,12 +426,14 @@ describe("CostingWorkbookImport, proposals", () => {
     await user.click(screen.getByRole("button", { name: "Chercher les doublons avec l’IA" }));
     expect(requests).toHaveLength(1);
 
+    await toggleAiSettings(user);
     const source = screen.getByLabelText("Propositions");
     expect(source).toBeDisabled();
     expect(screen.getByLabelText("Modèle")).toBeDisabled();
     expect(screen.getByLabelText("Effort de raisonnement")).toBeDisabled();
     await user.selectOptions(source, "");
     expect(source).toHaveValue("personal_api_key");
+    await toggleAiSettings(user);
     expect(screen.getByText(/2 demandes et coûter jusqu’à 0,20 \$ US/)).toBeVisible();
     const stop = screen.getByRole("button", { name: "Arrêter" });
     expect(stop).toBeEnabled();
@@ -431,9 +446,11 @@ describe("CostingWorkbookImport, proposals", () => {
     for (const { body } of requests) {
       expect(body).toMatchObject({ provider: "personal_api_key", model: "key-a", reasoning_effort: "low" });
     }
-    expect(source).toBeEnabled();
-    await user.selectOptions(source, "");
-    expect(source).toHaveValue("");
+    await toggleAiSettings(user);
+    const refreshedSource = screen.getByLabelText("Propositions");
+    expect(refreshedSource).toBeEnabled();
+    await user.selectOptions(refreshedSource, "");
+    expect(refreshedSource).toHaveValue("");
   });
 
   it("hides the earlier all-code conclusion when imported corrections change the proposed values", async () => {

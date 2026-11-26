@@ -125,35 +125,40 @@ armyTest(
     await screen.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(filename);
     const importThree = screen.getByRole("button", "Importer 3 brouillons", { exact: true });
     await expect(importThree).toBeEnabled({ timeout: 30_000 });
-    const trigger = screen.getByRole("button", "Supprimer des lignes avec l’IA", { exact: true });
+    const settings = screen.getByRole("button", "Réglages IA", { exact: true });
     const dialog = screen.getByRole("dialog", "Supprimer des lignes avec l’IA", { exact: true });
-    const instruction = dialog.getByRole("textbox", "Quelles lignes souhaitez-vous supprimer ?", { exact: true });
+    const instruction = screen.getByRole("textbox", "Quelles lignes souhaitez-vous supprimer ?", { exact: true });
+    const analyseButton = screen.getByRole("button", "Analyser 3 lignes", { exact: true });
+    const results = screen.getByRole("button", "Consulter les résultats de l’analyse IA", { exact: true });
     async function analyse() {
-      await dialog.getByRole("button", "Analyser 3 lignes", { exact: true }).tap();
+      await analyseButton.tap();
+      await results.tap();
       await expect(dialog.getByText("2 lignes proposées sur 3 lignes analysées", { exact: true })).toBeVisible();
       await expect(dialog.getByRole("button", "Écarter les lignes sélectionnées", { exact: true })).toBeDisabled();
     }
-    await trigger.tap();
     await instruction.fill(criterion);
-    const apiKeySetup = dialog.getByRole("link", /^Configurer la clé API/);
+    await settings.tap();
+    const apiKeySetup = screen.getByRole("link", /^Configurer la clé API/);
     await expect(apiKeySetup).toHaveAttribute("href", "/dashboard/profile#section-cle-api");
     await expect(apiKeySetup).toHaveAttribute("target", "_blank");
     keyRegistered = true;
-    await dialog.getByRole("button", "Actualiser les sources d’IA", { exact: true }).tap();
-    await expect(dialog.getByRole("link", /^Gérer la clé API/)).toBeVisible();
+    await screen.getByRole("button", "Actualiser les sources d’IA", { exact: true }).tap();
+    await expect(screen.getByRole("link", /^Gérer la clé API/)).toBeVisible();
     await expect(instruction).toHaveValue(criterion);
-    await dialog.getByRole("combobox", "Source d’IA", { exact: true }).selectOption({ value: "personal_api_key" });
-    await dialog.getByRole("combobox", "Modèle", { exact: true }).selectOption({ value: "key-b" });
+    await screen.getByRole("combobox", "Propositions", { exact: true }).selectOption({ value: "personal_api_key" });
+    await screen.getByRole("combobox", "Modèle", { exact: true }).selectOption({ value: "key-b" });
+    await settings.tap();
     const running = screen.getByRole("button", "Analyse IA en cours · 0 / 3", { exact: true });
-    const results = screen.getByRole("button", "Consulter les résultats de l’analyse IA", { exact: true });
     try {
-      await dialog.getByRole("button", "Analyser 3 lignes", { exact: true }).tap();
-      await dialog.getByRole("button", "Fermer", { exact: true }).tap();
+      await analyseButton.tap();
       await expect(running).toBeEnabled();
       await running.tap();
+      await dialog.getByRole("button", "Fermer les résultats", { exact: true }).tap();
+      await expect(running).toBeEnabled();
       await expect(instruction).toHaveValue(criterion);
+      await running.tap();
       await expect(dialog.getByText("0 sur 3 lignes analysées…", { exact: true })).toBeVisible();
-      await dialog.getByRole("button", "Fermer", { exact: true }).tap();
+      await dialog.getByRole("button", "Fermer les résultats", { exact: true }).tap();
     } finally {
       firstResponse.resolve();
     }
@@ -178,9 +183,10 @@ armyTest(
     await excludeOne();
     await screen.getByRole("button", "Réintégrer les lignes écartées", { exact: true }).tap();
     await expect(importThree).toBeEnabled({ timeout: 30_000 });
-    await trigger.tap();
     await expect(instruction).toHaveValue(criterion);
-    await expect(dialog.getByRole("combobox", "Modèle", { exact: true })).toHaveValue("key-b");
+    await settings.tap();
+    await expect(screen.getByRole("combobox", "Modèle", { exact: true })).toHaveValue("key-b");
+    await settings.tap();
     await analyse();
     await excludeOne();
     const [supplierPreview] = await Promise.all([
@@ -304,8 +310,11 @@ armyTest(
       fileInput.setInputFiles(workbookPath),
     ]);
     expect(previewResponse.status).toBe(200);
-    await expect(importPage.getByRole("combobox", "Propositions", { exact: true })).toHaveValue("");
-    await expect(importPage.getByText(/^Source par défaut indisponible : /)).toBeVisible();
+    const aiSettings = importPage.getByRole("button", "Réglages IA", { exact: true });
+    await aiSettings.tap();
+    await expect(screen.getByRole("combobox", "Propositions", { exact: true })).toHaveValue("");
+    await expect(screen.getByText(/^Source par défaut indisponible : /)).toBeVisible();
+    await aiSettings.tap();
     const unitIssue = { row: 5, reference: valveRef, message: "Unité absente : « u » retenue." };
     const expectedPreview: CostingWorkbookImportReport = {
       confirmed: false, articles: 4, new_articles: 3, already_in_catalogue: 1, without_supply_type: withoutSupplyType,

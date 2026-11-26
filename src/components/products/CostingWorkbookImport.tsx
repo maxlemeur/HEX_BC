@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import Link from "next/link";
 import { FileSpreadsheetIcon, FileUpIcon, Loader2, RefreshCwIcon } from "lucide-react";
@@ -54,7 +54,7 @@ import { asRecord } from "@/lib/value-guards";
 
 import type { DuplicateSearch } from "./costing-workbook/ArticleDuplicates";
 import { ArticlePreview, type SupplyTypeChoices } from "./costing-workbook/ArticlePreview";
-import { AssistantProviderSelect, useWorkbookAssistantState, WorkbookAssistantProvider } from "./costing-workbook/assistant";
+import { useWorkbookAssistantState, WorkbookAssistantProvider } from "./costing-workbook/assistant";
 import { ColumnsPanel } from "./costing-workbook/ColumnsPanel";
 import { CorrectionsJournal } from "./costing-workbook/CorrectionsJournal";
 import { RejectedWorkbookEdits } from "./costing-workbook/RejectedWorkbookEdits";
@@ -78,6 +78,7 @@ export type CostingWorkbookImportProps = {
   onImported: () => void | Promise<void>;
   /** An import of either kind was confirmed: the list of imports has a new entry. */
   onImportRecorded?: () => void;
+  children?: ReactNode;
 };
 
 const ENDPOINT = "/api/catalogue/workbook-import";
@@ -176,6 +177,7 @@ export function CostingWorkbookImport({
   draftsHref,
   onImported,
   onImportRecorded,
+  children,
 }: Readonly<CostingWorkbookImportProps>) {
   const isAdmin = useOptionalUserContext()?.profile?.tenant_role === "admin";
   const [mode, setMode] = useState<Mode>("articles");
@@ -726,10 +728,6 @@ export function CostingWorkbookImport({
                   >
                     Importer des corrections
                   </Button>
-                  {inspection && headerRow !== null && inspection.missingRequired.length === 0 ? (
-                    <RowExclusions key={fileGeneration} rows={rows} inspection={inspection} disabled={isBusy || editorDirty}
-                      onApply={updateRowExclusions} />
-                  ) : null}
                 </>
               ) : null}
               {articleResult ? (
@@ -754,7 +752,6 @@ export function CostingWorkbookImport({
               <p className="text-xs text-muted-foreground">
                 {`${fileName} · ${formatCount(baseRows.length)} ${plural(baseRows.length, "ligne lue", "lignes lues")} dans l’onglet « ${COSTING_WORKBOOK_SHEET} »`}
               </p>
-              <AssistantProviderSelect />
             </div>
           ) : null}
 
@@ -882,6 +879,11 @@ export function CostingWorkbookImport({
           </WorkbookEditorProvider>
         ) : null}
       </Tabs>
+      {children}
+      {rows && inspection ? (
+        <RowExclusions key={fileGeneration} rows={rows} inspection={inspection} disabled={isBusy || editorDirty}
+          onApply={updateRowExclusions} />
+      ) : null}
       <AlertDialog open={replacement !== null} onOpenChange={(open) => {
         if (!open && replacement) {
           setReplacement(null);

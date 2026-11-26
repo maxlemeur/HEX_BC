@@ -35,8 +35,9 @@ export default function ImportCostingWorkbookPage() {
         draftsHref={draftsHref}
         onImported={clearCataloguePages}
         onImportRecorded={() => setImports((count) => count + 1)}
-      />
-      <ImportBatchesPanel refreshKey={imports} draftsHref={draftsHref} onChanged={clearCataloguePages} />
+      >
+        <ImportBatchesPanel refreshKey={imports} draftsHref={draftsHref} onChanged={clearCataloguePages} />
+      </CostingWorkbookImport>
     </>
   );
 }
