@@ -108,6 +108,19 @@ describe("AI request resolver", () => {
     expect(await resolveAiRequest(OWNER, POLICY)).toEqual(refusal);
   });
 
+  it("verifies the connection confirmed by the member before validating that key's requested model", async () => {
+    access.state.mockResolvedValue(savedKey());
+    expect(await resolveAiRequest(OWNER, POLICY, {
+      source: "personal_api_key", expectedConnectionId: "ancienne-connexion", model: "modele-de-l-ancienne-cle",
+    })).toEqual({
+      ok: false, reason: "connection_changed",
+      message: "La clé ou les modèles disponibles ont changé. Rechargez la demande pour reprendre.",
+    });
+    expect(await resolveAiRequest(OWNER, POLICY, {
+      source: "personal_api_key", expectedConnectionId: "connexion-fictive",
+    })).toMatchObject({ ok: true, connection: { id: "connexion-fictive", version: 7 } });
+  });
+
   it.each(["chatgpt_plan", "personal_api_key"] as const)("checks the explicit model and effort against %s", async (source) => {
     access.state.mockResolvedValue(savedKey());
     expect(await resolveAiRequest(OWNER, POLICY, { source, model: "modele-absent" })).toEqual({

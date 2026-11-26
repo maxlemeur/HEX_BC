@@ -21,10 +21,17 @@ type RequestPolicy = {
   allowedSources: readonly AiBillingSource[];
   sourcePolicy?: "profile";
 };
-type RequestedSettings = { source?: AiBillingSource; model?: string; effort?: string | null };
+type RequestedSettings = {
+  source?: AiBillingSource;
+  model?: string;
+  effort?: string | null;
+  /** Match the key shown before consent. Null means the caller has no valid connection to confirm. */
+  expectedConnectionId?: string | null;
+};
 type Refusal = {
   ok: false;
-  reason: "profile_unreadable" | "source_not_allowed" | "source_changed" | "source_unavailable" | "no_model" | "model_unavailable" | "effort_unavailable";
+  reason: "profile_unreadable" | "source_not_allowed" | "source_changed" | "source_unavailable"
+    | "connection_changed" | "no_model" | "model_unavailable" | "effort_unavailable";
   message: string;
 };
 type ModelOptions = { models: readonly ChatGptAvailableModel[]; preferences: ChatGptPreferences };
@@ -75,7 +82,7 @@ async function readProfile(owner: Owner, access: LocalAccess): Promise<Profile> 
 }
 
 /** The configured payer is a starting choice. Only a profile-locked screen requires it on every call. */
-export function resolveAiRequestSource(
+function resolveAiRequestSource(
   defaultSource: AiBillingSource | null, policy: RequestPolicy, requested?: AiBillingSource,
 ): AiBillingSource | Refusal {
   const source = requested ?? defaultSource;
@@ -134,7 +141,7 @@ export async function readAiRequestOptions(owner: Owner, policy: RequestPolicy) 
 }
 
 /** Validate an explicit choice against the current options for this payer. */
-export function resolveAiRequestModel(options: ModelOptions, requested: Omit<RequestedSettings, "source">) {
+function resolveAiRequestModel(options: ModelOptions, requested: Pick<RequestedSettings, "model" | "effort">) {
   const id = requested.model ?? options.preferences.model;
   const model = options.models.find((entry) => entry.id === id);
   if (!model) return refusal("model_unavailable", "Ce modèle n’est pas proposé par la source d’IA choisie.");
@@ -158,6 +165,9 @@ export async function resolveAiRequest(owner: Owner, policy: RequestPolicy, requ
   if (typeof source !== "string") return source;
   const options = await sourceOptions(owner, access, source, policy.usage, profile);
   if (!options.ok) return options;
+  if (requested.expectedConnectionId !== undefined && options.connection?.id !== requested.expectedConnectionId) {
+    return refusal("connection_changed", "La clé ou les modèles disponibles ont changé. Rechargez la demande pour reprendre.");
+  }
   const selection = resolveAiRequestModel(options, requested);
   return selection.ok ? { ...selection, source, connection: options.connection } : selection;
 }

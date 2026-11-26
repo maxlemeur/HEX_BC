@@ -1,16 +1,16 @@
 import "server-only";
 
-import { headers } from "next/headers";
 import type { z } from "zod";
 
 import { ApiKeyError } from "@/lib/ai/access/api-key-errors";
 import type { ApiKeyOfferedModel } from "@/lib/ai/access/contracts";
 import { openAiApiKeyAccess, type ApiKeyStructuredFile } from "@/lib/ai/access/openai-api";
 import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
-import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { LocalChatGptOverrideUnavailableError } from "@/lib/ai/chatgpt-local-inference";
 import { RETIRED_OPENAI_MODEL, type ChatGptAvailableModel, type ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { AI_REQUEST_PROFILE_UNREADABLE } from "@/lib/ai/request-settings";
-import { AI_REQUEST_KEY_MISSING, aiRequestApiKeyOptions, readAiRequestOptions, resolveAiRequestModel, resolveAiRequestSource } from "@/lib/ai/request-settings-server";
+import { AI_REQUEST_KEY_MISSING, aiRequestApiKeyOptions, readAiRequestOptions, resolveAiRequest } from "@/lib/ai/request-settings-server";
 import { callStructuredAi, getStructuredAiAvailability } from "@/lib/ai/structured-ai";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { conflict, unprocessableEntity } from "@/lib/http/api-response";
@@ -100,37 +100,26 @@ export async function prepareMaterialRequestDocumentAnalysis(
   }
   if (!isLocalChatGptEnabled()) throw materialRequestAnalysisUnavailable(MATERIAL_REQUEST_ANALYSIS_DISABLED.message, "disabled");
 
-  const api = openAiApiKeyAccess();
-  let keyCall: { preferences: NonNullable<typeof preferences>; expectedVersion: number } | null = null;
-  if (billingSource === "personal_api_key") {
-    const state = await api.state(context).catch(() => {
-      throw materialRequestAnalysisUnavailable(UNREADABLE_AVAILABILITY_MESSAGE, "unavailable");
-    });
-    const options = aiRequestApiKeyOptions(state, REQUEST_POLICY.usage);
-    if (!options.ok || !options.connection) throw materialRequestAnalysisUnavailable(AI_REQUEST_KEY_MISSING, "unavailable");
-    const source = resolveAiRequestSource(state.analysisPreferences?.billingSource ?? null, REQUEST_POLICY, billingSource);
-    if (typeof source !== "string") throw materialRequestAnalysisSettingsUnavailable(source.message);
-    const requestHeaders = await headers();
-    assertLocalChatGptHost(requestHeaders.get("host"), requestHeaders.get("x-forwarded-proto"));
-    if (options.connection.id !== connectionId || !preferences) {
-      throw materialRequestAnalysisSettingsUnavailable("La clé ou les modèles disponibles ont changé. Rechargez la demande pour reprendre.");
+  // The original's legacy body authorizes only the plan, subject to the member's profile.
+  const source = billingSource ?? "chatgpt_plan";
+  const { userId, tenantId } = context;
+  const selection = await resolveAiRequest({ userId, tenantId }, REQUEST_POLICY, {
+    source, model: preferences?.model, effort: preferences?.reasoningEffort,
+    ...(source === "personal_api_key" && { expectedConnectionId: preferences ? connectionId ?? null : null }),
+  });
+  if (!selection.ok) {
+    switch (selection.reason) {
+      case "model_unavailable":
+      case "effort_unavailable":
+        throw materialRequestAnalysisModelUnavailable(source === "personal_api_key"
+          ? "Ce modèle ou ce niveau d’effort n’est pas disponible pour cette clé API OpenAI."
+          : new LocalChatGptOverrideUnavailableError().message);
+      case "source_unavailable":
+      case "no_model":
+        throw materialRequestAnalysisUnavailable(source === "personal_api_key" ? AI_REQUEST_KEY_MISSING : selection.message, "unavailable");
+      default:
+        throw materialRequestAnalysisSettingsUnavailable(selection.message);
     }
-    const choice = resolveAiRequestModel(options, { model: preferences.model, effort: preferences.reasoningEffort });
-    if (!choice.ok) {
-      throw materialRequestAnalysisModelUnavailable("Ce modèle ou ce niveau d’effort n’est pas disponible pour cette clé API OpenAI.");
-    }
-    keyCall = { preferences: choice.preferences, expectedVersion: options.connection.version };
-  } else {
-    const availability = await getStructuredAiAvailability(context, { allowUnselectedModel: preferences !== undefined }).catch(() => ({
-      available: false, message: UNREADABLE_AVAILABILITY_MESSAGE,
-    }));
-    if (!availability.available) throw materialRequestAnalysisUnavailable(availability.message, "unavailable");
-    const profile = await api.analysisPreferences(context).catch(() => {
-      throw materialRequestAnalysisSettingsUnavailable(AI_REQUEST_PROFILE_UNREADABLE);
-    });
-    // The original's legacy body can omit the payer. It can never authorize a key charge.
-    const source = resolveAiRequestSource(profile.billingSource, REQUEST_POLICY, "chatgpt_plan");
-    if (typeof source !== "string") throw materialRequestAnalysisSettingsUnavailable(source.message);
   }
 
   return async <T>({
@@ -144,9 +133,10 @@ export async function prepareMaterialRequestDocumentAnalysis(
     signal?: AbortSignal;
   }): Promise<{ data: T; model: string }> => {
     signal?.throwIfAborted();
-    if (keyCall) {
+    if (selection.connection) {
+      const api = openAiApiKeyAccess();
       const prepared = await api.prepare(context, {
-        ...keyCall.preferences, expectedVersion: keyCall.expectedVersion, prompt, schema,
+        ...selection.preferences, expectedVersion: selection.connection.version, prompt, schema,
         files: [file], allotmentNanoUsd: ceiling, outputCap: 32_000, minOutputTokens: 4_096, signal,
       });
       const answer = await api.execute<T>(context, prepared, { timeoutMs: MATERIAL_REQUEST_PHOTO_ANALYSIS_TIMEOUT_MS, signal });
@@ -165,6 +155,6 @@ export async function prepareMaterialRequestDocumentAnalysis(
       timeoutMs: MATERIAL_REQUEST_PHOTO_ANALYSIS_TIMEOUT_MS,
       ...(signal ? { signal } : {}),
       context: { tenantId: context.tenantId, promptVersion },
-    }, undefined, preferences);
+    }, undefined, selection.preferences);
   };
 }

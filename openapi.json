@@ -3008,7 +3008,7 @@
           }
         ],
         "requestBody": {
-          "description": "Source, modèle et effort pour une lecture. Avec la clé API, envoyer son identifiant de connexion et les préférences de lecture. Un effort null utilise celui du modèle. Une requête sans source utilise le forfait ChatGPT.",
+          "description": "Source, modèle et effort pour une lecture. Avec la clé API, envoyer son identifiant de connexion et les préférences de lecture. Un effort null utilise celui du modèle. Une requête sans source utilise le forfait ChatGPT si le profil désigne le forfait ChatGPT, y compris par défaut en l’absence de réglage enregistré. Si le modèle et l’effort sont omis, la lecture suit les préférences photo valides pour le forfait, puis les réglages du forfait.",
           "required": false,
           "content": {
             "application/json": {
@@ -3070,7 +3070,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ou clé API à configurer) ; le message dit quoi faire. details.status : disabled ou unavailable. MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE : la source ou la connexion a changé, ou les préférences de la clé API sont absentes.",
+            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ou clé API à configurer) ; le message dit quoi faire. details.status : disabled ou unavailable. MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE : la source ou la connexion a changé, les préférences de la clé API sont absentes, ou le profil ne peut pas être lu. Si la requête omet la source et que le profil désigne la clé API, la même erreur demande de confirmer les réglages avant l'envoi. Rechargez la demande pour reprendre.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5431,7 +5431,7 @@
             }
           },
           "409": {
-            "description": "La source IA est indisponible ou ses réglages ont changé.",
+            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : la source IA est indisponible. MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE : le profil ne peut pas être lu ou les réglages de la source ont changé. Rechargez la demande pour reprendre.",
             "content": {
               "application/json": {
                 "schema": {
