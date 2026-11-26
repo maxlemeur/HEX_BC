@@ -1,7 +1,7 @@
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { EstimateEngineUnavailableError, usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 
@@ -20,6 +20,7 @@ import {
   resolveEstimateDraftAi,
   type EstimateDraftAiGeneration,
 } from "@/lib/estimates/draft-ai-generation";
+import { isEstimateGenerationExecutionLost, mapEstimateGenerationWriteError, withEstimateGenerationExecution } from "@/lib/estimates/generation-execution";
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import {
@@ -63,8 +64,6 @@ type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
 };
 type EstimateStructureDraftRow =
   Database["public"]["Tables"]["estimate_structure_drafts"]["Row"];
-type EstimateStructureDraftInsert =
-  Database["public"]["Tables"]["estimate_structure_drafts"]["Insert"];
 type EstimateStructureDraftNodeRow =
   Database["public"]["Tables"]["estimate_structure_draft_nodes"]["Row"];
 type EstimateStructureDraftNodeInsert =
@@ -146,23 +145,6 @@ type VersionAccessRow = Pick<
   | "calc_engine_version"
 > & {
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
-};
-
-export type EstimateAiGenerationOperation =
-  | "structure_draft"
-  | "version_zero_draft";
-
-type EstimateAiGenerationRpc = (
-  functionName: string,
-  args: Record<string, unknown>
-) => Promise<{
-  data: unknown;
-  error: PostgrestError | null;
-}>;
-
-type EstimateAiGenerationLeaseRow = {
-  claimed: boolean;
-  retry_after_seconds: number | null;
 };
 
 export type EstimateStructureDraftSourceSummary = {
@@ -371,80 +353,6 @@ const EstimateStructureGeminiExchangeSchema = z.object({
   summary: z.union([z.string().trim().min(1).max(400), z.null()]).default(null),
   roots: z.array(EstimateStructureGeminiNodeSchema).min(1).max(24),
 });
-
-function estimateAiGenerationRpc(supabase: Supabase) {
-  return supabase.rpc.bind(supabase) as unknown as EstimateAiGenerationRpc;
-}
-
-function readEstimateAiGenerationLeaseRow(
-  value: unknown
-): EstimateAiGenerationLeaseRow | null {
-  const row = Array.isArray(value) ? value[0] : value;
-  if (!row || typeof row !== "object") {
-    return null;
-  }
-
-  const candidate = row as Partial<EstimateAiGenerationLeaseRow>;
-  if (typeof candidate.claimed !== "boolean") {
-    return null;
-  }
-
-  return {
-    claimed: candidate.claimed,
-    retry_after_seconds:
-      typeof candidate.retry_after_seconds === "number"
-        ? Math.max(1, Math.trunc(candidate.retry_after_seconds))
-        : null,
-  };
-}
-
-export async function withEstimateAiGenerationLease<T>(input: {
-  supabase: Supabase;
-  versionId: string;
-  operation: EstimateAiGenerationOperation;
-  run: () => Promise<T>;
-}) {
-  const leaseToken = randomUUID();
-  const rpc = estimateAiGenerationRpc(input.supabase);
-  const { data, error } = await rpc("acquire_estimate_ai_generation_lease", {
-    p_version_id: input.versionId,
-    p_operation: input.operation,
-    p_lease_token: leaseToken,
-  });
-
-  if (error) {
-    throw mapSupabaseError(
-      error,
-      "Impossible de réserver le budget de génération IA."
-    );
-  }
-
-  const lease = readEstimateAiGenerationLeaseRow(data);
-  if (!lease?.claimed) {
-    throw conflict(
-      "Une generation IA est déjà en cours ou a été lancee recemment pour cette version.",
-      { retry_after_seconds: lease?.retry_after_seconds ?? null },
-      "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED"
-    );
-  }
-
-  try {
-    return await input.run();
-  } finally {
-    const completion = await rpc("complete_estimate_ai_generation_lease", {
-      p_version_id: input.versionId,
-      p_operation: input.operation,
-      p_lease_token: leaseToken,
-    });
-    if (completion.error) {
-      console.error("estimate.ai_generation.lease_completion_failed", {
-        operation: input.operation,
-        version_id: input.versionId,
-        code: completion.error.code,
-      });
-    }
-  }
-}
 
 const STRUCTURE_DRAFT_VERSION_ACCESS: VersionAccessQuery = {
   mode: "owner_or_admin_on_active_project",
@@ -2102,6 +2010,7 @@ async function buildDraftNodesFromSources(input: {
   project: EmbeddedProjectAccess;
   existingSections?: MutableExistingSection[];
   ai: EstimateDraftAiGeneration;
+  requireExecution: () => Promise<void>;
 }) {
   const { ai, project, sourceBundle } = input;
   const { source_entries, source_summaries, prompt_sources } = sourceBundle;
@@ -2116,10 +2025,10 @@ async function buildDraftNodesFromSources(input: {
         }),
         schema: EstimateStructureGeminiExchangeSchema,
         context: { promptVersion: ESTIMATE_STRUCTURE_PROMPT_VERSION },
-      });
+      }, input.requireExecution);
     } catch (error) {
       // The key path must stop on a refusal, spend limit, or unknown usage.
-      if (ai.source === "personal_api_key") throw error;
+      if (ai.source === "personal_api_key" || isEstimateGenerationExecutionLost(error)) throw error;
       failure = error;
     }
   }
@@ -2168,31 +2077,11 @@ export async function buildEstimateStructurePreview(input: {
   project: EmbeddedProjectAccess;
   version: VersionAccessRow;
   ai: EstimateDraftAiGeneration;
+  requireExecution: () => Promise<void>;
   existingSections?: MutableExistingSection[];
 }) {
   const sourceBundle = await loadStructureDraftSourceBundle(input);
   return buildDraftNodesFromSources({ ...input, sourceBundle });
-}
-
-async function discardPendingDrafts(input: {
-  supabase: Supabase;
-  tenantId: string;
-  versionId: string;
-  userId: string;
-}) {
-  const { error } = await input.supabase
-    .from("estimate_structure_drafts")
-    .update({
-      status: "discarded",
-    })
-    .eq("tenant_id", input.tenantId)
-    .eq("target_version_id", input.versionId)
-    .eq("created_by", input.userId)
-    .eq("status", "pending");
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible d'archiver les previews precedentes.");
-  }
 }
 
 async function loadEstimateStructureDraftOrThrow(input: {
@@ -2288,7 +2177,7 @@ export async function generateEstimateStructureDraft(
   );
 
   assertDraftStatus(version.status);
-  await assertDraftLockOwnedByCurrentUser({
+  const draftLock = await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
     versionId,
@@ -2314,61 +2203,26 @@ export async function generateEstimateStructureDraft(
     (existingItemsData ?? []) as EstimateItemRow[]
   );
 
-  return withEstimateAiGenerationLease({
+  return withEstimateGenerationExecution({
     supabase,
     versionId,
     operation: "structure_draft",
-    run: async () => {
-      const generation = await buildDraftNodesFromSources({ project, existingSections, sourceBundle, ai });
-      const summary = buildDraftSummary(generation.nodes);
-
-      await discardPendingDrafts({
-        supabase,
-        tenantId,
-        versionId,
-        userId,
+    pageSessionId: draftLock.session_id,
+    useAi: ai !== null,
+    run: async ({ token, requireActive }) => {
+      const generation = await buildDraftNodesFromSources({
+        project, existingSections, sourceBundle, ai, requireExecution: requireActive,
       });
-
-      const draftInsert: EstimateStructureDraftInsert = {
-        tenant_id: tenantId,
-        project_id: project.id,
-        target_version_id: versionId,
-        created_by: userId,
-        status: "pending",
-        strategy: input.strategy ?? "hybrid",
-        summary: toJson(summary),
-        source_overview: toJson(generation.sources),
-        generation_metadata: toJson(generation.metadata),
-        applied_at: null,
-      };
-
-      const { data: draftData, error: draftError } = await supabase
-        .from("estimate_structure_drafts")
-        .insert(draftInsert)
-        .select("*")
-        .single();
-
-      if (draftError || !draftData) {
-        if (draftError) {
-          throw mapSupabaseError(
-            draftError,
-            "Impossible de créer la preview de structure."
-          );
-        }
-
-        throw badRequest("Impossible de créer la preview de structure.");
-      }
+      const summary = buildDraftSummary(generation.nodes);
 
       const flattenedNodes = flattenDraftNodes(generation.nodes);
       const nodeIdMap = new Map(
         flattenedNodes.map((node) => [node.id, randomUUID()] as const)
       );
 
-      const nodesInsert: EstimateStructureDraftNodeInsert[] = flattenedNodes.map(
+      const nodesInsert: Omit<EstimateStructureDraftNodeInsert, "tenant_id" | "draft_id">[] = flattenedNodes.map(
         (node) => ({
           id: nodeIdMap.get(node.id) ?? randomUUID(),
-          tenant_id: tenantId,
-          draft_id: draftData.id,
           parent_node_id: node.parent_id
             ? nodeIdMap.get(node.parent_id) ?? null
             : null,
@@ -2387,23 +2241,17 @@ export async function generateEstimateStructureDraft(
         })
       );
 
-      if (nodesInsert.length > 0) {
-        const { error: insertNodesError } = await supabase
-          .from("estimate_structure_draft_nodes")
-          .insert(nodesInsert);
-
-        if (insertNodesError) {
-          await supabase
-            .from("estimate_structure_drafts")
-            .delete()
-            .eq("tenant_id", tenantId)
-            .eq("id", draftData.id);
-          throw mapSupabaseError(
-            insertNodesError,
-            "Impossible d'enregistrer les noeuds de structure."
-          );
-        }
-      }
+      const { data, error } = await supabase.rpc("persist_estimate_structure_generation", {
+        p_version_id: versionId,
+        p_token: token,
+        p_summary: toJson(summary),
+        p_sources: toJson(generation.sources),
+        p_metadata: toJson(generation.metadata),
+        p_nodes: toJson(nodesInsert),
+      });
+      if (error) throw mapEstimateGenerationWriteError(error, "Impossible d’enregistrer la preview de structure.");
+      const draftData = data?.[0];
+      if (!draftData) throw badRequest("Impossible de créer la preview de structure.");
 
       const persistedNodes = rebuildDraftNodes(
         flattenedNodes.map((node) => ({

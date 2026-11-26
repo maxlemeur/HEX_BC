@@ -19342,7 +19342,7 @@
           "Estimates"
         ],
         "summary": "Generer un brouillon de structure",
-        "description": "Produit un brouillon de structure hybride depuis les sources disponibles.",
+        "description": "Produit un brouillon de structure hybride depuis les sources disponibles. Un HTTP 409 ESTIMATE_GENERATION_IN_PROGRESS signale une génération de la même opération en cours. Le code ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED et la fenêtre de dix minutes s’appliquent aux demandes avec IA. Ces deux refus indiquent le délai en secondes dans details.retry_after_seconds. ESTIMATE_GENERATION_EXECUTION_LOST indique que la génération a perdu son verrou et doit être relancée.",
         "parameters": [
           {
             "name": "versionId",
@@ -20777,7 +20777,7 @@
           "Estimates"
         ],
         "summary": "Generer une version zero",
-        "description": "Genere un brouillon IA a revoir pour les lots selectionnes.",
+        "description": "Génère un brouillon à revoir pour les lots sélectionnés, avec ou sans IA. Un HTTP 409 ESTIMATE_GENERATION_IN_PROGRESS signale une génération de la même opération en cours. Le code ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED et la fenêtre de dix minutes s’appliquent aux demandes avec IA. Ces deux refus indiquent le délai en secondes dans details.retry_after_seconds. ESTIMATE_GENERATION_EXECUTION_LOST indique que la génération a perdu son verrou et doit être relancée.",
         "parameters": [
           {
             "name": "versionId",

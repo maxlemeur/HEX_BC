@@ -7,6 +7,9 @@ import {
 } from "@/lib/estimates/version-zero-drafts";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
+// Database writes are fenced on runtimes that do not enforce this deployment limit.
+export const maxDuration = 300;
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ versionId: string }> }
