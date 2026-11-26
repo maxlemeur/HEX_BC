@@ -13,6 +13,7 @@ import {
   fetchGeneratedOuvrageSubdetailDraft as fetchGeneratedOuvrageSubdetailDraftServer,
   generateOuvragesFromText as generateGeneratedOuvragesFromText,
   getGeneratedOuvrageApplicationReceipt as getGeneratedOuvrageApplicationReceiptServer,
+  readGeneratedOuvrageAiOptions as readGeneratedOuvrageAiOptionsServer,
   abandonGeneratedOuvrageApplication as abandonGeneratedOuvrageApplicationServer,
   insertGeneratedOuvrages as insertGeneratedOuvragesServer,
   rejectGeneratedOuvrageDraft as rejectGeneratedOuvrageDraftServer,
@@ -44,6 +45,14 @@ function revalidateGeneratedOuvragePaths(projectId: string, versionId: string) {
   revalidatePath(`/dashboard/estimates/${versionId}`);
 }
 
+export async function readGeneratedOuvrageAiOptions(versionId: string) {
+  try {
+    return { ok: true as const, data: await readGeneratedOuvrageAiOptionsServer(versionId) };
+  } catch (error) {
+    return generatedOuvrageFailure(error, "settings");
+  }
+}
+
 export async function generateOuvragesFromText(
   input: GenerateOuvragesFromTextInput
 ): Promise<GeneratedOuvrageDraftResult | ReturnType<typeof generatedOuvrageFailure>> {
@@ -72,7 +81,17 @@ type GeneratedOuvrageResumeActionResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: { status: number; code: string; message: string } };
 
-function generatedOuvrageFailure(error: unknown, operation: "resume" | "insert" | "review" | "generate" = "resume") {
+function generatedOuvrageFailure(error: unknown, operation: "resume" | "insert" | "review" | "generate" | "settings" = "resume") {
+  if (operation === "settings") {
+    return {
+      ok: false as const,
+      error: {
+        status: 503,
+        code: "GENERATED_OUVRAGE_AI_SETTINGS_UNAVAILABLE",
+        message: "Impossible de charger les réglages IA. Fermez cette fenêtre puis rouvrez-la pour réessayer.",
+      },
+    };
+  }
   if (error instanceof ApiError && error.status < 500) {
     return { ok: false as const, error: { status: error.status, code: error.code, message: error.message } };
   }

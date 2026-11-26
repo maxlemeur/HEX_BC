@@ -46,7 +46,7 @@ import {
   initUiCandidates,
   isGeneratedOuvrageReadyForInsert,
 } from "./generated-ouvrage-types";
-import { GeneratedOuvrageSourceForm } from "./GeneratedOuvrageSourceForm";
+import { GeneratedOuvrageSourceForm, type GeneratedOuvrageSourceInput } from "./GeneratedOuvrageSourceForm";
 import { GeneratedOuvrageDraftReview } from "./GeneratedOuvrageDraftReview";
 import { GeneratedOuvrageFooterBar } from "./GeneratedOuvrageFooterBar";
 import { GeneratedOuvrageDraftPicker } from "./GeneratedOuvrageDraftPicker";
@@ -190,6 +190,7 @@ function GeneratedOuvrageDialogSession({
   );
   const [draftId, setDraftId] = useState<string | null>(null);
   const [draftStatus, setDraftStatus] = useState("pending");
+  const [generationKind, setGenerationKind] = useState<GeneratedOuvrageDraftResult["generationKind"]>(null);
   const [summary, setSummary] = useState(DEFAULT_SUMMARY);
   const [rejectingCandidateId, setRejectingCandidateId] = useState<
     string | null
@@ -205,6 +206,7 @@ function GeneratedOuvrageDialogSession({
   const insertionPendingRef = useRef(false);
   const isOpenRef = useRef(isOpen);
   const generateRequestRef = useRef(0);
+  const generationPendingRef = useRef(false);
   const resumePendingRef = useRef(false);
   const mutationBlockRef = useRef({
     isBlocked: isMutationBlocked,
@@ -230,11 +232,13 @@ function GeneratedOuvrageDialogSession({
     if (!isOpen) {
       generateRequestRef.current += 1;
       insertionPendingRef.current = false;
+      generationPendingRef.current = false;
       setStep("input");
       setErrorMessage(null);
       setCandidates([]);
       setDraftId(null);
       setDraftStatus("pending");
+      setGenerationKind(null);
       setSummary(DEFAULT_SUMMARY);
       setRejectingCandidateId(null);
       setStatusMessage(null);
@@ -250,6 +254,7 @@ function GeneratedOuvrageDialogSession({
     (result: GeneratedOuvrageDraftResult, existingCandidates?: UiGeneratedOuvrageCandidate[]) => {
       setDraftId(result.draftId);
       setDraftStatus(result.status);
+      setGenerationKind(result.generationKind);
       setSummary(result.summary);
       setCandidates((prev) => {
         return initUiCandidates(result.candidates, existingCandidates ?? prev);
@@ -292,6 +297,8 @@ function GeneratedOuvrageDialogSession({
       setDraftId(draft.draftId);
       setDraftStatus(draft.status);
       setSummary(draft.summary);
+      // A resumed draft keeps saying whether the model or the fallback produced it.
+      setGenerationKind(draft.generationKind);
       setCandidates(initUiCandidates(draft.candidates));
       setSubdetailByCandidateId({});
       setErrorMessage(null);
@@ -320,34 +327,33 @@ function GeneratedOuvrageDialogSession({
   }, [projectId, targetVersionId]);
 
   const handleGenerate = useCallback(
-    async (input: {
-      sourceKind: "free_text" | "cctp_excerpt" | "internal_note";
-      sourceText: string;
-      preferredLotId: string | null;
-    }) => {
-      if (resumePendingRef.current) return;
+    async (input: GeneratedOuvrageSourceInput) => {
+      if (resumePendingRef.current || generationPendingRef.current) return;
       if (mutationBlockRef.current.isBlocked) {
         setErrorMessage(mutationBlockRef.current.message);
         return;
       }
       const requestId = generateRequestRef.current + 1;
       generateRequestRef.current = requestId;
+      generationPendingRef.current = true;
       setResumeError(null);
       setStep("generating");
       setErrorMessage(null);
       try {
         const result = await generateOuvragesFromText({
+          ...input,
           projectId,
           versionId: targetVersionId,
           draftLockSessionId: getEstimateDraftLockSessionId(targetVersionId),
-          sourceKind: input.sourceKind,
-          sourceText: input.sourceText,
-          preferredLotId: input.preferredLotId,
         });
         if (!isOpenRef.current || generateRequestRef.current !== requestId) {
           return;
         }
-        if ("ok" in result) throw new Error(result.error.message);
+        if ("ok" in result) {
+          setErrorMessage(result.error.message);
+          setStep(result.error.status < 500 ? "input" : "error");
+          return;
+        }
         startTransition(() => {
           applyDraftResult(result);
           setStep("review");
@@ -360,6 +366,8 @@ function GeneratedOuvrageDialogSession({
           err instanceof Error ? err.message : "Erreur lors de la génération."
         );
         setStep("error");
+      } finally {
+        if (generateRequestRef.current === requestId) generationPendingRef.current = false;
       }
     },
     [projectId, targetVersionId, applyDraftResult]
@@ -643,6 +651,7 @@ function GeneratedOuvrageDialogSession({
     setCandidates([]);
     setDraftId(null);
     setDraftStatus("pending");
+    setGenerationKind(null);
     setSummary(DEFAULT_SUMMARY);
     setStatusMessage(null);
     setErrorMessage(null);
@@ -860,9 +869,9 @@ function GeneratedOuvrageDialogSession({
         </DialogHeader>
 
         <DialogBody className="relative min-h-0 flex-1 gap-0 overflow-y-auto px-5 py-4 sm:px-6">
-          {step === "input" && (
+          {(step === "input" || step === "generating") && (
             <>
-              <GeneratedOuvrageDraftPicker
+              {step === "input" && <GeneratedOuvrageDraftPicker
                 key={pickerRevision}
                 versionId={targetVersionId}
                 disabled={isMutationBlocked}
@@ -871,23 +880,17 @@ function GeneratedOuvrageDialogSession({
                 onResume={(requestedDraftId) => {
                   startTransition(() => { void handleResume(requestedDraftId); });
                 }}
-              />
+              />}
               <fieldset disabled={resumingDraftId !== null || isMutationBlocked} className="min-w-0">
                 <GeneratedOuvrageSourceForm
+                  versionId={targetVersionId}
                   existingSections={existingSections}
-                  isGenerating={false}
+                  isGenerating={step === "generating"}
+                  errorMessage={errorMessage}
                   onGenerate={handleGenerate}
                 />
               </fieldset>
             </>
-          )}
-
-          {step === "generating" && (
-            <GeneratedOuvrageSourceForm
-              existingSections={existingSections}
-              isGenerating={true}
-              onGenerate={handleGenerate}
-            />
           )}
 
           {step === "error" && (
@@ -908,6 +911,11 @@ function GeneratedOuvrageDialogSession({
 
           {(step === "review" || isInserting) && (
             <>
+              {generationKind && (
+                <p className="mb-3 text-sm text-muted-foreground">
+                  {generationKind === "fallback" ? "Résultat de secours tiré du texte source." : "Propositions du modèle IA."}
+                </p>
+              )}
               <fieldset disabled={isInserting || isSubdetailPending || isMutationBlocked} className="min-w-0">
               <GeneratedOuvrageDraftReview
                 candidates={candidates}
