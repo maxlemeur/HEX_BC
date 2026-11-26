@@ -1,4 +1,4 @@
-import { inflateRawSync } from "node:zlib";
+import { crc32, inflateRawSync } from "node:zlib";
 
 export const SPREADSHEET_MAX_ARCHIVE_ENTRIES = 512;
 const SPREADSHEET_MAX_EXPANDED_BYTES = 32 * 1024 * 1024;
@@ -20,6 +20,23 @@ function findZipEndOfCentralDirectory(buffer: Buffer) {
 }
 
 export function validateXlsxArchiveBudget(buffer: Buffer) {
+  inspectXlsxArchive(buffer);
+}
+
+/** Read only the bytes decoded under the archive budget. Callers must parse these entries, not the original ZIP. */
+export function readXlsxArchiveWithinBudget(buffer: Buffer): Record<string, Uint8Array> {
+  const entries: Record<string, Uint8Array> = Object.create(null);
+  inspectXlsxArchive(buffer, (name, bytes) => {
+    if (!name || name.includes("\\") || name.startsWith("/") || name.split("/").some((part) => part === ".." || part === ".")) {
+      throw new Error("Nom d’entrée XLSX invalide.");
+    }
+    if (Object.hasOwn(entries, name)) throw new Error("Le classeur contient des entrées en double.");
+    entries[name] = bytes;
+  });
+  return entries;
+}
+
+function inspectXlsxArchive(buffer: Buffer, onEntry?: (name: string, bytes: Uint8Array) => void) {
   const endOffset = findZipEndOfCentralDirectory(buffer);
   if (endOffset < 0) {
     throw new Error("Archive XLSX invalide ou répertoire central introuvable.");
@@ -109,28 +126,34 @@ export function validateXlsxArchiveBudget(buffer: Buffer) {
     }
 
     const compressedData = buffer.subarray(compressedDataOffset, compressedDataEnd);
-    let actualExpandedSize: number;
+    let expandedData: Buffer;
     if (compressionMethod === 0) {
-      actualExpandedSize = compressedData.byteLength;
+      expandedData = compressedData;
     } else {
       try {
-        actualExpandedSize = inflateRawSync(compressedData, {
+        expandedData = inflateRawSync(compressedData, {
           maxOutputLength: Math.min(remainingBudget, SPREADSHEET_MAX_ENTRY_BYTES),
-        }).byteLength;
+        });
       } catch {
         throw new Error("Une entrée XLSX depasse le budget de decompression.");
       }
     }
 
-    if (actualExpandedSize !== declaredExpandedSize) {
+    if (expandedData.byteLength !== declaredExpandedSize) {
       throw new Error("Taille decompressee XLSX incoherente.");
     }
-    totalExpandedBytes += actualExpandedSize;
+    totalExpandedBytes += expandedData.byteLength;
     if (totalExpandedBytes > SPREADSHEET_MAX_EXPANDED_BYTES) {
       throw new Error("Le classeur depasse la taille decompressee autorisee.");
     }
 
-    cursor += 46 + fileNameLength + extraLength + commentLength;
+    const next = cursor + 46 + fileNameLength + extraLength + commentLength;
+    if (next > directoryOffset + directorySize) throw new Error("Entrée du répertoire central XLSX invalide.");
+    if (onEntry) {
+      if (crc32(expandedData) !== buffer.readUInt32LE(cursor + 16)) throw new Error("Entrée XLSX corrompue.");
+      onEntry(buffer.toString("utf8", cursor + 46, cursor + 46 + fileNameLength), expandedData);
+    }
+    cursor = next;
   }
 
   if (cursor !== directoryOffset + directorySize) {

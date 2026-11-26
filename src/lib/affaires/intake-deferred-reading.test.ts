@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { PDFDocument } from "pdf-lib";
 import { expect, it, vi } from "vitest";
-import { scheduleIntakeTranscriptionAfterRetry } from "./intake-transcription-server";
+import { scheduleIntakeTranscriptionAfterRetry, transcribeIntakeDocument } from "./intake-transcription-server";
 import { callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
+import { IntakeAiBudgetStopped } from "./intake-ai-server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 const { afterResponse } = vi.hoisted(() => ({ afterResponse: vi.fn<(job: () => Promise<void>) => void>() }));
@@ -58,10 +60,29 @@ it.each([0, 1])("a deferred retry sends exactly %i pages when its caller loses t
     return { data: { texte: "Première page fictive" } } as never;
   });
   expect(await scheduleIntakeTranscriptionAfterRetry({ context: { ...owner, supabase: createServiceRoleClient() },
-    projectId: "affaire", reservation: { updatedAt, finalIssues: ["Diagnostic conservé."] }, document: { id: "piece", fileName: "scan.pdf" }, bytes, mimeType: "application/pdf", sourceSha256: "fixture" })).toBe(true);
+    projectId: "affaire", reservation: { updatedAt, finalIssues: ["Diagnostic conservé."] }, document: { id: "piece", fileName: "scan.pdf" }, readBytes: async () => bytes, mimeType: "application/pdf", sourceSha256: createHash("sha256").update(Buffer.from(bytes)).digest("hex") })).toBe(true);
   writeAllowed = allowedPages === 1;
   await afterResponse.mock.lastCall![0]();
   expect(sent).toEqual(Array(allowedPages).fill("retry-caller"));
   expect(version).not.toBe(updatedAt);
   expect(released).toBe(true);
+});
+
+it("keeps an earlier transcription of the same bytes when a retry cannot afford its first page", async () => {
+  const existing = { source_sha256: "same-scan", status: "partial", error_code: "AI_KEY_CEILING",
+    pages: [{ page: 1, text: "Lecture fictive déjà conservée", illegible: 0 }] };
+  const requests = vi.fn(async (_input, init?: RequestInit) => {
+    expect(init?.method).toBe("GET");
+    return Response.json(existing);
+  });
+  const service = createClient("http://127.0.0.1:54321", "fictional", { global: { fetch: requests } });
+  const run = vi.fn(async () => { throw new IntakeAiBudgetStopped(); });
+  await expect(transcribeIntakeDocument({
+    supabase: service as ReturnType<typeof createServiceRoleClient>,
+    owner: { userId: "retry-caller", tenantId: "tenant" }, document: { id: "piece", tenantId: "tenant", fileName: "scan.png" },
+    bytes: new Uint8Array([0, 1]).buffer, mimeType: "image/png", sourceSha256: "same-scan",
+    ai: { source: "personal_api_key", run }, renewLease: vi.fn(),
+  })).rejects.toBeInstanceOf(IntakeAiBudgetStopped);
+  expect(run).toHaveBeenCalledOnce();
+  expect(requests).toHaveBeenCalledOnce();
 });

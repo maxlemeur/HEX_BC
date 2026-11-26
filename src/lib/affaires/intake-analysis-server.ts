@@ -1,7 +1,8 @@
+import { canRunIntakeAiBatch, createIntakeAiRunner, readIntakeAiBatch, IntakeAiBudgetStopped, IntakeAiLedgerError, type IntakeAiBatch, type IntakeAiBatchScope } from "@/lib/affaires/intake-ai-server";
 import { readEditableIntakeDocument } from "@/lib/affaires/intake-editable-document-server";
 import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
-import { hostCanReadIntakeScans, readLaunchConnection, IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/intake-payer-server";
+import { hostCanReadIntakeScans, readLaunchConnection, IntakePayerAccessLost, requireIntakePayerRight, stopIntakeAnalysisLaunch } from "@/lib/affaires/intake-payer-server";
 import { intakeCurrentBriefActive, readIntakeBriefState } from "@/lib/affaires/intake-current-brief-server";
 import type { ChatGptConnection, ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { readAllRows } from "@/lib/supabase/read-all";
@@ -52,6 +53,7 @@ async function processClaimedAffaireIntakeUpload(input: {
   lifecycleClient: durableIntake.DurableWorkflowRpcClient;
   claim: durableIntake.AffaireIntakeClaim;
   connection?: ChatGptConnection | null;
+  aiBatch?: IntakeAiBatch | null;
 }) {
   const { supabase, lifecycleClient, claim } = input;
   const payer = claim.launch || isLocalChatGptEnabled() || getIntakeDecisionsCapability().status === "available"
@@ -59,6 +61,10 @@ async function processClaimedAffaireIntakeUpload(input: {
   // Null is the explicit choice at an active press without a plan. Keep the
   // payer for Decisions and rights, while ChatGPT never acquires a later grant.
   const aiOwner = input.connection === null ? null : payer && input.connection ? { ...payer, connection: input.connection } : payer;
+  const aiBatch = input.aiBatch;
+  if (aiBatch && (aiBatch.launch_id !== claim.uploadId || aiBatch.project_id !== claim.projectId ||
+      aiBatch.tenant_id !== claim.tenantId || aiBatch.payer_id !== payer?.userId)) throw new IntakePayerAccessLost();
+  const ai = aiBatch ? createIntakeAiRunner(supabase, aiBatch, claim.leaseToken) : undefined;
   const upload = {
     id: claim.uploadId,
     tenant_id: claim.tenantId,
@@ -84,7 +90,7 @@ async function processClaimedAffaireIntakeUpload(input: {
     if (historicalGuard && await readIntakeBriefState(claim.projectId, supabase) !== "legacy") {
       throw new HistoricalIntakeNeedsLaunch();
     }
-    const connectionLost = claim.launch?.readScans && (input.connection === null || (aiOwner && !await hostCanReadIntakeScans(aiOwner)));
+    const connectionLost = !ai && claim.launch?.readScans && (input.connection === null || (aiOwner && !await hostCanReadIntakeScans(aiOwner)));
     if (claim.launch || aiOwner) await requireIntakePayerRight(payer ?? null, claim.projectId, supabase);
     if (connectionLost) {
       if (input.connection) throw new LocalChatGptConnectionWithdrawnError();
@@ -92,6 +98,7 @@ async function processClaimedAffaireIntakeUpload(input: {
     }
   };
   await checkPayer();
+  if (aiBatch?.budget_stop_message) throw new IntakeAiBudgetStopped(aiBatch.budget_stop_message);
 
   const batchKey = claim.launch ? "analysis_launch_id" : "upload_id";
   const { data: docsData, error: docsError } = await readAllRows(() =>
@@ -241,7 +248,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         bytes,
         beforeProviderCall: checkPayer,
         readScans: claim.launch?.readScans,
-        aiOwner,
+        aiOwner, ai,
         existingMetadata: document.extracted_metadata,
         ...(payer ? { decisionsContext: { owner: payer,
           projectId: document.project_id, documentId: document.id,
@@ -294,11 +301,13 @@ async function processClaimedAffaireIntakeUpload(input: {
           classification_status: classificationStatus,
           classification_source: classification.source,
           confidence: classification.result.confidence,
+          ...(classification.receipt ? { ai: classification.receipt } : {}),
         },
       });
     } catch (error) {
       if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError || error instanceof IntakePayerAccessLost || error instanceof IntakeConnectionUnavailable || error instanceof HistoricalIntakeNeedsLaunch ||
-          (input.connection && error instanceof LocalChatGptConnectionWithdrawnError)) {
+          error instanceof IntakeAiBudgetStopped || error instanceof IntakeAiLedgerError ||
+          ((ai || input.connection) && error instanceof LocalChatGptConnectionWithdrawnError)) {
         throw error;
       }
       await renewLease();
@@ -344,7 +353,8 @@ async function processClaimedAffaireIntakeUpload(input: {
   }
 
   // On recovery, terminal classifications stay in place. Readings deduplicate by content.
-  const toTranscribe = aiOwner && (claim.launch?.readScans ?? true) && isLocalChatGptEnabled() ? documents.flatMap((document) => {
+  const readingOwner = ai ? payer : aiOwner;
+  const toTranscribe = readingOwner && (claim.launch?.readScans ?? true) && isLocalChatGptEnabled() ? documents.flatMap((document) => {
     const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "";
     return !skipHistoricalReading.has(document.id) && document.upload_status === "uploaded" && !document.analysis_completed_at && !document.deletion_token && (document.storage_path || document.drive_file_id)
       && canTranscribeIntakeDocument(mimeType) ? [{ document, mimeType }] : [];
@@ -385,7 +395,7 @@ async function processClaimedAffaireIntakeUpload(input: {
       const source = claim.launch ? await readLaunchSource(document) : await readDocumentBytes(document);
       if (!source) continue;
       const { bytes } = source;
-      await transcribeIntakeDocument({ supabase, owner: aiOwner!, mimeType, bytes, renewLease: checkReading,
+      await transcribeIntakeDocument({ supabase, owner: readingOwner!, ai, mimeType, bytes, renewLease: checkReading,
         sourceSha256: createHash("sha256").update(Buffer.from(bytes)).digest("hex"),
         document: { id: document.id, tenantId: upload.tenant_id, fileName: document.file_name } });
       await markComplete([document.id]);
@@ -436,7 +446,7 @@ async function processClaimedAffaireIntakeUpload(input: {
   if (!project || project.is_archived) throw new Error("Cette affaire n’est plus disponible.");
   await refreshAffaireBriefFromDocuments({
     supabase, project, uploadId: upload.id, documents: refreshedDocuments,
-    claim, renewLease: checkPayer, aiOwner, briefOnly: Boolean(claim.launch) && !documents.length,
+    claim, renewLease: checkPayer, aiOwner, ai, briefOnly: Boolean(claim.launch) && !documents.length,
   });
   await checkPayer();
   await durableIntake.finishAffaireIntakeUploadAttempt({
@@ -473,44 +483,58 @@ export async function processAffaireIntakeUpload(uploadId: string) {
   return runClaim(supabase, lifecycleClient, claimResult.claim);
 }
 
-export async function processAffaireIntakeAnalysisLaunch(uploadId: string, readingOwner: ChatGptOwner | null) {
+export async function processAffaireIntakeAnalysisLaunch(
+  uploadId: string, readingOwner: ChatGptOwner | null, scope?: IntakeAiBatchScope,
+) {
   const supabase = createServiceRoleClient();
-  const active = await intakeCurrentBriefActive(supabase);
-  const recorded = readingOwner ? await readLaunchConnection(uploadId, supabase) : null;
+  const aiBatch = scope ? await readIntakeAiBatch(supabase, uploadId, scope) : null;
+  const active = !aiBatch && await intakeCurrentBriefActive(supabase);
+  const recorded = !aiBatch && readingOwner ? await readLaunchConnection(uploadId, supabase) : null;
   const connection = recorded ?? (active ? null : undefined);
-  if (readingOwner && (connection === null || !await hostCanReadIntakeScans({ ...readingOwner, connection }))) {
+  if (aiBatch ? !await canRunIntakeAiBatch(aiBatch)
+    : readingOwner && (connection === null || !await hostCanReadIntakeScans({ ...readingOwner, connection }))) {
     // Leave the launch available to another host with the authorized profile.
     // SQL only stops it after the recovery window and never takes a live lease.
-    if (active || recorded) {
-      const { error } = await supabase.rpc("stop_affaire_intake_analysis", { p_upload_id: uploadId, p_lease_token: null });
-      if (error) throw internalError("Impossible de vérifier le délai de reprise du lancement.", error);
+    if (aiBatch || active || recorded) {
+      await stopIntakeAnalysisLaunch(supabase, uploadId, null, Boolean(aiBatch));
     }
     return null;
   }
   const client = supabase as unknown as durableIntake.DurableWorkflowRpcClient;
-  const claim = await durableIntake.claimAffaireIntakeAnalysisLaunch(client, uploadId);
+  const claim = await durableIntake.claimAffaireIntakeAnalysisLaunch(client, uploadId, Boolean(aiBatch));
   if (!claim) return null;
-  await runClaim(supabase, client, claim, connection);
+  await runClaim(supabase, client, claim, connection, aiBatch);
   return claim.uploadId;
 }
 
 async function runClaim(supabase: ReturnType<typeof createServiceRoleClient>,
-  lifecycleClient: durableIntake.DurableWorkflowRpcClient, claim: durableIntake.AffaireIntakeClaim, connection?: ChatGptConnection | null) {
+  lifecycleClient: durableIntake.DurableWorkflowRpcClient, claim: durableIntake.AffaireIntakeClaim,
+  connection?: ChatGptConnection | null, aiBatch?: IntakeAiBatch | null) {
   try {
-    return await processClaimedAffaireIntakeUpload({ supabase, lifecycleClient, claim, connection });
+    return await processClaimedAffaireIntakeUpload({ supabase, lifecycleClient, claim, connection, aiBatch });
   } catch (error) {
+    if (claim.launch && aiBatch?.selection.source === "chatgpt_plan" && error instanceof LocalChatGptConnectionWithdrawnError) {
+      const now = new Date();
+      await durableIntake.finishAffaireIntakeUploadAttempt({
+        client: lifecycleClient, claim, status: "queued", now, nextRetryAt: now,
+      });
+      return null;
+    }
     // Leave the lease to expire. A capable host can resume; otherwise the
     // due-time sweep stops it without consuming another reading attempt.
-    if (error instanceof IntakeConnectionUnavailable || (connection && error instanceof LocalChatGptConnectionWithdrawnError)) return null;
+    if (error instanceof IntakeConnectionUnavailable || ((aiBatch || connection) && error instanceof LocalChatGptConnectionWithdrawnError)) return null;
+    if (claim.launch && error instanceof IntakeAiBudgetStopped) {
+      await durableIntake.finishAffaireIntakeUploadAttempt({ client: lifecycleClient, claim, status: "failed",
+        lastError: error.message, now: new Date() });
+      return "failed" as const;
+    }
     if (error instanceof HistoricalIntakeNeedsLaunch) {
       await durableIntake.finishAffaireIntakeUploadAttempt({ client: lifecycleClient, claim, status: "failed",
         lastError: "Cette affaire attend un lancement explicite. Classez ou relancez les pièces interrompues.", now: new Date() });
       return "failed" as const;
     }
     if (claim.launch && error instanceof IntakePayerAccessLost) {
-      const stopped = await supabase.rpc("stop_affaire_intake_analysis", { p_upload_id: claim.uploadId, p_lease_token: claim.leaseToken });
-      if (stopped.error) throw new Error("Impossible de terminer le lancement interrompu.", { cause: stopped.error });
-      if (stopped.data) return "failed" as const;
+      if (await stopIntakeAnalysisLaunch(supabase, claim.uploadId, claim.leaseToken, Boolean(aiBatch))) return "failed" as const;
     }
     await durableIntake.releaseAffaireIntakeUploadAfterError({
       client: lifecycleClient,
@@ -528,10 +552,17 @@ class IntakeDocumentReadError extends Error {}
  * updated_at fences every outcome; an interrupted reservation can only be
  * reclaimed explicitly after ten minutes, using the new caller's own account.
  */
-export async function retryAffaireDocumentAnalysis(input: { projectId: string; documentId: string }) {
+export async function retryAffaireDocumentAnalysis(input: {
+  projectId: string; documentId: string;
+  ai?: ReturnType<typeof createIntakeAiRunner>;
+  readAi?: () => Promise<ReturnType<typeof createIntakeAiRunner>>;
+  defer?: (effect: () => Promise<void>) => void;
+}) {
   const { context, project } = await requireAffaireAccess(input.projectId, "write");
-  const availability = await getIntakeAnalysisAvailability(context);
-  if (!availability.available) throw badRequest(availability.message);
+  if (!input.ai) {
+    const availability = await getIntakeAnalysisAvailability(context);
+    if (!availability.available) throw badRequest(availability.message);
+  }
   const table = () => context.supabase.from("affaire_intake_documents");
   const document = await readEditableIntakeDocument(context, project.id, input.documentId);
   const preserveManualClassification = document.classification_source === "manual" || Boolean(document.manually_overridden_at);
@@ -575,24 +606,29 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
   }
   let proposalSaved = false;
   try {
-    let linked: Awaited<ReturnType<typeof readLinkedDriveDocument>> | null = null;
-    let bytes: ArrayBuffer;
-    try {
-      linked = document.storage_path ? null : await readLinkedDriveDocument(document);
-      if (linked) bytes = new Uint8Array(linked.bytes).buffer;
-      else {
-        const { data: blob, error: downloadError } = await context.supabase.storage.from(AFFAIRE_INTAKE_BUCKET).download(document.storage_path!);
-        if (downloadError || !blob) throw new IntakeDocumentReadError("Le fichier ne peut pas être lu. Vérifiez sa disponibilité ou ajoutez-le à nouveau.");
-        bytes = await blob.arrayBuffer();
+    const readSource = async () => {
+      let linked: Awaited<ReturnType<typeof readLinkedDriveDocument>> | null = null;
+      let bytes: ArrayBuffer;
+      try {
+        linked = document.storage_path ? null : await readLinkedDriveDocument(document);
+        if (linked) bytes = new Uint8Array(linked.bytes).buffer;
+        else {
+          const { data: blob, error: downloadError } = await context.supabase.storage.from(AFFAIRE_INTAKE_BUCKET).download(document.storage_path!);
+          if (downloadError || !blob) throw new IntakeDocumentReadError("Le fichier ne peut pas être lu. Vérifiez sa disponibilité ou ajoutez-le à nouveau.");
+          bytes = await blob.arrayBuffer();
+        }
+        if (!bytes.byteLength) throw new IntakeDocumentReadError("Le fichier est vide. Ajoutez une copie contenant les données du document.");
+        if (bytes.byteLength > AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES) throw new IntakeDocumentReadError("Le fichier dépasse la limite de 50 Mo par pièce.");
+      } catch (cause) {
+        throw cause instanceof IntakeDocumentReadError ? cause : new IntakeDocumentReadError("Le fichier ne peut pas être lu depuis sa source. Vérifiez sa disponibilité et, pour Drive, sa connexion.");
       }
-      if (!bytes.byteLength) throw new IntakeDocumentReadError("Le fichier est vide. Ajoutez une copie contenant les données du document.");
-      if (bytes.byteLength > AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES) throw new IntakeDocumentReadError("Le fichier dépasse la limite de 50 Mo par pièce.");
-    } catch (cause) {
-      throw cause instanceof IntakeDocumentReadError ? cause : new IntakeDocumentReadError("Le fichier ne peut pas être lu depuis sa source. Vérifiez sa disponibilité et, pour Drive, sa connexion.");
-    }
+      return { linked, bytes };
+    };
+    const { linked, bytes } = await readSource();
     const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "application/octet-stream";
     const sourceSha256 = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
-    const classification = await classifyAffaireIntakeDocument({ fileName: document.file_name, mimeType, bytes, aiOwner: context,
+    const classification = await classifyAffaireIntakeDocument({
+      fileName: document.file_name, mimeType, bytes, aiOwner: context, ai: input.ai,
       existingMetadata: document.extracted_metadata,
       beforeProviderCall: async () => {
         const { data: current, error: currentError } = await table().select("id").eq("id", document.id)
@@ -609,7 +645,7 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
       document, classification, preserveManualClassification, now: new Date().toISOString(),
     });
     const status = values.classification_status;
-    const mayRead = isLocalChatGptEnabled() && canTranscribeIntakeDocument(mimeType);
+    const mayRead = isLocalChatGptEnabled() && input.ai?.source !== "rules_only" && canTranscribeIntakeDocument(mimeType);
     const { data: updated, error: updateError } = await fence(table().update({
       ...values,
       issues: mayRead ? [AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE, ...values.issues] : values.issues,
@@ -621,8 +657,10 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     proposalSaved = true;
     // Read after the response (minutes per page), only once the proposal is saved: a refused retry spends nothing.
     if (mayRead) await scheduleIntakeTranscriptionAfterRetry({
-      context, projectId: project.id, document: { id: document.id, fileName: document.file_name }, mimeType, bytes, sourceSha256,
+      context, projectId: project.id, document: { id: document.id, fileName: document.file_name }, mimeType, sourceSha256,
+      readBytes: input.defer ? async () => (await readSource()).bytes : async () => bytes,
       reservation: { updatedAt: updated.updated_at, finalIssues: values.issues },
+      readAi: input.readAi, defer: input.defer,
     });
     await insertAffaireIntakeEvent({ supabase: context.supabase, uploadId: lot.id, documentId: document.id,
       actorUserId: context.userId, eventType: "document.classified", reason: "Analyse relancée manuellement.",
@@ -631,8 +669,8 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
         classification_status: status, classification_source: preserveManualClassification ? document.classification_source : classification.source,
         confidence: preserveManualClassification ? document.confidence : classification.result.confidence,
         proposed_document_kind: classification.result.documentKind, analysis_source: analysisSucceeded ? "ai" : "heuristic",
-        preserved_manual_classification: preserveManualClassification } });
-    return { analyzed: true, usedFallback: !analysisSucceeded, preservedManualClassification: preserveManualClassification,
+        preserved_manual_classification: preserveManualClassification, ...(classification.receipt ? { ai: classification.receipt } : {}) } });
+    return { uploadId: lot.id, analyzed: true, usedFallback: !analysisSucceeded, preservedManualClassification: preserveManualClassification,
       failure: classification.analysisFailure,
       warning: classification.analysisFailure?.message ?? classification.result.issues.find((issue) => issue.startsWith("Analyse IA :")) ?? null };
   } catch (cause) {
@@ -640,12 +678,14 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     // Does not release another request's reservation or overwrite a manual choice.
     const documentFailure: IntakeAnalysisFailure | undefined = cause instanceof IntakeDocumentReadError
       ? { code: "DOCUMENT_UNREADABLE", message: cause.message, scope: "document" } : undefined;
-    const { data: released, error: releaseError } = await fence(table().update({ classification_status: preserveManualClassification
+    const budgetStop = cause instanceof IntakeAiBudgetStopped;
+    const { data: released, error: releaseError } = await fence(table().update({ classification_status: budgetStop
+      ? document.classification_status : preserveManualClassification
       ? (document.document_kind === "a_classer" ? "ambiguous" : "classified") : "failed",
-      issues: addIssue(document.issues.filter(issue => issue !== AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE), documentFailure?.message ?? "Analyse interrompue. Vous pouvez relancer cette pièce.") })).select("id").maybeSingle();
+      issues: addIssue(document.issues.filter(issue => issue !== AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE), (budgetStop ? cause.message : documentFailure?.message) ?? "Analyse interrompue. Vous pouvez relancer cette pièce.") })).select("id").maybeSingle();
     if (releaseError) throw internalError("Impossible d’enregistrer l’échec de l’analyse. Actualisez le dossier.", releaseError);
     if (!released) throw conflict("La pièce a changé pendant l’analyse. Actualisez le dossier.");
-    if (documentFailure) return { analyzed: false, usedFallback: true, preservedManualClassification: preserveManualClassification,
+    if (documentFailure) return { uploadId: lot.id, analyzed: false, usedFallback: true, preservedManualClassification: preserveManualClassification,
       failure: documentFailure, warning: documentFailure.message };
     throw cause;
   }

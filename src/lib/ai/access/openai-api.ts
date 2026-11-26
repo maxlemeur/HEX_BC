@@ -76,11 +76,13 @@ export type OpenAiApiKeyDeps = {
   writeMetadata: (directory: string, owner: AiAccessOwner, file: AiAccessFile) => Promise<void>;
 };
 
-export type ApiKeyStructuredFile = { data: string; mimeType: "application/pdf" | "image/png" | "image/jpeg" | "image/webp" };
+export type ApiKeyStructuredFile = { data: string; mimeType: "application/pdf" | "image/png" | "image/jpeg" | "image/webp"; detail?: "low" | "high" | "auto" };
 
 export type ApiKeyPrepareInput<T> = {
   /** The connection version the page showed: a key replaced since then is not used. */
   expectedVersion: number;
+  expectedConnectionId?: string;
+  beforeSend?: () => Promise<void>;
   model: string;
   reasoningEffort: AiReasoningEffort | null;
   prompt: string;
@@ -321,7 +323,7 @@ function requestInput(request: GenerationRequest) {
   for (const file of request.files) {
     content.push(file.mimeType === "application/pdf"
       ? { type: "input_file", filename: "document.pdf", file_data: `data:application/pdf;base64,${file.data}` }
-      : { type: "input_image", image_url: `data:${file.mimeType};base64,${file.data}` });
+      : { type: "input_image", image_url: `data:${file.mimeType};base64,${file.data}`, ...(file.detail ? { detail: file.detail } : {}) });
   }
   const developer = strict ? ANSWER_RULE
     : `${ANSWER_RULE}\n\nSchéma JSON : ${JSON.stringify(z.toJSONSchema(request.schema, { unrepresentable: "any" }))}`;
@@ -499,7 +501,7 @@ const MODEL_TEST_SCHEMA = z.object({ connexion: z.literal("ok") }).strict();
 const MODEL_TEST_PROMPT = "Test de connexion de MergeOne, sans document : réponds exactement {\"connexion\":\"ok\"}.";
 
 /** The requests of prepared calls, kept here: a prepared call carries its bound, never its request. */
-const preparedRequests = new WeakMap<PreparedApiKeyCall, { owner: string; request: SerializedRequest; schema: z.ZodType }>();
+const preparedRequests = new WeakMap<PreparedApiKeyCall, { owner: string; request: SerializedRequest; schema: z.ZodType; connectionId: string }>();
 const ownerScope = (owner: AiAccessOwner) => JSON.stringify([owner.userId, owner.tenantId]);
 
 export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = {}) {
@@ -573,29 +575,30 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     await withAiAccessLock(directory, owner, async () => recover(store, owner, await readAiAccessFile(directory, owner))).catch(() => undefined);
   }
 
+  async function readConnection(owner: AiAccessOwner, expectedVersion?: number, expectedConnectionId?: string) {
+    const connection = (await readAiAccessFile(deps.directory(), owner)).connections.openai;
+    if (!connection) throw new ApiKeyError("AI_KEY_MISSING");
+    if ((expectedVersion !== undefined && connection.version !== expectedVersion) ||
+        (expectedConnectionId !== undefined && connection.connection_id !== expectedConnectionId)) {
+      throw new ApiKeyError("AI_KEY_CHANGED");
+    }
+    return connection;
+  }
+
   /** The resolver: the saved key of this member, for this adapter only. */
   async function readKey(owner: AiAccessOwner, expectedVersion?: number, expectedConnectionId?: string) {
     const store = requireStore();
-    const readConnection = async () => {
-      const connection = (await readAiAccessFile(deps.directory(), owner)).connections.openai;
-      if (!connection) throw new ApiKeyError("AI_KEY_MISSING");
-      if ((expectedVersion !== undefined && connection.version !== expectedVersion) ||
-          (expectedConnectionId !== undefined && connection.connection_id !== expectedConnectionId)) {
-        throw new ApiKeyError("AI_KEY_CHANGED");
-      }
-      return connection;
-    };
-    const connection = await readConnection();
+    const connection = await readConnection(owner, expectedVersion, expectedConnectionId);
     const secret = await store.read(await itemOf(owner, connection.version));
     // Metadata recovery can reuse the item version while the Keychain read is in progress.
-    if (expectedConnectionId !== undefined) await readConnection();
+    if (expectedConnectionId !== undefined) await readConnection(owner, expectedVersion, expectedConnectionId);
     if (!secret) throw new ApiKeyError("AI_KEY_MISSING");
     if (secret.suffix !== connection.suffix) throw new ApiKeyError("AI_KEY_CHANGED");
     return { store, secret, connection };
   }
 
-  async function resolveKey(owner: AiAccessOwner, expectedVersion?: number) {
-    const { store, secret, connection } = await readKey(owner, expectedVersion);
+  async function resolveKey(owner: AiAccessOwner, expectedVersion?: number, expectedConnectionId?: string) {
+    const { store, secret, connection } = await readKey(owner, expectedVersion, expectedConnectionId);
     await sweep(store, owner);
     return { secret, connection };
   }
@@ -843,10 +846,17 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       const price = openAiQualifiedModel(input.model);
       if (!price) throw new ApiKeyError("AI_KEY_PRICE_UNKNOWN");
       if (input.reasoningEffort !== null && !price.reasoningEfforts.includes(input.reasoningEffort)) throw new ApiKeyError("AI_KEY_MODEL_NOT_OFFERED");
-      const { secret, connection } = await resolveKey(owner, input.expectedVersion);
+      const { secret, connection } = await resolveKey(owner, input.expectedVersion, input.expectedConnectionId);
+      if (input.expectedConnectionId && connection.models && !connection.models.includes(input.model)) {
+        throw new ApiKeyError("AI_KEY_MODEL_NOT_OFFERED");
+      }
       // Serialized once: the count and the generation send this exact text.
       const request = serializeRequest({ model: input.model, reasoningEffort: input.reasoningEffort, prompt: input.prompt, schema: input.schema,
         schemaName: "mergeone_extraction", files: input.files });
+      if (input.beforeSend) {
+        await input.beforeSend();
+        await readConnection(owner, connection.version, connection.connection_id);
+      }
       const inputTokens = await countWith(deps, secret, request, input.signal);
       const maxOutputTokens = maxOutputWithin({ model: input.model, inputTokens, allotmentNanoUsd: input.allotmentNanoUsd, cap: input.outputCap });
       if (maxOutputTokens < input.minOutputTokens) {
@@ -858,12 +868,20 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       if (bound.status !== "priced" || bound.nanoUsd > input.allotmentNanoUsd) throw new ApiKeyError("AI_KEY_CEILING");
       const prepared: PreparedApiKeyCall = Object.freeze({ model: input.model, reasoningEffort: input.reasoningEffort,
         connectionVersion: connection.version, inputTokens, maxOutputTokens, boundNanoUsd: bound.nanoUsd, allotmentNanoUsd: input.allotmentNanoUsd });
-      preparedRequests.set(prepared, { owner: ownerScope(owner), request, schema: input.schema });
+      preparedRequests.set(prepared, { owner: ownerScope(owner), request, schema: input.schema, connectionId: connection.connection_id });
       return prepared;
     }, input.signal),
 
+    /** Local credential availability for a recorded, explicitly authorized worker request. */
+    hasConnection: async (owner: AiAccessOwner, connection: { id: string; version: number }) => {
+      if (!deps.secretStore()) return false;
+      const file = await readAiAccessFile(deps.directory(), owner).catch(() => null);
+      const current = file?.connections.openai;
+      return current?.connection_id === connection.id && current.version === connection.version;
+    },
+
     /** Sends a prepared call, once, with the key still in service at that version. */
-    execute: <T>(owner: AiAccessOwner, prepared: PreparedApiKeyCall, options: { timeoutMs: number; signal?: AbortSignal }): Promise<ApiKeyStructuredResult<T>> =>
+    execute: <T>(owner: AiAccessOwner, prepared: PreparedApiKeyCall, options: { timeoutMs: number; signal?: AbortSignal; beforeSend?: () => Promise<void> }): Promise<ApiKeyStructuredResult<T>> =>
       guarded(async () => {
         if (options.signal?.aborted) throw abortReason(options.signal);
         const held = preparedRequests.get(prepared);
@@ -871,7 +889,11 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
         if (held.owner !== ownerScope(owner)) throw new ApiKeyError("AI_KEY_CHANGED");
         // Single use: a prepared call is sent at most once.
         preparedRequests.delete(prepared);
-        const { secret, connection } = await resolveKey(owner, prepared.connectionVersion);
+        const { secret, connection } = await resolveKey(owner, prepared.connectionVersion, held.connectionId);
+        if (options.beforeSend) {
+          await options.beforeSend();
+          await readConnection(owner, connection.version, connection.connection_id);
+        }
         if (options.signal?.aborted) throw abortReason(options.signal);
         const startedAt = Date.now();
         let answer: Awaited<ReturnType<typeof generateWith>>;

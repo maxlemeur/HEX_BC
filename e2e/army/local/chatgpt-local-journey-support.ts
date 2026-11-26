@@ -63,7 +63,8 @@ export async function writeDecisionsControl(decisionsControl: string,
 }
 
 /** Writes the owner's temporary ChatGPT profile, which must not exist yet, and returns its private path. */
-export async function writePlanFixture(email: string, liveProbe: ChatGptLiveProbe | null, unsetPreferences: boolean) {
+export async function writePlanFixture(email: string, liveProbe: ChatGptLiveProbe | null, unsetPreferences: boolean,
+  connection?: { profileId: string; authorizationId: string }) {
   const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
   if (backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST) throw new Error("Owned local backend required.");
   const client = createClient(backend.origin, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -78,9 +79,10 @@ export async function writePlanFixture(email: string, liveProbe: ChatGptLiveProb
   const directory = path.resolve(".private/chatgpt-local");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const file = path.join(directory, `${key}.json`);
-  const id = randomUUID();
+  const id = connection?.profileId ?? randomUUID();
   const model = unsetPreferences ? null : liveProbe?.model ?? "army-plan-model";
   await writeFile(file, JSON.stringify({ selectedId: id, profiles: [{ id, clientId: "army-fixture", issuer: "https://auth.openai.com",
+    ...(connection ? { authorizationId: connection.authorizationId } : {}),
     subject: "army-fixture", email: "fixture@example.test", model,
     reasoningEffort: unsetPreferences ? null : liveProbe?.reasoningEffort ?? null, accessToken: liveProbe?.accessToken ?? "army-chatgpt-fixture",
     expiresAt: liveProbe?.expiresAt ?? Date.now() + 3_600_000, scopes: ["chatgpt.tokens.use.direct"] }] }), { mode: 0o600, flag: "wx" });

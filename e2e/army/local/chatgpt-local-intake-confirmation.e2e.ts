@@ -580,7 +580,8 @@ if (!existsSync(liveProbePath)) test("AUTO05 a running dossier analysis refuses 
   tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 300_000,
 }, async ({ app, screen, browser }) => {
   const owner = await createLocalChatGptOwner();
-  let store = await writePlanFixture(owner.email, null, false);
+  const profileId = randomUUID();
+  let store = await writePlanFixture(owner.email, null, false, { profileId, authorizationId: randomUUID() });
   await activateOwnedPlanDispatch();
   try {
     await signInAs({ app, screen, browser }, owner.email);
@@ -603,7 +604,8 @@ if (!existsSync(liveProbePath)) test("AUTO05 a running dossier analysis refuses 
     await expect(screen.getByText("Attendez la fin de l’analyse du dossier avant de confirmer.", { exact: true }).first()).toBeVisible(DEV_SERVER_WORK);
     expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([]);
     await rm(store, { force: true });
-    store = await writePlanFixture(owner.email, null, false);
+    // Reconnect the same paying account with a newly issued authorization.
+    store = await writePlanFixture(owner.email, null, false, { profileId, authorizationId: randomUUID() });
     await setDecisionsControl({});
     await expect.poll(async () => (await owner.client.from("affaire_intake_uploads").select("id")
       .eq("project_id", ids.projectId).in("status", ["launch_queued", "launch_processing"])).data, DEV_SERVER_WORK).toEqual([]);

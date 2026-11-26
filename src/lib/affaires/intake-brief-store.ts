@@ -1,3 +1,4 @@
+import type { IntakeAiReceipt } from "@/lib/affaires/intake-ai-settings";
 import type { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { AffaireIntakeLeaseUnavailableError } from "@/lib/workflows/affaire-intake-lifecycle";
 import { IntakePayerAccessLost } from "@/lib/affaires/intake-payer-server";
@@ -379,6 +380,7 @@ export async function persistAffaireBriefDraft(input: {
   leaseToken: string | null;
   existing: Awaited<ReturnType<typeof fetchAffaireBriefForProject>>;
   actorUserId?: string | null;
+  aiReceipt?: IntakeAiReceipt;
 }) {
   const { draft, existing } = input;
   const payload = draft ? {
@@ -387,7 +389,8 @@ export async function persistAffaireBriefDraft(input: {
     received_pieces: draft.receivedPieces, assumptions: draft.assumptions,
     vigilance_points: draft.vigilancePoints, missing_elements: draft.missingElements,
     generation_metadata: { prompt_version: AFFAIRE_BRIEF_PROMPT_VERSION, generated_from_upload_id: input.uploadId,
-      input_revision: input.expectedRevision, regenerated_by: input.actorUserId ?? null },
+      input_revision: input.expectedRevision, regenerated_by: input.actorUserId ?? null,
+      ...(input.aiReceipt ? { ai: input.aiReceipt } : {}) },
     last_generated_at: draft.lastGeneratedAt,
   } : null;
   const { error } = await input.service.rpc("publish_affaire_intake_brief", {

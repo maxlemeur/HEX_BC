@@ -30,10 +30,8 @@ import {
   readVersionZeroLineOrigin,
   type VersionZeroLineOrigin,
 } from "@/lib/estimates/version-zero-utils";
-import {
-  buildEstimateStructurePreview,
-  withEstimateAiGenerationLease,
-} from "@/lib/estimates/structure-drafts";
+import { buildEstimateStructurePreview } from "@/lib/estimates/structure-drafts";
+import { isEstimateGenerationExecutionLost, mapEstimateGenerationWriteError, withEstimateGenerationExecution } from "@/lib/estimates/generation-execution";
 import { resolveEstimateDraftAi, type EstimateDraftAiGeneration } from "@/lib/estimates/draft-ai-generation";
 import type { Database, Json } from "@/types/database";
 
@@ -55,8 +53,6 @@ type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateVersionZeroDraftRow =
   Database["public"]["Tables"]["estimate_version_zero_drafts"]["Row"];
-type EstimateVersionZeroDraftInsert =
-  Database["public"]["Tables"]["estimate_version_zero_drafts"]["Insert"];
 type EstimateVersionZeroLotRow =
   Database["public"]["Tables"]["estimate_version_zero_lots"]["Row"];
 type EstimateVersionZeroLotInsert =
@@ -609,6 +605,7 @@ function buildFallbackLots(input: {
 
 async function generateModelLots(input: {
   ai: NonNullable<EstimateDraftAiGeneration>;
+  requireExecution: () => Promise<void>;
   projectName: string;
   brief: AffaireBriefRow;
   sourceLinks: AffaireBriefSourceLinkRow[];
@@ -646,7 +643,7 @@ async function generateModelLots(input: {
     context: {
       promptVersion: VERSION_ZERO_PROMPT_VERSION,
     },
-  });
+  }, input.requireExecution);
 }
 
 function mergeGeneratedLots(input: {
@@ -778,45 +775,14 @@ function buildSummaryPayload(input: { lots: InternalVersionZeroLot[]; summaryTex
 
 async function persistGeneratedDraft(input: {
   supabase: Supabase;
-  tenantId: string;
-  userId: string;
-  projectId: string;
   versionId: string;
+  token: string;
   briefId: string | null;
   selectedLots: string[];
   generation: InternalVersionZeroGeneration;
 }) {
-  const { data: draftData, error: draftError } = await input.supabase
-    .from("estimate_version_zero_drafts")
-    .insert({
-      tenant_id: input.tenantId,
-      project_id: input.projectId,
-      version_id: input.versionId,
-      brief_id: input.briefId,
-      created_by: input.userId,
-      status: "ia_a_revoir",
-      summary: toJson(
-        buildSummaryPayload({
-          lots: input.generation.lots,
-          summaryText: input.generation.summaryText,
-        })
-      ),
-      generation_metadata: toJson(input.generation.generationMetadata),
-      selected_lots: input.selectedLots,
-    } satisfies EstimateVersionZeroDraftInsert)
-    .select("*")
-    .single();
-
-  if (draftError || !draftData) {
-    throw mapSupabaseError(draftError, "Impossible de créer le snapshot V0.");
-  }
-
-  const draft = draftData as EstimateVersionZeroDraftRow;
   const lotRows = input.generation.lots.map((lot) => ({
-    tenant_id: input.tenantId,
-    project_id: input.projectId,
-    version_id: input.versionId,
-    draft_id: draft.id,
+    id: randomUUID(),
     lot_key: lot.key,
     lot_order: lot.order,
     lot_label: lot.label,
@@ -832,28 +798,11 @@ async function persistGeneratedDraft(input: {
       inferences: lot.inferences,
       missing_signals: lot.missingSignals,
     },
-  })) satisfies EstimateVersionZeroLotInsert[];
+  })) satisfies Omit<EstimateVersionZeroLotInsert, "tenant_id" | "project_id" | "version_id" | "draft_id">[];
 
-  const { data: insertedLots, error: lotsError } = await input.supabase
-    .from("estimate_version_zero_lots")
-    .insert(lotRows)
-    .select("*")
-    .order("lot_order", { ascending: true });
-
-  if (lotsError || !insertedLots) {
-    throw mapSupabaseError(lotsError, "Impossible de persister les lots V0.");
-  }
-
-  const insertedLotRows = insertedLots as EstimateVersionZeroLotRow[];
-  const lotIdByKey = new Map(insertedLotRows.map((row) => [row.lot_key, row.id]));
-
-  const lineRows = input.generation.lots.flatMap((lot) =>
+  const lineRows = input.generation.lots.flatMap((lot, lotIndex) =>
     lot.lines.map((line, index) => ({
-      tenant_id: input.tenantId,
-      project_id: input.projectId,
-      version_id: input.versionId,
-      draft_id: draft.id,
-      lot_id: lotIdByKey.get(lot.key) ?? "",
+      lot_id: lotRows[lotIndex].id,
       line_order: index,
       review_status: "pending" as const,
       proposed_title: line.proposedTitle,
@@ -873,41 +822,23 @@ async function persistGeneratedDraft(input: {
         generation_origin: line.generationOrigin,
       },
     }))
-  ) satisfies EstimateVersionZeroLineInsert[];
+  ) satisfies Omit<EstimateVersionZeroLineInsert, "tenant_id" | "project_id" | "version_id" | "draft_id">[];
 
-  if (lineRows.length > 0) {
-    const { error: linesError } = await input.supabase
-      .from("estimate_version_zero_lines")
-      .insert(lineRows);
-
-    if (linesError) {
-      throw mapSupabaseError(linesError, "Impossible de persister les lignes V0.");
-    }
-  }
-
-  return draft;
-}
-
-async function supersedeActiveDrafts(input: {
-  supabase: Supabase;
-  tenantId: string;
-  versionId: string;
-  newDraftId: string;
-}) {
-  const { error } = await input.supabase
-    .from("estimate_version_zero_drafts")
-    .update({
-      status: "superseded",
-      superseded_by_draft_id: input.newDraftId,
-    })
-    .eq("tenant_id", input.tenantId)
-    .eq("version_id", input.versionId)
-    .in("status", VERSION_ZERO_ACTIVE_STATUSES)
-    .neq("id", input.newDraftId);
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de superseder la V0 précédente.");
-  }
+  const { data, error } = await input.supabase.rpc("persist_estimate_v0_generation", {
+    p_version_id: input.versionId,
+    p_token: input.token,
+    p_draft: toJson({
+      brief_id: input.briefId,
+      summary: buildSummaryPayload({ lots: input.generation.lots, summaryText: input.generation.summaryText }),
+      generation_metadata: toJson(input.generation.generationMetadata),
+      selected_lots: input.selectedLots,
+    }),
+    p_lots: toJson(lotRows),
+    p_lines: toJson(lineRows),
+  });
+  if (error) throw mapEstimateGenerationWriteError(error, "Impossible d’enregistrer le brouillon V0.");
+  if (!data) throw internalError("Impossible d’enregistrer le brouillon V0.");
+  return data;
 }
 
 function toSummaryText(value: Json) {
@@ -1230,7 +1161,7 @@ export async function generateVersionZeroDraft(input: {
 
   assertDraftStatus(version.status);
   const draftLock = { supabase, tenantId, versionId: input.versionId, userId };
-  await assertDraftLockOwnedByCurrentUser(draftLock);
+  const pageLock = await assertDraftLockOwnedByCurrentUser(draftLock);
   await assertVersionIsEmpty({
     supabase,
     tenantId,
@@ -1253,21 +1184,31 @@ export async function generateVersionZeroDraft(input: {
 
   const ai = await resolveEstimateDraftAi({ tenantId, userId }, input.ai);
 
-  return withEstimateAiGenerationLease({
+  return withEstimateGenerationExecution({
     supabase,
     versionId: input.versionId,
     operation: "version_zero_draft",
-    run: async () => {
+    pageSessionId: pageLock.session_id,
+    useAi: ai !== null,
+    run: async (execution) => {
       const sourceLinks = await loadBriefSourceLinks({ supabase, briefId: brief.id });
-      await assertDraftLockOwnedByCurrentUser(draftLock);
+      const currentPageLock = await assertDraftLockOwnedByCurrentUser(draftLock);
       // V0 uses structure suggestions as input, without replacing a standalone pending preview.
-      const structurePreview = await withEstimateAiGenerationLease({
+      const structurePreview = await withEstimateGenerationExecution({
         supabase,
         versionId: input.versionId,
         operation: "structure_draft",
-        run: () => buildEstimateStructurePreview({ supabase, tenantId, project, version, ai }),
+        pageSessionId: currentPageLock.session_id,
+        useAi: ai !== null,
+        run: (structureExecution) => buildEstimateStructurePreview({
+          supabase, tenantId, project, version, ai,
+          requireExecution: async () => {
+            await structureExecution.requireActive();
+            await execution.requireActive();
+          },
+        }),
       }).catch((error: unknown) => {
-        if (ai?.source === "personal_api_key") throw error;
+        if (ai?.source === "personal_api_key" || isEstimateGenerationExecutionLost(error)) throw error;
         return null;
       });
 
@@ -1291,9 +1232,12 @@ export async function generateVersionZeroDraft(input: {
       let failure: unknown = null;
       if (ai) {
         try {
-          aiResult = await generateModelLots({ ai, projectName: project.name, brief, sourceLinks, lotLabels: selectedLots });
+          aiResult = await generateModelLots({
+            ai, requireExecution: execution.requireActive,
+            projectName: project.name, brief, sourceLinks, lotLabels: selectedLots,
+          });
         } catch (error) {
-          if (ai.source === "personal_api_key") throw error;
+          if (ai.source === "personal_api_key" || isEstimateGenerationExecutionLost(error)) throw error;
           failure = error;
         }
       }
@@ -1326,25 +1270,16 @@ export async function generateVersionZeroDraft(input: {
         },
       };
 
-      const persistedDraft = await persistGeneratedDraft({
+      const draftId = await persistGeneratedDraft({
         supabase,
-        tenantId,
-        userId,
-        projectId: project.id,
         versionId: input.versionId,
+        token: execution.token,
         briefId: brief.id,
         selectedLots,
         generation,
       });
 
-      await supersedeActiveDrafts({
-        supabase,
-        tenantId,
-        versionId: input.versionId,
-        newDraftId: persistedDraft.id,
-      });
-
-      return fetchVersionZeroReview({ versionId: input.versionId, draftId: persistedDraft.id });
+      return fetchVersionZeroReview({ versionId: input.versionId, draftId, refreshStatus: false });
     },
   });
 }
@@ -1352,6 +1287,7 @@ export async function generateVersionZeroDraft(input: {
 export async function fetchVersionZeroReview(input: {
   versionId: string;
   draftId?: string | null;
+  refreshStatus?: boolean;
 }) {
   const context = await getAuthenticatedContext();
   const { version, project } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
@@ -1372,12 +1308,9 @@ export async function fetchVersionZeroReview(input: {
     tenantId: context.tenantId,
     draftId: draft.id,
   });
-  const nextStatus = await refreshDraftStatus({
-    supabase: context.supabase,
-    tenantId: context.tenantId,
-    draft,
-    lots,
-  });
+  const nextStatus = input.refreshStatus === false
+    ? draft.status
+    : await refreshDraftStatus({ supabase: context.supabase, tenantId: context.tenantId, draft, lots });
   const counts = computeDraftCounts({ lots });
 
   return {
