@@ -1,7 +1,7 @@
 import "server-only";
 
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
-import { canRunIntakeAiBatch, readIntakeAiBatch } from "@/lib/affaires/intake-ai-server";
+import { readIntakeAiBatch } from "@/lib/affaires/intake-ai-server";
 import { hostCanReadIntakeScans, stopIntakeAnalysisLaunch } from "@/lib/affaires/intake-payer-server";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 
@@ -35,7 +35,8 @@ async function recoverDueLaunch(paid: boolean) {
     if (right.error) throw new Error("Impossible de vérifier le droit du payeur.", { cause: right.error });
     const scope = batch.created_by ? { payerId: batch.created_by, tenantId: batch.tenant_id, projectId: batch.project_id } : undefined;
     const recorded = scope ? await readIntakeAiBatch(service, batch.id, scope) : null;
-    const available = !paid || (recorded ? await canRunIntakeAiBatch(recorded) : owner && await hostCanReadIntakeScans(owner));
+    // The recorded path checks its connection and catalogue before claiming.
+    const available = recorded || !paid || (owner && await hostCanReadIntakeScans(owner));
     if (!right.data || !available) {
       // SQL keeps a live lease and gives another Mac 30 minutes from the last due time.
       if (recorded || !scope) {

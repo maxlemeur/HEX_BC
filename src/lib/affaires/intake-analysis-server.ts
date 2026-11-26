@@ -513,6 +513,13 @@ async function runClaim(supabase: ReturnType<typeof createServiceRoleClient>,
   try {
     return await processClaimedAffaireIntakeUpload({ supabase, lifecycleClient, claim, connection, aiBatch });
   } catch (error) {
+    if (claim.launch && aiBatch?.selection.source === "chatgpt_plan" && error instanceof LocalChatGptConnectionWithdrawnError) {
+      const now = new Date();
+      await durableIntake.finishAffaireIntakeUploadAttempt({
+        client: lifecycleClient, claim, status: "queued", now, nextRetryAt: now,
+      });
+      return null;
+    }
     // Leave the lease to expire. A capable host can resume; otherwise the
     // due-time sweep stops it without consuming another reading attempt.
     if (error instanceof IntakeConnectionUnavailable || ((aiBatch || connection) && error instanceof LocalChatGptConnectionWithdrawnError)) return null;

@@ -1,14 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { ApiKeyError } from "@/lib/ai/access/api-key-errors";
-import { createIntakeAiRunner, IntakeAiBudgetStopped, readIntakeAiBatch, resolveIntakeAiSelection, type IntakeAiBatch } from "./intake-ai-server";
+import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
+import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
+import { canRunIntakeAiBatch, createIntakeAiRunner, IntakeAiBudgetStopped, readIntakeAiBatch, resolveIntakeAiSelection, type IntakeAiBatch } from "./intake-ai-server";
 
-const { prepare, execute, resolveRequest, plan } = vi.hoisted(() => ({
-  prepare: vi.fn(), execute: vi.fn(), resolveRequest: vi.fn(), plan: vi.fn(),
+const { prepare, execute, resolveRequest, plan, selectedPlan, planCatalogue } = vi.hoisted(() => ({
+  prepare: vi.fn(), execute: vi.fn(), resolveRequest: vi.fn(), plan: vi.fn(), selectedPlan: vi.fn(), planCatalogue: vi.fn(),
 }));
 vi.mock("@/lib/ai/access/openai-api", () => ({ openAiApiKeyAccess: () => ({ prepare, execute }) }));
 vi.mock("@/lib/ai/request-settings-server", () => ({ resolveAiRequest: resolveRequest }));
-vi.mock("@/lib/ai/chatgpt-local-inference", () => ({ callLocalChatGptStructured: plan }));
+vi.mock("@/lib/ai/chatgpt-local-inference", async (actual) => ({
+  ...await actual<typeof import("@/lib/ai/chatgpt-local-inference")>(),
+  callLocalChatGptStructured: plan, readLocalChatGptModelOptions: planCatalogue,
+}));
+vi.mock("@/lib/ai/chatgpt-local-auth", async (actual) => ({
+  ...await actual<typeof import("@/lib/ai/chatgpt-local-auth")>(),
+  isLocalChatGptEnabled: () => true,
+}));
+vi.mock("@/lib/affaires/intake-payer-server", async (actual) => ({
+  ...await actual<typeof import("./intake-payer-server")>(),
+  readSelectedIntakePlanConnection: selectedPlan,
+}));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-workflow-owner", () => ({
   resolveChatGptIntakeOwner: async () => owner,
@@ -26,6 +39,10 @@ const batch: IntakeAiBatch = {
   budget_stop_message: null, finished_at: null,
 };
 const options = { schema: z.object({ answer: z.string() }), prompt: "Pièce fictive", beforeSend: vi.fn() };
+const originalPlan = { profileId: "original-plan", authorizationId: "original-grant" };
+const planBatch: IntakeAiBatch = { ...batch, selection: { source: "chatgpt_plan", preferences, connection: originalPlan } };
+const renewedPlan = { ...originalPlan, authorizationId: "new-grant" };
+const offeredModel = { id: preferences.model, reasoningEfforts: ["medium", "high"] };
 
 describe("recorded intake requests", () => {
   beforeEach(() => vi.resetAllMocks());
@@ -87,14 +104,92 @@ describe("recorded intake requests", () => {
     expect(plan).not.toHaveBeenCalled();
   });
 
-  it("reuses the recorded plan grant and preference without resolving a request", async () => {
-    const connection = { profileId: "original-plan", authorizationId: "original-grant" };
+  it("resumes the same plan profile under a renewed authorization and keeps the recorded settings", async () => {
+    selectedPlan.mockResolvedValue(renewedPlan);
+    planCatalogue.mockResolvedValue({ models: [offeredModel] });
     plan.mockResolvedValue({ data: { answer: "Fictif" }, model: preferences.model, reasoningEffort: "medium" });
-    const runner = createIntakeAiRunner({} as never, { ...batch, selection: { source: "chatgpt_plan", preferences, connection } }, "lease");
+    await expect(canRunIntakeAiBatch(planBatch)).resolves.toBe(true);
+    expect(planCatalogue).toHaveBeenCalledWith({ ...owner, connection: renewedPlan });
+    const runner = createIntakeAiRunner({} as never, planBatch, "lease");
     await runner.run("brief", options);
-    expect(plan).toHaveBeenCalledExactlyOnceWith({ ...owner, connection }, options, undefined, preferences, { allowUnselectedModel: true });
+    expect(plan).toHaveBeenCalledExactlyOnceWith({ ...owner, connection: renewedPlan },
+      expect.objectContaining({ prompt: options.prompt }), undefined, preferences, { allowUnselectedModel: true });
     expect(resolveRequest).not.toHaveBeenCalled();
     expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it("refuses to resume or send with another plan profile", async () => {
+    selectedPlan.mockResolvedValue({ profileId: "another-account", authorizationId: "another-grant" });
+    await expect(canRunIntakeAiBatch(planBatch)).resolves.toBe(false);
+    const runner = createIntakeAiRunner({} as never, planBatch, "lease");
+    await expect(runner.run("brief", options)).rejects.toBeInstanceOf(LocalChatGptConnectionWithdrawnError);
+    expect(planCatalogue).not.toHaveBeenCalled();
+    expect(plan).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it("does not resume the same profile when its live catalogue no longer offers the chosen effort", async () => {
+    selectedPlan.mockResolvedValue(renewedPlan);
+    planCatalogue.mockResolvedValue({ models: [{ ...offeredModel, reasoningEfforts: ["low"] }] });
+    await expect(canRunIntakeAiBatch(planBatch)).resolves.toBe(false);
+    const runner = createIntakeAiRunner({} as never, planBatch, "lease");
+    await expect(runner.run("transcription", options)).rejects.toBeInstanceOf(LocalChatGptConnectionWithdrawnError);
+    expect(plan).not.toHaveBeenCalled();
+  });
+
+  it("fences a grant change between credential lookup and sending", async () => {
+    selectedPlan.mockResolvedValueOnce(originalPlan).mockResolvedValueOnce(renewedPlan);
+    const send = vi.fn();
+    plan.mockImplementation(async (_owner, request) => {
+      await request.beforeSend();
+      send();
+    });
+    const runner = createIntakeAiRunner({} as never, planBatch, "lease");
+    await expect(runner.run("brief", options)).rejects.toBeInstanceOf(LocalChatGptConnectionWithdrawnError);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("releases the recorded launch lease for immediate recovery after a provider authorization refusal", async () => {
+    const { processAffaireIntakeAnalysisLaunch } = await import("./intake-analysis-server");
+    const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+    const document = {
+      id, project_id: id, file_name: "notice-fictive.txt", storage_path: "notice-fictive.txt", mime_type: "text/plain",
+      upload_status: "uploaded", classification_status: "queued", document_kind: "a_classer", document_priority: "secondary",
+    };
+    const query = {
+      select: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(), update: vi.fn().mockReturnThis(), or: vi.fn().mockReturnThis(),
+      range: vi.fn().mockResolvedValue({ data: [document], error: null, count: 1 }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id }, error: null }),
+    };
+    const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
+      if (name === "read_affaire_intake_ai_batch") {
+        expect(args).toMatchObject({ p_batch_id: id, p_payer_id: owner.userId });
+        return { data: planBatch, error: null };
+      }
+      if (name === "claim_affaire_intake_analysis_launch_v2") return { data: [{ upload_id: id, project_id: id,
+        payer_id: owner.userId, tenant_id: owner.tenantId, read_scans: true, attempt_count: 1 }], error: null };
+      if (["renew_affaire_intake_upload_lease", "intake_payer_can_write", "finish_affaire_intake_upload_attempt"].includes(name)) {
+        return { data: true, error: null };
+      }
+      throw new Error(`Unexpected query ${name}`);
+    });
+    const download = vi.fn().mockResolvedValue({ data: new Blob(["Notice fictive de la médiathèque."]), error: null });
+    vi.mocked(createServiceRoleClient).mockReturnValue({ rpc, from: () => query,
+      storage: { from: () => ({ download }) } } as never);
+    selectedPlan.mockResolvedValue(renewedPlan);
+    planCatalogue.mockResolvedValue({ models: [offeredModel] });
+    plan.mockRejectedValue(new StructuredAiError("AI_AUTH_REQUIRED", "Autorisation fictive expirée.", 401));
+
+    await expect(processAffaireIntakeAnalysisLaunch(id, null, scope)).resolves.toBe(id);
+
+    expect(plan).toHaveBeenCalledOnce();
+    const claimed = rpc.mock.calls.find(([name]) => name === "claim_affaire_intake_analysis_launch_v2")![1];
+    const [name, released] = rpc.mock.calls.at(-1)!;
+    expect(name).toBe("finish_affaire_intake_upload_attempt");
+    expect(released).toMatchObject({ p_upload_id: id, p_status: "queued", p_lease_token: claimed.p_lease_token });
+    expect(released.p_next_retry_at).toBe(released.p_now);
+    expect(query.update).toHaveBeenCalledExactlyOnceWith({ classification_status: "processing" });
   });
 });
 

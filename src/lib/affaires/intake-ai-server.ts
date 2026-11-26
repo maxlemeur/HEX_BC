@@ -5,12 +5,14 @@ import { z } from "zod";
 import { ApiKeyError, isApiKeyError } from "@/lib/ai/access/api-key-errors";
 import { openAiApiKeyAccess, type ApiKeyStructuredFile, type PreparedApiKeyCall } from "@/lib/ai/access/openai-api";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
-import { callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
-import { chatGptPreferencesSchema, type ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
+import { callLocalChatGptStructured, LocalChatGptOverrideUnavailableError, readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
+import { chatGptPreferencesSchema, supportsReasoningEffort, type ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
+import { ChatGptSignInError, LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 import type { ChatGptConnection, ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import { readAiRequestOptions, resolveAiRequest } from "@/lib/ai/request-settings-server";
 import type { StructuredCallOptions } from "@/lib/ai/structured-call";
+import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { INTAKE_AI_BUDGET_STOP, type IntakeAiChoice, type IntakeAiOptions, type IntakePersonalAiReceipt } from "@/lib/affaires/intake-ai-settings";
 import { isIntakeDecisionsSelected } from "@/lib/affaires/intake-decisions";
 import { IntakePayerAccessLost, readSelectedIntakePlanConnection } from "@/lib/affaires/intake-payer-server";
@@ -72,8 +74,7 @@ export async function readIntakeAiOptions(owner: ChatGptOwner): Promise<IntakeAi
 
 export async function resolveIntakeAiSelection(owner: ChatGptOwner, choice: IntakeAiChoice): Promise<IntakeAiSelection> {
   if (choice.source === "rules_only") return choice;
-  // Pin the plan grant before resolving its available model options. A later
-  // credential change leaves the recorded grant unavailable on this host.
+  // A new confirmation must match the grant shown with its model options.
   const { expectedConnectionId, ...settings } = choice;
   const planConnection = choice.source === "chatgpt_plan" ? await readSelectedIntakePlanConnection(owner) : null;
   if (choice.source === "chatgpt_plan" && (!planConnection || planGrantId(planConnection) !== expectedConnectionId)) {
@@ -99,14 +100,35 @@ export async function readIntakeAiBatch(service: Service, batchId: string, scope
   return batchSchema.nullable().parse(data);
 }
 
+const INTAKE_PLAN_UNAVAILABLE = "La connexion IA choisie pour ce lot est indisponible.";
+
+async function requireIntakePlanOwner(owner: ChatGptOwner, profileId: string) {
+  const connection = await readSelectedIntakePlanConnection(owner);
+  if (connection?.profileId !== profileId) throw new LocalChatGptConnectionWithdrawnError(INTAKE_PLAN_UNAVAILABLE);
+  return { ...owner, connection };
+}
+
+async function requireIntakePlanPreferences(owner: ChatGptOwner, preferences: ChatGptPreferences) {
+  const { models } = await readLocalChatGptModelOptions(owner);
+  const model = models.find(({ id }) => id === preferences.model);
+  if (!model || !supportsReasoningEffort(model, preferences.reasoningEffort)) {
+    throw new LocalChatGptConnectionWithdrawnError(INTAKE_PLAN_UNAVAILABLE);
+  }
+}
+
 export async function canRunIntakeAiBatch(batch: IntakeAiBatch) {
   const { selection } = batch;
   if (selection.source === "rules_only" || batch.budget_stop_message) return true;
   if (!isLocalChatGptEnabled()) return false;
   const owner = { userId: batch.payer_id, tenantId: batch.tenant_id };
   if (selection.source === "personal_api_key") return openAiApiKeyAccess().hasConnection(owner, selection.connection);
-  const connection = await readSelectedIntakePlanConnection(owner);
-  return connection?.profileId === selection.connection.profileId && connection.authorizationId === selection.connection.authorizationId;
+  try {
+    const planOwner = await requireIntakePlanOwner(owner, selection.connection.profileId);
+    await requireIntakePlanPreferences(planOwner, selection.preferences);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function apiInput<T>(options: StructuredCallOptions<T>) {
@@ -145,9 +167,29 @@ export function createIntakeAiRunner(service: Service, batch: IntakeAiBatch, lea
         : selection.preferences;
       const { model, reasoningEffort } = preferences;
       if (selection.source === "chatgpt_plan") {
-        const answer = await callLocalChatGptStructured({ ...owner, connection: selection.connection },
-          options, undefined, preferences, { allowUnselectedModel: true });
-        return { data: answer.data, receipt: { source: selection.source, model: answer.model, reasoningEffort: answer.reasoningEffort } };
+        // The batch pays with this account. Each call pins its current grant.
+        const planOwner = await requireIntakePlanOwner(owner, selection.connection.profileId);
+        try {
+          if (stage === "transcription") await requireIntakePlanPreferences(planOwner, selection.preferences);
+          const answer = await callLocalChatGptStructured(planOwner, {
+            ...options,
+            beforeSend: async () => {
+              await options.beforeSend?.();
+              const current = await requireIntakePlanOwner(owner, selection.connection.profileId);
+              if (current.connection.authorizationId !== planOwner.connection.authorizationId) {
+                throw new LocalChatGptConnectionWithdrawnError(INTAKE_PLAN_UNAVAILABLE);
+              }
+            },
+          }, undefined, preferences, { allowUnselectedModel: true });
+          return { data: answer.data, receipt: { source: selection.source, model: answer.model, reasoningEffort: answer.reasoningEffort } };
+        } catch (error) {
+          if ((error instanceof StructuredAiError && error.code === "AI_AUTH_REQUIRED") ||
+              (error instanceof ChatGptSignInError && error.reason === "renewal") ||
+              (stage !== "transcription" && error instanceof LocalChatGptOverrideUnavailableError)) {
+            throw new LocalChatGptConnectionWithdrawnError(INTAKE_PLAN_UNAVAILABLE);
+          }
+          throw error;
+        }
       }
 
       const latest = await readIntakeAiBatch(service, batch.id, scope);
