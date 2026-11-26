@@ -15,6 +15,7 @@ import { TAKEOFF_NANO_USD_PER_CENT } from "@/lib/takeoff/payment-choice";
 import { assertTakeoffApiConnection, assertTakeoffPayer, readTakeoffApiMandate, TAKEOFF_API_CONNECTION_CHANGED,
   takeoffPaymentError } from "@/lib/takeoff/payment-mandate-server";
 import { takeoffExecutionSelectionSchema } from "@/lib/takeoff/preparation";
+import { asRecord } from "@/lib/value-guards";
 
 class ReprepareApiCall extends Error {
   constructor(readonly waitForSettlement: boolean) {
@@ -58,9 +59,10 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
     status: 422, code: TakeoffErrorCode.TAKEOFF_REQUEST_BUDGET_EXHAUSTED, retryable: false, jobId: job.id,
     message: "Le budget de ce métré avec la clé API OpenAI est épuisé. Les résultats déjà enregistrés sont conservés.",
   });
-  const stopForLedger = () => new TakeoffError({
+  const stopForLedger = (tileAttempted = false) => new TakeoffError({
     status: 409, code: TakeoffErrorCode.TAKEOFF_USAGE_UNRECORDED, retryable: false, jobId: job.id,
     message: "Impossible de vérifier le registre des dépenses de ce métré. Aucun autre appel ne sera envoyé.",
+    ...(tileAttempted && { details: { tileAttempted } }),
   });
   const inFlight = new Set<Promise<void>>();
   let halted: TakeoffError | undefined;
@@ -146,13 +148,17 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
       const { answer, prepared } = await send();
       const totalTokens = Math.max(answer.usage.total, answer.usage.input + answer.usage.output);
       await settle(answer.costNanoUsd, totalTokens);
-      if (answer.costNanoUsd === null) throw stopForLedger();
+      if (answer.costNanoUsd === null) {
+        halted = stopForLedger();
+        throw tile ? stopForLedger(true) : halted;
+      }
       if (answer.costNanoUsd > prepared.boundNanoUsd || totalTokens > prepared.inputTokens + prepared.maxOutputTokens) {
         throw stopForBudget();
       }
       if (answer.schemaError) throw new TakeoffError({
         code: TakeoffErrorCode.AI_SCHEMA, retryable: false, jobId: job.id,
         message: "La réponse OpenAI n’a pas le format attendu pour le métré.",
+        ...(tile && { details: { paidUsage: totalTokens } }),
       });
       const tokenUsage = { inputTokens: answer.usage.input, reasoningTokens: answer.usage.reasoning,
         outputTokens: Math.max(0, answer.usage.output - answer.usage.reasoning), totalTokens };
@@ -160,15 +166,25 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
         tokenCount: tokenUsage.totalTokens, costCents: Math.floor(answer.costNanoUsd / TAKEOFF_NANO_USD_PER_CENT),
         promptVersion: options.context?.promptVersion ?? job.prompt_version ?? "" };
     } catch (error) {
-      if (tile && error instanceof TakeoffError && (error.details as { tileAttempted?: boolean } | null)?.tileAttempted) throw error;
+      const coverage = tile && error instanceof TakeoffError ? asRecord(error.details) : null;
+      if (coverage?.tileAttempted || typeof coverage?.paidUsage === "number") throw error;
       const apiError = isApiKeyError(error) ? error : null;
       const usage = apiError?.usage;
       const tokens = usage ? Math.max(usage.total, usage.input + usage.output) : apiError?.costNanoUsd === 0 ? 0 : null;
+      const attemptedTile = tile && callId !== null;
       try {
         await settle(apiError?.costNanoUsd ?? null, tokens);
       } catch {
         halted = stopForLedger();
-        throw halted;
+        throw attemptedTile ? stopForLedger(true) : halted;
+      }
+      if (attemptedTile && (apiError?.costNanoUsd == null || tokens === null)) {
+        halted = stopForLedger();
+        throw stopForLedger(true);
+      }
+      if (attemptedTile && usage && tokens !== null) {
+        throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId: job.id,
+          message: apiError?.message, details: { paidUsage: tokens, truncated: apiError?.code === "AI_KEY_OUTPUT_LIMIT" } });
       }
       halted = error instanceof TakeoffError ? error : takeoffPaymentError(apiError?.code === "AI_KEY_CHANGED" || apiError?.code === "AI_KEY_MISSING"
           ? TAKEOFF_API_CONNECTION_CHANGED : apiError?.message ?? "L’appel OpenAI du métré a été interrompu.", job.id);

@@ -632,16 +632,26 @@ create function pg_temp.detail_confirm(page_no integer) returns jsonb language s
   select jsonb_build_object('preview_digest', repeat('a',64), 'page', page_no, 'shown_sha256', repeat('c', 64),
     'setting', jsonb_build_object('model','autre-modele','reasoning_effort','high'))
 $$;
+create function pg_temp.api_host() returns text language sql immutable as $$ select 'urn:uuid:' || pg_temp.f(199) $$;
+create function pg_temp.api_selection() returns jsonb language sql immutable as $$
+  select jsonb_build_object('source','personal_api_key','model','personal_api_key','reasoningEffort',null,
+    'profileId',pg_temp.f(990),'authorizationId',pg_temp.f(990),'hostId',pg_temp.api_host())
+$$;
 create function pg_temp.detail_measure(page_no integer, round_no integer default 8, item_no integer default 300,
-  plan_no integer default 0, revision_no integer default 310, extra jsonb default '{}') returns table (outcome text, request_id uuid, job_id uuid, stale uuid[])
+  plan_no integer default 0, revision_no integer default 310, extra jsonb default '{}', api boolean default false)
+returns table (outcome text, request_id uuid, job_id uuid, stale uuid[])
 language sql as $$
   select launched.* from (select case when page_no is null then '[2,7]'::jsonb else jsonb_build_array(page_no) end as pages) scope
+  cross join lateral (select case when api then pg_temp.api_host() else pg_temp.host() end as host,
+    case when api then pg_temp.api_selection() else
+      pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}' end as selection) payer
   cross join lateral public.launch_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(2), pg_temp.f(702 + round_no),
-    pg_temp.job(1,pg_temp.plan(plan_no)), pg_temp.host(), pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}',
+    pg_temp.job(1,pg_temp.plan(plan_no)), payer.host, payer.selection,
     jsonb_set(jsonb_set(pg_temp.manifest(pg_temp.list(revision_no,array[item_no]),array[pg_temp.plan(plan_no)]),
       '{plans,0,pages}', scope.pages), '{units,0,pages}', scope.pages),
     jsonb_set(jsonb_set(pg_temp.snapshot(array[pg_temp.plan(plan_no)],2), '{preparation,sources,0,pages}', scope.pages),
-      '{execution_selection}', pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}'), pg_temp.jobs(round_no,array[pg_temp.plan(plan_no)]), pg_temp.f(40),1,
+      '{execution_selection}', payer.selection),
+    jsonb_set(pg_temp.jobs(round_no,array[pg_temp.plan(plan_no)]), '{0,execution_host_id}', to_jsonb(payer.host)), pg_temp.f(40),1,
     array[pg_temp.plan(plan_no)], pg_temp.targets(array[item_no],array[pg_temp.plan(plan_no)]), pg_temp.detail_confirm(page_no) || extra) as launched
 $$;
 select throws_ok($$select * from pg_temp.detail_measure(6)$$, '22023','TAKEOFF_LAUNCH_SEAL_INVALID','a page outside the preparation is refused');
@@ -1020,5 +1030,37 @@ select is(pg_temp.claim(pg_temp.job(16,pg_temp.plan(1)),918),1,'the whole-plan r
 select is((select outcome from public.reserve_takeoff_launch_call(pg_temp.job(16,pg_temp.plan(1)),pg_temp.f(918),
   'call:1','pdf',30000)),'reserved','the first ordinary call of the two-fragment reading is granted');
 select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(16,pg_temp.plan(1)),pg_temp.f(918),'call:1',100,0) \gset
+
+update public.takeoff_jobs set status = 'failed', analysis_outcome = 'failure', completed_at = clock_timestamp(),
+  error_code = 'AI_PROVIDER', processing_lease_token = null, processing_lease_expires_at = null
+where id = pg_temp.job(16,pg_temp.plan(1));
+select public.seal_takeoff_api_mandate(pg_temp.f(990),pg_temp.f(10),pg_temp.f(20),pg_temp.f(2),
+  jsonb_build_object('connectionId',pg_temp.f(991),'connectionVersion',1,'hostId',pg_temp.api_host(),
+    'model','gpt-6.1-terra','reasoningEffort','high','maxTokens',400000,'maxNanoUsd',25000000000::bigint));
+select is((select outcome from pg_temp.detail_measure(2,17,303,1,320,pg_temp.mark_option(array[700],array[2],4),true)),
+  'admitted','the detail command admits the opted-in reading with the acting member’s API mandate');
+create function pg_temp.claim_api_tile_job(token integer, observed text) returns bigint language sql as $$
+  select count(*) from public.claim_personal_api_takeoff_job(pg_temp.job(17,pg_temp.plan(1)),pg_temp.f(10),pg_temp.api_host(),
+    clock_timestamp(),pg_temp.f(token),clock_timestamp() + interval '30 minutes','gpt-6.1-terra','fixture',observed,0)
+$$;
+create function pg_temp.reserve_api_tile(token integer, tile text) returns uuid language sql as $$
+  select call_id from public.reserve_takeoff_api_call(pg_temp.job(17,pg_temp.plan(1)),pg_temp.f(10),pg_temp.f(20),
+    pg_temp.f(2),pg_temp.f(token),false,'count_tile',10000000,1000,false,tile)
+$$;
+select is(pg_temp.claim_api_tile_job(929,'pending'),1::bigint,'the first API attempt has its lease');
+select ok(pg_temp.reserve_api_tile(929,'tile:2:2') is not null,'a tile was reserved before the first attempt stopped');
+update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second'
+where id = pg_temp.job(17,pg_temp.plan(1));
+select public.recover_personal_api_takeoff_jobs(pg_temp.api_host());
+select is(pg_temp.claim_api_tile_job(919,'failed'),1::bigint,'the publishing attempt uses a new lease');
+select is(public.settle_takeoff_api_call(pg_temp.reserve_api_tile(919,'tile:2:1'),pg_temp.job(17,pg_temp.plan(1)),
+  pg_temp.f(10),pg_temp.f(20),pg_temp.f(2),pg_temp.f(919),5000000,500),true,'the new tile settles in the API ledger');
+select throws_ok($$select pg_temp.publish_one(17,303,1,jsonb_set(pg_temp.machine_result(),
+  '{provider_meta,count_marks,0,tiles,2}','"read"'))$$,'22023','TAKEOFF_MARKS_COVERAGE_INVALID',
+  'an API-funded publication cannot claim a tile that was never reserved');
+select is(pg_temp.publish_one(17,303,1,pg_temp.machine_result()),1,
+  'the settled API tile publishes with its proposal and the prior tile is recorded as unknown');
+select is((select count(*) from public.takeoff_count_mark_proposals where job_id = pg_temp.job(17,pg_temp.plan(1))),1::bigint,
+  'the API-funded proposal persists on the published answer');
 select * from finish();
 rollback;

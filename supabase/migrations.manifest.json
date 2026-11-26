@@ -406,6 +406,7 @@
     "20261126145712_material_request_original_workbooks.sql": "520a0893d22ee3f223225260e39ac9082ca21b8f6130a8a88eaf0eb0cdf056ea",
     "20261126154030_takeoff_retain_measure.sql": "9571b43647a5ea0b87f712500732890a14a0661aca513b21253fe4a733e571bf",
     "20261126160000_takeoff_personal_api_mandate.sql": "cd18f6c5d59fd7ccc082c4f6d7f0d2a587685decbfd6f55adeacb938169fbcba",
-    "20261126160001_validate_takeoff_personal_api_mandate.sql": "941e7d41f7ec6b03de52f9e9e7487d9ee227256ff5cbc7b661886add5b7b01e2"
+    "20261126160001_validate_takeoff_personal_api_mandate.sql": "941e7d41f7ec6b03de52f9e9e7487d9ee227256ff5cbc7b661886add5b7b01e2",
+    "20261126160002_takeoff_personal_api_mark_publication.sql": "541148a726a014b025503129041f1b0d33e59f62558c0e9bb8465d3e9e79bdee"
   }
 }
