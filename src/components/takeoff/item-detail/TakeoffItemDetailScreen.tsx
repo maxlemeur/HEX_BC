@@ -283,11 +283,15 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
           onConfirm={(value) => setPending({ ...pending!, value })} />
       ) : null}
       {active?.gesture === "enter_quantity" && active.value ? (
-        <EntryDialog projectId={projectId} viewScope={scope} onRefused={withdrawOnRefusal} busy={busy} onClose={close}
-          values={[{ line: active.line, ...active.value }]}
-          onConfirm={(entry, chosenScope, targets) => void runCommand({ ...base(active.line, active.intentKey), scope: chosenScope, targets, gesture: "enter_quantity",
-            values: [{ item_id: active.line.itemId, quantity: active.value!.quantity, unit: active.value!.unit }], entry }, "saisi",
-            pending)} />
+        <EntryDialog key={active.intentKey} projectId={projectId} viewScope={scope} onRefused={withdrawOnRefusal}
+          onClose={close} values={[{ line: active.line, ...active.value }]}
+          onFinished={(result, error) => {
+            setPending(null);
+            setNotice(error ? { tone: "danger", text: itemReviewStaleLines(error)
+              ? "Le poste a changé. Vérifiez la saisie après relecture."
+              : "La saisie n’a pas été confirmée. Vérifiez le poste après relecture." } : resultNotice(result, "saisi"));
+            refreshItem(active.line.itemId);
+          }} />
       ) : null}
     </div>
   );

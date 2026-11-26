@@ -251,13 +251,16 @@ export const itemSelectionRequestSchema = z.object({
   ]),
 }).strict();
 
+const entryFacts = entrySchema.pick({ quantity: true, unit: true, category: true, at: true, revision: true, note: true }).extend({ author: z.string() });
+
 export const itemSelectionResponseSchema = z.object({
   count,
   items: z.array(z.object({
     itemId: uuid,
     label: z.string(),
     target: itemReviewTargetSchema,
-    entryPlans: z.array(z.object({ key: planKey, name: z.string(), answerId: uuid, eligible: z.boolean() })).optional(),
+    entryPlans: z.array(z.object({ key: planKey, name: z.string(), answerId: uuid, eligible: z.boolean(), entry: entryFacts.nullable() })).optional(),
+    wholeEntry: entryFacts.nullable().optional(),
     eligible: z.array(z.enum(ITEM_REVIEW_GESTURES)).describe("Gestes qui s’appliquent à ce poste, décidés de nouveau à la commande."),
   }).strict()),
   eligible: z.object(Object.fromEntries(ITEM_REVIEW_GESTURES.map((gesture) => [gesture, count])) as

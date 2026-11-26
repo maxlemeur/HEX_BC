@@ -90,6 +90,10 @@ const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3
 export const formatItemQuantity = (quantity: number, unit: string | null) =>
   `${quantityFormat.format(quantity)}${unit ? ` ${unit}` : ""}`;
 
+// Preserve every significant digit of the number carried by the review command.
+const entryFormat = new Intl.NumberFormat("fr-FR", { maximumSignificantDigits: 21 });
+export const formatEntryQuantity = (quantity: number, unit: string) => `${entryFormat.format(quantity)} ${unit}`;
+
 const percentFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2, signDisplay: "exceptZero" });
 export const formatItemPercent = (percent: number) => `${percentFormat.format(percent)} %`;
 

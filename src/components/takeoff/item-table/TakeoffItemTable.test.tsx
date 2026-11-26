@@ -324,7 +324,9 @@ describe("TakeoffItemTable", () => {
     client.sendItemReviewCommand.mockResolvedValue({ outcome: "applied", applied: [], skipped: [] });
     const { rerenderWith } = renderTable({ signature: "a" });
     await screen.findByRole("row", { name: /Baignoire/ });
-    expect(screen.queryByRole("textbox", { name: "Quantité saisie pour « WC »" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Quantité saisie pour « Lavabo »" })).not.toBeInTheDocument();
+    // WC is measured on RDC but absent on R+1. The latter plan now admits a typed value.
+    expect(screen.getByRole("textbox", { name: "Quantité saisie pour « WC »" })).toBeEnabled();
     fireEvent.change(screen.getByRole("textbox", { name: "Quantité saisie pour « Baignoire »" }), { target: { value: "1" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Quantité saisie pour « Vanne DN32 »" }), { target: { value: "2,5" } });
 
@@ -727,4 +729,32 @@ it("shows a whole-affaire entry and its priority per poste before confirming the
   fireEvent.click(dialog.getByRole("button", { name: "Remplacer la saisie" }));
   await waitFor(() => expect(client.sendItemReviewCommand).toHaveBeenCalledOnce());
   expect(client.sendItemReviewCommand.mock.calls[0][1].targets).toEqual([line.targets]);
+});
+
+it("resumes a two-plan batch at the uncertain group, using the same intention only for that group", async () => {
+  const data = table({ readings: SCENARIO.filter(r => !(r.itemId === fixtureItemId(3) && r.planKey === R1)
+    && !(r.itemId === fixtureItemId(4) && r.planKey === RDC)) });
+  client.fetchItemTable.mockResolvedValue(data);
+  const result = (index: number) => ({ outcome: "applied", applied: [{ itemId: fixtureItemId(index), label: ITEMS[index].label, answers: 1 }], skipped: [] });
+  client.sendItemReviewCommand.mockResolvedValueOnce(result(3)).mockRejectedValueOnce(new TypeError("lost")).mockResolvedValueOnce(result(4));
+  renderTable();
+  for (const name of ["Baignoire", "Vanne DN32"]) {
+    fireEvent.change(await screen.findByLabelText(`Quantité saisie pour « ${name} »`), { target: { value: "2" } });
+  }
+  fireEvent.click(screen.getByText("Enregistrer les saisies (2)"));
+  const dialog = within(await screen.findByRole("dialog"));
+  const choice = dialog.getByRole("option", { name: "Chaque valeur sur son plan" }) as HTMLOptionElement;
+  fireEvent.change(dialog.getByLabelText("Portée de la saisie"), { target: { value: choice.value } });
+  expect(dialog.getByLabelText("Plan pour Baignoire")).toHaveValue(RDC);
+  expect(dialog.getByLabelText("Plan pour Vanne DN32")).toHaveValue(R1);
+  fireEvent.change(dialog.getByLabelText("Ce qui fonde ces quantités"), { target: { value: "site_survey" } });
+  fireEvent.click(dialog.getByRole("button", { name: "Enregistrer" }));
+  expect(await dialog.findByRole("alert")).toHaveTextContent("Valeurs déjà confirmées : 1");
+  fireEvent.click(dialog.getByRole("button", { name: "Réessayer la même saisie" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const commands = client.sendItemReviewCommand.mock.calls.map(call => call[1]);
+  expect(commands.map(c => c.scope.planKey)).toEqual([RDC, R1, R1]);
+  expect(commands[2]).toEqual(commands[1]);
+  expect(commands[0].intent_key).not.toBe(commands[1].intent_key);
+  expect(screen.getByTestId("poste-notice")).toHaveTextContent("2 postes saisis");
 });

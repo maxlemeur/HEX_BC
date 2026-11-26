@@ -1,5 +1,6 @@
 "use client";
 
+import { canChooseEntryScope } from "@/lib/takeoff/item-entry-choice";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -686,7 +687,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                       const sourceFind = sourceByItem.get(line.itemId);
                       const focused = line.itemId === focusId;
                       const open = expanded[line.itemId] === true;
-                      const entryOpen = canReview && line.eligibility.enter_quantity.eligible;
+                      const entryOpen = canReview && canChooseEntryScope(line);
                       const typedQuantity = draft?.quantity ?? "";
                       const typedUnit = draft?.unit ?? "";
                       const quantityUnreadable = typedQuantity.trim() !== "" && parseDecimal(typedQuantity) === null;
@@ -888,15 +889,23 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
           onConfirm={() => void runCommand({ ...base(dialog.intentKey), gesture: "reinstate" }, "réintégré", dropApplied)} />
       ) : null}
       {dialog?.gesture === "entry" ? (
-        <EntryDialog projectId={projectId} viewScope={address.scope} onRefused={withdrawOnRefusal} busy={busy} values={entryValues} onClose={() => setDialog(null)}
-          onConfirm={(entry, scope, targets, values) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: dialog.intentKey,
-            scope, gesture: "enter_quantity", targets,
-            values: values.map(({ line, quantity, unit }) => ({ item_id: line.itemId, quantity, unit })), entry }, "saisi",
-          (result) => setDrafts((current) => {
-            const copy = { ...current };
-            for (const { itemId } of result.applied) delete copy[itemId];
-            return copy;
-          }))} />
+        <EntryDialog key={screenKey + dialog.intentKey} projectId={projectId} viewScope={address.scope}
+          onRefused={withdrawOnRefusal} values={entryValues} onClose={() => setDialog(null)}
+          onFinished={(result, error) => {
+            setDrafts(current => {
+              const next = { ...current };
+              for (const { itemId } of result.applied) delete next[itemId];
+              return next;
+            });
+            setDialog(null);
+            if (error && result.applied.length) {
+              setNotice({ tone: "danger", text: `${resultNotice(result, "saisi").text} Les autres valeurs restent à vérifier après relecture.` });
+              void readDraftTargets(Object.keys(drafts));
+            } else if (error) {
+              void failure(error, selection);
+            } else setNotice(resultNotice(result, "saisi"));
+            void refresh();
+          }} />
       ) : null}
       {/* Withdrawn on the freshest read of the table: another scope, the right gone, or its plan now sent. */}
       {sending && sending.scope === scopeKey && canReview && !sends.some((send) => send.jobId === sending.jobId && send.sent) ? (

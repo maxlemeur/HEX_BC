@@ -171,6 +171,7 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
   const unavailable = currentAnswer?.outcome === "uncertain" && (currentAnswer.uncertainty?.planUnavailable
     || (plan?.document.kind === "unavailable" && plan.document.reason === "not_available_to_you"));
   const answer = unavailable ? null : currentAnswer;
+  const wholeEntry = line.wholeEntry ?? (line.entry?.scope === "affaire" ? line.entry : null);
   const canEnter = decide.offer("enter_quantity");
   const uncertainty = answer?.outcome === "uncertain" ? describeItemUncertainty(answer, line.expectedUnit,
     !reading?.sent && reading?.decision?.kind !== "set_aside" && (canEnter.offered || canEnter.reason !== "reader")) : null;
@@ -291,8 +292,8 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
         <p>Observé : {line.observed ? `${formatItemQuantity(line.observed.quantity, line.observed.unit)}${line.observed.partial ? " (partiel)" : ""}` : "—"}</p>
         {reading?.verifiedMarks?.verified ? <p>{reading.verifiedMarks.quantity === null ? "Repères vérifiés, sans quantité" :
           `Comptage vérifié${showPosteDecision && reading.quantityDecision?.source === "verified_count" && reading.decision?.kind === "accepted" ? " retenu" : ""} · ${formatItemQuantity(reading.verifiedMarks.quantity, reading.verifiedMarks.unit)}`}</p> : null}
-        {line.wholeEntry ? <p>Total saisi pour toute l’affaire · {formatItemQuantity(line.wholeEntry.quantity, line.wholeEntry.unit)}.
-          {" "}{line.wholeEntry.included ? "Ce total va au devis." : "Cette hypothèse attend son inclusion."} Pour le modifier, ouvrez le total de l’affaire.</p> : null}
+        {wholeEntry ? <p>Total saisi pour toute l’affaire · {formatItemQuantity(wholeEntry.quantity, wholeEntry.unit)}.
+          Ce total ne part avec aucun plan. Vous pouvez le rattacher à un plan ou retirer la saisie de l’affaire.</p> : null}
         {showPosteDecision && <p>Retenu : {line.retained ? `${formatItemQuantity(line.retained.quantity, line.retained.unit)}${line.retained.partial ? " (partiel)" : ""}` : "—"}</p>}
         {line.reasons.length ? <p className="text-xs">{[...new Set(line.reasons.map(itemReasonLabel))].join(" · ")}</p> : null}
       </Section>

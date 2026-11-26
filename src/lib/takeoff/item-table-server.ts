@@ -1,6 +1,6 @@
 import "server-only";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
-import { entryPlans } from "./item-entry-choice";
+import { entryPlans, entryFacts } from "./item-entry-choice";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -512,7 +512,11 @@ export async function freezeAffaireItemSelection(projectId: string, input: {
     if (Math.max(rows.length, rows[0]?.matching_items ?? 0) > ITEM_REVIEW_LIMITS.items) throw new RangeError(ITEM_SELECTION_TOO_LARGE);
     const lines = buildItemLines(await tableRows(access, rows, input.scope), { plans: [], scope: input.scope });
     const frozen = freezeItemSelection(lines, input.selection.kind === "items" ? input.selection.itemIds : null);
-    return input.entryPlans ? { ...frozen, items: frozen.items.map((item, index) => ({ ...item, entryPlans: entryPlans(lines[index]) })) } : frozen;
+    if (!input.entryPlans) return frozen;
+    const names = await memberNames(access.context.supabase as unknown as Client, lines);
+    return { ...frozen, items: frozen.items.map((item, index) => ({
+      ...item, entryPlans: entryPlans(lines[index], names), wholeEntry: entryFacts(lines[index].entry, names),
+    })) };
   } catch (error) {
     if (error instanceof RangeError) throw unprocessableEntity(error.message, undefined, "TAKEOFF_ITEM_SELECTION_TOO_LARGE");
     throw error;

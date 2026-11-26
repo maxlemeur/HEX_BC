@@ -9,7 +9,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import type { EntryScopeCommand, EntryScopeResult } from "@/lib/takeoff/entry-scope-contracts";
 import { fetchItemLine, sendEntryScope } from "@/lib/takeoff/item-table-client";
 import type { ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
-import { formatItemQuantity } from "@/lib/takeoff/item-table-labels";
+import { formatEntryQuantity } from "@/lib/takeoff/item-table-labels";
 import { QUANTITY_ENTRY_CATEGORIES } from "@/lib/takeoff/quantity-entry";
 
 const titles = { attach: "Rattacher cette saisie à un plan", withdraw: "Retirer la saisie de l’affaire" };
@@ -65,7 +65,7 @@ function ScopeDialog({ snapshot, projectId, onRefused, close }: {
   const collision = result?.outcome === "collision" ? result.entry : null;
   useEffect(() => { if (collision) cancel.current?.focus(); }, [collision]);
   const refused = result && result.outcome in messages ? messages[result.outcome as keyof typeof messages] : null;
-  const dismiss = () => { if (!sending.current) close(!!refused); };
+  const dismiss = () => { if (!sending.current) close(!!refused || !!error); };
   async function submit(replace = false) {
     if (sending.current || refused || (action === "attach" && !plan) || (replace !== !!collision)) return;
     const base = { entry_revision: source.revision, intent_key: intent };
@@ -92,12 +92,12 @@ function ScopeDialog({ snapshot, projectId, onRefused, close }: {
     <DialogContent size="sm">
       <DialogHeader>
         <DialogTitle>{titles[action]}</DialogTitle>
-        <DialogDescription>Total de toute l’affaire · {formatItemQuantity(source.quantity, source.unit)} · {QUANTITY_ENTRY_CATEGORIES[source.category]}
+        <DialogDescription>Total de toute l’affaire · {formatEntryQuantity(source.quantity, source.unit)} · {QUANTITY_ENTRY_CATEGORIES[source.category]}
           {source.note && ` · ${source.note}`}</DialogDescription>
       </DialogHeader>
       {action === "attach" && <Field>
         <FieldLabel htmlFor={field}>Plan de destination</FieldLabel>
-        <NativeSelect id={field} value={key} disabled={busy || !!collision || !!refused}
+        <NativeSelect id={field} value={key} disabled={busy || !!collision || !!refused || !!error}
           onChange={e => { setKey(e.target.value); setIntent(crypto.randomUUID()); setError(""); }}>
           <option value="">Choisir un plan…</option>
           {plans.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
@@ -107,7 +107,7 @@ function ScopeDialog({ snapshot, projectId, onRefused, close }: {
       {action === "withdraw" && <p>Le poste retrouvera la quantité issue de ses lectures.</p>}
       {collision && <div role="status">
         <p>Une saisie existe déjà sur « {plan?.name} ».</p>
-        <p>{formatItemQuantity(collision.quantity, collision.unit)} · {QUANTITY_ENTRY_CATEGORIES[collision.category]}
+        <p>{formatEntryQuantity(collision.quantity, collision.unit)} · {QUANTITY_ENTRY_CATEGORIES[collision.category]}
           {" · "}{collision.author}, le {date.format(new Date(collision.entered_at))}</p>
       </div>}
       {(refused || error) && <p role="alert">{refused || error}</p>}

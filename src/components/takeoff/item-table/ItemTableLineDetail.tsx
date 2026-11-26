@@ -87,6 +87,7 @@ export function ItemTableLineDetail({ line, projectId, viewerKey, names, canRevi
 }) {
   return (
     <div className="space-y-3 py-2" data-testid={`poste-detail-${line.itemId}`}>
+      {(line.entry?.scope === "affaire" || line.wholeEntry) && <p>Le total saisi pour toute l’affaire ne part avec aucun plan. Vous pouvez le rattacher à un plan ou retirer la saisie de l’affaire.</p>}
       {line.entry ? (
         <div className="space-y-1">
           <EntryFacts entry={line.entry} names={names} />
@@ -151,8 +152,6 @@ export function ItemTableLineDetail({ line, projectId, viewerKey, names, canRevi
                     ) : null}
                     {reading.verifiedMarks?.verified ? <p>{reading.verifiedMarks.quantity === null ? "Repères vérifiés, sans quantité" :
                       `Comptage vérifié${reading.quantityDecision?.source === "verified_count" && reading.decision?.kind === "accepted" ? " retenu" : ""} · ${formatItemQuantity(reading.verifiedMarks.quantity, reading.verifiedMarks.unit)}`}</p> : null}
-                    {line.wholeEntry && reading.verifiedMarks ? <p>Total saisi pour toute l’affaire · {formatItemQuantity(line.wholeEntry.quantity, line.wholeEntry.unit)}.
-                      {" "}{line.wholeEntry.included ? "Ce total va au devis." : "Cette hypothèse attend son inclusion."} Pour le modifier, ouvrez le total de l’affaire.</p> : null}
                     {canReview && line.quantityOptions ? <ItemQuantityChoiceButtons options={line.quantityOptions} disabled={busy}
                       onChoose={onChooseQuantity} /> : null}
                     {reading.decision ? (

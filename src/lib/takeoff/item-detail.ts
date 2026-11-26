@@ -1,3 +1,4 @@
+import { canChooseEntryScope } from "@/lib/takeoff/item-entry-choice";
 import type { ItemTableLineResponse, ItemTableResponse, ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
 
 /**
@@ -116,6 +117,7 @@ export function itemDetailGestureOffer(input: { line: ItemDetailLine; choice: It
   if (input.choice.kind === "reading" && !input.choice.current) return { offered: false, reason: "earlier_reading" };
   if (gesture === "accept_measured" && input.line.quantityOptions && input.choice.kind === "reading"
     && (input.line.quantityOptions.allowCount || input.line.quantityOptions.allowAlternative)) return { offered: true };
+  if (gesture === "enter_quantity" && canChooseEntryScope(input.line)) return { offered: true };
   const eligibility = input.line.eligibility[gesture];
   return eligibility.eligible ? { offered: true } : { offered: false, reason: "ineligible", ineligibility: eligibility.reason };
 }
