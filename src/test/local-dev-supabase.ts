@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,26 +10,21 @@ import { createClient } from "@supabase/supabase-js";
 import { reserveAppPort, type AppPortLease } from "../../scripts/tester-army/app-port";
 import type { Database } from "@/types/database";
 import {
+  entry, localDevStackDirectory, localDevStackRegistryId, privateDirectory, readFile, readOwner, readPrivateJson,
+  registryIdPattern, sha256, type OwnerRecord,
+} from "./local-dev-supabase-owner";
+import {
   assertNativeRuntimeHost, currentNativeRuntimeHost, describeSafeFailure, parseLocalSupabaseStatus, prepareNativeStackConfig,
   type LocalSupabaseStatus,
 } from "./local-supabase-ci";
-import { acquireNativeStackSlot, nativeStackWaitMs } from "./native-stack-guard";
+import { acquireNativeStackSlot } from "./native-stack-guard";
 import { assertNoRemoteSupabaseEnvironment, createLocalCiEnvironment, resolveSupabaseCli, type SupabaseEnvironment } from "./supabase-cli";
 import { hashSupabaseMigrationContents, parseSupabaseMigrationList, validateAppliedMigrationRows } from "./supabase-migrations";
 
 const envFile = ".env.supabase.local";
 const usage = "Usage: npm run supabase:local -- start [--checkout PATH] | status | stop | destroy --yes";
 const rebuild = "Back up any data you need before rebuilding with `npm run supabase:local -- destroy --yes` and then `npm run supabase:local -- start`.";
-const registryIdPattern = /^[a-f0-9]{64}$/;
 const migrationNamePattern = /^(?:\d{3}|\d{8}|\d{14})_[a-z0-9_]+\.sql$/;
-
-interface OwnerRecord {
-  projectId: string;
-  ports: Record<number, number>;
-  configHash: string;
-  registryId?: string;
-  applied?: Record<string, string>;
-}
 
 interface Login { email: string; password: string; }
 
@@ -40,27 +35,9 @@ interface Dependencies {
   log: (message: string) => void;
   assertIgnored: (directory: string) => void;
   prepareConfig: (checkout: string, projectId: string) => ReturnType<typeof prepareNativeStackConfig>;
-  acquireStart: (project: string, ports: number[]) => Promise<() => void>;
+  acquireStart: (ports: number[]) => Promise<() => void>;
   ensureAccount: (status: LocalSupabaseStatus, login: Login) => Promise<void>;
   cli: (command: string[], workdir: string) => string | null;
-}
-
-const sha256 = (content: string) => createHash("sha256").update(content).digest("hex");
-const entry = (file: string) => fs.lstatSync(file, { throwIfNoEntry: false });
-
-function privateDirectory(directory: string) {
-  const stat = entry(directory);
-  if (!stat?.isDirectory() || stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o700) {
-    throw new Error(`Expected an owned directory with mode 0700 at ${directory}.`);
-  }
-}
-
-function readFile(file: string, privateFile = false) {
-  const stat = entry(file);
-  if (!stat?.isFile() || (privateFile && (stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o600))) {
-    throw new Error(`Expected a regular${privateFile ? ", owned, mode-0600" : ""} file at ${file}.`);
-  }
-  return fs.readFileSync(file, "utf8");
 }
 
 function writePrivateFile(file: string, text: string) {
@@ -81,14 +58,6 @@ function writePrivateFile(file: string, text: string) {
 
 const writeJson = (file: string, value: unknown) => writePrivateFile(file, `${JSON.stringify(value, null, 2)}\n`);
 
-function readPrivateJson<T>(file: string): T {
-  try {
-    return JSON.parse(readFile(file, true)) as T;
-  } catch {
-    throw new Error(`Expected valid JSON in an owned mode-0600 file at ${file}.`);
-  }
-}
-
 function checkoutDestination(checkout: string, assertIgnored: Dependencies["assertIgnored"]) {
   assertIgnored(checkout);
   const file = path.join(checkout, envFile);
@@ -99,18 +68,6 @@ function checkoutDestination(checkout: string, assertIgnored: Dependencies["asse
     }
   }
   return file;
-}
-
-function readOwner(file: string): OwnerRecord {
-  const owner = readPrivateJson<OwnerRecord>(file);
-  if (!owner || !/^mergeone-dev-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(owner.projectId) ||
-    !/^[a-f0-9]{64}$/.test(owner.configHash) ||
-    !owner.ports || !Object.hasOwn(owner.ports, 54321) ||
-    Object.values(owner.ports).some((port) => !Number.isInteger(port) || port < 1024 || port > 65535) ||
-    (owner.registryId !== undefined && !registryIdPattern.test(owner.registryId))) {
-    throw new Error("Cannot establish the persistent Supabase stack identity from its owner record.");
-  }
-  return owner;
 }
 
 function nativeRegistryId(registry: string, project: string, expectedId?: string) {
@@ -229,16 +186,13 @@ function defaultDependencies(): Dependencies {
       }
     },
     prepareConfig: (root, id) => prepareNativeStackConfig(path.join(root, "supabase"), id, new Set([3000, 3001, 3107])),
-    acquireStart: async (project, ports) => {
+    acquireStart: async (ports) => {
       assertNativeRuntimeHost(currentNativeRuntimeHost());
-      const slot = await acquireNativeStackSlot({ label: "persistent local Supabase", waitMs: nativeStackWaitMs() });
       const leases: AppPortLease[] = [];
       const release = () => {
         for (const lease of leases) lease.release();
-        slot.release();
       };
       try {
-        slot.recordStack(project);
         for (const port of ports) leases.push(reserveAppPort({ port, label: "persistent local Supabase startup" }));
         return release;
       } catch (error) {
@@ -285,7 +239,7 @@ export async function runLocalDevSupabase(args: string[], dependencies = default
   const { cli, log } = dependencies;
   const checkout = fs.realpathSync(dependencies.checkout);
   const home = fs.realpathSync(dependencies.homeDirectory);
-  const base = path.join(home, ".supabase", "mergeone-dev");
+  const base = localDevStackDirectory(home);
   const active = path.join(base, "active");
   const registry = path.join(home, ".supabase", "stacks");
   const loginFile = path.join(active, "login.json");
@@ -354,14 +308,20 @@ export async function runLocalDevSupabase(args: string[], dependencies = default
     const login = readPrivateJson<Login>(loginFile);
     if (!login || typeof login.email !== "string" || typeof login.password !== "string") throw new Error("Invalid private login file.");
     if (!output) {
-      const release = await dependencies.acquireStart(project, Object.values(owner.ports));
+      const release = await dependencies.acquireStart(Object.values(owner.ports));
       try {
+        if (!owner.registryId) {
+          // The host can appear before start returns its confirmed registry ID.
+          owner.pendingRegistryId = localDevStackRegistryId(project);
+          writeJson(ownerFile, owner);
+        }
         cli(["start", "--runtime", "native"], project);
       } finally {
         try {
           registered = nativeRegistryId(registry, project, owner.registryId);
           if (registered && !owner.registryId) {
             owner.registryId = registered;
+            delete owner.pendingRegistryId;
             writeJson(ownerFile, owner);
           }
         } finally {
@@ -372,6 +332,7 @@ export async function runLocalDevSupabase(args: string[], dependencies = default
     }
     if (!output || !registered) throw new Error("Supabase did not report an active owned native stack.");
     owner.registryId = registered;
+    delete owner.pendingRegistryId;
     writeJson(ownerFile, owner);
     const status = checkedStatus(output, owner);
     const needsAccount = !entry(path.join(active, "account-ready"));
