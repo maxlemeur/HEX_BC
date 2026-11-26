@@ -357,7 +357,8 @@ describe("TesterArmy critical impact map", () => {
       "e2e/army/local/chatgpt-local-intake-support.ts", "e2e/fixtures/word/intake-word.docx"]) {
       expect(select([intake]).files, intake).toEqual(expect.arrayContaining(CHATGPT_INTAKE));
     }
-    for (const shared of ["scripts/dev-chatgpt-local.mjs", "e2e/army/local/chatgpt-server-support.ts", "e2e/fixtures/sample-plan.pdf",
+    for (const shared of ["scripts/dev-chatgpt-local.mjs", "scripts/dev-supabase-env.mjs", "scripts/dev-local.mjs",
+      "e2e/army/local/chatgpt-server-support.ts", "e2e/fixtures/sample-plan.pdf",
       "src/app/dashboard/estimates/new/page.tsx", "src/app/dashboard/affaires/page.tsx", "src/app/dashboard/affaires/[projectId]/page.tsx",
       "src/app/dashboard/affaires/[projectId]/plans/page.tsx", "src/components/takeoff/TakeoffPreparationPanel.tsx"]) {
       expect(fileSet.has(shared), shared).toBe(true);

@@ -35,6 +35,7 @@ const tokenSchema = z.object({
 });
 
 export function isLocalChatGptEnabled() {
+  if (process.env.MERGEONE_DEV_SUPABASE_TARGET === "production") return false;
   // Development enables the personal integration. The host allowlist is separate.
   // Test/CLI opt-in remains explicit; a production build can never enable it.
   return process.env.NODE_ENV === "development" ||

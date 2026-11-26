@@ -7,7 +7,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import {
   assertLocalChatGptHost, beginLocalChatGptSignIn, relayLocalChatGptCallback, disconnectLocalChatGpt,
-  finishLocalChatGptSignIn, getLocalChatGptCredential, getLocalChatGptState,
+  finishLocalChatGptSignIn, getLocalChatGptCredential, getLocalChatGptState, isLocalChatGptEnabled,
 } from "@/lib/ai/chatgpt-local-auth";
 import { readChatGptStore, saveChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 
@@ -47,6 +47,13 @@ async function authorize(target: ChatGptOwner = owner, profileId?: string, claim
 }
 
 describe("local ChatGPT authorization", () => {
+  it("disables local ChatGPT and its recovery workers when dev targets production", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("MERGEONE_DEV_SUPABASE_TARGET", "production");
+    expect(isLocalChatGptEnabled()).toBe(false);
+    vi.stubEnv("MERGEONE_DEV_SUPABASE_TARGET", "local");
+    expect(isLocalChatGptEnabled()).toBe(true);
+  });
   it("accepts an opaque issued client ID when the signed token audience matches", async () => {
     const { start, callback } = await authorize(owner, undefined, {}, "agent_fixture_opaque");
     await finishLocalChatGptSignIn(owner, callback, start.state);

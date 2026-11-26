@@ -12,6 +12,14 @@ import { createReloadLoopMonitor } from "../../scripts/dev-chatgpt-local.mjs";
 const launch = promisify(execFile);
 const launcher = fileURLToPath(new URL("../../scripts/dev-chatgpt-local.mjs", import.meta.url));
 
+const localEnv: NodeJS.ProcessEnv = {
+  ...process.env,
+  NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: "fixture-anon",
+  SUPABASE_SERVICE_ROLE_KEY: "",
+  E2E_ARMY: "",
+};
+
 async function launchWithNextOutput(output: string, waitForSignal: boolean) {
   const cwd = await mkdtemp(join(tmpdir(), "mergeone-dev-chatgpt-"));
   try {
@@ -30,7 +38,7 @@ async function launchWithNextOutput(output: string, waitForSignal: boolean) {
       setTimeout(() => process.stdout.write(output.slice(boundary)), 30);
     `);
     try {
-      const result = await launch(process.execPath, [launcher], { cwd, timeout: 3000 });
+      const result = await launch(process.execPath, [launcher], { cwd, env: localEnv, timeout: 3000 });
       return { ...result, code: 0 };
     } catch (error) {
       const result = error as { stdout: string; stderr: string; code: number | null };
@@ -100,6 +108,16 @@ describe("dev:chatgpt reload-loop guard", () => {
     expect(observe(compile, 13_750)).toEqual({ pathname: "/dashboard", count: 11, windowMs: 15_000 });
   });
 
+  it("stops a hosted page flood even without compile lines", () => {
+    const observe = createReloadLoopMonitor({ hosted: true });
+    for (let i = 0; i < 19; i++) {
+      expect(observe(request("/dashboard/affaires"), i * 160)).toBeUndefined();
+    }
+    expect(observe(request("/dashboard/affaires"), 19 * 160)).toEqual({
+      pathname: "/dashboard/affaires", count: 20, windowMs: 15_000,
+    });
+  });
+
   it("catches six paired renders thirty seconds apart, even with slow responses", () => {
     const observe = createReloadLoopMonitor();
     for (let i = 0; i < 5; i++) {
@@ -138,7 +156,7 @@ function cacheNotices(stderr: string) {
 async function withCacheFixture(run: (fixture: {
   cwd: string;
   cacheDir: string;
-  start: (preload?: string) => Promise<{ stdout: string; stderr: string }>;
+  start: (preload?: string, args?: string[], env?: NodeJS.ProcessEnv) => Promise<{ stdout: string; stderr: string }>;
   commit: () => Promise<unknown>;
 }) => Promise<void>) {
   const cwd = await mkdtemp(join(tmpdir(), "mergeone-dev-cache-"));
@@ -160,9 +178,9 @@ async function withCacheFixture(run: (fixture: {
       fs.mkdirSync(cache, { recursive: true });
       fs.writeFileSync(entry, "fixture cache");
     `);
-    const start = (preload?: string) => launch(process.execPath, [
-      ...(preload ? ["--require", preload] : []), launcher,
-    ], { cwd, timeout: 3500 });
+    const start = (preload?: string, args: string[] = [], env = localEnv) => launch(process.execPath, [
+      ...(preload ? ["--require", preload] : []), launcher, ...args,
+    ], { cwd, env, timeout: 3500 });
     await run({ cwd, cacheDir, start, commit });
   } finally {
     await rm(cwd, { recursive: true, force: true });
@@ -204,6 +222,22 @@ describe("dev:chatgpt Turbopack cache reuse", () => {
         await expect(readFile(join(cwd, path, "keep"), "utf8")).resolves.toBe("untouched");
       }
       expect((await start()).stdout).toContain("warm cache");
+    });
+  });
+
+  it("does not reuse a Turbopack cache across Supabase targets", async () => {
+    await withCacheFixture(async ({ cacheDir, start }) => {
+      await start();
+      const hosted = {
+        ...localEnv,
+        NEXT_PUBLIC_SUPABASE_URL: "https://project-fixture.supabase.co",
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: "fixture-public-production",
+      };
+      const args = ["--supabase=production"];
+      expect((await start(undefined, args, hosted)).stdout).toContain("cold cache");
+      expect((await readFile(join(cacheDir, stampName), "utf8"))).not.toContain(hosted.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+      expect((await start(undefined, args, hosted)).stdout).toContain("warm cache");
+      expect((await start()).stdout).toContain("cold cache");
     });
   });
 

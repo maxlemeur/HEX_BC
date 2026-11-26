@@ -37,12 +37,14 @@ nécessaire pour la reprise locale des tâches expirées et du dossier. Sur une 
 qui ne l’a pas reçue, la reprise échoue sans appeler les anciennes fonctions de
 reprise Gemini ; ne l’appliquer à une base partagée qu’après autorisation séparée.
 
-1. Utiliser le Node de `.nvmrc`, puis lancer `npm run dev` ou `npm run dev:chatgpt`.
-   `dev:chatgpt` écoute sur `127.0.0.1`. Un autre écoute n’est possible qu’avec
-   `--hostname` (ou `-H`) explicite.
+1. Utiliser le Node de `.nvmrc`, préparer la [configuration Supabase locale](../../README.md#démarrer)
+   et lancer `npm run dev:chatgpt`. Le serveur écoute sur `127.0.0.1` par défaut.
+   Pour écouter sur une autre adresse de développement, préciser `--hostname`
+   (ou `-H`). Le mode Supabase de production est réservé à la consultation et
+   désactive l’intégration ChatGPT locale.
 2. Ouvrir `http://127.0.0.1:3000/dashboard/profile` (ou `localhost` sur le même port)
    et se connecter à MergeOne. Si le port 3000 est occupé, utiliser
-   `npm run dev -- --port 3015` et ouvrir cette même adresse avec le port 3015.
+   `npm run dev:chatgpt -- --port 3015` et ouvrir cette même adresse avec le port 3015.
    Conserver la même adresse pendant le parcours OAuth.
 3. Dans **Accès IA › Abonnement ChatGPT**, choisir **Continue with ChatGPT** et consentir
    à l’utilisation du forfait avec un compte éligible. MergeOne sélectionne
@@ -207,9 +209,8 @@ mandat ChatGPT et son budget de lancement.
   route d’après l’en-tête `Host` et le protocole transmis ; ni l’un ni l’autre ne
   prouve l’interlocuteur réseau, et un proxy ou une redirection de port peut les
   faire diverger. C’est la décision du navigateur qui garde la clé hors du réseau ;
-  un client qui forge ces en-têtes n’expose que sa propre clé. `npm run dev`
-  (Next seul) écoute sur toutes les interfaces, `npm run dev:chatgpt` sur
-  `127.0.0.1`.
+  un client qui forge ces en-têtes n’expose que sa propre clé. Les deux
+  commandes de développement écoutent sur `127.0.0.1` par défaut.
   Le serveur lit le catalogue `GET /v1/models` (ni pièce jointe ni génération) ;
   accepté, l’état devient « Clé reconnue » et les modèles qualifiés que la clé
   liste sont retenus. Si OpenAI refuse la liste sans refuser la clé (403, ou 401

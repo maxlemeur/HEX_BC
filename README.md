@@ -8,28 +8,32 @@ Le code utilise Next.js App Router, React, TypeScript, Supabase et Tailwind ;
 ## Démarrer
 
 1. Utiliser le Node indiqué dans [`.nvmrc`](.nvmrc) : `26.12.1`.
-2. Installer les dépendances et préparer la configuration locale :
+2. Installer les dépendances avec `npm ci`. Préparer une pile Supabase locale
+   migrée en suivant [le guide Supabase](supabase/README.md).
+3. Dans le fichier ignoré `.env.supabase.local`, renseigner ensemble
+   `NEXT_PUBLIC_SUPABASE_URL` (par exemple `http://127.0.0.1:54321`) et
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY` avec les valeurs de la pile. Ajouter
+   `SUPABASE_SERVICE_ROLE_KEY` de cette même pile uniquement si nécessaire.
+   Utiliser les valeurs complètes dans ce fichier.
+4. Lancer `npm run dev`, ouvrir `http://localhost:3000/login` et se connecter
+   avec un compte de la pile locale. Une configuration Supabase locale existante
+   peut aussi venir des variables du shell ou d’un fichier Next habituel.
+   Le lanceur refuse une URL distante dans ce mode.
 
-   ```bash
-   npm ci
-   cp .env.example .env.local
-   ```
+Pour une pile jetable et des comptes de recette, suivre [le guide TesterArmy](docs/testing/tester-army-local-development.md).
+`GET /api/health` renvoie `200` et `db: "up"` si la base répond.
 
-3. Renseigner `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   pour une base autorisée et migrée. Ces deux valeurs initialisent les clients ;
-   elles ne suffisent pas aux opérations privilégiées, à l'IA ou à l'envoi d'emails.
-   Les variables et leurs options sont décrites dans [`.env.example`](.env.example).
-4. Lancer `npm run dev`, ouvrir `http://localhost:3000/login` et utiliser un compte
-   disposant d'une adhésion au tenant visé. `GET /api/health` renvoie `200` et
-   `db: "up"` si la base répond ; cela ne qualifie pas un parcours métier.
+Pour consulter la production depuis le poste, configurer son URL HTTPS et sa
+clé publique dans `.env.local`, puis lancer explicitement
+`npm run dev -- --supabase=production --port 3001`. Le serveur accepte
+uniquement une adresse d’écoute de boucle locale dans ce mode. L’application
+utilise les droits du compte connecté, sans clé de service Supabase ni
+intégration ChatGPT locale. Pour changer de cible, arrêter le serveur et
+relancer la commande correspondante. Le lanceur distingue les cibles dans le
+cache Turbopack et arrête le serveur s’il détecte une boucle de rendu.
 
-Pour préparer une base et les types, suivre [le guide Supabase](supabase/README.md).
-Pour un développement avec une pile locale et des comptes jetables gérés par le
-runner, suivre [le guide local](docs/testing/tester-army-local-development.md).
-Ne pas remplacer une configuration partagée existante sans vérifier sa cible.
-Les secrets et comptes de test restent dans le coffre d'équipe ou un fichier local
-ignoré ; aucune clé `service_role` ne doit parvenir au navigateur.
-
+Les secrets restent dans le coffre d’équipe ou dans les fichiers locaux
+ignorés. Pour les autres variables, voir [`.env.example`](.env.example).
 Si le port est occupé, `npm run dev -- -p 3001` choisit un autre port.
 Un seul serveur de développement peut détenir `.next/dev/lock` par checkout.
 Ne pas ajouter `--webpack` à cette commande : à la première visite d'une page, le

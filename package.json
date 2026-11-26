@@ -6,7 +6,7 @@
     "node": "^26.12.1"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev-local.mjs",
     "dev:chatgpt": "node scripts/dev-chatgpt-local.mjs",
     "dev:army": "node --import tsx scripts/run-tester-army-ci.ts dev",
     "build:compile": "node scripts/next-build.mjs --webpack",
