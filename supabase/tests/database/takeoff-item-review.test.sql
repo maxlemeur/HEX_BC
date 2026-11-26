@@ -941,6 +941,80 @@ reset role;
 select is((select count(*)::integer from public.takeoff_item_review_commands where intent_key = pg_temp.f(646)), 0,
   'not even its receipt');
 
+-- Whole-entry scope changes share the released entry history and revision contract.
+create function pg_temp.scope_change(intent integer, action text, plan integer, source_rev integer, plan_rev integer)
+returns jsonb language sql as $$
+  select public.change_takeoff_entry_scope(pg_temp.f(10),pg_temp.f(20),pg_temp.f(302),pg_temp.f(intent),
+    action,p_plan_id => case when plan is not null then pg_temp.f(plan) end,
+    p_entry_revision => source_rev,p_plan_entry_revision => plan_rev)
+$$;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.review(pg_temp.cmd('reinstate', 680, array[302], array[302]))->>'outcome','applied','restore the fixture item');
+select is(pg_temp.scope_change(681,'attach',101,3,0)->>'outcome','ineligible','a foreign plan cannot acquire the total');
+select is(pg_temp.scope_change(681,'attach',100,2,0)->>'outcome','stale','a changed total cannot be moved');
+select is(pg_temp.scope_change(681,'attach',100,3,1)->>'outcome','stale','compare the plan entry too');
+select is(pg_temp.scope_change(681,'attach',100,3,0)->>'outcome','applied','attach the whole hypothesis to its plan');
+select is(pg_temp.scope_change(681,'attach',100,3,0)->>'replayed','true','lost response replays after the source disappeared');
+select throws_ok($$select pg_temp.scope_change(681,'withdraw',null,3,0)$$,'23505','TAKEOFF_ITEM_REVIEW_INTENT_CONFLICT',
+  'the same key cannot mean withdrawal');
+select results_eq($$select plan_logical_id,quantity,unit,category,note,included from public.takeoff_item_entries
+  where item_id=pg_temp.f(302)$$,$$values (pg_temp.f(100),2::numeric,'u'::text,'hypothesis'::text,
+  'Une baignoire supposée au R+1 (fictif).'::text,false)$$,'one plan value, with a separate inclusion in its new scope');
+select results_eq($$select event, before->>'plan_logical_id', after->>'plan_logical_id', before->>'included',
+    after->>'included', actor_id, at is not null from public.takeoff_item_review_events
+    where item_id=pg_temp.f(302) and after->>'scope_action'='attach'$$,
+  $$values ('entered'::text,null::text,pg_temp.f(100)::text,'true'::text,'false'::text,pg_temp.f(1),true)$$,
+  'the journal records the author, instant, origin and result of the transfer');
+select is(pg_temp.review(pg_temp.cmd('enter_quantity',682,array[302],array[302],
+    jsonb_build_object('values',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(302),'quantity',4,'unit','u')),
+      'entry',jsonb_build_object('category','documented_calculation'))))->>'outcome','applied','legacy writer recreates a total');
+select is(pg_temp.scope_change(683,'withdraw',null,1,0)->>'outcome','stale','a recreated total never reuses an old revision');
+select is(pg_temp.scope_change(683,'withdraw',null,4,0)->>'outcome','applied','withdraw the current total');
+select is(pg_temp.scope_change(683,'withdraw',null,4,0)->>'replayed','true','a withdrawal is idempotent');
+select results_eq($$select plan_logical_id,quantity from public.takeoff_item_entries where item_id=pg_temp.f(302)$$,
+  $$values (pg_temp.f(100),2::numeric)$$,'withdrawal leaves the independent plan entry intact');
+select results_eq($$select before->>'quantity',after->>'scope_action',actor_id,at is not null
+  from public.takeoff_item_review_events where item_id=pg_temp.f(302) and after->>'scope_action'='withdraw'$$,
+  $$values ('4'::text,'withdraw'::text,pg_temp.f(1),true)$$,'withdrawal records the value removed and the member');
+select is(pg_temp.review(pg_temp.cmd('enter_quantity',684,array[302],array[302],
+    jsonb_build_object('values',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(302),'quantity',5,'unit','u')),
+      'entry',jsonb_build_object('category','documented_calculation'))))->>'outcome','applied','a documented total after withdrawal');
+select is(pg_temp.scope_change(685,'attach',100,5,0)->>'outcome','stale','an unseen destination entry is preserved');
+-- Knowing the destination revision does not confirm a replacement.
+select pg_temp.sign_in(4);
+select entered_at as previous_instant from public.takeoff_item_entries
+  where item_id=pg_temp.f(302) and plan_logical_id=pg_temp.f(100) \gset
+select is((select jsonb_build_array(r->>'outcome',r#>'{entry,quantity}',r#>'{entry,unit}',r#>'{entry,category}',
+    r#>'{entry,actor_id}',r#>'{entry,entered_at}',r#>'{entry,revision}') from pg_temp.scope_change(686,'attach',100,5,1) r),
+  jsonb_build_array('collision',2,'u','hypothesis',pg_temp.f(1),:'previous_instant'::timestamptz,1),
+  'attach reports the existing plan value and its provenance without changing either entry');
+select results_eq($$select quantity from public.takeoff_item_entries where item_id=pg_temp.f(302)
+  order by plan_logical_id nulls first$$,$$values (5::numeric),(2::numeric)$$,'both values survive collision');
+select throws_ok($$select pg_temp.scope_change(683,'withdraw',null,4,0)$$,'23505','TAKEOFF_ITEM_REVIEW_INTENT_CONFLICT',
+  'another authorised reviewer cannot replay the original member receipt');
+select pg_temp.sign_in(1);
+select throws_ok($$select pg_temp.scope_change(685,'replace',100,5,0)$$,'22023','TAKEOFF_ITEM_REVIEW_INVALID',
+  'an explicit replacement requires an observed positive revision');
+select is(pg_temp.scope_change(685,'replace',100,5,2)->>'outcome','stale','an outdated replacement preserves both entries');
+select is(pg_temp.scope_change(685,'replace',100,5,1)->>'outcome','applied','replace the plan value at its confirmed revision');
+select results_eq($$select plan_logical_id,revision,quantity,previous_quantity,included from public.takeoff_item_entries
+  where item_id=pg_temp.f(302)$$,$$values (pg_temp.f(100),2,5::numeric,2::numeric,true)$$,
+  'the plan revision advances and keeps the previous quantity');
+select results_eq($$select before#>>'{destination,category}',after->>'category' from public.takeoff_item_review_events
+  where item_id=pg_temp.f(302) and after->>'scope_action'='replace' and before->>'revision'='5'$$,
+  $$values ('hypothesis'::text,'documented_calculation'::text)$$,'journal preserves the replaced plan entry');
+select is(pg_temp.scope_change(685,'replace',100,5,1)->>'replayed','true','the same explicit replacement replays');
+select is(pg_temp.review(pg_temp.cmd('enter_quantity',688,array[302],array[302],
+    jsonb_build_object('values',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(302),'quantity',8,'unit','u')),
+      'entry',jsonb_build_object('category','documented_calculation'))))->>'outcome','applied','the released writer recreates the total');
+select is((select revision from public.takeoff_item_entries where item_id=pg_temp.f(302) and plan_logical_id is null),
+  6,'recreating after an explicit replacement also advances beyond the removed revision');
+select pg_temp.sign_in(5);
+select throws_ok($$select pg_temp.scope_change(683,'withdraw',null,4,0)$$,'42501','TAKEOFF_ITEM_REVIEW_FORBIDDEN',
+  'another tenant cannot replay the receipt');
+reset role;
+
 -- The affaire deleted with its review, by the service role (whose direct writes the relations refuse): the cascade
 -- runs as the relations' owner, nothing is left, nothing refuses.
 set local role service_role;
