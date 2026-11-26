@@ -566,6 +566,29 @@ function selectLines(lines: readonly MaterialRequestLine[], ids: readonly string
   return selected;
 }
 
+/** The database locks and checks the whole selection before deleting it. */
+export async function bulkDeleteMaterialRequestLines(
+  projectId: string,
+  requestId: string,
+  ids: string[],
+): Promise<{ deleted_ids: string[] }> {
+  const access = await requireProjectAccess(projectId, "write");
+  const request = await requireRequest(access, requestId);
+  const { data, error } = await access.context.supabase.rpc("delete_draft_material_request_lines", {
+    p_project_id: access.project.id,
+    p_request_id: request.id,
+    p_line_ids: [...new Set(ids)],
+  });
+  if (error?.message === MATERIAL_REQUEST_LINES_CHANGED) {
+    throw conflict("La sélection a changé. Vérifiez les lignes encore affichées.", undefined, MATERIAL_REQUEST_LINES_CHANGED);
+  }
+  if (error?.message === MATERIAL_REQUEST_LINES_KEPT || error?.code === "23503") {
+    throw conflict("Une ligne sélectionnée est validée ou figure dans un devis ou un bon de commande.", undefined, MATERIAL_REQUEST_LINES_KEPT);
+  }
+  if (error) throw mapSupabaseError(error, "Impossible de supprimer les lignes.");
+  return { deleted_ids: data };
+}
+
 type LinePatch = Partial<MaterialRequestLineData> & { status?: MaterialRequestLine["status"] };
 
 

@@ -1,6 +1,8 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type Ref } from "react";
+
+import { Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
@@ -48,7 +50,9 @@ export function MaterialRequestBulkBar({
   busy,
   onApply,
   onValidate,
+  onDelete,
   onClear,
+  deleteButtonRef,
   materialListId,
   unitListId,
   supplierOptions,
@@ -57,7 +61,9 @@ export function MaterialRequestBulkBar({
   busy: boolean;
   onApply: (patch: BulkPatch) => Promise<boolean>;
   onValidate: () => void;
+  onDelete: () => void;
   onClear: () => void;
+  deleteButtonRef: Ref<HTMLButtonElement>;
   materialListId: string;
   unitListId: string;
   supplierOptions: readonly MaterialRequestSupplierOption[];
@@ -94,7 +100,7 @@ export function MaterialRequestBulkBar({
     >
       <p className="text-sm font-medium text-foreground" aria-live="polite">
         {none
-          ? "Cochez des lignes pour les remplir ou les valider ensemble."
+          ? "Cochez des lignes pour agir sur la sélection."
           : `${plural(selectedCount, "ligne sélectionnée", "lignes sélectionnées")}`}
       </p>
       <form
@@ -189,6 +195,10 @@ export function MaterialRequestBulkBar({
         </Button>
         <Button type="button" variant="outline" disabled={none || busy} onClick={onValidate}>
           Valider la sélection
+        </Button>
+        <Button ref={deleteButtonRef} type="button" variant="danger" disabled={none || busy} onClick={onDelete}>
+          <Trash2 aria-hidden="true" />
+          Supprimer la sélection
         </Button>
         {none ? null : (
           <Button type="button" variant="ghost" onClick={onClear}>

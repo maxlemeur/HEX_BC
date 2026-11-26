@@ -406,6 +406,16 @@ export async function deleteMaterialRequestLine(projectId: string, requestId: st
   );
 }
 
+export async function bulkDeleteMaterialRequestLines(projectId: string, requestId: string, ids: string[]): Promise<string[]> {
+  const { deleted_ids } = await write<{ deleted_ids: string[] }>(
+    requestsPath(projectId, requestId, "lines", "delete"),
+    "POST",
+    { ids },
+    "Les lignes sélectionnées n’ont pas pu être supprimées.",
+  );
+  return deleted_ids;
+}
+
 export async function bulkUpdateMaterialRequestLines(
   projectId: string,
   requestId: string,
