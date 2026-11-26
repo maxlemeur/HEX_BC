@@ -23,7 +23,8 @@ async function retainAndSend(ui: NativeUi, scenario: "rule" | "gap" | "both") {
   const plan = seeded.plans[0];
   const item = seeded.items[label];
   if (scenario !== "gap") {
-    await querySql(`update public.takeoff_items set rule_results =
+    await querySql(`update public.profiles set full_name='Camille du métré' where id='${owner.userId}';
+      update public.takeoff_items set rule_results =
       '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_NETWORK_MISSING","version":2,"reason":"Réseau non indiqué","acceptable":true}]'
       where job_id='${plan.jobId}';`);
   }
@@ -58,13 +59,14 @@ async function retainAndSend(ui: NativeUi, scenario: "rule" | "gap" | "both") {
   await expect(dialog).toContainText("3 u");
   await expect(dialog).toContainText(`${reference} u`);
   if (scenario !== "gap") {
-    await expect(dialog).toContainText("Système et conditions d’emploi documentés");
+    await expect(dialog).toContainText("Justification de Camille du métré · Système et conditions d’emploi documentés");
     await dialog.getByRole("checkbox", /contrôles en échec/).check();
   }
   if (scenario !== "rule") await dialog.getByRole("checkbox", /écart/).check();
   await dialog.getByRole("button", "Retenir cette mesure", { exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(screen.getByText("Retenu : 3 u", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Retenu sur ce plan · 3 u", { exact: true })).toBeVisible();
   const line = await seedRetainDestination(seeded.projectId, item, owner.tenantId, owner.userId, scenario === "both" ? 2 : reference);
   await app.open(address);
   await screen.getByRole("button", "Envoyer ce plan au devis : « sanitaires.pdf »", { exact: true }).click();
@@ -152,6 +154,9 @@ test("POSTE-RETENIR04 refuse un échec bloquant et une justification absente, pu
   await querySql(`update public.takeoff_items set evidence='Quantité vérifiée sur un autre repère fictif' where job_id='${jobId}' and designation='Compteur';`);
   await openItem(labels[2]);
   await expect(screen.getByText("Les éléments sur lesquels vous aviez retenu cette mesure ont changé. Vérifiez la mesure à nouveau.")).toBeVisible();
+  await expect(screen.getByText("Quantité observée · 3 u", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Référence DPGF · 1 u", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Écart à la DPGF · 2 u", { exact: true })).toBeVisible();
   await expect(retain).toBeEnabled();
   await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
   await screen.getByRole("button","Envoyer ce plan au devis : « refus.pdf »", { exact: true }).click();
