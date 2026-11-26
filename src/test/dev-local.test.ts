@@ -102,23 +102,37 @@ describe("npm run start port convention", () => {
     { npmScript: "start", args: ["--port=4200"], portEnv: "3002", port: "4200" },
     { npmScript: "start", args: [], portEnv: "4209", port: "4209" },
     { npmScript: "start:prod", args: [], portEnv: "3002", port: "4200" },
-  ])("uses restricted production Supabase with $npmScript on $port", async ({ npmScript, args, portEnv, port }) => {
+  ])("uses full production Supabase with $npmScript on $port", async ({ npmScript, args, portEnv, port }) => {
     await withDevFixture(async (start, cwd) => {
       await writeFile(join(cwd, ".env.supabase.local"), local);
       await writeFile(join(cwd, productionConfigFile), production);
+      await writeFile(join(cwd, ".env.local"), productionPublic.replace("project-fixture", "other-fixture"));
       const result = await start(args, {
         npmScript,
-        env: { PORT: portEnv, MERGEONE_CHATGPT_LOCAL: "1", SUPABASE_SERVICE_ROLE_KEY: "fixture-service-shell" },
+        env: { PORT: portEnv, MERGEONE_CHATGPT_LOCAL: "0", SUPABASE_SERVICE_ROLE_KEY: "fixture-service-shell" },
       });
       expect(result.code, result.stderr).toBe(0);
       expect(childSettings(result.stdout)).toEqual({
         args: ["dev", "--hostname", "127.0.0.1", "--port", port],
         url: "https://project-fixture.supabase.co",
         publicKey: "fixture-public-production",
-        serviceKey: "",
-        chatgpt: "0",
-        target: "production",
+        serviceKey: "fixture-service-production",
+        chatgpt: "1",
+        target: "production-full",
       });
+    });
+  });
+
+  it("requires the dedicated full production configuration even when shell and Next settings exist", async () => {
+    await withDevFixture(async (start) => {
+      const result = await start([], {
+        npmScript: "start:prod",
+        env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-service-shell" },
+      });
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(productionConfigFile);
+      expect(result.stderr).not.toContain("fixture-service-shell");
+      expect(childSettings(result.stdout)).toBeNull();
     });
   });
 

@@ -27,7 +27,7 @@ sélectionne Supabase selon le port.
 | Ports | Base | Raccourci |
 | --- | --- | --- |
 | 3000 à 3009 | Supabase local | `npm run start:local` sur 3001 |
-| 4200 à 4209 | Supabase de production avec les droits du compte connecté | `npm run start:prod` sur 4200 |
+| 4200 à 4209 | Supabase de production en mode complet | `npm run start:prod` sur 4200 |
 
 `npm run start` utilise le port 3000 par défaut. Pour choisir un autre port, par
 exemple si le port est occupé, utiliser `npm run start -- --port 3002`. L’option
@@ -39,13 +39,14 @@ Pour servir un build Next.js existant, utiliser `npm run start:build`.
   défaut, dans `.env`.
   Le forfait ChatGPT local et les opérations qui exigent la clé de service
   Supabase, dont le lancement et la lecture d’un métré, sont indisponibles.
-- `npm run dev:prod:full -- --port 4200` exige les trois valeurs de production dans le fichier
-  ignoré `.env.supabase.production.local` au côté de `.env.supabase.local`.
-  Y renseigner `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` et
-  `SUPABASE_SERVICE_ROLE_KEY`. Les opérations serveur qui utilisent ce rôle
-  peuvent écrire sur la production. Le métré et la lecture des plans avec le
-  forfait ChatGPT local sont disponibles. L’envoi d’e-mails suit
-  `EMAIL_DELIVERY_MODE` comme dans les autres modes.
+- `npm run start:prod`, les ports 4200 à 4209 de `npm run start` et
+  `npm run dev:prod:full -- --port 4200` exigent la configuration complète dans
+  le fichier ignoré `.env.supabase.production.local`. Y renseigner
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` et
+  `SUPABASE_SERVICE_ROLE_KEY`. La création d’affaires et les autres opérations
+  serveur qui utilisent ce rôle peuvent écrire sur la production. Le métré et
+  la lecture des plans avec le forfait ChatGPT local sont disponibles.
+  L’envoi d’e-mails suit `EMAIL_DELIVERY_MODE` comme dans les autres modes.
 
 Dans `.env.local` et `.env`, garder seulement l’URL et la clé publique pour
 Supabase en production. Next charge ces fichiers lors d’un lancement direct.
