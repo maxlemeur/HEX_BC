@@ -112,7 +112,7 @@ function ScopeDialog({ snapshot, projectId, onRefused, close }: {
       </div>}
       {(refused || error) && <p role="alert">{refused || error}</p>}
       <DialogFooter>
-        <Button ref={cancel} disabled={busy} variant="outline" onClick={dismiss}>{refused ? "Fermer" : "Annuler"}</Button>
+        <Button ref={cancel} disabled={busy} variant="outline" onClick={dismiss}>{refused ? "Revenir au poste" : "Annuler"}</Button>
         {!refused && (collision
           ? <Button variant="danger" disabled={busy} onClick={() => void submit(true)}>Remplacer la saisie du plan</Button>
           : <Button disabled={busy || (action === "attach" && !plan)} onClick={() => void submit()}>{action === "attach" ? "Rattacher" : "Retirer"}</Button>)}

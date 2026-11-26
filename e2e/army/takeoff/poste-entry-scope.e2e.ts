@@ -135,7 +135,7 @@ test("POSTE-PORTEE05 une part au devis empêche le retrait et le rattachement du
   await f.button(withdraw).click();
   await f.dialog.getByRole("button", "Retirer", { exact: true }).click();
   await expect(f.dialog).toContainText("Une part de ce poste est déjà au devis");
-  await f.dialog.getByRole("button", "Fermer", { exact: true }).click();
+  await f.dialog.getByRole("button", "Revenir au poste", { exact: true }).click();
   await f.button(attach).click();
   await f.dialog.getByLabel("Plan de destination").selectOption({ label: "sud.pdf" });
   await f.dialog.getByRole("button", "Rattacher", { exact: true }).click();
