@@ -8,15 +8,13 @@ Le code utilise Next.js App Router, React, TypeScript, Supabase et Tailwind ;
 ## Démarrer
 
 1. Utiliser le Node indiqué dans [`.nvmrc`](.nvmrc) : `26.12.1`.
-2. Installer les dépendances avec `npm ci`. Préparer une pile Supabase locale
-   migrée en suivant [le guide Supabase](supabase/README.md).
-3. Dans le fichier ignoré `.env.supabase.local`, renseigner ensemble
-   `NEXT_PUBLIC_SUPABASE_URL` (par exemple `http://127.0.0.1:54321`) et
-   `NEXT_PUBLIC_SUPABASE_ANON_KEY` avec les valeurs de la pile. Ajouter
-   `SUPABASE_SERVICE_ROLE_KEY` de cette même pile uniquement si nécessaire.
-   Utiliser les valeurs complètes dans ce fichier.
+2. Installer les dépendances avec `npm ci`.
+3. Lancer `npm run supabase:local -- start`. La commande démarre ou reprend la
+   pile native, applique les migrations et écrit `.env.supabase.local`. Le chemin
+   du fichier privé contenant les identifiants du compte de développement est
+   affiché au démarrage et par `npm run supabase:local -- status`.
 4. Lancer `npm run dev`, ouvrir `http://localhost:3000/login` et se connecter
-   avec un compte de la pile locale. Une configuration Supabase locale existante
+   avec ce compte. Une configuration Supabase locale existante
    peut aussi venir des variables du shell ou d’un fichier Next habituel.
    Le lanceur refuse une URL distante dans ce mode.
 

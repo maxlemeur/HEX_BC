@@ -25,8 +25,16 @@ Les prérequis vérifiés par le runner sont macOS 14+ sur Apple silicon ou Linu
 avec glibc 2.35+, sous un compte non root. Sous Windows, utiliser un environnement
 Linux compatible (par exemple WSL) avec ses propres dépendances. Le premier
 lancement télécharge les services dans le cache Supabase de l'utilisateur.
-Pour démarrer l'application sur une pile possédée et la garder le temps du travail,
-utiliser [la boucle de développement](../docs/testing/tester-army-local-development.md).
+Pour une pile de développement persistante, lancer `npm run supabase:local -- start`.
+Elle est partagée entre les checkouts de l'utilisateur. Ajouter
+`--checkout <chemin>` à `start` pour écrire aussi le fichier ignoré
+`.env.supabase.local` dans un autre checkout. `status` affiche l'état et le
+chemin des identifiants privés, `stop` arrête les services en gardant les
+données et `destroy --yes` efface cette pile après confirmation explicite.
+Les données et le compte de développement sont des fichiers uniques à
+conserver sous `~/.supabase/`, indépendamment des builds régénérables.
+Pour une pile de recette jetable, utiliser
+[la boucle de développement](../docs/testing/tester-army-local-development.md).
 
 ## Ajouter une migration et régénérer les types
 
