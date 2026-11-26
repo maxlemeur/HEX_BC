@@ -1,3 +1,4 @@
+import { measureReviewSchema, retainedMeasureSchema, type retainCommandSchema } from "./measure-review-contracts";
 import type { TakeoffPaymentChoice } from "./payment-choice";
 import { findReceiptSchema, findsViewSchema, type FindCommand } from "./unlisted-finds";
 import type { z } from "zod";
@@ -55,6 +56,18 @@ export function fetchItemTable(projectId: string, address: ItemTableAddress, det
   const query = params.toString();
   return call(`${base(projectId)}${query ? `?${query}` : ""}`, { method: "GET" }, itemTableResponseSchema, READ_FAILURE,
     TAKEOFF_READ_REQUEST_TIMEOUT_MS);
+}
+
+const measurePath = (project: string, answer: string) => `${base(project)}/measures/${encodeURIComponent(answer)}`;
+
+export function fetchMeasureReview(project: string, answer: string) {
+  return call(measurePath(project, answer), { method: "GET", cache: "no-store" }, measureReviewSchema, READ_FAILURE,
+    TAKEOFF_READ_REQUEST_TIMEOUT_MS);
+}
+
+export function sendMeasureRetention(project: string, answer: string, command: z.infer<typeof retainCommandSchema>) {
+  return call(measurePath(project, answer), { method: "POST", body: JSON.stringify(command) }, retainedMeasureSchema,
+    WRITE_FAILURE, TAKEOFF_WRITE_REQUEST_TIMEOUT_MS);
 }
 
 /** The review history of one item, newest first, by pages. */

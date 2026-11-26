@@ -15,6 +15,7 @@ import { readDpgfMappedFacts } from "@/lib/takeoff/dpgf-comparison-repository";
 import { readStoredDpgfComposition } from "@/lib/takeoff/dpgf-composition";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
+  destinationMeasureReviewsSchema,
   itemSendPreviewRequestSchema,
   type ItemSendPreviewRequest,
   type ItemSendPreviewResponse,
@@ -541,14 +542,23 @@ export async function computeItemSendState(ctx: Context, jobId: string, request:
     affaireNamesBuilding: namesBuilding, stamps });
   const assemblies = await assemblyNames(ctx, computed.rules.flatMap((rule) => (rule.assemblyId ? [rule.assemblyId] : [])), jobId);
   // The plan names the member's choices it was computed from (their digest), which a replay compares.
-  const writePlan = computed.writePlan ? { ...computed.writePlan, choices_sha256: itemSendChoicesDigest(request) } : null;
+  const writePlan: ItemSendWritePlan | null = computed.writePlan ? { ...computed.writePlan, choices_sha256: itemSendChoicesDigest(request) } : null;
   if (writePlan && additions) {
     // The journal checks every original answer and entry under lock. A working
     // choice supplies a part, never a new dependency revision for that answer.
     writePlan.dependencies.answers = itemSendAnswerDependencies(reading.answers);
   }
+  if (writePlan && request.review_measures) {
+    const { data, error } = await ctx.supabase.rpc("read_takeoff_measure_destination_reviews" as never, {
+      p_tenant_id: ctx.tenantId, p_project_id: job.project_id, p_plan: writePlan,
+    } as never);
+    if (error) failed(error, "Impossible de relire l’écart à la DPGF dans la destination.", jobId);
+    const reviews = destinationMeasureReviewsSchema.parse(data);
+    if (reviews.length) writePlan.measure_confirmations = reviews;
+  }
   const response = respond(jobId, shown, computed, { destinations, destination: chosen, label, versionCreated: chosen?.kind === "first_draft" },
     assemblies, writePlan ? itemSendPlanDigest(writePlan) : null);
+  if (writePlan?.measure_confirmations) response.measure_reviews = writePlan.measure_confirmations;
   return { response, writePlan, versionPayload: chosen?.kind === "first_draft" ? versionPayload : null,
     blocker: computed.blocker?.reason ?? null };
 }

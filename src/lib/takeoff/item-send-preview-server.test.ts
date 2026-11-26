@@ -159,7 +159,7 @@ const dpgfRow = (id: string, mapped: string, overrides: Row = {}) => ({ id, tena
 let calls: Calls;
 let written: Row[];
 function setUp(input: { manifest?: unknown; versions?: Row[]; items?: Row[]; role?: string; lineage?: Row[]; mapped?: Row[];
-  sources?: unknown; locations?: Row[]; receipts?: Row[]; writer?: (args: Row) => unknown; sent?: boolean }) {
+  measureReviews?: Row[]; sources?: unknown; locations?: Row[]; receipts?: Row[]; writer?: (args: Row) => unknown; sent?: boolean }) {
   written = [];
   calls = { reads: [], writes: [], rpcs: [] };
   const shared: Record<string, Row[]> = {
@@ -178,6 +178,7 @@ function setUp(input: { manifest?: unknown; versions?: Row[]; items?: Row[]; rol
       { id: ASSEMBLY, tenant_id: OTHER_TENANT, name: "Ouvrage d’un autre" }],
   };
   const functions: Record<string, (args: Row) => unknown> = {
+    read_takeoff_measure_destination_reviews: () => input.measureReviews ?? [],
     read_estimate_dpgf_raw_rows: (args) => (args.p_tenant_id === TENANT && args.p_version_id === VERSION ? input.lineage ?? [] : []),
     dpgf_import_review_state: (args) => (args.p_tenant_id === TENANT ? [{ mapping_id: "mapping-1", column_mapping: {}, rows_sha256: "r".repeat(64) }] : []),
     takeoff_rule_job_stamp: () => "job-stamp",
@@ -196,7 +197,7 @@ function setUp(input: { manifest?: unknown; versions?: Row[]; items?: Row[]; rol
     estimate_version_id: input.sent ? VERSION : null, status: input.sent ? "applied" : "completed", launch_request_id: REQUEST,
     launch_unit_key: "unit-1", sources: input.sources ?? null },
   { id: JOB, tenant_id: OTHER_TENANT, project_id: OTHER_PROJECT, estimate_version_id: null, status: "completed",
-    launch_request_id: REQUEST, launch_unit_key: "unit-1", sources: null }] }, functions, calls, []);
+    launch_request_id: REQUEST, launch_unit_key: "unit-1", sources: null }] }, functions, calls, ["read_takeoff_measure_destination_reviews"]);
   vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ supabase: member, tenantId: TENANT, userId: MEMBER,
     tenantRole: input.role ?? "admin" } as never);
   vi.mocked(createServiceRoleClient).mockReturnValue(fakeClient("service", shared, functions, calls, [...SERVICE_READ_FUNCTIONS, WRITER]) as never);
@@ -259,6 +260,23 @@ describe("previewTakeoffItemSend", () => {
     expect(readItemSendFacts).toHaveBeenCalledWith(expect.anything(), { jobId: JOB, projectId: PROJECT,
       list: { revisionId: REVISION, revision: 3, itemCount: 1 } });
     expect(calls.writes).toEqual([]);
+  });
+
+  it("binds consent to the reconciliation shown, including its answer revision, while preserving the released preview", async () => {
+    const review = { target: LAVABO + "|together", answer_id: ANSWER, decision_revision: 1, version_id: null,
+      line_id: null, matched: false, reference: null, measured: 3, gap: null, quantity_after: 3, unit: "u" };
+    setUp({ measureReviews: [review] });
+    const released = await previewTakeoffItemSend(JOB, {});
+    expect(released).not.toHaveProperty("measure_reviews");
+    expect(calls.rpcs).not.toContain("member:read_takeoff_measure_destination_reviews");
+    const preview = await previewTakeoffItemSend(JOB, { review_measures: true });
+    expect(preview.measure_reviews).toEqual([review]);
+    expect(preview.plan_digest).not.toBe(released.plan_digest);
+    const request = { review_measures: true, request_id: REQUEST, plan_digest: preview.plan_digest };
+    expect((await refusal(confirmTakeoffItemSend(JOB, request))).details).toMatchObject({ reason: "measure_reconciliation_changed" });
+    setUp({ measureReviews: [{ ...review, decision_revision: 2 }] });
+    expect((await refusal(confirmTakeoffItemSend(JOB, { ...request, measure_reviews_checked: true }))).status).toBe(409);
+    expect(written).toEqual([]);
   });
 
   it("puts the first draft's settings in the digest: other settings, another plan (fix 11)", async () => {

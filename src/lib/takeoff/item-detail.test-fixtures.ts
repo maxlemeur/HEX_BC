@@ -1,6 +1,7 @@
 import type { ItemDetailQueueRequest, ItemDetailReader } from "@/lib/takeoff/item-detail-client";
 import type { ItemDetailPlanRequest, ItemDetailPlanView } from "@/lib/takeoff/item-detail-contracts";
 import type { ItemDetailLine } from "@/lib/takeoff/item-detail";
+import type { MeasureReview } from "@/lib/takeoff/measure-review-contracts";
 import type { ItemAnswerDecision, ItemAnswerView, ItemEntryView, ItemReadingInput, ItemTablePlan, ItemTablePoste } from "@/lib/takeoff/item-table";
 import { FIXTURE_MEMBER, fixtureAnswer, fixtureItemTable, fixturePoste } from "@/lib/takeoff/item-table.test-fixtures";
 
@@ -86,6 +87,19 @@ export function detailReadings(options: { sent?: boolean } = {}): ItemReadingInp
 
 /** The readings every test shares (an answer's identity is made once). */
 export const DETAIL_READINGS = detailReadings();
+
+export function fixtureMeasureReview(answerId: string, readings = DETAIL_READINGS): MeasureReview {
+  const row = readings.find(reading => reading.answer?.answerId === answerId);
+  if (!row?.answer) throw new Error("Missing measure in fixture");
+  return {
+    answer_id: answerId, item_id: row.itemId, plan_id: row.planKey,
+    revision: "a".repeat(64), decision_revision: row.decisionRevision, effective_decision: row.decision?.kind ?? null,
+    quantity: row.answer.quantity?.quantity ?? null, unit: row.answer.quantity?.unit ?? null,
+    reference: null, expected_unit: "u", gap: null, gap_required: false, confidence_threshold: 0.5,
+    reason: row.decision ? "already_decided" : null, previously_retained: false, retained: null,
+    rules_required: false, proof_required: false, rows: [],
+  };
+}
 
 /** Every line of the fixtures, as the table builds them (decisions to take first, then the list's order). */
 export function detailLines(readings: ItemReadingInput[] = DETAIL_READINGS): ItemDetailLine[] {

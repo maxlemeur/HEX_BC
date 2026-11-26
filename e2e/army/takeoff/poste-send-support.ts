@@ -49,7 +49,7 @@ const PAGES = [2, 7];
 /** An affaire of the dedicated owner, its list of items (unit « u », one section), read on `plans`, nothing accepted yet. */
 export async function seedItemSendAffaire(owner: DedicatedOwner, input: { name: string; labels: string[]; plans: SendSeedPlan[];
   /** Items the list took from a DPGF import (a fictional one, never imported into an estimate). */
-  dpgfLabels?: string[] }): Promise<SeededSend> {
+  dpgfLabels?: string[]; referenceQuantities?: Record<string, number> }): Promise<SeededSend> {
   const ids = { project: randomUUID(), upload: randomUUID(), brief: randomUUID(), planSet: randomUUID(), revision: randomUUID(),
     intent: randomUUID(), listIntent: randomUUID() };
   const host = `urn:uuid:${randomUUID()}`;
@@ -156,10 +156,10 @@ insert into public.takeoff_list_revisions (id, tenant_id, project_id, revision, 
 values ('${ids.revision}', '${owner.tenantId}', '${ids.project}', 1, 'item_added', '{}', ${input.labels.length}, repeat('1', 64), repeat('a', 64),
   '${ids.listIntent}', '${owner.userId}');
 insert into public.takeoff_list_revision_entries (revision_id, tenant_id, project_id, item_id, position, source_key, label, expected_unit,
-  sections, origin_kind, origin)
+  sections, origin_kind, origin, reference_quantity)
 select '${ids.revision}', '${owner.tenantId}', '${ids.project}', (entry ->> 'id')::uuid, (position - 1)::integer, 'manual:' || (entry ->> 'id'),
-  entry ->> 'label', 'u', '[{"id":"appareils","title":"Appareils sanitaires","order":1}]'::jsonb, entry #>> '{origin,kind}', entry -> 'origin'
-from jsonb_array_elements(${literal(input.labels.map((label) => ({ id: items[label], label, origin: originOf(label, randomUUID()) })))})
+  entry ->> 'label', 'u', '[{"id":"appareils","title":"Appareils sanitaires","order":1}]'::jsonb, entry #>> '{origin,kind}', entry -> 'origin', (entry ->> 'reference')::numeric
+from jsonb_array_elements(${literal(input.labels.map((label) => ({ id: items[label], label, reference: input.referenceQuantities?.[label], origin: originOf(label, randomUUID()) })))})
   with ordinality as e(entry, position);
 insert into public.takeoff_preparations (tenant_id, project_id, revision, draft, confirmed_snapshot, confirmed_at, confirmed_by, updated_by)
 select '${owner.tenantId}', '${ids.project}', 1, snapshot -> 'preparation', snapshot, now(), '${owner.userId}', '${owner.userId}'
