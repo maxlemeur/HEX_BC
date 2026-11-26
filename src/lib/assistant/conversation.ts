@@ -89,11 +89,11 @@ export async function prepareAssistantReply(threadId: string, payload: unknown, 
       connectionId: resolved.connection.id, connectionVersion: resolved.connection.version };
   } else {
     if (!planGrant) throw conflict("Connectez votre compte ChatGPT dans Mon profil.", undefined, "AI_AUTH_REQUIRED");
-    const accessToken = await readAssistantPlanToken({ ...owner, connection: planGrant }).catch((error: unknown) => {
+    await readAssistantPlanToken({ ...owner, connection: planGrant }).catch((error: unknown) => {
       if (error instanceof StructuredAiError) throw conflict(error.message, undefined, error.code);
       throw error;
     });
-    access = { source: resolved.source, preferences: resolved.preferences, accessToken };
+    access = { source: resolved.source, preferences: resolved.preferences, connection: planGrant };
   }
   signal?.throwIfAborted();
   const question = input.retryOf ? messages[index]! : await appendAssistantMessage(context, {

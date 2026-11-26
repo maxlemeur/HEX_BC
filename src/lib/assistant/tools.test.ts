@@ -9,7 +9,9 @@ vi.mock("@/lib/takeoff/job-read-server", () => ({ getTakeoffJobDetails: vi.fn(),
 vi.mock("@/lib/takeoff/version-access-server", () => ({ getEstimateVersionProjectIdOrThrow: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
   assertLocalChatGptHost: vi.fn(), isLocalChatGptEnabled: () => true,
-  getLocalChatGptCredential: vi.fn(async () => ({ accessToken: "fixture-token", model: "army-plan-model", reasoningEffort: null, profileId: "p" })),
+  getLocalChatGptCredential: vi.fn(async () => ({
+    accessToken: "fixture-token", model: "army-plan-model", reasoningEffort: null, profileId: "p", authorizationId: "grant",
+  })),
 }));
 
 import { loadAffaireDocument } from "@/lib/assistant/affaire-reading-server";
@@ -105,7 +107,8 @@ describe("the document reads offered to the model", () => {
       const documents = new AssistantDocumentLedger();
       const tools = buildAssistantTools({ context, projectId: "affaire-1", documents });
       const model = createAssistantModel({ owner: { userId: "u", tenantId: "t" }, tools,
-        access: { source: "chatgpt_plan", accessToken: "fixture-token", preferences: { model: "army-plan-model", reasoningEffort: null } },
+        access: { source: "chatgpt_plan", connection: { profileId: "p", authorizationId: "grant" },
+          preferences: { model: "army-plan-model", reasoningEffort: null } },
         instructions: buildAssistantInstructions({ project: { name: "A", reference: null, clientName: null }, screen: null, today: "2026-11-13" }) });
       await runAssistantLoop({ input: [{ role: "user", content: "Que dit la note ?" }], tools, callModel: model.callModel, documents,
         emit: () => undefined, signal: new AbortController().signal });

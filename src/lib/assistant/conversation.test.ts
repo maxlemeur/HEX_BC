@@ -65,6 +65,10 @@ describe("assistant conversation", () => {
       return { text: "La TVA est de 20,00 €.", toolCalls: [], replayItems: [], usage };
     });
     const prepared = await prepareAssistantReply("thread-1", { content: "  Et la TVA ?  " });
+    expect(prepared.access).toEqual({
+      source: "chatgpt_plan", connection: { profileId: "fixture", authorizationId: "fixture-authorization" },
+      preferences: { model: "fixture-model", reasoningEffort: "high" },
+    });
     expect(appendAssistantMessage).toHaveBeenCalledWith(context, { threadId: "thread-1", role: "user", content: "Et la TVA ?", screen: null });
     const events = await reply(prepared);
     expect(requests[0]?.input).toEqual([

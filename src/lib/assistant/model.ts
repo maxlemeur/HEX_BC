@@ -5,7 +5,7 @@ import { z } from "zod";
 import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
 import { assertLocalChatGptHost, getLocalChatGptCredential, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import type { ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
-import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
+import type { ChatGptConnection, ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import type { AssistantTool, CallAssistantModel } from "@/lib/assistant/loop";
 import { readAssistantModelTurn, readAssistantTurnEvents } from "@/lib/assistant/model-turn";
@@ -36,11 +36,11 @@ export function assertAssistantRequest(host: string | null) {
 
 /** The payer and parameters resolved for this message, before its tool loop. */
 export type AssistantAccess = { preferences: ChatGptPreferences } & (
-  | { source: "chatgpt_plan"; accessToken: string }
+  | { source: "chatgpt_plan"; connection: ChatGptConnection }
   | { source: "personal_api_key"; connectionVersion: number; connectionId: string }
 );
 
-export async function readAssistantPlanToken(owner: ChatGptOwner): Promise<string> {
+export async function readAssistantPlanToken(owner: ChatGptOwner & { connection: ChatGptConnection }): Promise<string> {
   let credential: Awaited<ReturnType<typeof getLocalChatGptCredential>>;
   try {
     credential = await getLocalChatGptCredential(owner);
@@ -86,10 +86,13 @@ export function createAssistantModel(options: {
         remainingNanoUsd -= turn.spentBoundNanoUsd;
         return turn.result;
       }
+      // Renew the credential only for the account and grant resolved for this message.
+      const accessToken = await readAssistantPlanToken({ ...options.owner, connection: access.connection });
+      signal.throwIfAborted();
       dispatched = true;
       const response = await fetch(RESPONSES_URL, {
         method: "POST",
-        headers: { authorization: `Bearer ${access.accessToken}`, "content-type": "application/json" },
+        headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
         body: JSON.stringify({
           model, store: false, stream: true,
           ...(reasoningEffort === null ? {} : { reasoning: { effort: reasoningEffort } }),
