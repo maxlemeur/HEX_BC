@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import { measurementUnitToken, normalizeMeasurementUnit } from "@/lib/units/normalize";
 
 import { consultationDeliveryText } from "./consultation-message";
@@ -8,7 +9,7 @@ import { materialRequestPhotoAnalysisInputSchema } from "./photo-analysis";
 
 export const QUOTE_COMPARISON_PROMPT_VERSION = "material-request-quote-comparison-v1";
 export const QUOTE_COMPARISON_MAX_BYTES = MATERIAL_REQUEST_FILE_MAX_BYTES;
-export const QUOTE_COMPARISON_API_CEILING_NANO_USD = 1_000_000_000;
+export const QUOTE_COMPARISON_API_CEILING_NANO_USD = AI_REQUEST_CEILINGS_NANO_USD.generationOrDocument;
 
 export const quoteComparisonSettingsSchema = materialRequestPhotoAnalysisInputSchema.required({
   preferences: true, billingSource: true,

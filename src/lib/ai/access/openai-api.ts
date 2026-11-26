@@ -575,8 +575,11 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
   return {
     state: (owner: AiAccessOwner) => guarded(() => state(owner)),
 
-    analysisPreferences: (owner: AiAccessOwner) => guarded(async () =>
-      readAnalysisPreferences(await readAiAccessFile(deps.directory(), owner))),
+    analysisPreferences: (owner: AiAccessOwner) => guarded(async () => {
+      const file = await readAiAccessFile(deps.directory(), owner);
+      if (wasUnreadable(file)) throw new ApiKeyError("AI_KEY_UNEXPECTED");
+      return readAnalysisPreferences(file);
+    }),
 
     saveAnalysisPreferences: (owner: AiAccessOwner, preferences: AiAnalysisPreferences, connectionId: string | null) => guarded(async () => {
       const directory = deps.directory();

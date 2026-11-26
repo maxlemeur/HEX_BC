@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatUsdCeiling, MODEL_TEST_CEILING_NANO_USD } from "@/lib/ai/access/openai-pricing";
+import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
+import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import type { CostingWorkbookArticle } from "@/lib/catalogue/costing-workbook";
 import { requestWorkbookSuggestions } from "@/lib/catalogue/costing-workbook-suggestions-client";
 import {
@@ -143,7 +144,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
       </div>
       {provider === "personal_api_key" && requestCount > 1 ? (
         <p className="text-xs text-muted-foreground">
-          {`Cette recherche peut envoyer ${requestCount} demandes et coûter jusqu’à ${formatUsdCeiling(requestCount * MODEL_TEST_CEILING_NANO_USD)} au total.`}
+          {`Cette recherche peut envoyer ${requestCount} demandes et coûter jusqu’à ${formatUsdCeiling(requestCount * AI_REQUEST_CEILINGS_NANO_USD.shortQuestion)} au total.`}
         </p>
       ) : null}
       {provider === "decisions" && requestCount > 1 ? (
