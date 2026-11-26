@@ -6,13 +6,14 @@ import type { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
 import type { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import { resolveTakeoffApiProvider } from "@/lib/takeoff/payment-worker";
-import { LocalGroupsRequestError } from "@/lib/takeoff/vectors/group-local-model";
+import { LocalGroupsRequestError, LocalGroupsStop } from "@/lib/takeoff/vectors/group-local-model";
 
 const mandate = {
   connectionId: "d5130000-0000-4000-8000-000000000001", connectionVersion: 1,
   model: "gpt-6.1-terra", reasoningEffort: "medium", maxTokens: 10_000, maxNanoUsd: 10_000,
 };
-vi.mock("@/lib/takeoff/payment-mandate-server", () => ({
+vi.mock("@/lib/takeoff/payment-mandate-server", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/takeoff/payment-mandate-server")>(),
   assertTakeoffApiConnection: async () => {},
   assertTakeoffPayer: async () => {},
   readTakeoffApiMandate: async () => mandate,
@@ -82,6 +83,53 @@ it("waits for the first vector generation to settle, then prepares the second ag
   await expect(Promise.all([first, second])).resolves.toHaveLength(2);
   expect(dispatched).toEqual(["Premier groupe", "Deuxième groupe"]);
   expect(prepare.mock.calls.map(([, input]) => input.allotmentNanoUsd)).toEqual([10_000, 10_000, 8_800]);
+});
+
+it.each([
+  ["AI_KEY_REQUEST_REJECTED", "request"],
+  ["AI_KEY_UNREACHABLE", "request"],
+  ["AI_KEY_RATE_LIMITED", "groups"],
+  ["AI_KEY_REFUSED", "job"],
+  ["AI_KEY_CHANGED", "job"],
+  ["AI_KEY_MODEL_FORBIDDEN", "job"],
+  ["AI_KEY_SPEND_LIMIT", "job"],
+] as const)("settles %s at zero and stops the appropriate scope", async (code, scope) => {
+  const rpc = vi.fn(async (operation: string) => operation === "settle_takeoff_api_call" ? { data: true } : {
+    data: [{ remaining_nano_usd: 10_000, remaining_tokens: 10_000, call_id: "fictional-call" }],
+  });
+  const execute = vi.fn(async (_owner: unknown, _prepared: unknown, { reserveBeforeSend }: { reserveBeforeSend(): Promise<void> }) => {
+    await reserveBeforeSend();
+    return { data: { accepted: true }, model: mandate.model, durationMs: 1, costNanoUsd: 90,
+      usage: { total: 110, input: 100, output: 10, reasoning: 0 } };
+  }).mockImplementationOnce(async (_owner, _prepared, { reserveBeforeSend }) => {
+    await reserveBeforeSend();
+    throw new ApiKeyError(code, { costNanoUsd: 0 });
+  });
+  const access = { prepare: async () => ({ boundNanoUsd: 200, inputTokens: 100, maxOutputTokens: 300 }), execute };
+  const provider = await resolveTakeoffApiProvider(job, () => "lease",
+    { rpc } as unknown as ReturnType<typeof createServiceRoleClient>, access as unknown as ReturnType<typeof openAiApiKeyAccess>);
+  const input = { prompt: "Classe les groupes", schema: z.object({ accepted: z.boolean() }) };
+  const first = provider.callApiVectorGroup!(input);
+  if (scope === "request") {
+    await expect(first).rejects.toBeInstanceOf(LocalGroupsRequestError);
+    await expect(first).rejects.toMatchObject({ totalTokens: 0 });
+    await expect(provider.callApiVectorGroup!(input)).resolves.toMatchObject({ data: { accepted: true } });
+  } else if (scope === "groups") {
+    await expect(first).rejects.toBeInstanceOf(LocalGroupsStop);
+    await expect(first).rejects.toMatchObject({ reason: "local_quota" });
+    await expect(provider.callApiVectorGroup!(input)).rejects.toBeInstanceOf(LocalGroupsStop);
+    expect(execute).toHaveBeenCalledTimes(1);
+  } else {
+    await expect(first).rejects.toMatchObject({ code: "AI_PROVIDER" });
+  }
+  expect(rpc).toHaveBeenCalledWith("settle_takeoff_api_call", expect.objectContaining({ p_cost: 0, p_tokens: 0 }));
+  const pdf = provider.call({ ...input, prompt: "Lis le PDF" });
+  if (scope === "job") {
+    await expect(pdf).rejects.toMatchObject({ code: "AI_PROVIDER" });
+    expect(execute).toHaveBeenCalledTimes(1);
+  } else {
+    await expect(pdf).resolves.toMatchObject({ data: { accepted: true } });
+  }
 });
 
 it.each(["invalid schema", "truncated output"])("settles a vector group with %s and leaves future reads available", async (failure) => {

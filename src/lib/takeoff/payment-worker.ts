@@ -15,7 +15,7 @@ import { TAKEOFF_NANO_USD_PER_CENT } from "@/lib/takeoff/payment-choice";
 import { assertTakeoffApiConnection, assertTakeoffPayer, readTakeoffApiMandate, TAKEOFF_API_CONNECTION_CHANGED,
   takeoffPaymentError } from "@/lib/takeoff/payment-mandate-server";
 import { takeoffExecutionSelectionSchema } from "@/lib/takeoff/preparation";
-import { LocalGroupsRequestError } from "@/lib/takeoff/vectors/group-local-model";
+import { LocalGroupsRequestError, LocalGroupsStop } from "@/lib/takeoff/vectors/group-local-model";
 import { asRecord } from "@/lib/value-guards";
 
 class ReprepareApiCall extends Error {
@@ -69,6 +69,7 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
   });
   const inFlight = new Set<Promise<void>>();
   let halted: TakeoffError | undefined;
+  let vectorStop: LocalGroupsStop | undefined;
   const paid = (lane: "pdf" | "vector_group"): StructuredCall => async <T>(options: StructuredCallOptions<T>) => {
     if (halted) throw halted;
     const token = lease();
@@ -80,6 +81,7 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
       p_payer_id: owner.userId, p_lease_token: token };
     async function reserve(bound?: number, tokens?: number, exhausted = false) {
       if (halted) throw halted;
+      if (branch === "vector_group" && vectorStop) throw vectorStop;
       options.signal?.throwIfAborted();
       const { data, error } = await service.rpc("reserve_takeoff_api_call", {
         ...args, p_module_default: takeoffModuleDefault(), p_branch: branch, p_bound: bound, p_tokens: tokens, p_exhausted: exhausted,
@@ -182,7 +184,7 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
         tokenCount: tokenUsage.totalTokens, costCents: Math.floor(answer.costNanoUsd / TAKEOFF_NANO_USD_PER_CENT),
         promptVersion: options.context?.promptVersion ?? job.prompt_version ?? "" };
     } catch (error) {
-      if (error instanceof LocalGroupsRequestError) throw error;
+      if (error instanceof LocalGroupsRequestError || error instanceof LocalGroupsStop) throw error;
       if (settlementStarted && callId !== null) {
         halted = stopForLedger();
         throw halted;
@@ -200,9 +202,19 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
         halted = stopForLedger();
         throw attemptedTile ? stopForLedger(true) : halted;
       }
-      if (branch === "vector_group" && attempted && usage && tokens !== null && apiError && apiError.costNanoUsd !== null
-        && (apiError.code === "AI_KEY_OUTPUT_LIMIT" || apiError.code === "AI_KEY_PROVIDER_FAILED")) {
-        throw new LocalGroupsRequestError(apiError.message, tokens);
+      if (branch === "vector_group" && attempted && apiError && apiError.costNanoUsd !== null && tokens !== null) {
+        if (apiError.costNanoUsd === 0 && tokens === 0) {
+          if (apiError.code === "AI_KEY_RATE_LIMITED") {
+            vectorStop = new LocalGroupsStop("local_quota", apiError.message);
+            throw vectorStop;
+          }
+          if (apiError.code === "AI_KEY_REQUEST_REJECTED" || apiError.code === "AI_KEY_UNREACHABLE") {
+            throw new LocalGroupsRequestError(apiError.message, 0);
+          }
+        }
+        if (usage && (apiError.code === "AI_KEY_OUTPUT_LIMIT" || apiError.code === "AI_KEY_PROVIDER_FAILED")) {
+          throw new LocalGroupsRequestError(apiError.message, tokens);
+        }
       }
       if (attemptedTile && (apiError?.costNanoUsd == null || tokens === null)) {
         halted = stopForLedger();

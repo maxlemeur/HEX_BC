@@ -504,6 +504,15 @@ async function guarded<T>(effect: () => Promise<T>, signal?: AbortSignal): Promi
   }
 }
 
+async function unbilled<T>(effect: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  try {
+    return await guarded(effect, signal);
+  } catch (error) {
+    if (!isApiKeyError(error)) throw error;
+    throw new ApiKeyError(error.code, { costNanoUsd: 0 });
+  }
+}
+
 const UNREADABLE_RECORD = "Le descriptif local de la clé était illisible : aucune clé n’est considérée comme enregistrée. Enregistrez-la de nouveau.";
 
 const MODEL_TEST_SCHEMA = z.object({ connexion: z.literal("ok") }).strict();
@@ -906,24 +915,29 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
         return { held, ...key };
       }
       const verified = options.reserveBeforeSend
-        ? await guarded(() => verifyPrepared(readKey), options.signal).catch((error: unknown) => {
-          if (!isApiKeyError(error)) throw error;
-          throw new ApiKeyError(error.code, { costNanoUsd: 0 });
-        }) : null;
+        ? await unbilled(() => verifyPrepared(readKey), options.signal) : null;
       if (options.reserveBeforeSend) await options.reserveBeforeSend();
-      return guarded(async () => {
-        const { held, secret, connection } = verified ?? await verifyPrepared(resolveKey);
-        if (options.beforeSend) {
-          await options.beforeSend();
+      const { held, secret, connection } = verified ?? await unbilled(() => verifyPrepared(resolveKey), options.signal);
+      const beforeSend = options.beforeSend;
+      if (beforeSend) {
+        await guarded(async () => {
+          await beforeSend();
           await readConnection(owner, connection.version, connection.connection_id);
-        }
-        if (verified) {
+        }, options.signal);
+      }
+      if (verified) {
+        await unbilled(async () => {
           const active = (await readAiAccessFile(deps.directory(), owner)).connections.openai;
           if (active?.connection_id !== held.connectionId || active.version !== prepared.connectionVersion) {
-            throw new ApiKeyError("AI_KEY_CHANGED", { costNanoUsd: 0 });
+            throw new ApiKeyError("AI_KEY_CHANGED");
           }
-        }
-        if (options.signal?.aborted) throw abortReason(options.signal);
+        });
+      }
+      if (options.signal?.aborted) {
+        if (verified) throw new ApiKeyError("AI_KEY_UNEXPECTED", { costNanoUsd: 0 });
+        throw abortReason(options.signal);
+      }
+      return guarded(async () => {
         const startedAt = Date.now();
         let answer: Awaited<ReturnType<typeof generateWith>>;
         try {

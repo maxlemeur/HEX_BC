@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { inspect } from "node:util";
@@ -855,6 +855,39 @@ describe("a structured call for the lab", () => {
     }));
     expect(error).toMatchObject({ code: "AI_KEY_CHANGED", costNanoUsd: 0 });
     expect(openai.sent.filter((request) => request.url.endsWith("/v1/responses"))).toEqual([]);
+  });
+
+  it.each(["AI_KEY_CHANGED", "AI_KEY_MISSING", "AI_KEY_KEYCHAIN_LOCKED"] as const)("records zero cost for %s before lab dispatch", async (code) => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const { service, keychain } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const call = await prepareCall(service);
+    if (code === "AI_KEY_CHANGED") await service.save(OWNER, { key: fictionalKey() });
+    else if (code === "AI_KEY_MISSING") await service.remove(OWNER);
+    else keychain.state.locked = true;
+    await expect(service.execute(OWNER, call, { timeoutMs: 60_000 })).rejects.toMatchObject({ code, costNanoUsd: 0 });
+    expect(openai.sent.filter(({ url }) => url.endsWith("/v1/responses"))).toHaveLength(0);
+  });
+
+  it.each(["metadata read failure", "cancellation"] as const)("records zero cost for a %s after reservation and before transport", async (stage) => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const { service } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const call = await prepareCall(service);
+    const controller = new AbortController();
+    const reserveBeforeSend = vi.fn(async () => {
+      if (stage === "cancellation") {
+        controller.abort();
+        return;
+      }
+      const record = path.join(directory, `${ownerKey(OWNER)}.json`);
+      await rm(record);
+      await mkdir(record);
+    });
+    await expect(service.execute(OWNER, call, { timeoutMs: 60_000, signal: controller.signal, reserveBeforeSend }))
+      .rejects.toMatchObject({ code: "AI_KEY_UNEXPECTED", costNanoUsd: 0 });
+    expect(reserveBeforeSend).toHaveBeenCalledOnce();
+    expect(openai.sent.filter(({ url }) => url.endsWith("/v1/responses"))).toHaveLength(0);
   });
 
   it("masks the key and any credential echoed in the answer, the model id and the request id", async () => {
