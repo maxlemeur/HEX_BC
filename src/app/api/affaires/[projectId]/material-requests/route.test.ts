@@ -1,3 +1,4 @@
+import { strToU8, zipSync } from "fflate";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -1134,6 +1135,41 @@ describe("material requests of an affaire: originals", () => {
   const uploadsOf = (data: unknown) => (data as { uploads: Upload[] }).uploads;
   const listed = async () => ((await call(requestRoute.GET, "GET", inRequest)).data as { files: FakeRow[] }).files.map((entry) => entry.id);
 
+  const workbookMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+  it("keeps an Excel original with a missing browser MIME type and serves its unchanged bytes as a download", async () => {
+    const fake = seed(OWNER, "engineer");
+    const bytes = zipSync({ "[Content_Types].xml": strToU8("<Types/>"), "xl/workbook.xml": strToU8("<workbook/>") });
+    const name = "Liste matériel.XLSX";
+    const prepared = await prepare([declared(name, "", bytes.byteLength)]);
+    expect(prepared.status).toBe(201);
+    const [upload] = uploadsOf(prepared.data);
+    expect(upload.file.mime_type).toBe(workbookMime);
+    fake.objects.set(upload.path, bytes);
+    expect((await complete([upload.file.id])).status).toBe(200);
+
+    const response = await fileRoute.GET(new Request("http://localhost"), {
+      params: Promise.resolve({ ...inRequest, fileId: upload.file.id }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe(workbookMime);
+    expect(response.headers.get("content-disposition")).toBe("attachment; filename=\"Liste_mat_riel.XLSX\"; filename*=UTF-8''Liste%20mat%C3%A9riel.XLSX");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect((await call(fileRoute.PATCH, "PATCH", { ...inRequest, fileId: upload.file.id }, { rotation: 90 })).status).toBe(400);
+  });
+
+  it("discards a regular ZIP archive submitted as an Excel original", async () => {
+    const fake = seed(OWNER, "engineer");
+    const bytes = zipSync({ "note.txt": strToU8("Liste fictive") });
+    const prepared = await prepare([declared("liste.xlsx", workbookMime, bytes.byteLength)]);
+    expect(prepared.status).toBe(201);
+    const [upload] = uploadsOf(prepared.data);
+    fake.objects.set(upload.path, bytes);
+    const { status, error } = await complete([upload.file.id]);
+    expect([status, error?.details]).toEqual([422, { rejected: [{ id: upload.file.id, reason: "type" }] }]);
+    expect(fake.objects.has(upload.path)).toBe(false);
+  });
+
   it("prepares one signed upload per photo, with the caller's client, under the path of a row nobody sees yet", async () => {
     const fake = seed(OWNER, "engineer");
     const { status, data } = await prepare([
@@ -1235,7 +1271,7 @@ describe("material requests of an affaire: originals", () => {
   it("prepares nothing of a batch when storage refuses to sign one upload, and does not say why", async () => {
     const fake = seed(OWNER, "engineer", { failSign: (path) => path.endsWith("/seconde.jpg") });
     const { status, error } = await prepare([declared("premiere.jpg"), declared("seconde.jpg")]);
-    expect([status, error]).toEqual([500, { code: "INTERNAL_ERROR", message: "Impossible de préparer l’envoi des photos. Réessayez." }]);
+    expect([status, error]).toEqual([500, { code: "INTERNAL_ERROR", message: "Impossible de préparer l’envoi des fichiers. Réessayez." }]);
     expect(fake.tables.material_request_files.map((row) => row.id)).toEqual([FILE, PENDING_FILE, OTHER_FILE]);
   });
 
@@ -1293,7 +1329,7 @@ describe("material requests of an affaire: originals", () => {
 
     const { status, error } = await complete([good.file.id, rejected.file.id]);
     expect([status, error?.code]).toEqual([422, "MATERIAL_REQUEST_FILE_REJECTED"]);
-    expect(error?.message).toBe("Les photos reçues ne sont pas celles annoncées : aucune n’a été conservée. Déposez-les à nouveau.");
+    expect(error?.message).toBe("Les fichiers reçus ne correspondent pas aux fichiers annoncés. Déposez-les à nouveau.");
     expect(error?.details).toEqual({ rejected: [{ id: rejected.file.id, reason }] });
     // Nothing of the batch is marked, listed or left in storage; what was there before stays.
     expect(fake.writes.filter((write) => write.operation === "update" && "stored_at" in (write.values as FakeRow))).toEqual([]);
@@ -1344,7 +1380,7 @@ describe("material requests of an affaire: originals", () => {
     const uploads = uploadsOf((await prepare([declared("premiere.jpg"), declared("seconde.jpg")])).data);
     for (const upload of uploads) fake.objects.set(upload.path, JPEG);
     const { status, error } = await complete(uploads.map((upload) => upload.file.id));
-    expect([status, error]).toEqual([500, { code: "INTERNAL_ERROR", message: "Impossible d’enregistrer les photos : aucune n’a été conservée. Réessayez." }]);
+    expect([status, error]).toEqual([500, { code: "INTERNAL_ERROR", message: "Impossible d’enregistrer les fichiers. Aucun n’a été conservé. Réessayez." }]);
     expect(fake.tables.material_request_files.map((row) => row.id)).toEqual([FILE, PENDING_FILE, OTHER_FILE]);
     expect([...fake.objects.keys()]).toEqual([FILE_PATH, OTHER_FILE_PATH, PENDING_FILE_PATH]);
   });
@@ -1361,7 +1397,7 @@ describe("material requests of an affaire: originals", () => {
     expect((await complete(first.map((upload) => upload.file.id))).status).toBe(200);
     const late = await complete(second.map((upload) => upload.file.id));
     expect([late.status, late.error?.code]).toEqual([422, "MATERIAL_REQUEST_FILE_LIMIT"]);
-    expect(late.error?.message).toBe("Une demande garde 12 originaux au plus (12 déjà déposés) : ces photos n’ont pas été conservées.");
+    expect(late.error?.message).toBe("Une demande garde 12 originaux au plus (12 déjà déposés) : ces fichiers n’ont pas été conservés.");
     expect(await listed()).toEqual([FILE, ...first.map((upload) => upload.file.id)]);
     // The batch that did not fit is gone, rows and bytes.
     expect(fake.tables.material_request_files.filter((row) => row.request_id === REQUEST)).toHaveLength(13);
@@ -1391,7 +1427,7 @@ describe("material requests of an affaire: originals", () => {
     fake.storageCalls.length = 0;
     const { status, error } = await prepare(eleven);
     expect([status, error?.code]).toEqual([422, "MATERIAL_REQUEST_UPLOADS_PENDING"]);
-    expect(error?.message).toBe("Trop de photos sont en cours d’envoi pour cette demande (24 au plus) : terminez ou annulez les envois en cours, puis réessayez.");
+    expect(error?.message).toBe("Trop de fichiers sont en cours d’envoi pour cette demande (24 au plus) : terminez ou annulez les envois en cours, puis réessayez.");
     expect(fake.writes).toEqual([]);
     expect(fake.storageCalls).toEqual([]);
   });

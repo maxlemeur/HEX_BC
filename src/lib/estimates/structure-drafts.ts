@@ -15,7 +15,11 @@ import {
   normalizeAffaireIntakeExtractedMetadata,
   resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
-import { callStructuredAi } from "@/lib/ai/structured-ai";
+import {
+  readEstimateDraftAiOptions,
+  resolveEstimateDraftAi,
+  type EstimateDraftAiGeneration,
+} from "@/lib/estimates/draft-ai-generation";
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import {
@@ -210,6 +214,7 @@ export type EstimateStructureDraftResult = {
   summary: EstimateStructureDraftSummary;
   nodes: EstimateStructureDraftNodePayload[];
   generated_at: string;
+  generation_kind: "model" | "fallback" | null;
 };
 
 export type EstimateStructureDraftApplyResult = {
@@ -251,6 +256,8 @@ type EstimateStructureDraftGenerationMetadata = {
   model: string | null;
   prompt_version: string;
   used_fallback: boolean;
+  billing_source: string | null;
+  reasoning_effort: string | null;
   token_count: number | null;
   cost_cents: number | null;
   duration_ms: number | null;
@@ -272,11 +279,6 @@ type EstimateStructureGeminiNode = {
     excerpt: string | null;
   }>;
   children: EstimateStructureGeminiNode[];
-};
-
-type EstimateStructureGeminiExchange = {
-  summary: string | null;
-  roots: EstimateStructureGeminiNode[];
 };
 
 type EstimateStructureDraftLoaded = {
@@ -331,7 +333,6 @@ const ROOT_PARENT_KEY = "__root__";
 const ESTIMATE_STRUCTURE_PROVIDER = "ai_structure";
 const ESTIMATE_STRUCTURE_SOURCE_FILE_NAME = "Structure IA";
 const ESTIMATE_STRUCTURE_PROMPT_VERSION = "est382_structure_draft_v1";
-const ESTIMATE_STRUCTURE_PROMPT_MODEL = "gemini-3-pro-preview";
 const ESTIMATE_STRUCTURE_MAX_SOURCE_ENTRIES = 80;
 const ESTIMATE_STRUCTURE_MAX_CHILDREN = 14;
 const ESTIMATE_STRUCTURE_MAX_HIERARCHY_LEVEL = 4;
@@ -2096,128 +2097,81 @@ Consignes de generation:
 `.trim();
 }
 
-async function tryGenerateGeminiNodes(input: {
+async function buildDraftNodesFromSources(input: {
+  sourceBundle: EstimateStructureDraftSourceBundle;
   project: EmbeddedProjectAccess;
-  sourceSummaries: EstimateStructureDraftSourceSummary[];
-  promptSources: EstimateStructurePromptSource[];
-  heuristicNodes: EstimateStructureDraftNodePayload[];
+  existingSections?: MutableExistingSection[];
+  ai: EstimateDraftAiGeneration;
 }) {
-  const prompt = buildGeminiPrompt(input);
-  return callStructuredAi<EstimateStructureGeminiExchange>({
-    prompt,
-    schema: EstimateStructureGeminiExchangeSchema,
-    context: {
-      model: ESTIMATE_STRUCTURE_PROMPT_MODEL,
-      promptVersion: ESTIMATE_STRUCTURE_PROMPT_VERSION,
-    },
-  });
-}
-
-function buildDraftNodesFromSources(input: {
-  sourceEntries: EstimateStructureSourceEntry[];
-  sourceSummaries: EstimateStructureDraftSourceSummary[];
-  promptSources: EstimateStructurePromptSource[];
-  project: EmbeddedProjectAccess;
-  existingSections: MutableExistingSection[];
-}) {
-  const heuristicNodes = dedupeSiblingNodes(buildHeuristicNodes(input.sourceEntries));
-  if (heuristicNodes.length === 0) {
-    return Promise.resolve({
-      nodes: [],
-      metadata: {
-        model: null,
-        prompt_version: ESTIMATE_STRUCTURE_PROMPT_VERSION,
-        used_fallback: true,
-        token_count: null,
-        cost_cents: null,
-        duration_ms: null,
-        source_entry_count: input.sourceEntries.length,
-        generation_summary:
-          "Aucune suggestion defendable à partir des sources disponibles.",
-        failure_code: "ESTIMATE_STRUCTURE_DRAFT_NO_SOURCES",
-        failure_message: null,
-      } satisfies EstimateStructureDraftGenerationMetadata,
-    });
+  const { ai, project, sourceBundle } = input;
+  const { source_entries, source_summaries, prompt_sources } = sourceBundle;
+  const heuristicNodes = dedupeSiblingNodes(buildHeuristicNodes(source_entries));
+  let answer = null;
+  let failure: unknown = null;
+  if (ai && heuristicNodes.length > 0) {
+    try {
+      answer = await ai.generate("structure", {
+        prompt: buildGeminiPrompt({
+          project, sourceSummaries: source_summaries, promptSources: prompt_sources, heuristicNodes,
+        }),
+        schema: EstimateStructureGeminiExchangeSchema,
+        context: { promptVersion: ESTIMATE_STRUCTURE_PROMPT_VERSION },
+      });
+    } catch (error) {
+      // The key path must stop on a refusal, spend limit, or unknown usage.
+      if (ai.source === "personal_api_key") throw error;
+      failure = error;
+    }
   }
 
-  const heuristicLookup = buildHeuristicLookup(heuristicNodes);
-  return tryGenerateGeminiNodes({
-    project: input.project,
-    sourceSummaries: input.sourceSummaries,
-    promptSources: input.promptSources,
-    heuristicNodes,
-  })
-    .then((geminiResult) => {
-      const geminiNodes = mergeGeminiNodesWithHeuristic({
-        nodes: geminiResult.data.roots,
-        heuristicLookup,
-      });
-      const annotated = annotateNodesAgainstExistingSections({
-        nodes: geminiNodes,
-        existingSectionsByParent: buildExistingSectionsByParent(input.existingSections),
-      });
-      const weakSignalMode = isAssemblyOnlyWeakSignalMode(input.sourceSummaries);
-      const tunedNodes = weakSignalMode
-        ? deprioritizeAssemblyOnlyWeakSignalNodes(annotated)
-        : annotated;
-      const defendableNodes = weakSignalMode || hasDefendableRootSuggestions(tunedNodes)
-        ? tunedNodes
-        : [];
+  const modelNodes = answer?.data
+    ? mergeGeminiNodesWithHeuristic({
+        nodes: answer.data.roots,
+        heuristicLookup: buildHeuristicLookup(heuristicNodes),
+      })
+    : null;
+  const annotated = annotateNodesAgainstExistingSections({
+    nodes: modelNodes ?? heuristicNodes,
+    existingSectionsByParent: buildExistingSectionsByParent(input.existingSections ?? []),
+  });
+  const weakSignalMode = isAssemblyOnlyWeakSignalMode(source_summaries);
+  const tunedNodes = weakSignalMode ? deprioritizeAssemblyOnlyWeakSignalNodes(annotated) : annotated;
+  const nodes = weakSignalMode || hasDefendableRootSuggestions(tunedNodes) ? tunedNodes : [];
 
-      return {
-        nodes: defendableNodes,
-        metadata: {
-          model: geminiResult.model,
-          prompt_version: geminiResult.promptVersion,
-          used_fallback: false,
-          token_count: geminiResult.tokenCount,
-          cost_cents: geminiResult.costCents,
-          duration_ms: geminiResult.durationMs,
-          source_entry_count: input.sourceEntries.length,
-          generation_summary:
-            defendableNodes.length > 0
-              ? geminiResult.data.summary ?? null
-              : "Aucune suggestion defendable à partir des sources disponibles.",
-          failure_code: null,
-          failure_message: null,
-        } satisfies EstimateStructureDraftGenerationMetadata,
-      };
-    })
-    .catch((error: unknown) => {
-      const annotated = annotateNodesAgainstExistingSections({
-        nodes: heuristicNodes,
-        existingSectionsByParent: buildExistingSectionsByParent(input.existingSections),
-      });
-      const weakSignalMode = isAssemblyOnlyWeakSignalMode(input.sourceSummaries);
-      const tunedNodes = weakSignalMode
-        ? deprioritizeAssemblyOnlyWeakSignalNodes(annotated)
-        : annotated;
-      const defendableNodes = weakSignalMode || hasDefendableRootSuggestions(tunedNodes)
-        ? tunedNodes
-        : [];
+  return {
+    nodes,
+    sources: source_summaries,
+    metadata: {
+      model: answer?.model ?? null,
+      prompt_version: ESTIMATE_STRUCTURE_PROMPT_VERSION,
+      used_fallback: modelNodes === null,
+      billing_source: ai?.source ?? null,
+      reasoning_effort: ai?.preferences.reasoningEffort ?? null,
+      token_count: answer?.tokenCount ?? null,
+      cost_cents: answer?.costCents ?? null,
+      duration_ms: answer?.durationMs ?? null,
+      source_entry_count: source_entries.length,
+      generation_summary: nodes.length === 0
+        ? "Aucune suggestion defendable à partir des sources disponibles."
+        : answer?.data?.summary ?? (modelNodes === null ? "Aperçu de secours construit à partir des sources." : null),
+      failure_code: heuristicNodes.length === 0
+        ? "ESTIMATE_STRUCTURE_DRAFT_NO_SOURCES"
+        : failure instanceof Error && "code" in failure && typeof failure.code === "string" ? failure.code : null,
+      failure_message: failure instanceof Error ? failure.message : null,
+    } satisfies EstimateStructureDraftGenerationMetadata,
+  };
+}
 
-      return {
-        nodes: defendableNodes,
-        metadata: {
-          model: null,
-          prompt_version: ESTIMATE_STRUCTURE_PROMPT_VERSION,
-          used_fallback: true,
-          token_count: null,
-          cost_cents: null,
-          duration_ms: null,
-          source_entry_count: input.sourceEntries.length,
-          generation_summary:
-            defendableNodes.length > 0
-              ? "Fallback heuristique utilise."
-              : "Aucune suggestion defendable à partir des sources disponibles.",
-          failure_code:
-            error instanceof Error && "code" in error && typeof error.code === "string"
-              ? error.code
-              : null,
-          failure_message: error instanceof Error ? error.message : "Generation Gemini indisponible.",
-        } satisfies EstimateStructureDraftGenerationMetadata,
-      };
-    });
+export async function buildEstimateStructurePreview(input: {
+  supabase: Supabase;
+  tenantId: string;
+  project: EmbeddedProjectAccess;
+  version: VersionAccessRow;
+  ai: EstimateDraftAiGeneration;
+  existingSections?: MutableExistingSection[];
+}) {
+  const sourceBundle = await loadStructureDraftSourceBundle(input);
+  return buildDraftNodesFromSources({ ...input, sourceBundle });
 }
 
 async function discardPendingDrafts(input: {
@@ -2311,6 +2265,16 @@ async function loadEstimateStructureDraftOrThrow(input: {
   } satisfies EstimateStructureDraftLoaded;
 }
 
+export async function readEstimateDraftAiOptionsForVersion(versionId: string) {
+  const context = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(context.tenantRole);
+  const { version } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
+    context.supabase, versionId, context, STRUCTURE_DRAFT_VERSION_ACCESS
+  );
+  assertDraftStatus(version.status);
+  return readEstimateDraftAiOptions(context);
+}
+
 export async function generateEstimateStructureDraft(
   versionId: string,
   input: GenerateEstimateStructureDraftInput
@@ -2343,13 +2307,9 @@ export async function generateEstimateStructureDraft(
     throw mapSupabaseError(existingItemsError, "Impossible de charger la structure existante.");
   }
 
-  const sourceBundle = await loadStructureDraftSourceBundle({
-    supabase,
-    tenantId,
-    project,
-    version,
-  });
+  const ai = await resolveEstimateDraftAi({ tenantId, userId }, input.ai);
 
+  const sourceBundle = await loadStructureDraftSourceBundle({ supabase, tenantId, project, version });
   const existingSections = buildExistingSections(
     (existingItemsData ?? []) as EstimateItemRow[]
   );
@@ -2359,13 +2319,7 @@ export async function generateEstimateStructureDraft(
     versionId,
     operation: "structure_draft",
     run: async () => {
-      const generation = await buildDraftNodesFromSources({
-        sourceEntries: sourceBundle.source_entries,
-        sourceSummaries: sourceBundle.source_summaries,
-        promptSources: sourceBundle.prompt_sources,
-        project,
-        existingSections,
-      });
+      const generation = await buildDraftNodesFromSources({ project, existingSections, sourceBundle, ai });
       const summary = buildDraftSummary(generation.nodes);
 
       await discardPendingDrafts({
@@ -2383,7 +2337,7 @@ export async function generateEstimateStructureDraft(
         status: "pending",
         strategy: input.strategy ?? "hybrid",
         summary: toJson(summary),
-        source_overview: toJson(sourceBundle.source_summaries),
+        source_overview: toJson(generation.sources),
         generation_metadata: toJson(generation.metadata),
         applied_at: null,
       };
@@ -2465,10 +2419,11 @@ export async function generateEstimateStructureDraft(
         draft_id: draftData.id,
         version_id: versionId,
         strategy: input.strategy ?? "hybrid",
-        sources: sourceBundle.source_summaries,
+        sources: generation.sources,
         summary,
         nodes: persistedNodes,
         generated_at: draftData.created_at,
+        generation_kind: generation.metadata.used_fallback ? "fallback" : "model",
       };
     },
   });
@@ -2491,6 +2446,9 @@ export async function getEstimateStructureDraft(
     draftId,
   });
 
+  const metadata = loaded.draft.generation_metadata;
+  const usedFallback = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? metadata.used_fallback : null;
   return {
     draft_id: loaded.draft.id,
     version_id: versionId,
@@ -2500,6 +2458,7 @@ export async function getEstimateStructureDraft(
     summary: normalizeDraftSummary(loaded.draft.summary),
     nodes: loaded.nodes,
     generated_at: loaded.draft.created_at,
+    generation_kind: typeof usedFallback === "boolean" ? (usedFallback ? "fallback" : "model") : null,
   };
 }
 

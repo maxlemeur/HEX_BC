@@ -1,5 +1,5 @@
 import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { updateMaterialRequestFileSchema } from "@/lib/material-requests/contracts";
+import { MATERIAL_REQUEST_WORKBOOK_MIME_TYPE, updateMaterialRequestFileSchema } from "@/lib/material-requests/contracts";
 import {
   deleteMaterialRequestFile,
   readMaterialRequestFile,
@@ -26,11 +26,14 @@ export async function GET(_request: Request, { params }: Context) {
       /['()*]/g,
       (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
     );
+    const disposition = file.mimeType === "application/pdf" || file.mimeType === MATERIAL_REQUEST_WORKBOOK_MIME_TYPE
+      ? "attachment"
+      : "inline";
     return new Response(file.body.stream(), {
       headers: {
         "Content-Type": file.mimeType,
         "Content-Length": String(file.body.size),
-        "Content-Disposition": `${file.mimeType === "application/pdf" ? "attachment" : "inline"}; filename="${filename}"; filename*=UTF-8''${encoded}`,
+        "Content-Disposition": `${disposition}; filename="${filename}"; filename*=UTF-8''${encoded}`,
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
         "Cross-Origin-Resource-Policy": "same-origin",

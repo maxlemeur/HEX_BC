@@ -2489,7 +2489,7 @@
           "Demandes de matériel"
         ],
         "summary": "Préparer le dépôt d'originaux",
-        "description": "Les originaux ne passent pas par l'application : le navigateur les envoie au stockage. Cet appel vérifie ce qui est annoncé (de 1 à 12 fichiers PDF ou images JPEG, PNG ou WebP de 20 Mo au plus, nom et type concordants, 12 originaux conservés par demande), enregistre une ligne invisible par fichier et signe un envoi par fichier avec la session de l'appelant, sans écrasement possible. Le navigateur envoie ensuite chaque fichier avec uploadToSignedUrl(path, token, fichier) sur le bucket material-requests, puis appelle files/complete. Un seul fichier refusé refuse le lot. Avec quote_id (TI-691), le lot répond à un devis de cette demande encore demandé ou reçu : PDF ou images, 10 fichiers conservés par devis, à part des originaux, listés avec le devis et jamais parmi les originaux ; même chemin de stockage (tenant/affaire/demande/fichier/nom).",
+        "description": "Les originaux ne passent pas par l'application : le navigateur les envoie au stockage. Cet appel vérifie ce qui est annoncé (de 1 à 12 fichiers Excel (.xlsx), PDF ou images JPEG, PNG ou WebP de 20 Mo au plus, nom et type concordants, 12 originaux conservés par demande), enregistre une ligne invisible par fichier et signe un envoi par fichier avec la session de l'appelant, sans écrasement possible. Le navigateur envoie ensuite chaque fichier avec uploadToSignedUrl(path, token, fichier) sur le bucket material-requests, puis appelle files/complete. Un seul fichier refusé refuse le lot. Avec quote_id (TI-691), le lot répond à un devis de cette demande encore demandé ou reçu : PDF ou images, 10 fichiers conservés par devis, à part des originaux, listés avec le devis et jamais parmi les originaux ; même chemin de stockage (tenant/affaire/demande/fichier/nom).",
         "parameters": [
           {
             "name": "projectId",
@@ -2523,7 +2523,7 @@
         },
         "responses": {
           "201": {
-            "description": "Un envoi signé par photo, valable deux heures.",
+            "description": "Un envoi signé par fichier, valable deux heures.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2583,7 +2583,7 @@
             }
           },
           "413": {
-            "description": "PAYLOAD_TOO_LARGE : une photo annoncée dépasse 20 Mo.",
+            "description": "PAYLOAD_TOO_LARGE : un fichier annoncé dépasse 20 Mo.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2621,7 +2621,7 @@
           "Demandes de matériel"
         ],
         "summary": "Lire un original ou le fichier d'un devis",
-        "description": "Octets d'un original (image ou PDF) ou d'un fichier de devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; un PDF l'est en pièce jointe (Content-Disposition: attachment), jamais affiché directement dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
+        "description": "Octets d'un original (image, PDF ou Excel) ou d'un fichier de devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; un PDF ou un Excel l'est en pièce jointe (Content-Disposition: attachment), jamais affiché directement dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
         "parameters": [
           {
             "name": "projectId",
@@ -2655,12 +2655,6 @@
           "200": {
             "description": "Fichier d'origine, jamais réécrit.",
             "content": {
-              "application/pdf": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              },
               "image/jpeg": {
                 "schema": {
                   "type": "string",
@@ -2674,6 +2668,18 @@
                 }
               },
               "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
                   "type": "string",
                   "format": "binary"
@@ -2748,7 +2754,7 @@
           "Demandes de matériel"
         ],
         "summary": "Tourner un original",
-        "description": "Rotation d'affichage par quarts de tour pour une image ; les octets conservés ne changent pas. Un PDF ne se tourne pas (400). Le fichier d'un devis retenu ou clos ne tourne plus.",
+        "description": "Rotation d'affichage par quarts de tour pour une image ; les octets conservés ne changent pas. La rotation d’un PDF ou d’un fichier Excel répond 400. Le fichier d'un devis retenu ou clos ne tourne plus.",
         "parameters": [
           {
             "name": "projectId",
@@ -2801,7 +2807,7 @@
             }
           },
           "400": {
-            "description": "BAD_REQUEST : un PDF ne se tourne pas.",
+            "description": "BAD_REQUEST : la rotation est réservée aux images.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2867,7 +2873,7 @@
           "Demandes de matériel"
         ],
         "summary": "Supprimer un original",
-        "description": "Retire l'original de toute lecture, puis supprime ses octets et sa ligne. Vaut aussi pour une photo préparée mais pas encore conservée : c'est ainsi qu'un dépôt s'annule, et un envoi encore en cours n'aboutit plus. Le fichier d'un devis se supprime de même tant que le devis est demandé ou reçu ; il reste une fois le devis retenu ou clos.",
+        "description": "Retire l'original de toute lecture, puis supprime ses octets et sa ligne. Vaut aussi pour un fichier préparé mais pas encore conservé : c'est ainsi qu'un dépôt s'annule, et un envoi encore en cours n'aboutit plus. Le fichier d'un devis se supprime de même tant que le devis est demandé ou reçu ; il reste une fois le devis retenu ou clos.",
         "parameters": [
           {
             "name": "projectId",
@@ -2977,7 +2983,7 @@
           "Demandes de matériel"
         ],
         "summary": "Lire un original avec l'IA",
-        "description": "Fait lire un original de la demande (photo ou PDF) par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à l'original. Un champ qui n'est pas écrit reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Un original par appel, de 15 Mo au plus ; la rotation d'affichage d'une photo est indiquée au modèle, ses octets partent tels quels. L'annulation de la requête HTTP interrompt l'appel fournisseur. Seuls les originaux de la demande se lisent : le fichier d'un devis, un original dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Un original sans article répond lines vide.",
+        "description": "Fait lire un original de la demande (photo ou PDF) par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à l'original. Un champ qui n'est pas écrit reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Un original par appel, de 15 Mo au plus ; la rotation d'affichage d'une photo est indiquée au modèle, ses octets partent tels quels. L'annulation de la requête HTTP interrompt l'appel fournisseur. Seules les photos et les PDF originaux de la demande sont analysés. Après validation des réglages de lecture, un fichier Excel, le fichier d'un devis et un original en cours de dépôt ou de suppression répondent 404. Un original sans article répond lines vide.",
         "parameters": [
           {
             "name": "projectId",
@@ -3128,7 +3134,7 @@
           "Demandes de matériel"
         ],
         "summary": "Terminer le dépôt d'originaux",
-        "description": "Vérifie dans le stockage chaque fichier préparé : présent, de la taille annoncée, et dont les premiers octets sont ceux du type annoncé (un PDF commence par %PDF-). Tout ou rien : si une photo échoue, aucune du lot n'est conservée (lignes et octets retirés) ; sinon le lot devient visible en une seule écriture. Un original n'est listé, compté et servi qu'après cet appel. Une photo déjà conservée, nommée à nouveau, est retournée sans être relue.",
+        "description": "Vérifie dans le stockage chaque fichier préparé : présent, de la taille annoncée, et conforme au format annoncé. Les images et PDF sont vérifiés par leur signature et un .xlsx par les entrées de classeur dans son archive. Tout ou rien : si un fichier échoue, aucun du lot n'est conservé (lignes et octets retirés) ; sinon le lot devient visible en une seule écriture. Un original n'est listé, compté et servi qu'après cet appel. Un fichier déjà conservé, nommé à nouveau, est retourné sans être relu.",
         "parameters": [
           {
             "name": "projectId",
@@ -3212,7 +3218,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_UPLOAD_CHANGED : une photo du lot a été annulée entre-temps ; celles déjà visibles le restent, recharger la demande. MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis du lot a été retenu ou clos pendant l'envoi ; le lot est retiré.",
+            "description": "MATERIAL_REQUEST_UPLOAD_CHANGED : un fichier du lot a été annulé entre-temps ; ceux déjà visibles le restent, recharger la demande. MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis du lot a été retenu ou clos pendant l'envoi ; le lot est retiré.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3222,7 +3228,7 @@
             }
           },
           "422": {
-            "description": "MATERIAL_REQUEST_FILE_REJECTED : chaque photo refusée et sa raison (missing, size, type) ; aucune du lot n'est conservée. Même statut, code MATERIAL_REQUEST_FILE_LIMIT, sans details.rejected, quand le lot ferait dépasser 12 originaux (MATERIAL_REQUEST_QUOTE_FILE_LIMIT : les fichiers de son devis) : il est alors écarté en entier.",
+            "description": "MATERIAL_REQUEST_FILE_REJECTED : chaque fichier refusé et sa raison (missing, size, type) ; aucun du lot n'est conservé. Même statut, code MATERIAL_REQUEST_FILE_LIMIT, sans details.rejected, quand le lot ferait dépasser 12 originaux (MATERIAL_REQUEST_QUOTE_FILE_LIMIT : les fichiers de son devis) : il est alors écarté en entier.",
             "content": {
               "application/json": {
                 "schema": {
@@ -19237,7 +19243,7 @@
           }
         ],
         "requestBody": {
-          "description": "Strategie de generation.",
+          "description": "Stratégie et choix IA. Une génération avec la clé personnelle est plafonnée à 1 USD. Une requête autrement valide sans le champ ai reçoit un HTTP 400 avec le code ESTIMATE_DRAFT_AI_CHOICE_REQUIRED et le message « Rechargez la page pour choisir votre source IA avant de générer. ».",
           "required": true,
           "content": {
             "application/json": {
@@ -20672,7 +20678,7 @@
           }
         ],
         "requestBody": {
-          "description": "Brief et lots selectionnes.",
+          "description": "Brief, lots et choix IA. La structure et les lignes partagent le plafond de 1 USD avec la clé personnelle. Une requête autrement valide sans le champ ai reçoit un HTTP 400 avec le code ESTIMATE_DRAFT_AI_CHOICE_REQUIRED et le message « Rechargez la page pour choisir votre source IA avant de générer. ».",
           "required": true,
           "content": {
             "application/json": {
@@ -38091,10 +38097,11 @@
                     "mime_type": {
                       "type": "string",
                       "enum": [
-                        "application/pdf",
                         "image/jpeg",
                         "image/png",
-                        "image/webp"
+                        "image/webp",
+                        "application/pdf",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                       ]
                     },
                     "byte_size": {
@@ -38703,10 +38710,11 @@
                     "mime_type": {
                       "type": "string",
                       "enum": [
-                        "application/pdf",
                         "image/jpeg",
                         "image/png",
-                        "image/webp"
+                        "image/webp",
+                        "application/pdf",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                       ]
                     },
                     "byte_size": {
@@ -39706,10 +39714,11 @@
                         "mime_type": {
                           "type": "string",
                           "enum": [
-                            "application/pdf",
                             "image/jpeg",
                             "image/png",
-                            "image/webp"
+                            "image/webp",
+                            "application/pdf",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                           ]
                         },
                         "byte_size": {
@@ -39829,10 +39838,11 @@
                   "mime_type": {
                     "type": "string",
                     "enum": [
-                      "application/pdf",
                       "image/jpeg",
                       "image/png",
-                      "image/webp"
+                      "image/webp",
+                      "application/pdf",
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     ]
                   },
                   "byte_size": {
@@ -40131,10 +40141,11 @@
                     "mime_type": {
                       "type": "string",
                       "enum": [
-                        "application/pdf",
                         "image/jpeg",
                         "image/png",
-                        "image/webp"
+                        "image/webp",
+                        "application/pdf",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                       ]
                     },
                     "byte_size": {
@@ -91749,8 +91760,107 @@
             "enum": [
               "hybrid"
             ]
+          },
+          "ai": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "chatgpt_plan"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "personal_api_key"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expectedConnectionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort",
+                  "expectedConnectionId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "fallback"
+                  }
+                },
+                "required": [
+                  "source"
+                ]
+              }
+            ]
           }
-        }
+        },
+        "required": [
+          "ai"
+        ]
       },
       "GetEstimateStructureDraftVersionIdParameter": {
         "type": "string",
@@ -95375,8 +95485,107 @@
               "minLength": 1,
               "maxLength": 160
             }
+          },
+          "ai": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "chatgpt_plan"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "personal_api_key"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expectedConnectionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort",
+                  "expectedConnectionId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "fallback"
+                  }
+                },
+                "required": [
+                  "source"
+                ]
+              }
+            ]
           }
-        }
+        },
+        "required": [
+          "ai"
+        ]
       },
       "GetVersionZeroDraftVersionIdParameter": {
         "type": "string",

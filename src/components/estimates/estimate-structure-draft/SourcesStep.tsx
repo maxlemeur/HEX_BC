@@ -42,6 +42,9 @@ export function SourcesStep({
       {draftError ? <Alert variant="danger">{draftError}</Alert> : null}
       {draft ? (
         <>
+          {draft.generationKind === "fallback" && draft.nodes.length > 0 ? (
+            <Alert variant="info">Aperçu de secours construit à partir des sources, sans résultat de l’IA.</Alert>
+          ) : null}
           <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <SummaryTile label="Lots proposés" value={draft.summary.rootCount} />
             <SummaryTile label="Nouveaux" value={draft.summary.newCount} />
