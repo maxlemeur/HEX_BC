@@ -91,6 +91,7 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [filter, setFilter] = useState<Filter>("all");
   const [aiSelection, setAiSelection] = useState<AiRequestSettingsValue>();
+  const [keyAnswered, setKeyAnswered] = useState<ReadonlySet<string>>();
   const [arbitrating, setArbitrating] = useState(false);
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -145,6 +146,11 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
   } : {};
   const aiSettings = aiSelection ?? defaultAiRequestSettings(preview?.default_billing_source ?? null, aiSources);
   const isBusy = isComparing || isSubmitting || arbitrating;
+  // A row already retained or chosen by hand stays the user's choice.
+  const eligibleLines = toArbitrate.filter((line) => !rows[line.line_id]?.checked && rows[line.line_id]?.origin !== "manual");
+  const unansweredOnKey = keyAnswered ? eligibleLines.filter((line) => !keyAnswered.has(line.line_id)) : eligibleLines;
+  const canContinueOnKey = aiSettings.source === "personal_api_key" && unansweredOnKey.length > 0
+    && unansweredOnKey.length < eligibleLines.length;
 
   const updateRow = (lineId: string, patch: Partial<RowState>) =>
     setRows((current) => ({ ...current, [lineId]: { ...current[lineId], ...patch } }));
@@ -156,6 +162,7 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
     setSubmitError(null);
     setAiStatus(null);
     setAiSelection(undefined);
+    setKeyAnswered(undefined);
     // A new comparison replaces the previous one: its rows are no longer shown nor selectable meanwhile.
     setPreview(null);
     setRows({});
@@ -177,13 +184,13 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
     }
   }
 
-  async function arbitrate() {
+  async function arbitrate(restart = false) {
     const { source, preferences } = aiSettings;
     if (!preview || !source || !aiSources[source]?.available || isBusy || toArbitrate.length === 0 || (source !== "decisions" && !preferences)) return;
     const provider = source === "chatgpt_plan" ? "chatgpt" : source;
     const label = PROVIDER_LABELS[provider];
-    // A row the user already retained or chose stays theirs: it is not sent, and no answer can change it.
-    const lines = toArbitrate.filter((line) => !rows[line.line_id]?.checked && rows[line.line_id]?.origin !== "manual");
+    const continueOnKey = canContinueOnKey && !restart;
+    const lines = continueOnKey ? unansweredOnKey : eligibleLines;
     if (lines.length === 0) {
       setAiStatus(`${label} : les lignes à vérifier sont déjà choisies.`);
       return;
@@ -206,6 +213,11 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
           ...(preferences && { model: preferences.model, reasoning_effort: preferences.reasoningEffort }),
         });
         const replies = result.answers.filter((answer) => answer.reference_line_id !== null || answer.no_match || answer.confidence !== null);
+        if (onKey) {
+          const answeredIds = new Set(continueOnKey ? keyAnswered : undefined);
+          for (const reply of replies) answeredIds.add(reply.line_id);
+          setKeyAnswered(answeredIds);
+        }
         setRows((current) => {
           const next = { ...current };
           for (const answer of replies) {
@@ -305,12 +317,24 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
                   </p>
                   <div className="mt-2 flex flex-wrap items-start gap-3">
                     <AiRequestSettings sources={aiSources} defaultSource={preview.default_billing_source}
-                      value={aiSettings} onChange={setAiSelection} sourcePicker={{ label: "Source d’IA" }} locked={isBusy}
+                      value={aiSettings} sourcePicker={{ label: "Source d’IA" }} locked={isBusy}
+                      onChange={(settings) => {
+                        setAiSelection(settings);
+                        setKeyAnswered(undefined);
+                        setAiStatus(null);
+                      }}
                       keyCeiling={{ nanoUsd: AI_REQUEST_CEILINGS_NANO_USD.shortQuestion }} />
-                    <Button type="button" variant="outline" size="md" className="mt-6" onClick={() => void arbitrate()}
-                      disabled={!aiSettings.source || isBusy || toArbitrate.length === 0}>
-                      {arbitrating ? "Arbitrage en cours…" : "Départager"}
-                    </Button>
+                    <div className="mt-6 flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="md" onClick={() => void arbitrate()}
+                        disabled={!aiSettings.source || isBusy || toArbitrate.length === 0}>
+                        {arbitrating ? "Arbitrage en cours…" : canContinueOnKey ? "Poursuivre le départage" : "Départager"}
+                      </Button>
+                      {canContinueOnKey ? (
+                        <Button type="button" variant="ghost" size="md" disabled={isBusy} onClick={() => void arbitrate(true)}>
+                          Recommencer le départage
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                   {aiStatus ? <p role="status" data-testid="price-reuse-ai-status" className="mt-2 text-sm text-foreground">{aiStatus}</p> : null}
                   {aiProposals.length > 0 ? (

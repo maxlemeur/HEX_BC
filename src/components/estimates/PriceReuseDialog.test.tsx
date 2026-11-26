@@ -57,6 +57,8 @@ beforeEach(() => {
 describe("PriceReuseDialog AI settings", () => {
   it("prefills the profile key, shows its ceiling and sends changed settings in one command for more than 100 lines", async () => {
     vi.mocked(arbitrateEstimatePriceReuse).mockResolvedValue({
+      provider: "personal_api_key", model: "gpt-6.2-sol", status: "partial", message: "Les lignes restantes sont à vérifier.", answers: [],
+    }).mockResolvedValueOnce({
       provider: "personal_api_key", model: "gpt-6.2-sol", status: "partial", message: "Le budget ne permet pas d’envoyer les lignes restantes.",
       answers: [
         { line_id: LINES[0].line_id, reference_line_id: ID, confidence: 0.8 },
@@ -86,6 +88,16 @@ describe("PriceReuseDialog AI settings", () => {
     expect(onConfirm).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Retenir les propositions de l’IA (1)" }));
     expect(screen.getByRole("button", { name: "Appliquer 1 reprise" })).toBeEnabled();
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Poursuivre le départage" }));
+    expect(arbitrateEstimatePriceReuse).toHaveBeenNthCalledWith(2, "cible", expect.objectContaining({
+      line_ids: LINES.slice(2).map((line) => line.line_id),
+    }));
+    await user.click(screen.getByRole("button", { name: "Recommencer le départage" }));
+    expect(arbitrateEstimatePriceReuse).toHaveBeenNthCalledWith(3, "cible", expect.objectContaining({
+      line_ids: LINES.slice(1).map((line) => line.line_id),
+    }));
     expect(onConfirm).not.toHaveBeenCalled();
   });
 

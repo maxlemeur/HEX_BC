@@ -85,8 +85,11 @@ est indisponible ou si sa réponse est inutilisable.
 
 La commande sur clé API est plafonnée à 0,10 USD pour l'ensemble de ses lots. Si
 le prochain lot dépasse le budget restant, le serveur garde les réponses reçues
-et signale l'arrêt. Une requête accepte jusqu'à 1 000 lignes sur clé API et
-100 lignes sur le forfait ChatGPT ou Decisions.
+et signale l'arrêt. « Poursuivre le départage » envoie les lignes restées sans
+réponse dans une nouvelle commande, au même plafond. « Recommencer le départage »
+permet de redemander une proposition sur les lignes à vérifier. Une requête
+accepte jusqu'à 1 000 lignes sur clé API et 100 lignes sur le forfait ChatGPT ou
+Decisions.
 
 ## Application
 
