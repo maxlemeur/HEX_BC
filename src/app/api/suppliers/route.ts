@@ -28,7 +28,7 @@ export async function GET(request: Request) {
       return ok(await getSupplierUsage(query.id));
     }
 
-    return ok(await listSuppliers(query.scope));
+    return ok(await listSuppliers());
   } catch (error) {
     return toErrorResponse(error);
   }

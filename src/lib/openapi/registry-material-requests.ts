@@ -770,6 +770,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     responses: {
       "200": success("ApiArticleSupplierItemSaved", "Référence enregistrée et exception de l'article après l'enregistrement.", articleSupplierSaved),
       ...catalogueEditorRefusals,
+      "409": refusal("CONFLICT : une modification concurrente empêche l’enregistrement de la référence fournisseur. Réessayez."),
     },
   },
   {

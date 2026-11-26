@@ -9,6 +9,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
+import { POST as postPrices } from "@/app/api/prices/route";
 import {
   bulkCreateSupplierPricesAtomic,
   createMissingPriceImportEntities,
@@ -39,6 +40,25 @@ function createAuthenticatedSupabaseBase() {
 describe("catalogue server regressions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("answers 404 when an update of a supplier catalogue item returns no_data_found", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: { code: "P0002", message: "Supplier catalogue item not found." },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({ ...createAuthenticatedSupabaseBase(), rpc } as never);
+    const id = "88888888-8888-4888-8888-888888888888";
+
+    const response = await postPrices(new Request("http://localhost/api/prices", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "update-supplier-item", id, supplier_sku: "TEST-1" }),
+    }));
+
+    expect(rpc).toHaveBeenCalledWith("update_supplier_catalog_item", expect.objectContaining({ p_item_id: id }));
+    expect(response.status).toBe(404);
+    expect((await response.json()).error.message).toBe("Fiche article-fournisseur introuvable.");
   });
 
   it("escapes ilike wildcard characters when checking missing suppliers/products", async () => {
