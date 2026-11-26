@@ -32,6 +32,75 @@ type Detail = {
   lines: Line[];
 };
 
+armyTest(
+  "MR12 selected draft lines can be deleted together while other lines are kept",
+  { session: "army", tags: ["critical", "material-requests"], timeout: 300_000 },
+  async ({ app, screen, browser, army }) => {
+    const ids = await createEstimateViaWizard({ app, screen, browser }, {
+      projectName: army.projectName,
+      title: `${army.runPrefix} suppression de lignes`,
+    }, army);
+    ownEstimate(army, ids);
+    const base = `/api/affaires/${ids.projectId}/material-requests`;
+    const created = await apiRequest<Envelope<Detail>>(browser, "POST", base, {
+      source_text: "Demande initiale à conserver.",
+    });
+    expect(created.status).toBe(201);
+    const requestId = created.body.data.request.id;
+    const requestPath = `${base}/${requestId}`;
+    const added = await apiRequest<Envelope<{ lines: Line[] }>>(browser, "POST", `${requestPath}/lines`, {
+      lines: [
+        { quantity: 2, unit: "u", product_type: "Coude", dimension: "DN 15", material: "Cuivre" },
+        { quantity: 3, unit: "u", product_type: "Manchon", dimension: "DN 20", material: "Cuivre" },
+        { quantity: 4, unit: "u", product_type: "Vanne", dimension: "DN 25", material: "Cuivre" },
+        { quantity: 5, unit: "u", product_type: "Té", dimension: "DN 32", material: "Cuivre" },
+      ],
+    });
+    expect(added.status).toBe(201);
+    const [first, second, validated, other] = added.body.data.lines;
+    const validation = await apiRequest<Envelope<{ lines: Line[] }>>(browser, "POST", `${requestPath}/lines/validate`, {
+      ids: [validated.id],
+    });
+    expect(validation.status).toBe(200);
+    const refused = await apiRequest<Envelope<never>>(browser, "POST", `${requestPath}/lines/delete`, {
+      ids: [first.id, validated.id],
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error?.code).toBe("MATERIAL_REQUEST_LINES_KEPT");
+
+    const read = async () => {
+      const response = await apiRequest<Envelope<Detail>>(browser, "GET", requestPath);
+      expect(response.status).toBe(200);
+      return response.body.data;
+    };
+    const page = `/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}`;
+    await browser.goto(page, { waitUntil: "domcontentloaded" });
+    await screen.getByRole("checkbox", "Sélectionner la ligne 1", { exact: true }).check({ timeout: 60_000 });
+    await screen.getByRole("checkbox", "Sélectionner la ligne 2", { exact: true }).check();
+    const selection = screen.getByRole("button", "Supprimer la sélection", { exact: true });
+    const confirmation = screen.getByRole("alertdialog", "Supprimer 2 lignes ?", { exact: true });
+    await selection.tap();
+    await confirmation.getByRole("button", "Annuler", { exact: true }).tap();
+    expect((await read()).lines.map((line) => line.id)).toEqual([first.id, second.id, validated.id, other.id]);
+    await selection.tap();
+    await confirmation.getByRole("button", "Supprimer", { exact: true }).tap();
+    const retained = [[validated.id, 3, 4, "validated"], [other.id, 4, 5, "draft"]];
+    await expect.poll(async () => (await read()).lines.map((line) => [
+      line.id, line.position, line.quantity, line.status,
+    ]), { timeout: 30_000 }).toEqual(retained);
+    await browser.goto(page, { waitUntil: "domcontentloaded" });
+    await expect(screen.getByRole("checkbox", "Sélectionner la ligne 4", { exact: true })).toBeVisible({ timeout: 60_000 });
+    await expect(screen.getByRole("checkbox", "Sélectionner la ligne 1", { exact: true })).toHaveCount(0);
+    await expect(screen.getByRole("checkbox", "Sélectionner la ligne 2", { exact: true })).toHaveCount(0);
+    expect((await read()).request).toMatchObject({ source_text: "Demande initiale à conserver." });
+    await recordEvidence(army, "material-request-bulk-delete", {
+      selected: [first.id, second.id],
+      retained,
+      validatedRefusal: refused.status,
+    });
+  },
+);
+
 // TI-690, delivery 2. Failure modes, written before the journey was first run against the product:
 // - the pasted message is lost, or its pre-reading invents a quantity, a size or a material;
 // - a line with a missing size, an unconfirmed presumed material or a possible duplicate is validated,
