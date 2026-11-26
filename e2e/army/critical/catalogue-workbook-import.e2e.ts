@@ -106,6 +106,11 @@ armyTest(
     await search.fill("");
     await filterButton.tap();
     await expect(table.getByText("Repère de préfiltre", { exact: true })).toBeVisible();
+    const material = table.getByRole("button", "Matière · filtrer", { exact: true });
+    await material.tap();
+    await screen.getByRole("combobox", "Filtre Matière", { exact: true }).selectOption({ value: "Inox" });
+    await material.tap();
+    await expect(table.getByText("Repère de préfiltre", { exact: true })).toBeVisible();
     expect(await cataloguePage(browser, reference, "draft")).toEqual([]);
     await importButton.tap();
     await expect(screen.getByText("Import terminé : 1 brouillon créé.", { exact: true })).toBeVisible();

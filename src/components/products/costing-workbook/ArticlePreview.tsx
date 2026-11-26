@@ -35,7 +35,10 @@ import { foldText } from "@/lib/text/fold";
 import { ArticleDuplicates, type DuplicateSearch } from "./ArticleDuplicates";
 import { ColumnsPanel } from "./ColumnsPanel";
 import { SupplyTypeGroups } from "./SupplyTypeGroups";
-import { useWorkbookPreviewColumns, WorkbookPreviewColumnPicker, WorkbookPreviewSourceCells, WorkbookPreviewSourceHeaders } from "./WorkbookPreviewColumns";
+import {
+  useWorkbookPreviewColumns, WorkbookPreviewColumnPicker, WorkbookPreviewDropdownHeader, WorkbookPreviewSourceCells,
+  WorkbookPreviewSourceHeaders, workbookFilterMatches, workbookFilterOptions, type WorkbookCategory,
+} from "./WorkbookPreviewColumns";
 import {
   boundedPage,
   DECISIONS_PER_PAGE,
@@ -124,8 +127,17 @@ export function ArticlePreview({
   );
   const articleByRow = useMemo(() => new Map(read.articles.map((article) => [article.row, article])), [read]);
   const workbookColumns = useWorkbookPreviewColumns(rows, inspection);
+  const [categoryFilters, setCategoryFilters] = useState<Partial<Record<WorkbookCategory, string>>>({});
   const shown = workbookColumns.visibleStandard;
   const resetPage = () => onReviewChange({ ...review, page: 0 });
+  function changeCategory(field: WorkbookCategory, value: string) {
+    setCategoryFilters((previous) => ({ ...previous, [field]: value }));
+    resetPage();
+  }
+  function changeColumns(id?: string) {
+    if (id === "material" || id === "unit" || id === "supplyType") changeCategory(id, "");
+    else resetPage();
+  }
   const columnOf = useMemo(() => new Map(inspection.found.map(({ column, index }) => [column, index])), [inspection]);
   const column = (name: CostingWorkbookColumn) => columnOf.get(name);
 
@@ -178,8 +190,17 @@ export function ArticlePreview({
   const familyRowSet = familyRows ? new Set(familyRows) : null;
   const familyArticles = familyRowSet ? proposedAll.filter(({ row }) => familyRowSet.has(row)) : proposedAll;
   const query = foldText(review.search.trim());
+  const categoryOptions = {
+    material: workbookFilterOptions(familyArticles.map(({ article }) => article.material)),
+    unit: workbookFilterOptions(familyArticles.map(({ article }) => article.unit)),
+    supplyType: workbookFilterOptions(familyArticles.map(({ article }) => typeOfArticle(article)?.name ?? "À choisir")),
+  };
   const matching = workbookColumns.applyView(familyArticles.filter(({ article }) =>
-    !query || [article.reference, article.designation, article.material ?? "", article.dimensions ?? ""].some((text) => foldText(text).includes(query))));
+    (!query || [article.reference, article.designation, article.material ?? "", article.dimensions ?? ""].some((text) => foldText(text).includes(query)))
+    && workbookFilterMatches(article.material, categoryFilters.material)
+    && workbookFilterMatches(article.unit, categoryFilters.unit)
+    && workbookFilterMatches(typeOfArticle(article)?.name ?? "À choisir", categoryFilters.supplyType)));
+  const categoryLabels = { material: "Matière", unit: "Unité", supplyType: "Type de fourniture" };
   const findingCounts = new Map<ArticleFinding, number>();
   for (const { findings } of matching) {
     for (const finding of findings) findingCounts.set(finding, (findingCounts.get(finding) ?? 0) + 1);
@@ -291,7 +312,7 @@ export function ArticlePreview({
                   ? "Aucun nouvel article en brouillon"
                   : `${formatCount(newArticles)} ${plural(newArticles, "nouvel article", "nouveaux articles")} en brouillon`}
               </h3>
-              <WorkbookPreviewColumnPicker view={workbookColumns} disabled={editorDirty} onChange={resetPage} />
+              <WorkbookPreviewColumnPicker view={workbookColumns} disabled={editorDirty} onChange={changeColumns} />
             </div>
             <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
               <li>{already === 0 ? "Aucun article déjà au catalogue" : `${formatCount(already)} déjà au catalogue (${plural(already, "inchangé", "inchangés")})`}</li>
@@ -412,16 +433,23 @@ export function ArticlePreview({
                 </div>
                 <div className="overflow-x-auto rounded-md border border-border">
                   <table aria-label="Articles proposés en brouillon" className="w-full min-w-200 text-left text-sm">
+                    <colgroup>
+                      {onValidate ? <col className="w-10" /> : null}
+                      <col className="w-14" />
+                    </colgroup>
                     <thead className="border-b border-border bg-surface-subtle text-xs text-muted-foreground">
-                      <tr className="[&>th]:px-3 [&>th]:py-2.5">
-                        {onValidate ? <th scope="col">Valider</th> : null}
-                        <th scope="col">Ligne Excel</th>
+                      <tr className="[&>th]:px-2 [&>th]:py-2.5">
+                        {onValidate ? <th scope="col" aria-label="Valider" className="text-center">✓</th> : null}
+                        <th scope="col" aria-label="Ligne Excel" className="text-center">N°</th>
                         {shown.has("reference") ? <th scope="col">Référence</th> : null}
                         {shown.has("designation") ? <th scope="col">Désignation</th> : null}
-                        {shown.has("material") ? <th scope="col">Matière</th> : null}
-                        {shown.has("unit") ? <th scope="col">Unité</th> : null}
+                        {shown.has("material") ? <WorkbookPreviewDropdownHeader label={categoryLabels.material} options={categoryOptions.material}
+                          value={categoryFilters.material ?? ""} disabled={editorDirty} onChange={(value) => changeCategory("material", value)} /> : null}
+                        {shown.has("unit") ? <WorkbookPreviewDropdownHeader label={categoryLabels.unit} options={categoryOptions.unit}
+                          value={categoryFilters.unit ?? ""} disabled={editorDirty} onChange={(value) => changeCategory("unit", value)} /> : null}
                         {shown.has("price") ? <th scope="col" className="text-right">Prix</th> : null}
-                        {shown.has("supplyType") ? <th scope="col">Type de fourniture</th> : null}
+                        {shown.has("supplyType") ? <WorkbookPreviewDropdownHeader label={categoryLabels.supplyType} options={categoryOptions.supplyType}
+                          value={categoryFilters.supplyType ?? ""} disabled={editorDirty} onChange={(value) => changeCategory("supplyType", value)} /> : null}
                         {shown.has("findings") ? <th scope="col">À vérifier</th> : null}
                         <WorkbookPreviewSourceHeaders view={workbookColumns} disabled={editorDirty} onChange={resetPage} />
                       </tr>
@@ -432,7 +460,7 @@ export function ArticlePreview({
                         return (
                           <tr key={row} className="align-top wrap-anywhere [&>td]:px-3 [&>td]:py-2.5">
                             {onValidate ? (
-                              <td>
+                              <td className="text-center">
                                 {!findings.length ? (
                                   <input
                                     type="checkbox"
@@ -453,7 +481,7 @@ export function ArticlePreview({
                                 ) : null}
                               </td>
                             ) : null}
-                            <td className="tabular-nums">{row}</td>
+                            <td className="text-center tabular-nums">{row}</td>
                             {shown.has("reference") ? (
                               <td><EditableValue row={row} column={column("ID")} mono display={article.reference} /></td>
                             ) : null}

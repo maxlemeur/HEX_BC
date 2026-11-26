@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, ListFilterIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import type { CostingWorkbookColumnInspection } from "@/lib/catalogue/costing-workbook";
 import { workbookCellAddress, workbookCellText } from "@/lib/catalogue/costing-workbook-edits";
@@ -24,6 +25,21 @@ const STANDARD_COLUMNS = [
 type SourceColumn = { id: string; label: string; address: string; index: number };
 type Sort = { columnId: string; direction: "ascending" | "descending" };
 const collator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
+
+export type WorkbookCategory = "material" | "unit" | "supplyType";
+
+export function workbookFilterOptions(values: readonly (string | null | undefined)[]) {
+  const options = new Map<string, string>();
+  for (const value of values) {
+    const label = value?.trim();
+    if (label) options.set(foldText(label), label);
+  }
+  return [...options.values()].sort(collator.compare);
+}
+
+export function workbookFilterMatches(value: string | null | undefined, selected: string | undefined) {
+  return !selected || foldText(value?.trim() ?? "") === foldText(selected);
+}
 
 export function useWorkbookPreviewColumns(rows: CostingWorkbookRows, inspection: CostingWorkbookColumnInspection) {
   const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(new Map());
@@ -176,4 +192,32 @@ export function WorkbookPreviewSourceCells({ view, rows, row }: Readonly<{ view:
     const text = workbookCellText(rows, row, index);
     return <td key={id} className="max-w-64"><span className="line-clamp-2 wrap-anywhere" title={text || undefined}>{text || "—"}</span></td>;
   });
+}
+
+export function WorkbookPreviewDropdownHeader({ label, options, value, disabled, onChange }: Readonly<{
+  label: string;
+  options: readonly string[];
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}>) {
+  return (
+    <th scope="col" aria-label={label}>
+      <Popover>
+        <PopoverTrigger render={<Button variant="ghost" size="xs" disabled={disabled}
+          className={`h-auto whitespace-normal px-1.5 text-left ${value ? "bg-primary/10 text-primary" : ""}`}
+          aria-label={`${label} · filtrer`} />}>
+          {label}<ListFilterIcon aria-hidden="true" />
+        </PopoverTrigger>
+        <PopoverContent align="start" className="border border-border">
+          <PopoverTitle>{label}</PopoverTitle>
+          <NativeSelect size="sm" aria-label={`Filtre ${label}`} value={value} disabled={disabled}
+            onChange={(event) => onChange(event.currentTarget.value)}>
+            <option value="">Toutes les lignes</option>
+            {options.map((option) => <option key={option} value={option}>{option}</option>)}
+          </NativeSelect>
+        </PopoverContent>
+      </Popover>
+    </th>
+  );
 }
