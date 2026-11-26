@@ -286,7 +286,9 @@ function planSender(owner: ChoiceOwner, task: Task, preferences: ChatGptPreferen
   };
 }
 
-function apiKeySender(owner: ChoiceOwner, task: Task, call: ChatGptPreferences & { expectedVersion: number }): Sender {
+function apiKeySender(owner: ChoiceOwner, task: Task, call: ChatGptPreferences & {
+  expectedVersion: number; expectedConnectionId?: string;
+}): Sender {
   const api = openAiApiKeyAccess();
   let remaining = CHOICE_API_KEY_CEILING_NANO_USD;
   return async (chunk, timeoutMs) => {
@@ -297,6 +299,7 @@ function apiKeySender(owner: ChoiceOwner, task: Task, call: ChatGptPreferences &
       // Text only: OpenAI counts this exact request, and the output budget is what the ceiling leaves.
       const prepared = await api.prepare(owner, {
         model: call.model, reasoningEffort: call.reasoningEffort, expectedVersion: call.expectedVersion,
+        ...(call.expectedConnectionId ? { expectedConnectionId: call.expectedConnectionId } : {}),
         prompt: promptOf(task, chunk), schema: strictAnswerSchema, files: [], allotmentNanoUsd: remaining, signal,
         outputCap: API_KEY_OUTPUT_CAP, minOutputTokens: apiKeyMinOutputTokens(chunk.length),
       }).catch((error: unknown) => {
@@ -367,21 +370,21 @@ function decisionsSender(owner: ChoiceOwner, task: Task): Sender {
 }
 
 /** The sender of the provider asked for, or why it cannot be asked. No other provider is ever tried. */
-async function openSender(provider: ChoiceProvider, owner: ChoiceOwner, task: Task, selection?: ChoiceModelSelection): Promise<Sender | string> {
+async function openSender(provider: ChoiceProvider, owner: ChoiceOwner, task: Task, selection?: ChoiceModelSelection, expectedConnectionId?: string): Promise<Sender | string> {
   if (provider === "decisions") {
     if (selection) throw unprocessableEntity("L’API Decisions ne permet pas de choisir le modèle ni le niveau de raisonnement.");
     const availability = decisionsAvailability();
     return availability.available ? decisionsSender(owner, task) : availability.message;
   }
   const result = await resolveAiRequest(owner, REQUEST_POLICY, {
-    source: provider, model: selection?.model, effort: selection?.reasoning_effort,
+    source: provider, model: selection?.model, effort: selection?.reasoning_effort, expectedConnectionId,
   });
   if (!result.ok) {
     if (result.reason === "model_unavailable" || result.reason === "effort_unavailable") throw unprocessableEntity(result.message);
     return result.message;
   }
   return result.connection
-    ? apiKeySender(owner, task, { ...result.preferences, expectedVersion: result.connection.version })
+    ? apiKeySender(owner, task, { ...result.preferences, expectedVersion: result.connection.version, expectedConnectionId })
     : planSender(owner, task, result.preferences);
 }
 
@@ -398,6 +401,7 @@ export async function askChoiceQuestions(input: ChoiceModelSelection & {
   /** French instructions of the task. */
   instructions: string;
   questions: readonly ChoiceQuestion[];
+  expectedConnectionId?: string;
 }): Promise<ChoiceArbitration> {
   const { provider, owner } = input;
   if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(input.task) || !input.promptVersion.trim()
@@ -412,7 +416,7 @@ export async function askChoiceQuestions(input: ChoiceModelSelection & {
   if (entries.length === 0 && !selection) return { ...nothingToAsk, answers: [] };
 
   const deadline = Date.now() + TIME_BUDGET_MS;
-  const send = await openSender(provider, owner, task, selection);
+  const send = await openSender(provider, owner, task, selection, input.expectedConnectionId);
   if (typeof send === "string") return { provider, status: "unavailable", message: send, model: null, answers: unanswered() };
   if (entries.length === 0) return { ...nothingToAsk, answers: [] };
 

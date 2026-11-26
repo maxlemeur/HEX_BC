@@ -5,6 +5,7 @@ import { createContext, useContext, useRef, useState } from "react";
 import { SparklesIcon } from "lucide-react";
 
 import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
+import { effectiveAiChoice, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
 import { Button } from "@/components/ui/button";
 import { supportsReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
@@ -47,15 +48,17 @@ export const useWorkbookAssistant = () => useContext(WorkbookAssistantContext);
 
 /** The choices last as long as the page. */
 export function useWorkbookAssistantState(): WorkbookAssistant {
+  const shared = useAssistantAiSettings();
   const [sources, setSources] = useState<WorkbookAssistant["sources"]>(null);
   const [selection, setSelection] = useState<AiRequestSettingsValue>();
   const [settingsLocked, setSettingsLocked] = useState(false);
   const settingsLock = useRef(false);
   const loadingSources = useRef(false);
   const loaded = typeof sources === "object" ? sources : null;
-  const { source: provider, preferences } = loaded
-    ? selection ?? defaultAiRequestSettings(loaded.defaultProvider, loaded.providers)
+  const current = loaded
+    ? effectiveAiChoice(selection ? undefined : shared?.choice, selection ?? defaultAiRequestSettings(loaded.defaultProvider, loaded.providers), loaded.providers)
     : { source: null, preferences: null };
+  const { source: provider, preferences } = current;
 
   function lockSettings() {
     if (settingsLock.current) return null;
@@ -89,11 +92,15 @@ export function useWorkbookAssistantState(): WorkbookAssistant {
   }
 
   function chooseSettings(next: AiRequestSettingsValue) {
-    if (!settingsLock.current) setSelection(next);
+    if (settingsLock.current) return;
+    if (shared && next.source && next.source !== "decisions") {
+      shared.choose(next);
+      setSelection(undefined);
+    } else setSelection(next);
   }
 
   const requestOptions = provider ? { provider, ...(preferences && { model: preferences.model, reasoning_effort: preferences.reasoningEffort }) } : {};
-  return { sources, provider, selection, requestOptions, settingsLocked, lockSettings, chooseSettings, loadProviders };
+  return { sources, provider, selection: loaded ? current : undefined, requestOptions, settingsLocked, lockSettings, chooseSettings, loadProviders };
 }
 
 export function confidenceLabel(confidence: number | null) {

@@ -81,6 +81,7 @@ export type ApiKeyStructuredFile = { data: string; mimeType: "application/pdf" |
 export type ApiKeyPrepareInput<T> = {
   /** The connection version the page showed: a key replaced since then is not used. */
   expectedVersion: number;
+  expectedConnectionId?: string;
   model: string;
   reasoningEffort: AiReasoningEffort | null;
   prompt: string;
@@ -499,7 +500,9 @@ const MODEL_TEST_SCHEMA = z.object({ connexion: z.literal("ok") }).strict();
 const MODEL_TEST_PROMPT = "Test de connexion de MergeOne, sans document : réponds exactement {\"connexion\":\"ok\"}.";
 
 /** The requests of prepared calls, kept here: a prepared call carries its bound, never its request. */
-const preparedRequests = new WeakMap<PreparedApiKeyCall, { owner: string; request: SerializedRequest; schema: z.ZodType }>();
+const preparedRequests = new WeakMap<PreparedApiKeyCall, {
+  owner: string; request: SerializedRequest; schema: z.ZodType; expectedConnectionId?: string;
+}>();
 const ownerScope = (owner: AiAccessOwner) => JSON.stringify([owner.userId, owner.tenantId]);
 
 export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = {}) {
@@ -594,8 +597,8 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     return { store, secret, connection };
   }
 
-  async function resolveKey(owner: AiAccessOwner, expectedVersion?: number) {
-    const { store, secret, connection } = await readKey(owner, expectedVersion);
+  async function resolveKey(owner: AiAccessOwner, expectedVersion?: number, expectedConnectionId?: string) {
+    const { store, secret, connection } = await readKey(owner, expectedVersion, expectedConnectionId);
     await sweep(store, owner);
     return { secret, connection };
   }
@@ -843,7 +846,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       const price = openAiQualifiedModel(input.model);
       if (!price) throw new ApiKeyError("AI_KEY_PRICE_UNKNOWN");
       if (input.reasoningEffort !== null && !price.reasoningEfforts.includes(input.reasoningEffort)) throw new ApiKeyError("AI_KEY_MODEL_NOT_OFFERED");
-      const { secret, connection } = await resolveKey(owner, input.expectedVersion);
+      const { secret, connection } = await resolveKey(owner, input.expectedVersion, input.expectedConnectionId);
       // Serialized once: the count and the generation send this exact text.
       const request = serializeRequest({ model: input.model, reasoningEffort: input.reasoningEffort, prompt: input.prompt, schema: input.schema,
         schemaName: "mergeone_extraction", files: input.files });
@@ -858,7 +861,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       if (bound.status !== "priced" || bound.nanoUsd > input.allotmentNanoUsd) throw new ApiKeyError("AI_KEY_CEILING");
       const prepared: PreparedApiKeyCall = Object.freeze({ model: input.model, reasoningEffort: input.reasoningEffort,
         connectionVersion: connection.version, inputTokens, maxOutputTokens, boundNanoUsd: bound.nanoUsd, allotmentNanoUsd: input.allotmentNanoUsd });
-      preparedRequests.set(prepared, { owner: ownerScope(owner), request, schema: input.schema });
+      preparedRequests.set(prepared, { owner: ownerScope(owner), request, schema: input.schema, expectedConnectionId: input.expectedConnectionId });
       return prepared;
     }, input.signal),
 
@@ -871,7 +874,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
         if (held.owner !== ownerScope(owner)) throw new ApiKeyError("AI_KEY_CHANGED");
         // Single use: a prepared call is sent at most once.
         preparedRequests.delete(prepared);
-        const { secret, connection } = await resolveKey(owner, prepared.connectionVersion);
+        const { secret, connection } = await resolveKey(owner, prepared.connectionVersion, held.expectedConnectionId);
         if (options.signal?.aborted) throw abortReason(options.signal);
         const startedAt = Date.now();
         let answer: Awaited<ReturnType<typeof generateWith>>;

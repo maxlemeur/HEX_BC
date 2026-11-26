@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isApiKeyError } from "@/lib/ai/access/api-key-errors";
 import { chatGptReasoningEffortSchema } from "@/lib/ai/chatgpt-model-preferences";
 import { readChatGptStore } from "@/lib/ai/chatgpt-local-store";
+import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { resolveAiRequest } from "@/lib/ai/request-settings-server";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { AssistantDocumentLedger } from "@/lib/assistant/document-citations";
@@ -12,32 +13,36 @@ import { runAssistantLoop, type AssistantEvent } from "@/lib/assistant/loop";
 import { createAssistantModel, readAssistantPlanToken, type AssistantAccess } from "@/lib/assistant/model";
 import { assistantScreenSchema, buildAssistantInstructions } from "@/lib/assistant/prompt";
 import { ASSISTANT_AI_SOURCES } from "@/lib/assistant/request-settings";
+import type { AssistantSourceLink } from "@/lib/assistant/session-context";
 import {
   appendAssistantMessage, readAssistantThread, type AssistantActivity, type AssistantMessage,
 } from "@/lib/assistant/threads-server";
 import { buildAssistantTools } from "@/lib/assistant/tools";
 import { conflict } from "@/lib/http/api-response";
 
+export const assistantTurnSettingsSchema = z.object({
+  source: z.enum(ASSISTANT_AI_SOURCES),
+  model: z.string().min(1).max(120),
+  effort: chatGptReasoningEffortSchema.nullable(),
+  connectionId: z.string().uuid().optional(),
+}).strict();
+
 export const assistantQuestionSchema = z.object({
   content: z.string().trim().min(1, "Écrivez votre question.").max(4000, "La question dépasse 4 000 caractères."),
   screen: assistantScreenSchema.nullish(),
   /** Answer this saved question again instead of asking a new one. It must still be the conversation's last question. */
   retryOf: z.string().uuid().optional(),
-  aiSettings: z.object({
-    source: z.enum(ASSISTANT_AI_SOURCES),
-    model: z.string().min(1).max(120),
-    effort: chatGptReasoningEffortSchema.nullable(),
-    connectionId: z.string().uuid().optional(),
-  }).strict().optional(),
+  aiSettings: assistantTurnSettingsSchema.optional(),
 }).strict();
 
 /** What the browser receives while an answer is written, then once it is saved. */
 export type AssistantStreamEvent =
   | { type: "started"; question: AssistantMessage }
   | AssistantEvent
-  | { type: "done"; message: AssistantMessage | null; error: { code: string; message: string } | null };
+  | { type: "done"; message: AssistantMessage | null; error: { code: string; message: string } | null;
+      sources?: AssistantSourceLink[]; projectId?: string; workbookExclusion?: string };
 
-const TURN_TIMEOUT_MS = 180_000;
+export const ASSISTANT_TURN_TIMEOUT_MS = 180_000;
 const HISTORY_MESSAGES = 24;
 const HISTORY_CHARACTERS = 48_000;
 
@@ -62,11 +67,20 @@ export async function prepareAssistantReply(threadId: string, payload: unknown, 
     }
   }
 
-  const settings = input.aiSettings;
+  const access = await resolveAssistantAccess({ userId: context.userId, tenantId: context.tenantId }, input.aiSettings);
+  signal?.throwIfAborted();
+  const question = input.retryOf ? messages[index]! : await appendAssistantMessage(context, {
+    threadId: thread.id, role: "user", content: input.content, screen: input.screen ?? null,
+  });
+  return { context, project, thread, history: input.retryOf ? messages.slice(0, index) : messages, question, screen: input.screen ?? null, access };
+}
+
+export async function resolveAssistantAccess(
+  owner: ChatGptOwner, settings: z.infer<typeof assistantTurnSettingsSchema> | undefined,
+): Promise<AssistantAccess> {
   if (settings?.source === "personal_api_key" && !settings.connectionId) {
     throw conflict("Rechargez l’assistant pour vérifier la clé API et le plafond avant l’envoi.", undefined, "ASSISTANT_AI_CONNECTION_CHANGED");
   }
-  const owner = { userId: context.userId, tenantId: context.tenantId };
   // Pin the plan grant before resolving its model catalogue, so an account changed
   // during validation cannot sign the message with a different subscription.
   const planStore = settings?.source === "personal_api_key" ? null : await readChatGptStore(owner).catch(() => null);
@@ -80,12 +94,11 @@ export async function prepareAssistantReply(threadId: string, payload: unknown, 
   if (!resolved.ok) {
     throw conflict(resolved.message, undefined, `ASSISTANT_AI_${resolved.reason.toUpperCase()}`);
   }
-  let access: AssistantAccess;
   if (resolved.source === "personal_api_key") {
     if (!settings?.connectionId || !resolved.connection) {
       throw conflict("Rechargez l’assistant pour vérifier la clé API et le plafond avant l’envoi.", undefined, "ASSISTANT_AI_CONNECTION_CHANGED");
     }
-    access = { source: resolved.source, preferences: resolved.preferences,
+    return { source: resolved.source, preferences: resolved.preferences,
       connectionId: resolved.connection.id, connectionVersion: resolved.connection.version };
   } else {
     if (!planGrant) throw conflict("Connectez votre compte ChatGPT dans Mon profil.", undefined, "AI_AUTH_REQUIRED");
@@ -93,13 +106,8 @@ export async function prepareAssistantReply(threadId: string, payload: unknown, 
       if (error instanceof StructuredAiError) throw conflict(error.message, undefined, error.code);
       throw error;
     });
-    access = { source: resolved.source, preferences: resolved.preferences, connection: planGrant };
+    return { source: resolved.source, preferences: resolved.preferences, connection: planGrant };
   }
-  signal?.throwIfAborted();
-  const question = input.retryOf ? messages[index]! : await appendAssistantMessage(context, {
-    threadId: thread.id, role: "user", content: input.content, screen: input.screen ?? null,
-  });
-  return { context, project, thread, history: input.retryOf ? messages.slice(0, index) : messages, question, screen: input.screen ?? null, access };
 }
 
 /** Earlier exchanges, most recent last, within what one request can carry. Tool results are not replayed: the model reads again. */
@@ -115,7 +123,7 @@ function historyInput(history: AssistantMessage[]) {
   return kept;
 }
 
-function describeFailure(error: unknown) {
+export function describeAssistantFailure(error: unknown) {
   if (isApiKeyError(error)) {
     console.error("assistant_reply_failed", error.code, error.providerStatus ?? "no-status");
     const message = error.code === "AI_KEY_COUNT_UNAVAILABLE"
@@ -204,7 +212,7 @@ export async function runAssistantReply(prepared: Prepared, emit: (event: Assist
     const result = await runAssistantLoop({
       input: [...historyInput(prepared.history), { role: "user", content: prepared.question.content }],
       tools, callModel: model.callModel, emit: forward, documents,
-      signal: AbortSignal.any([interrupted, AbortSignal.timeout(TURN_TIMEOUT_MS)]),
+      signal: AbortSignal.any([interrupted, AbortSignal.timeout(ASSISTANT_TURN_TIMEOUT_MS)]),
     });
     outcome = {
       threadId: thread.id, role: "assistant", replyTo: prepared.question.id, status: "complete",
@@ -213,7 +221,7 @@ export async function runAssistantReply(prepared: Prepared, emit: (event: Assist
     };
   } catch (error) {
     const ceiling = !interrupted.aborted && isApiKeyError(error) && error.code === "AI_KEY_CEILING";
-    failure = interrupted.aborted || ceiling ? null : describeFailure(error);
+    failure = interrupted.aborted || ceiling ? null : describeAssistantFailure(error);
     // Stopped before anything was written or read: there is nothing to keep.
     outcome = !failure && !ceiling && !written.trim() && activity.length === 0 ? null : {
       threadId: thread.id, role: "assistant", replyTo: prepared.question.id, status: failure ? "failed" : "interrupted",

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, Download, FileSpreadsheet, Maximize2, Paperclip, RotateCcw, RotateCw, Scissors, Sparkles, Trash2 } from "lucide-react";
 
 import { loadPhotoAnalysisModelOptions } from "@/app/dashboard/_actions/chatgpt";
-import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
+import { AssistantAiFeatureSettings, effectiveAiChoice, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
 import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
 import type { ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { useToast } from "@/components/feedback/toast-provider";
@@ -274,6 +274,7 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
   const [choosing, setChoosing] = useState(false);
   const [error, setError] = useState<{ message: string; profile: boolean } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const common = useAssistantAiSettings();
   const [settings, setSettings] = useState<Awaited<ReturnType<typeof loadPhotoAnalysisModelOptions>> | null>(null);
   const [settingsError, setSettingsError] = useState(false);
   const [settingsAttempt, setSettingsAttempt] = useState(0);
@@ -335,7 +336,10 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
     : allPdf
       ? "Analyser le PDF avec l’IA"
       : "Analyser la photo avec l’IA";
-  const preferences = settings?.preferences ?? null;
+  const sources = settings ? { [settings.billingSource]: { available: true, models: settings.models, message: "Source d’analyse" } } : {};
+  const aiSelection = settings ? effectiveAiChoice(common?.choice,
+    { source: settings.billingSource, preferences: settings.preferences }, sources, true) : undefined;
+  const preferences = aiSelection?.preferences ?? null;
 
   const changePreferences = (next: ChatGptPreferences) => {
     if (!settings || run || choosing) return;
@@ -526,10 +530,10 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
           </div>
         ) : !settings ? (
           <p role="status" className="text-sm text-muted-foreground">Chargement des modèles…</p>
-        ) : preferences ? (
-          <AiRequestSettings id={hintId} defaultSource={settings.billingSource}
-            sources={{ [settings.billingSource]: { available: true, models: settings.models, message: "Abonnement ChatGPT" } }}
-            value={{ source: settings.billingSource, preferences }}
+        ) : preferences || common ? (
+          <AssistantAiFeatureSettings fixedSource id={hintId} defaultSource={settings.billingSource}
+            sources={sources}
+            value={aiSelection}
             locked={run !== null || choosing} onChange={(value) => { if (value.preferences) changePreferences(value.preferences); }}
             modelLabel="Modèle d’analyse" fieldsClassName="grid gap-3 sm:grid-cols-2" effortFallback="automatic"
             keyCeiling={{

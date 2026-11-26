@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { loadEstimateDraftAiOptions } from "@/app/dashboard/estimates/_actions/draft-ai-settings";
-import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
+import { AssistantAiFeatureSettings, effectiveAiChoice, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
 import { Alert } from "@/components/ui/alert";
 import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import { defaultAiRequestSettings, type AiRequestSettingsValue } from "@/lib/ai/request-settings";
@@ -12,6 +12,7 @@ import type { EstimateDraftAiRequest } from "@/lib/estimates/schemas";
 type Options = Awaited<ReturnType<typeof loadEstimateDraftAiOptions>>;
 
 export function useEstimateDraftAiSettings(versionId: string, enabled: boolean) {
+  const common = useAssistantAiSettings();
   const [loaded, setLoaded] = useState<{ versionId: string; data: Options | null }>();
   const [choice, setChoice] = useState<{ versionId: string; value: AiRequestSettingsValue }>();
   useEffect(() => {
@@ -30,7 +31,7 @@ export function useEstimateDraftAiSettings(versionId: string, enabled: boolean) 
 
   const options = enabled && loaded?.versionId === versionId ? loaded.data : undefined;
   const value = options
-    ? (choice?.versionId === versionId ? choice.value : defaultAiRequestSettings(options.defaultSource, options.sources))
+    ? effectiveAiChoice(common?.choice, choice?.versionId === versionId ? choice.value : defaultAiRequestSettings(options.defaultSource, options.sources), options.sources)
     : undefined;
   let request: EstimateDraftAiRequest | null = null;
   if (value?.preferences) {
@@ -59,7 +60,7 @@ export function EstimateDraftAiSettings({ settings, locked = false }: {
     return <p role="status" className="text-sm text-muted-foreground">Chargement des réglages IA…</p>;
   }
   return (
-    <AiRequestSettings
+    <AssistantAiFeatureSettings
       sources={options.sources}
       defaultSource={options.defaultSource}
       value={value}

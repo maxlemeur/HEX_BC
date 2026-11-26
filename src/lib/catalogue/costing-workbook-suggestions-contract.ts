@@ -29,6 +29,11 @@ import { COSTING_WORKBOOK_MAX_ROWS } from "./costing-workbook-contract";
 
 /** The same values as CHOICE_PROVIDERS of the arbiter, in its order. */
 export const COSTING_WORKBOOK_SUGGESTION_PROVIDERS = ["chatgpt_plan", "personal_api_key", "decisions"] as const satisfies readonly ChoiceProvider[];
+export const WORKBOOK_AI_SESSION_HEADER = "x-mergeone-workbook-ai-session";
+export const workbookAiSessionSchema = z.object({
+  userId: z.uuid(), tenantId: z.uuid(), keyConnectionId: z.uuid().optional(),
+}).strict();
+export type WorkbookAiSession = z.infer<typeof workbookAiSessionSchema>;
 
 /** Largest request body the route reads: 100 lines or 300 values of a sheet are far below it. */
 export const COSTING_WORKBOOK_SUGGESTIONS_MAX_BODY_BYTES = 512 * 1024;

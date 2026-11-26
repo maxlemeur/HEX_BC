@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
+import { useDashboardAssistant } from "@/components/assistant/AssistantDock";
 import { TimaxMark, TimaxWordmark } from "@/components/brand/timax-logo";
 import { useUserContext } from "@/lib/auth/user-context";
 import { DashboardNavigationProvider } from "@/components/dashboard/DashboardNavigationContext";
@@ -32,6 +33,7 @@ const AnalysisProgressIndicator = dynamic(
   { ssr: false },
 );
 const ANALYSIS_PROGRESS_START_DELAY_MS = 500;
+const WorkbookImportWorkspace = dynamic(() => import("@/components/products/costing-workbook/WorkbookImportWorkspace"), { ssr: false });
 
 function DeferredAnalysisProgress({ tenantId, userId }: { tenantId: string; userId: string }) {
   const [ready, setReady] = useState(false);
@@ -110,6 +112,11 @@ export function DashboardShell({
   tenantName?: string | null;
 }>) {
   const pathname = usePathname();
+  const assistant = useDashboardAssistant();
+  const hasAssistant = assistant !== null;
+  const showWorkbook = hasAssistant && pathname === "/dashboard/products/import-workbook";
+  const [workbookVisited, setWorkbookVisited] = useState(showWorkbook);
+  useEffect(() => { if (showWorkbook) setWorkbookVisited(true); }, [showWorkbook]);
   const isProductionWorkspace = isProductionWorkspaceRoute(pathname);
   const isToolWorkspace = isToolWorkspaceRoute(pathname);
   const userInitials = buildInitials(displayName);
@@ -244,6 +251,7 @@ export function DashboardShell({
         <WorkspaceGlobalNavigation />
 
         <div className="dashboard-global-topbar__tools">
+          {assistant ? <div ref={assistant.setHeaderTarget} className="empty:hidden" /> : null}
           {profile && tenantId ? <DeferredAnalysisProgress key={`${tenantId}:${profile.id}`} tenantId={tenantId} userId={profile.id} /> : null}
           <button
             type="button"
@@ -411,24 +419,30 @@ export function DashboardShell({
         id="dashboard-main-content"
         tabIndex={-1}
         data-density={density}
-        className="min-w-0 min-h-0 flex-1 focus:outline-none"
+        className="min-w-0 min-h-0 flex-1 pb-[var(--assistant-dock-reserve,0px)] focus:outline-none"
       >
         {isToolWorkspace ? (
           // Tool mode: the screen owns the whole height under the top bar; its panels scroll, never the page.
-          <div className="h-[calc(100dvh-60px)] overflow-hidden" data-layout="tool">
+          <div className="h-[calc(100dvh-60px-var(--assistant-dock-reserve,0px))] overflow-hidden" data-layout="tool">
             {children}
           </div>
         ) : (
-          <>
-            <div
+          <div hidden={showWorkbook}
               className={`mx-auto w-full px-3 pb-6 sm:px-6 sm:pb-8 ${
                 isProductionWorkspace
                   ? "dashboard-workspace-content pt-0"
                   : "py-6 sm:py-8"
               }`}
             >
-              {children}
-            </div>
+            {children}
+          </div>
+        )}
+        {hasAssistant && (showWorkbook || workbookVisited) ? (
+          <div hidden={!showWorkbook} className="mx-auto w-full px-3 py-6 sm:px-6 sm:py-8">
+            <WorkbookImportWorkspace visible={showWorkbook} />
+          </div>
+        ) : null}
+        {!isToolWorkspace ? (
             <footer className="no-print mx-auto w-full px-3 pb-4 text-right text-micro font-medium tracking-wide text-subtle-foreground sm:px-6">
               <p
                 role="note"
@@ -439,8 +453,7 @@ export function DashboardShell({
                 {`v${appVersion}${appBuildId ? ` · ${appBuildId}` : ""}`}
               </p>
             </footer>
-          </>
-        )}
+        ) : null}
       </main>
 
       <KeyboardShortcutsModal

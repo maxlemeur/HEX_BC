@@ -16,10 +16,11 @@ import type {
   CostingWorkbookSuggestionsResponse,
   CostingWorkbookSuggestionsResponseOf,
   CostingWorkbookSuggestionTask,
+  WorkbookAiSession,
 } from "@/lib/catalogue/costing-workbook-suggestions-contract";
 import { PRODUCT_WRITE_REFUSAL } from "@/lib/catalogue/product-writes";
 import { supplierPickerLabels } from "@/lib/catalogue/supplier-labels";
-import { forbidden, mapSupabaseError, unprocessableEntity } from "@/lib/http/api-response";
+import { conflict, forbidden, mapSupabaseError, unprocessableEntity } from "@/lib/http/api-response";
 import { matchLine, prepareCatalogue, type MatchArticle, type MatchCandidate } from "@/lib/material-requests/matching";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { foldWords } from "@/lib/text/fold";
@@ -129,6 +130,7 @@ async function arbitrate(
   context: AuthenticatedTenantContext,
   { provider, model, reasoning_effort, task }: CostingWorkbookSuggestionsRequest,
   questions: readonly ChoiceQuestion[],
+  expectedConnectionId?: string,
 ): Promise<Arbitration> {
   const hasSelection = model !== undefined || reasoning_effort !== undefined;
   if (!provider) {
@@ -143,6 +145,7 @@ async function arbitrate(
     provider, owner: { userId: context.userId, tenantId: context.tenantId }, task: id, promptVersion, instructions, questions,
     ...(model !== undefined ? { model } : {}),
     ...(reasoning_effort !== undefined ? { reasoning_effort } : {}),
+    ...(expectedConnectionId !== undefined ? { expectedConnectionId } : {}),
   });
   const answers = new Map<string, ChoiceAnswer>(result.answers.map((answer) => [answer.id, answer]));
   const asked = new Map(questions.map((question) => [question.id, new Set(question.choices.map((choice) => choice.value))]));
@@ -528,7 +531,7 @@ async function suggestSupplierCodes(context: AuthenticatedTenantContext, input: 
   };
 }
 
-async function suggestRowExclusions(context: AuthenticatedTenantContext, input: RequestOf<"row_exclusions">): Promise<ResponseOf<"row_exclusions">> {
+async function suggestRowExclusions(context: AuthenticatedTenantContext, input: RequestOf<"row_exclusions">, expectedConnectionId?: string): Promise<ResponseOf<"row_exclusions">> {
   const choices = [
     { value: "exclude", description: "Proposer la suppression de cette ligne de l’import." },
     { value: "keep", description: "Conserver cette ligne dans l’import." },
@@ -538,7 +541,7 @@ async function suggestRowExclusions(context: AuthenticatedTenantContext, input: 
     subject: { ligne_excel: row, critere_de_suppression: input.criterion, cellules: description },
     choices,
   }));
-  const arbitration = await arbitrate(context, input, questions);
+  const arbitration = await arbitrate(context, input, questions, expectedConnectionId);
   let analysed = 0;
   const items = input.lines.flatMap(({ row }) => {
     const answer = arbitration.pick(String(row));
@@ -550,14 +553,20 @@ async function suggestRowExclusions(context: AuthenticatedTenantContext, input: 
 }
 
 /** The proposals of one task for the member's active company. The input is the parsed body of the route. */
-export async function suggestForWorkbook(input: CostingWorkbookSuggestionsRequest): Promise<CostingWorkbookSuggestionsResponse> {
+export async function suggestForWorkbook(input: CostingWorkbookSuggestionsRequest, session?: WorkbookAiSession): Promise<CostingWorkbookSuggestionsResponse> {
   const context = await requireImporter();
+  if (session && (session.userId !== context.userId || session.tenantId !== context.tenantId)) {
+    throw conflict("La session active a changé. Actualisez la page.");
+  }
+  if (session && input.task === "row_exclusions" && input.provider === "personal_api_key" && !session.keyConnectionId) {
+    throw conflict("Actualisez les réglages IA pour vérifier votre clé avant de reprendre.");
+  }
   switch (input.task) {
     case "suppliers": return suggestSuppliers(context, input);
     case "articles": return suggestArticles(context, input);
     case "supply_types": return suggestSupplyTypes(context, input);
     case "columns": return suggestColumns(context, input);
     case "supplier_codes": return suggestSupplierCodes(context, input);
-    case "row_exclusions": return suggestRowExclusions(context, input);
+    case "row_exclusions": return suggestRowExclusions(context, input, session?.keyConnectionId);
   }
 }

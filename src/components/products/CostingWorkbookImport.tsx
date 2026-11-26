@@ -72,6 +72,7 @@ import { SupplierReferenceReview } from "./costing-workbook/SupplierReferenceRev
  */
 
 export type CostingWorkbookImportProps = {
+  visible?: boolean;
   catalogueHref: string;
   draftsHref: string;
   /** Drafts were created: the catalogue's list no longer holds. */
@@ -178,6 +179,7 @@ export function CostingWorkbookImport({
   onImported,
   onImportRecorded,
   children,
+  visible = true,
 }: Readonly<CostingWorkbookImportProps>) {
   const isAdmin = useOptionalUserContext()?.profile?.tenant_role === "admin";
   const [mode, setMode] = useState<Mode>("articles");
@@ -880,11 +882,11 @@ export function CostingWorkbookImport({
         ) : null}
       </Tabs>
       {children}
-      {rows && inspection ? (
-        <RowExclusions key={fileGeneration} rows={rows} inspection={inspection} disabled={isBusy || editorDirty}
+      {rows && originalRows && inspection ? (
+        <RowExclusions key={fileGeneration} rows={rows} originalRows={originalRows} inspection={inspection} visible={visible} disabled={isBusy || editorDirty}
           onApply={updateRowExclusions} />
       ) : null}
-      <AlertDialog open={replacement !== null} onOpenChange={(open) => {
+      <AlertDialog open={visible && replacement !== null} onOpenChange={(open) => {
         if (!open && replacement) {
           setReplacement(null);
           setPhase("idle");

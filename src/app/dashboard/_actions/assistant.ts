@@ -4,13 +4,14 @@ import { headers } from "next/headers";
 import { z } from "zod";
 
 import { readAiRequestOptions } from "@/lib/ai/request-settings-server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertAssistantRequest, isAssistantEnabled } from "@/lib/assistant/model";
 import { ASSISTANT_AI_SOURCES, type AssistantAiOptions } from "@/lib/assistant/request-settings";
 import {
   createAssistantThread, deleteAssistantThread, listAssistantThreads, readAssistantThread, requireAssistantProject,
   type AssistantMessage, type AssistantThread,
 } from "@/lib/assistant/threads-server";
-import { ApiError } from "@/lib/http/api-response";
+import { ApiError, conflict } from "@/lib/http/api-response";
 
 type Result<T> = { ok: true; data: T } | { ok: false; message: string };
 
@@ -43,9 +44,14 @@ export async function loadAssistantThreads(projectId: string): Promise<Result<As
   return result(() => listAssistantThreads(id.parse(projectId)));
 }
 
-export async function loadAssistantAiOptions(projectId: string): Promise<Result<AssistantAiOptions>> {
+export async function loadAssistantAiOptions(projectId?: string, expected?: { userId: string; tenantId: string }): Promise<Result<AssistantAiOptions>> {
   return result(async () => {
-    const { context: { userId, tenantId } } = await requireAssistantProject(id.parse(projectId));
+    const { userId, tenantId } = projectId
+      ? (await requireAssistantProject(id.parse(projectId))).context
+      : await getAuthenticatedContext();
+    if (expected && (expected.userId !== userId || expected.tenantId !== tenantId)) {
+      throw conflict("La session active a changé. Actualisez la page.");
+    }
     const { defaultSource, options } = await readAiRequestOptions({ userId, tenantId }, { allowedSources: ASSISTANT_AI_SOURCES });
     const sources: AssistantAiOptions["sources"] = {};
     for (const source of ASSISTANT_AI_SOURCES) {

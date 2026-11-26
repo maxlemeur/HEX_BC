@@ -4,7 +4,7 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 
 import { XIcon } from "lucide-react";
 
-import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
+import { AssistantAiFeatureSettings, effectiveAiChoice, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -253,9 +253,11 @@ function PriceExplanationRequest({ price, versionId, lineId, disabled, onBusyCha
   onGenerated: (generated: GeneratedExplanation, settings: PriceExplanationSettings) => void;
 }) {
   const [settings, setSettings] = useState(price.settings);
-  const [selection, setSelection] = useState(() => defaultAiRequestSettings(settings.defaultSource, settings.sources));
+  const common = useAssistantAiSettings();
+  const [localSelection, setSelection] = useState(() => defaultAiRequestSettings(settings.defaultSource, settings.sources));
   const [pending, setPending] = useState<"generate" | "models" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const selection = effectiveAiChoice(common?.choice, localSelection, settings.sources);
   const { source, preferences } = selection;
   const canGenerate = Boolean(preferences && (source === "chatgpt_plan" || (source === "personal_api_key" && settings.connectionId)));
 
@@ -308,7 +310,7 @@ function PriceExplanationRequest({ price, versionId, lineId, disabled, onBusyCha
   return (
     <section className="space-y-3 rounded-lg border border-border bg-surface p-5">
       {price.status === "stale" ? <p className="text-sm text-muted-foreground">Les données de cette ligne ont changé.</p> : null}
-      <AiRequestSettings
+      <AssistantAiFeatureSettings
         sources={settings.sources}
         defaultSource={settings.defaultSource}
         value={selection}
@@ -324,7 +326,7 @@ function PriceExplanationRequest({ price, versionId, lineId, disabled, onBusyCha
         <Button type="button" onClick={() => void generate()} disabled={!canGenerate || pending !== null || disabled} loading={pending === "generate"}>
           {price.explanation ? "Régénérer l’explication" : "Générer l’explication"}
         </Button>
-        {settings.canRefreshPlanModels ? (
+        {settings.canRefreshPlanModels && !common ? (
           <Button type="button" variant="secondary" onClick={() => void refreshModels()} disabled={pending !== null || disabled} loading={pending === "models"}>
             Actualiser les modèles du forfait
           </Button>

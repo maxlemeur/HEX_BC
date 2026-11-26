@@ -774,9 +774,15 @@ if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the esti
     await screen.getByTestId("assistant-toggle").click();
     const panel = screen.getByTestId("assistant-panel");
     await expect(panel).toBeVisible();
-    await expect(panel.getByLabel("Source IA", { exact: true })).toHaveValue("chatgpt_plan", DEV_SERVER_WORK);
-    await expect(panel.getByLabel("Modèle", { exact: true })).toHaveValue("army-plan-model");
-    await panel.getByLabel("Effort de raisonnement", { exact: true }).selectOption({ value: "high" });
+    const settings = screen.getByRole("button", { name: "Réglages IA", exact: true });
+    await settings.click();
+    await expect(screen.getByLabel("Source d’IA", { exact: true })).toHaveValue("chatgpt_plan", DEV_SERVER_WORK);
+    await settings.click();
+    const modelOptions = screen.getByRole("button", { name: "Modèle et effort", exact: true });
+    await modelOptions.click();
+    await expect(screen.getByLabel("Modèle", { exact: true })).toHaveValue("army-plan-model");
+    await screen.getByLabel("Effort de raisonnement", { exact: true }).selectOption({ value: "high" });
+    await modelOptions.click();
     await panel.getByTestId("assistant-input").fill(question);
     await panel.getByTestId("assistant-send").click();
     const answer = panel.getByTestId("assistant-message-assistant");

@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { ArrowUpIcon, ChevronDownIcon, Loader2Icon, Settings2Icon, SparklesIcon } from "lucide-react";
 
+import { AssistantAiSettingsMenu, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
+import { useDashboardAssistant } from "@/components/assistant/AssistantDock";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { FieldLabel } from "@/components/ui/field";
@@ -15,9 +18,10 @@ import { CHATGPT_REASONING_EFFORT_LABELS, chatGptReasoningEffortSchema } from "@
 import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import { AI_REQUEST_SOURCE_LABELS } from "@/lib/ai/request-settings";
 import type { CostingWorkbookColumnInspection } from "@/lib/catalogue/costing-workbook";
-import { workbookCellText } from "@/lib/catalogue/costing-workbook-edits";
+import { workbookCellText, workbookCellValue } from "@/lib/catalogue/costing-workbook-edits";
 import type { CostingWorkbookRows } from "@/lib/catalogue/costing-workbook-file";
 import { requestWorkbookSuggestions } from "@/lib/catalogue/costing-workbook-suggestions-client";
+import { isZeroReliabilityCell, isZeroReliabilityCriterion, ZERO_RELIABILITY_CRITERION } from "@/lib/catalogue/workbook-reliability-filter";
 import {
   COSTING_WORKBOOK_ROW_CRITERION_MAX_LENGTH,
   COSTING_WORKBOOK_ROW_DESCRIPTION_MAX_LENGTH,
@@ -30,8 +34,10 @@ import { boundedPage, DECISIONS_PER_PAGE, formatCount, plural, ReviewPager } fro
 
 type Props = Readonly<{
   rows: CostingWorkbookRows;
+  originalRows: CostingWorkbookRows;
   inspection: CostingWorkbookColumnInspection;
   disabled: boolean;
+  visible?: boolean;
   onApply: (rows: readonly number[]) => boolean;
 }>;
 
@@ -73,10 +79,13 @@ function describeRows(rows: CostingWorkbookRows, { found, unrecognised }: Costin
   };
 }
 
-export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
+export function RowExclusions({ rows, originalRows, inspection, disabled, visible = true, onApply }: Props) {
+  const dock = useDashboardAssistant();
+  const sharedAi = useAssistantAiSettings();
+  const publish = dock?.setWorkbookStatus;
   const [open, setOpen] = useState(false);
   const id = useId();
-  const { sources, provider, requestOptions, settingsLocked, lockSettings, loadProviders } = useWorkbookAssistant();
+  const { sources, provider, selection: settings, chooseSettings, requestOptions, settingsLocked, lockSettings, loadProviders } = useWorkbookAssistant();
   const [criterion, setCriterion] = useState("");
   const [scope, setScope] = useState("0");
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -87,12 +96,14 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
   const resultTrigger = useRef<HTMLButtonElement>(null);
   const headerRow = inspection.missingRequired.length === 0 ? inspection.headerRow : null;
   const batches = useMemo(() => batchesOf(rows, headerRow), [rows, headerRow]);
+  const snapshot = useMemo(() => Symbol(), [rows, originalRows]);
   const activeScope = scope === "all" || batches[Number(scope)] ? scope : "0";
   const scopedBatch = batches[Number(activeScope)];
   const requests = activeScope === "all" ? batches : scopedBatch ? [scopedBatch] : [];
   const total = requests.reduce((sum, lines) => sum + lines.length, 0);
   const answer = proposal?.rows === rows ? proposal : null;
   const loading = answer?.status === "running";
+  const useReliabilityFilter = isZeroReliabilityCriterion(criterion);
   const sourceOptions = typeof sources === "object" ? sources : null;
   const apiKey = sourceOptions?.providers.personal_api_key;
   const activeModel = provider === "chatgpt_plan" || provider === "personal_api_key"
@@ -100,8 +111,10 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
     : undefined;
   const activeEffort = chatGptReasoningEffortSchema.safeParse(requestOptions.reasoning_effort).data;
   const sourceLabel = provider ? AI_REQUEST_SOURCE_LABELS[provider] : null;
-  const canAnalyse = sourceOptions !== null && provider !== null && !disabled && !settingsLocked && !loading
-    && criterion.trim().length > 0 && total > 0;
+  const keyConnectionId = provider === "personal_api_key" ? sharedAi?.options?.keyConnectionId : null;
+  const payerReady = !sharedAi || provider !== "personal_api_key" || Boolean(keyConnectionId && !sharedAi.pending);
+  const canAnalyse = visible && !disabled && !settingsLocked && !loading && criterion.trim().length > 0 && total > 0
+    && (useReliabilityFilter || (sourceOptions !== null && provider !== null && payerReady));
   const proposed = answer?.proposed ?? [];
   const currentPage = boundedPage(page, proposed.length);
   const start = currentPage * DECISIONS_PER_PAGE;
@@ -114,11 +127,44 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
     setSelected(new Set());
   }
 
+  const previewReliabilityZero = useCallback((rowNumbers: readonly number[]) => {
+    if (!visible || disabled || settingsLocked || pending.current) return false;
+    const column = headerRow === null ? undefined : inspection.found.find(({ column }) => column === "Fiabilité (/10)");
+    const describe = describeRows(originalRows, inspection);
+    const proposed = column ? rowNumbers
+      .filter((row) => isZeroReliabilityCell(workbookCellValue(originalRows, row, column.index)))
+      .map(describe) : [];
+    setProposal({
+      rows, total: rowNumbers.length, analysed: column ? rowNumbers.length : 0, proposed,
+      status: column ? "deterministic" : "unavailable",
+      message: column ? "Filtre basé sur les valeurs de la colonne « Fiabilité (/10) » dans le fichier Excel d’origine."
+        : headerRow === null ? "Associez les colonnes requises pour afficher l’aperçu."
+          : "Associez la colonne « Fiabilité (/10) » pour afficher l’aperçu.",
+    });
+    setPage(0);
+    setSelected(new Set());
+    setOpen(true);
+    return true;
+  }, [visible, disabled, settingsLocked, headerRow, inspection, originalRows, rows]);
+
+  const previewAllReliabilityZero = useCallback(() => {
+    if (!previewReliabilityZero(batches.flat())) return false;
+    setCriterion(ZERO_RELIABILITY_CRITERION);
+    setScope("all");
+    return true;
+  }, [batches, previewReliabilityZero]);
+
   async function analyse() {
-    if (!canAnalyse || !provider || pending.current) return;
+    if (!canAnalyse || pending.current) return;
+    if (useReliabilityFilter) {
+      previewReliabilityZero(requests.flat());
+      return;
+    }
+    if (!provider) return;
     const releaseSettings = lockSettings();
     if (!releaseSettings) return;
     const controller = new AbortController();
+    const session = sharedAi ? { ...sharedAi.owner, ...(keyConnectionId ? { keyConnectionId } : {}) } : undefined;
     pending.current = controller;
     resetProposal();
     let progress: Proposal = { rows, total, analysed: 0, proposed: [], status: "running", message: "" };
@@ -132,6 +178,7 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
         const answer = await requestWorkbookSuggestions<"row_exclusions">(
           { task: "row_exclusions", ...requestOptions, provider, criterion: criterion.trim(), lines },
           controller.signal,
+          session,
         );
         if (controller.signal.aborted) return;
         const matches = new Set(answer.items.map(({ row }) => row));
@@ -166,20 +213,36 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
   const triggerLabel = answer?.status === "running"
     ? `Analyse IA en cours · ${formatCount(answer.analysed)} / ${formatCount(answer.total)}`
     : "Consulter les résultats de l’analyse IA";
+  const resultAvailable = answer !== null && !loading;
+  const statusLabel = answer ? triggerLabel : "Écarter des lignes";
+  useEffect(() => {
+    publish?.({ running: loading, result: resultAvailable, label: statusLabel, snapshot, prepare: setCriterion,
+      previewReliabilityZero: previewAllReliabilityZero });
+  }, [publish, loading, resultAvailable, statusLabel, snapshot, previewAllReliabilityZero]);
+  useEffect(() => () => publish?.(null), [publish]);
+  useEffect(() => { if (!visible) setOpen(false); }, [visible]);
+  const workbookActive = dock?.workbookActive;
+  useEffect(() => {
+    if (visible && workbookActive) {
+      const target = criterionInput.current?.disabled ? resultTrigger.current : criterionInput.current;
+      target?.focus({ preventScroll: true });
+    }
+  }, [visible, workbookActive]);
+
   let scopeHelp = "L’IA applique la consigne à chaque ligne à partir d’un extrait de ses cellules.";
   if (headerRow === null) scopeHelp = "Associez les colonnes requises pour analyser les lignes.";
   else if (total === 0) scopeHelp = "Aucune ligne à analyser.";
+  else if (useReliabilityFilter) scopeHelp = "Filtre direct sur la fiabilité dans le fichier Excel d’origine.";
   else if (sourceOptions && !provider) scopeHelp = "Choisissez une source dans Réglages IA pour analyser les lignes.";
+  else if (!payerReady) scopeHelp = "Actualisez les sources IA pour vérifier la clé avant de lancer l’analyse.";
   else if (provider === "personal_api_key") {
     const ceiling = formatUsdCeiling(requests.length * AI_REQUEST_CEILINGS_NANO_USD.shortQuestion);
     scopeHelp = requests.length === 1 ? `${ceiling} au plus pour cette demande.`
       : `Jusqu’à ${formatCount(requests.length)} demandes et ${ceiling} au total.`;
   } else if (requests.length > 1) scopeHelp = `Jusqu’à ${formatCount(requests.length)} demandes successives.`;
 
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <div className="pointer-events-none sticky bottom-0 z-20 mt-4 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
-        <form aria-label="Assistant du classeur"
+  const composer = (
+    <form aria-label="Assistant du classeur"
           className="pointer-events-auto mx-auto max-w-5xl rounded-[1.5rem] border border-(--workbook-composer-border) bg-(--workbook-composer-surface) p-2 text-(--workbook-composer-text) shadow-xl focus-within:border-(--workbook-composer-muted) sm:rounded-[1.75rem] sm:p-3"
           onSubmit={(event) => { event.preventDefault(); void analyse(); }}>
           <FieldLabel htmlFor={`${id}-criterion`} className="sr-only">Quelles lignes souhaitez-vous supprimer ?</FieldLabel>
@@ -212,7 +275,15 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
               {scopeHelp}
             </p>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              <Popover>
+              {dock ? (
+                <AssistantAiSettingsMenu contextOptions={dock.contextOptions} locked={settingsLocked} onRefresh={() => {
+                  loadProviders(true);
+                  sharedAi?.refresh();
+                }} scopeChoices={sourceOptions ? {
+                  sources: sourceOptions.providers, defaultSource: sourceOptions.defaultProvider,
+                  choice: settings, onChange: chooseSettings, allowRulesOnly: true,
+                } : undefined} keyCeiling={AI_REQUEST_CEILINGS_NANO_USD.shortQuestion} />
+              ) : <Popover>
                 <PopoverTrigger render={<Button type="button" aria-label="Réglages IA" variant="ghost" size="sm"
                   className="h-auto max-w-full rounded-full px-2.5 py-1.5 text-left text-(--workbook-composer-text) hover:bg-(--workbook-composer-control) hover:text-(--workbook-composer-text) aria-expanded:bg-(--workbook-composer-control) aria-expanded:text-(--workbook-composer-text)"
                   leftIcon={<Settings2Icon aria-hidden="true" />} rightIcon={<ChevronDownIcon aria-hidden="true" />} />}>
@@ -247,7 +318,7 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
                     </>
                   ) : null}
                 </PopoverContent>
-              </Popover>
+              </Popover>}
               {answer ? (
                 <DialogTrigger render={<Button ref={resultTrigger} type="button" variant="secondary" size="sm"
                   className="rounded-full border-(--workbook-composer-border) bg-(--workbook-composer-control) text-(--workbook-composer-text) hover:border-(--workbook-composer-muted) hover:bg-(--workbook-composer-control)"
@@ -264,11 +335,18 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
               ) : null}
             </div>
           </div>
-        </form>
-      </div>
+    </form>
+  );
+  return (
+    <Dialog open={visible && open} onOpenChange={setOpen}>
+      {dock ? (dock.workbookControls ? createPortal(composer, dock.workbookControls) : null) : (
+        <div className="pointer-events-none sticky bottom-0 z-20 mt-4 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
+          {composer}
+        </div>
+      )}
       <DialogContent size="lg" finalFocus={() => resultTrigger.current?.isConnected ? resultTrigger.current : criterionInput.current ?? true}>
         <DialogHeader>
-          <DialogTitle>Supprimer des lignes avec l’IA</DialogTitle>
+          <DialogTitle>{useReliabilityFilter ? "Lignes dont la fiabilité Excel est à zéro" : "Supprimer des lignes avec l’IA"}</DialogTitle>
           <DialogDescription>Vérifiez les propositions puis choisissez les lignes à écarter de cet import.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -320,7 +398,7 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
           <DialogFooter>
             {loading ? <Button variant="ghost" onClick={stopAnalysis}>Arrêter l’analyse</Button> : null}
             <DialogClose render={<Button variant="outline" />}>Fermer les résultats</DialogClose>
-            <Button disabled={disabled || loading || selection.length === 0} onClick={() => {
+            <Button disabled={!visible || disabled || loading || selection.length === 0} onClick={() => {
               if (onApply(selection)) setOpen(false);
             }}>
               {selection.length > 0 ? `Écarter ${formatCount(selection.length)} ${plural(selection.length, "ligne", "lignes")} de l’import` : "Écarter les lignes sélectionnées"}

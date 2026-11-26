@@ -9,6 +9,7 @@ import {
   loadAssistantAiOptions, loadAssistantThread, loadAssistantThreads, removeAssistantThread, startAssistantThread,
 } from "@/app/dashboard/_actions/assistant";
 import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
+import { effectiveAiChoice, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
 import type { AssistantScope } from "@/components/assistant/AssistantDock";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { affaireIntakeFileUrl } from "@/lib/affaires/intake";
 import { supportsReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
-import { defaultAiRequestSettings, type AiRequestSettingsValue } from "@/lib/ai/request-settings";
+import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
+import { AI_REQUEST_SOURCE_LABELS, defaultAiRequestSettings, type AiRequestSettingsValue } from "@/lib/ai/request-settings";
 import { readAssistantStream, splitAssistantText } from "@/lib/assistant/client-stream";
 import { ASSISTANT_CEILING_MESSAGE, ASSISTANT_KEY_CEILING } from "@/lib/assistant/request-settings";
 import type { AssistantActivity, AssistantMessage } from "@/lib/assistant/threads-server";
@@ -66,12 +68,13 @@ const NEW_THREAD = "";
  * answer read. While the answer is written, or if it could not be saved, they
  * stay plain text.
  */
-function AnswerText({ text, streaming, projectId, verified }: { text: string; streaming: boolean; projectId: string; verified: boolean }) {
+export function AnswerText({ text, streaming, projectId, verified }: { text: string; streaming: boolean; projectId?: string; verified: boolean }) {
   return (
     <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
       {splitAssistantText(text, streaming).map((part, index) => {
         if (part.type === "text") return part.value;
         if (part.type === "line") {
+          if (!projectId) return part.label;
           return (
             <Link
               key={`${part.id}-${index}`}
@@ -83,7 +86,7 @@ function AnswerText({ text, streaming, projectId, verified }: { text: string; st
             </Link>
           );
         }
-        if (!verified) return part.label;
+        if (!verified || !projectId) return part.label;
         return (
           <a
             key={`${part.documentId}-${part.page}-${index}`}
@@ -121,18 +124,22 @@ function ActivityList({ activity, running }: { activity: AssistantActivity[]; ru
   );
 }
 
-export default function AssistantPanel({ scope, activeThreadId, onActiveThreadChange, onClose }: {
+export default function AssistantPanel({ scope, activeThreadId, onActiveThreadChange, onClose, embedded = false, owner }: {
   scope: AssistantScope;
   activeThreadId: string | null;
   onActiveThreadChange(threadId: string | null): void;
   onClose(): void;
+  embedded?: boolean;
+  owner?: { userId: string; tenantId: string };
 }) {
   const { projectId, screen } = scope;
-  const threads = useSWR(["assistant-threads", projectId], () => loadAssistantThreads(projectId), { revalidateOnFocus: false });
-  const ai = useSWR(["assistant-ai-options", projectId], () => loadAssistantAiOptions(projectId), { revalidateOnFocus: false, keepPreviousData: false });
+  const threads = useSWR(["assistant-threads", projectId, owner?.userId, owner?.tenantId], () => loadAssistantThreads(projectId), { revalidateOnFocus: false });
+  const ai = useSWR(["assistant-ai-options", projectId, owner?.userId, owner?.tenantId],
+    () => loadAssistantAiOptions(projectId, owner), { revalidateOnFocus: false, keepPreviousData: false });
   const options = ai.data?.ok ? ai.data.data : null;
+  const common = useAssistantAiSettings();
   const [choice, setChoice] = useState<AiRequestSettingsValue>();
-  const settings = options ? choice ?? defaultAiRequestSettings(options.defaultSource, options.sources) : null;
+  const settings = options ? effectiveAiChoice(common?.choice, choice ?? defaultAiRequestSettings(options.defaultSource, options.sources), options.sources) : null;
   const sourceOptions = settings?.source ? options?.sources[settings.source] : undefined;
   const selectedModel = sourceOptions?.models?.find((model) => model.id === settings?.preferences?.model);
   const canSend = Boolean(!ai.isValidating && sourceOptions?.available && selectedModel && settings?.preferences
@@ -323,7 +330,8 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
     <aside
       id="assistant-panel"
       aria-label="Assistant de chiffrage"
-      className="fixed bottom-0 right-0 top-[60px] z-40 flex w-full flex-col border-l border-border bg-surface shadow-xl lg:w-[420px]"
+      className={embedded ? "flex max-h-[min(62dvh,38rem)] min-h-0 w-full flex-col bg-surface text-foreground"
+        : "fixed bottom-0 right-0 top-[60px] z-40 flex w-full flex-col border-l border-border bg-surface shadow-xl lg:w-[420px]"}
       onKeyDown={(event) => { if (event.key === "Escape" && !event.defaultPrevented) onClose(); }}
       data-testid="assistant-panel"
     >
@@ -422,7 +430,14 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
       </div>
 
       <form onSubmit={submit} className="shrink-0 space-y-2 border-t border-border bg-surface p-3">
-        {options && settings ? (
+        {embedded && options ? (
+          <p className="text-xs text-muted-foreground" role="status">
+            {settings?.source && canSend
+              ? AI_REQUEST_SOURCE_LABELS[settings.source] + (settings.source === "personal_api_key"
+                ? " · " + formatUsdCeiling(ASSISTANT_KEY_CEILING) + " au plus par message" : "")
+              : "Choisissez une source et un modèle disponibles dans Réglages IA."}
+          </p>
+        ) : options && settings ? (
           <AiRequestSettings
             sources={options.sources} defaultSource={options.defaultSource} value={settings} onChange={setChoice}
             sourcePicker={{ label: "Source IA" }} locked={sending}

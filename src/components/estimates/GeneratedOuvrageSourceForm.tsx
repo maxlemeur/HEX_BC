@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { readGeneratedOuvrageAiOptions } from "@/app/dashboard/affaires/_actions/generated-ouvrages";
-import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
+import { AssistantAiFeatureSettings, effectiveAiChoice, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
 import { Alert } from "@/components/ui/alert";
 
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ export function GeneratedOuvrageSourceForm({
   onGenerate,
 }: GeneratedOuvrageSourceFormProps) {
   type Options = Extract<Awaited<ReturnType<typeof readGeneratedOuvrageAiOptions>>, { ok: true }>["data"];
+  const common = useAssistantAiSettings();
   const [settings, setSettings] = useState<Options | string | null>(null);
   const [choice, setChoice] = useState<AiRequestSettingsValue>();
   useEffect(() => {
@@ -55,7 +56,7 @@ export function GeneratedOuvrageSourceForm({
   }, [versionId]);
 
   const options = typeof settings === "string" ? null : settings;
-  const value = choice ?? (options ? defaultAiRequestSettings(options.defaultSource, options.sources) : undefined);
+  const value = options ? effectiveAiChoice(common?.choice, choice ?? defaultAiRequestSettings(options.defaultSource, options.sources), options.sources) : undefined;
   let ai: GenerationInput["ai"] | null = null;
   if (value?.preferences) {
     const { source, preferences: { model, reasoningEffort: effort } } = value;
@@ -135,7 +136,7 @@ export function GeneratedOuvrageSourceForm({
       </div>
 
       {options ? (
-        <AiRequestSettings
+        <AssistantAiFeatureSettings
           sources={options.sources}
           defaultSource={options.defaultSource}
           value={value}
