@@ -76,6 +76,7 @@ armyTest("SET02 a frozen read uses its captured coefficient without changing the
   const dialog = await openSettings(ui);
   await expect(dialog.getByText(/Coefficient appliqué au devis figé : ×1[.,]70/)).toBeVisible();
   await expect(dialog.getByText(/Pour ce devis : coût/)).toHaveCount(0);
+  await dialog.getByRole("button", "Fermer", { exact: true }).click();
   await expect(ui.screen.getByRole("button", /^Total HT :/)).toHaveText(/51[,.]00/);
   expect(syntheticReads).toBeGreaterThan(0);
   await ui.browser.unroute(pattern);
