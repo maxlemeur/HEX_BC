@@ -15785,6 +15785,16 @@
               }
             }
           },
+          "422": {
+            "description": "Modele ou niveau d'effort que la source choisie ne propose plus a ce membre : recharger les sources et choisir de nouveau.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Erreur interne serveur.",
             "content": {

@@ -420,6 +420,7 @@ const estimateWorkflowContracts: RouteContract[] = [
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
     body: { schema: priceReuseArbitrationInputSchema, description: "Reference, source, lignes et choix facultatifs de modele et d'effort pour le forfait ChatGPT ou la cle personnelle." },
+    extraErrors: [{ status: "422", description: "Modele ou niveau d'effort que la source choisie ne propose plus a ce membre : recharger les sources et choisir de nouveau." }],
     success: [{ status: "200", description: "Propositions de l'arbitre, a confirmer.",
       schema: { schemaName: "ArbitrateEstimatePriceReuseResponse", schema: z.object({ ok: z.literal(true), data: priceReuseArbitrationSchema }), io: "output" } }],
   },
