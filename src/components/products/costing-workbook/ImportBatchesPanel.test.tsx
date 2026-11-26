@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { CatalogueImportBatch } from "@/lib/catalogue/import-review-contract";
+import type { CatalogueImportBatch, CatalogueImportBatchPage } from "@/lib/catalogue/import-review-contract";
 
 const role = vi.hoisted(() => ({ current: "admin" as "admin" | "engineer" }));
 vi.mock("@/lib/auth/user-context", () => ({
@@ -29,6 +29,10 @@ const REFERENCES = "b0000000-0000-4000-8000-000000000002";
 type Sent = { url: string; method: string; body: unknown };
 const sent: Sent[] = [];
 let batches: CatalogueImportBatch[] = [];
+let olderPage: CatalogueImportBatchPage | null;
+const CURSOR = "2026-11-25T10:00:00.123456+00:00,b0000000-0000-4000-8000-000000000001";
+const OLDER = "b0000000-0000-4000-8000-000000000005";
+const OLDER_URL = `/api/catalogue/import-batches?${new URLSearchParams({ cursor: CURSOR })}`;
 const fetchMock = vi.fn<typeof fetch>((input, init) => {
   const url = String(input);
   const method = init?.method ?? "GET";
@@ -36,7 +40,8 @@ const fetchMock = vi.fn<typeof fetch>((input, init) => {
   const answer = (data: unknown) => Promise.resolve(new Response(JSON.stringify({ ok: true, data }), { status: 200, headers: { "content-type": "application/json" } }));
   if (url === "/api/products/bulk") return answer({ action: "validate", validated: 8, incomplete: 2, skipped: 1 });
   if (url.endsWith("/undo")) return answer({ deleted: 9, kept: 1 });
-  return answer({ items: batches });
+  if (url === OLDER_URL) return answer(olderPage);
+  return answer({ items: batches, next_cursor: olderPage ? CURSOR : null });
 });
 const posts = () => sent.filter((call) => call.method === "POST");
 
@@ -50,6 +55,7 @@ describe("ImportBatchesPanel", () => {
   beforeEach(() => {
     sent.length = 0;
     role.current = "admin";
+    olderPage = null;
     batches = [
       batch({}),
       batch({ id: REFERENCES, kind: "workbook_supplier_references", total: 40, open: 35 }),
@@ -97,8 +103,8 @@ describe("ImportBatchesPanel", () => {
     expect(await screen.findByText("Import annulé : 9 brouillons supprimés. 1 conservé.")).toBeVisible();
   });
 
-  it("offers to finish an interrupted undo even when no open rows remain", async () => {
-    batches = [batch({ undo_started_at: "2026-11-25T11:00:00.000Z", open: 0 })];
+  it("offers to finish an interrupted undo even when all its articles have been deleted", async () => {
+    batches = [batch({ undo_started_at: "2026-11-25T11:00:00.000Z", total: 0, open: 0 })];
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     renderPanel();
@@ -120,12 +126,23 @@ describe("ImportBatchesPanel", () => {
     expect(screen.getByText("La validation des brouillons est réservée aux administrateurs.")).toBeVisible();
   });
 
-  it("hides a batch whose first draft chunk was refused", async () => {
-    batches.push(batch({ id: "b0000000-0000-4000-8000-000000000004", source_name: "lot-refuse.xlsx", total: 0, open: 0 }));
+  it("appends older imports and keeps them available after an action", async () => {
+    const user = userEvent.setup();
+    olderPage = { items: [batch({ id: OLDER, source_name: "classeur-ancien.xlsx" })], next_cursor: null };
     renderPanel();
-    const list = await screen.findByRole("list", { name: "Imports récents" });
-    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
-    expect(within(list).queryByText(/lot-refuse/)).not.toBeInTheDocument();
+    const more = await screen.findByRole("button", { name: "Afficher les imports plus anciens" });
+    await user.click(more);
+
+    const list = within(screen.getByRole("list", { name: "Imports récents" }));
+    const rows = list.getAllByRole("listitem");
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).toHaveTextContent("bible-chiffrage.xlsm");
+    expect(rows[3]).toHaveTextContent("classeur-ancien.xlsx");
+    expect(more).not.toBeInTheDocument();
+    await user.click(within(rows[3]).getByRole("button", { name: "Valider les brouillons complets" }));
+    expect(posts()).toEqual([{ url: "/api/products/bulk", method: "POST", body: { action: "validate", import_batch_id: OLDER } }]);
+    await waitFor(() => expect(sent.filter((call) => call.url === OLDER_URL)).toHaveLength(2));
+    expect(list.getAllByRole("listitem")[3]).toHaveTextContent("classeur-ancien.xlsx");
   });
 
   it("reads the list again after an import, and shows nothing without imports (4)", async () => {

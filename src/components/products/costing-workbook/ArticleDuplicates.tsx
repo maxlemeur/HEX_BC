@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatUsdCeiling, MODEL_TEST_CEILING_NANO_USD } from "@/lib/ai/access/openai-pricing";
+import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
+import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import type { CostingWorkbookArticle } from "@/lib/catalogue/costing-workbook";
 import { requestWorkbookSuggestions } from "@/lib/catalogue/costing-workbook-suggestions-client";
 import {
@@ -44,7 +45,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
   onSearch: (search: DuplicateSearch | null) => void;
 }>) {
   const { busy, applyEdits, rows, revision, isCurrentRevision } = useWorkbookEditor();
-  const { provider } = useWorkbookAssistant();
+  const { provider, requestOptions, lockSettings } = useWorkbookAssistant();
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
@@ -53,6 +54,9 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
   useEffect(() => () => abortRef.current?.abort(), [revision]);
 
   async function run() {
+    if (abortRef.current) return;
+    const releaseSettings = lockSettings();
+    if (!releaseSettings) return;
     const abort = new AbortController();
     abortRef.current = abort;
     setError(null);
@@ -66,7 +70,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
         const chunk = proposed.slice(start, start + size);
         const answer = await requestWorkbookSuggestions({
           task: "articles",
-          ...(provider ? { provider } : {}),
+          ...requestOptions,
           lines: chunk.map(({ row, article }) => ({
             key: String(row),
             reference: article.reference.slice(0, 255),
@@ -93,6 +97,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
     } catch (failure) {
       if (!abort.signal.aborted) setError(catalogueErrorMessage(failure, "La recherche de doublons n’a pas abouti."));
     } finally {
+      releaseSettings();
       if (abortRef.current === abort) {
         abortRef.current = null;
         setProgress(null);
@@ -139,7 +144,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
       </div>
       {provider === "personal_api_key" && requestCount > 1 ? (
         <p className="text-xs text-muted-foreground">
-          {`Cette recherche peut envoyer ${requestCount} demandes et coûter jusqu’à ${formatUsdCeiling(requestCount * MODEL_TEST_CEILING_NANO_USD)} au total.`}
+          {`Cette recherche peut envoyer ${requestCount} demandes et coûter jusqu’à ${formatUsdCeiling(requestCount * AI_REQUEST_CEILINGS_NANO_USD.shortQuestion)} au total.`}
         </p>
       ) : null}
       {provider === "decisions" && requestCount > 1 ? (

@@ -7,6 +7,8 @@ import {
 } from "@/lib/catalogue/costing-workbook-suggestions-contract";
 import {
   bulkProductsSchema,
+  catalogueImportBatchCursorSchema,
+  catalogueImportBatchPageSchema,
   createSupplierAliasSchema,
   pendingSupplierReferencePageSchema,
   PENDING_REFERENCE_PAGE_SIZES,
@@ -92,10 +94,17 @@ export const catalogueImportContracts: RouteContract[] = [
     id: "list-catalogue-import-batches",
     method: "get",
     path: "/api/catalogue/import-batches",
-    summary: "Lister les imports récents du classeur de chiffrage",
+    summary: "Lister les imports du classeur de chiffrage",
     description:
-      "Les dix derniers imports de l’entreprise active, avec ce qu’ils ont créé qui existe encore (total) et ce qui reste à valider ou à vérifier (open). can_undo dit si l’appelant peut annuler l’import.",
+      "Jusqu’à dix imports de l’entreprise active, par date de création décroissante puis par identifiant décroissant. Un import d’articles vide reste visible si son annulation a commencé ou est terminée.",
     tags: ["Catalogue"],
+    queryParameters: [
+      { name: "cursor", schema: catalogueImportBatchCursorSchema, description: "Valeur next_cursor de la page précédente, au format date ISO 8601,UUID. Omettre pour la première page." },
+    ],
+    success: [{
+      status: "200", description: "Imports et curseur de la page suivante (null en fin de liste).",
+      schema: successResponseSchemaDefinition("ApiCatalogueImportBatchPage", catalogueImportBatchPageSchema),
+    }],
   },
   {
     id: "undo-catalogue-import-batch",
@@ -113,7 +122,7 @@ export const catalogueImportContracts: RouteContract[] = [
     path: "/api/catalogue/workbook-import/suggestions",
     summary: "Lire les sources d’IA disponibles pour les propositions de l’import",
     description:
-      "Dit lesquelles des sources (forfait ChatGPT, clé API OpenAI personnelle, API Decisions) ce membre peut interroger ici. Aucun fournisseur d’IA n’est appelé.",
+      "Donne la source par défaut de Mon profil et la disponibilité des sources. Si les préférences sont illisibles, aucune source n’est présélectionnée (defaultProvider vaut null). Pour le forfait ChatGPT et la clé API OpenAI personnelle, donne aussi les modèles proposés, leurs niveaux de raisonnement et les réglages utilisés par défaut dans les demandes. Le forfait utilise son catalogue de modèles. Aucune inférence n’est lancée.",
     tags: ["Catalogue"],
     success: [{
       status: "200", description: "Disponibilité des sources de propositions.",
@@ -128,7 +137,8 @@ export const catalogueImportContracts: RouteContract[] = [
     description:
       "Propose, pour une tâche (fournisseurs, articles, types de fourniture, colonnes, codes fournisseur), ce que les règles trouvent ; avec provider, la source d’IA choisie arbitre seulement ce que les règles laissent indécis, parmi leurs candidats ou « aucun ». Rien n’est écrit : une proposition s’applique quand le bureau la retient à l’écran. Aucun repli d’une source vers une autre. Réservé aux administrateurs et aux ingénieurs.",
     tags: ["Catalogue"],
-    body: { schema: costingWorkbookSuggestionsRequestSchema, description: "Tâche, éléments à proposer et source d’IA éventuelle." },
+    body: { schema: costingWorkbookSuggestionsRequestSchema, description: "Tâche, éléments à proposer et source d’IA éventuelle. Pour le forfait ChatGPT ou la clé API OpenAI, model et reasoning_effort sont facultatifs et ponctuels. À défaut, la demande utilise les réglages initiaux de la source renvoyés par GET, ou le niveau par défaut du modèle si un autre modèle est demandé seul." },
+    extraErrors: [{ status: "422", description: "Modèle ou niveau de raisonnement non proposé, ou réglage envoyé sans source compatible." }],
     success: [{
       status: "200", description: "Propositions pour la tâche demandée.",
       schema: successResponseSchemaDefinition("ApiCostingWorkbookSuggestions", costingWorkbookSuggestionsResponseSchema),

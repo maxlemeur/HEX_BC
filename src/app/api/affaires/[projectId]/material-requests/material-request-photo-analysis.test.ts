@@ -1,21 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 
+const apiKey = vi.hoisted(() => ({ state: vi.fn(), prepare: vi.fn(), execute: vi.fn() }));
+vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: "localhost" }) }));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
-// The provider boundary: no test reaches a ChatGPT plan.
+vi.mock("@/lib/ai/access/openai-api", () => ({ openAiApiKeyAccess: () => apiKey }));
+// Inference and the model catalogue both use local fixtures.
 vi.mock("@/lib/ai/structured-ai", () => ({
   callStructuredAi: vi.fn(),
   getStructuredAiAvailability: vi.fn(),
 }));
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
+  assertLocalChatGptHost: vi.fn(),
+  getLocalChatGptCredential: vi.fn(),
   isLocalChatGptEnabled: vi.fn(),
 }));
 
 import * as analysisRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/files/[fileId]/analysis/route";
 import * as requestRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/route";
-import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { getLocalChatGptCredential, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { RETIRED_OPENAI_MODEL } from "@/lib/ai/chatgpt-model-preferences";
 import { callStructuredAi, getStructuredAiAvailability } from "@/lib/ai/structured-ai";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { ChatGptSignInError } from "@/lib/ai/chatgpt-sign-in-errors";
@@ -134,8 +140,11 @@ function seed(actor: string, role: Role) {
 
 type Handler = (request: Request, context: { params: Promise<never> }) => Promise<Response>;
 
-async function call(handler: unknown, method: string, params: Record<string, string>) {
-  const response = await (handler as Handler)(new Request("http://localhost/api/test", { method }), {
+async function call(handler: unknown, method: string, params: Record<string, string>, body?: object) {
+  const response = await (handler as Handler)(new Request("http://localhost/api/test", {
+    method,
+    ...(body && { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  }), {
     params: Promise.resolve(params as never),
   });
   const payload = (await response.json()) as { ok: boolean; data?: never; error?: { code: string; message: string; details?: never } };
@@ -159,6 +168,12 @@ function answerWith(data: unknown) {
   } as never);
 }
 
+const PLAN_DEFAULT = { model: "atelier-fictif", reasoningEffort: "low" } as const;
+const PHOTO_OVERRIDE = { model: "lecture-fictive", reasoningEffort: "high" } as const;
+const PLAN_CREDENTIAL = {
+  ...PLAN_DEFAULT, profileId: "profil-fictif", accessToken: "jeton-de-test", authorizationId: null,
+};
+
 beforeEach(async () => {
   vi.clearAllMocks();
   if (VALID_PDF.byteLength === 0) {
@@ -168,12 +183,22 @@ beforeEach(async () => {
     VALID_PDF = await doc.save();
   }
   vi.mocked(isLocalChatGptEnabled).mockReturnValue(true);
+  vi.mocked(getLocalChatGptCredential).mockResolvedValue(PLAN_CREDENTIAL);
+  apiKey.state.mockResolvedValue({ status: "empty", placeLabel: "Sur ce Mac" });
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+    models: [PLAN_DEFAULT, PHOTO_OVERRIDE, { model: RETIRED_OPENAI_MODEL, reasoningEffort: "high" }].map((model) => ({
+      slug: model.model, display_name: model.model, visibility: "list", supported_reasoning_levels: [model.reasoningEffort],
+    })),
+  })));
   vi.mocked(getStructuredAiAvailability).mockResolvedValue({ available: true, message: "Connexion ChatGPT configurée." });
   answerWith(ANSWER);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("POST material request photo analysis", () => {
   it("reads the stored bytes of that one photo and answers drafts, writing nothing", async () => {
@@ -203,6 +228,72 @@ describe("POST material request photo analysis", () => {
     // The answer asked for is this reading's own, within the time of one call on the plan.
     expect(options.schema).toBe(materialRequestPhotoAnswerSchema);
     expect(options.timeoutMs).toBe(MATERIAL_REQUEST_PHOTO_ANALYSIS_TIMEOUT_MS);
+  });
+
+  it("uses the photos override of the authenticated member for an empty JSON body", async () => {
+    seed(OWNER, "engineer");
+    const analysisPreferences = {
+      billingSource: "chatgpt_plan", apiModel: null, overrides: { photos: { chatgpt_plan: PHOTO_OVERRIDE } },
+    };
+    apiKey.state.mockResolvedValue({ status: "empty", placeLabel: "Sur ce Mac", analysisPreferences });
+
+    const { status } = await call(analysisRoute.POST, "POST", { projectId: PROJECT, requestId: REQUEST, fileId: PHOTO }, {});
+
+    expect(status).toBe(200);
+    expect(callStructuredAi).toHaveBeenCalledWith(expect.anything(), undefined, PHOTO_OVERRIDE);
+    expect(getLocalChatGptCredential).toHaveBeenCalledWith({ userId: OWNER, tenantId: TENANT });
+  });
+
+  it("uses a selectable catalogue default when the stored plan model is retired", async () => {
+    seed(OWNER, "engineer");
+    vi.mocked(getLocalChatGptCredential).mockResolvedValue({ ...PLAN_CREDENTIAL, model: RETIRED_OPENAI_MODEL });
+
+    expect((await analyze(PHOTO)).status).toBe(200);
+    expect(callStructuredAi).toHaveBeenCalledWith(expect.anything(), undefined, { model: PLAN_DEFAULT.model, reasoningEffort: null });
+  });
+
+  it("asks the legacy client to reload when the profile uses a key, even if the plan is disconnected", async () => {
+    const fake = seed(OWNER, "engineer");
+    const analysisPreferences = { billingSource: "personal_api_key", apiModel: null };
+    apiKey.state.mockResolvedValue({ status: "empty", placeLabel: "Sur ce Mac", analysisPreferences });
+    vi.mocked(getStructuredAiAvailability).mockResolvedValue({
+      available: false, message: "Connectez votre forfait ChatGPT dans Mon profil pour analyser les documents.",
+    });
+
+    const { status, error } = await call(analysisRoute.POST, "POST", { projectId: PROJECT, requestId: REQUEST, fileId: PHOTO }, {});
+
+    expect(status).toBe(409);
+    expect(error).toMatchObject({
+      code: "MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE",
+      message: "La source IA a changé dans Mon profil. Rechargez la demande pour reprendre.",
+    });
+    expect(getStructuredAiAvailability).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(apiKey.prepare).not.toHaveBeenCalled();
+    expect(apiKey.execute).not.toHaveBeenCalled();
+    expect(fake.storageCalls).toEqual([]);
+  });
+
+  it("reports an unreadable profile when the client explicitly requests the key", async () => {
+    const fake = seed(OWNER, "engineer");
+    apiKey.state.mockResolvedValue({ status: "empty", placeLabel: "Sur ce Mac", notice: "Enregistrement illisible." });
+
+    const { status, error } = await call(analysisRoute.POST, "POST", { projectId: PROJECT, requestId: REQUEST, fileId: PHOTO }, {
+      billingSource: "personal_api_key", connectionId: "70000000-0000-4000-8000-000000000001", preferences: PHOTO_OVERRIDE,
+    });
+
+    expect(status).toBe(409);
+    expect(error).toMatchObject({
+      code: "MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE",
+      message: "Les préférences de Mon profil n’ont pas pu être lues.",
+    });
+    expect(getStructuredAiAvailability).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(apiKey.prepare).not.toHaveBeenCalled();
+    expect(apiKey.execute).not.toHaveBeenCalled();
+    expect(fake.storageCalls).toEqual([]);
   });
 
   it.each<[string, string, Role]>([

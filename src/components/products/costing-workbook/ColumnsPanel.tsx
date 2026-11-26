@@ -99,7 +99,7 @@ function MissingColumn({ column, required, inspection, suggestion }: Readonly<{
 export function ColumnsPanel({ inspection }: Readonly<{ inspection: CostingWorkbookColumnInspection }>) {
   const { headerRow, found, missingRequired, missingOptional, unrecognised } = inspection;
   const { rows, busy } = useWorkbookEditor();
-  const { provider } = useWorkbookAssistant();
+  const { requestOptions } = useWorkbookAssistant();
   const [suggestions, setSuggestions] = useState<ReadonlyMap<string, ColumnSuggestion>>(new Map());
   const [outcome, setOutcome] = useState<{ status: CostingWorkbookSuggestionsResponseOf<"columns">["status"]; message: string } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -113,7 +113,7 @@ export function ColumnsPanel({ inspection }: Readonly<{ inspection: CostingWorkb
     try {
       const answer = await requestWorkbookSuggestions({
         task: "columns",
-        ...(provider ? { provider } : {}),
+        ...requestOptions,
         missing,
         headers: unrecognised.slice(0, COSTING_WORKBOOK_SUGGESTION_LIMITS.headers).map(({ index, text }) => {
           // The first values under the header say what the column holds.

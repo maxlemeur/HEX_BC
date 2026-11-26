@@ -470,6 +470,7 @@ export function CostingWorkbookImport({
     setReplacement(null);
     setBaseRows(next.rows);
     setFileName(next.name);
+    assistant.loadProviders();
     fileNameRef.current = next.name;
     setEdits(nextEdits);
     forgetSupplyTypes();

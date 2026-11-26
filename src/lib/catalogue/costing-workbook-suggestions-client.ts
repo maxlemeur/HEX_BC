@@ -16,12 +16,12 @@ const UNREADABLE = "Les propositions n’ont pas pu être lues. Réessayez dans 
 export type SuggestionProviders = CostingWorkbookSuggestionProvidersResponse["providers"];
 export type SuggestionProvider = keyof SuggestionProviders;
 
-/** Which AI sources this member can ask here; no provider is called. */
-export async function fetchSuggestionProviders(signal?: AbortSignal): Promise<SuggestionProviders> {
+/** The member's preferred source and available model options. */
+export async function fetchSuggestionProviders(signal?: AbortSignal): Promise<CostingWorkbookSuggestionProvidersResponse> {
   const answer = await requestJsonUncoordinated<unknown>(PATH, { method: "GET", cache: "no-store", signal }, UNREADABLE);
   const parsed = costingWorkbookSuggestionProvidersResponseSchema.safeParse(answer);
   if (!parsed.success) throw new Error(UNREADABLE);
-  return parsed.data.providers;
+  return parsed.data;
 }
 
 /** The proposals of one task: from the deterministic pass alone without `provider`, arbitrated by it otherwise. */
