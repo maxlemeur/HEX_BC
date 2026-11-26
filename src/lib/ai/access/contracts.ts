@@ -92,10 +92,10 @@ export type ApiKeyOfferedModel = {
 export function resolveApiAnalysisPreferences(
   settings: AiAnalysisPreferences,
   models: readonly ApiKeyOfferedModel[],
-  usage: AiAnalysisUsage,
+  usage?: AiAnalysisUsage,
 ): ChatGptPreferences | null {
-  const override = settings.overrides?.[usage]?.personal_api_key;
-  const available = models.find((model) => model.id === override?.model);
+  const override = usage && settings.overrides?.[usage]?.personal_api_key;
+  const available = override && models.find((model) => model.id === override.model);
   if (override && available && (override.reasoningEffort === null || available.reasoningEfforts.includes(override.reasoningEffort))) {
     return override;
   }

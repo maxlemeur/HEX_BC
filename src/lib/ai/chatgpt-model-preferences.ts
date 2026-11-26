@@ -24,6 +24,10 @@ export type ChatGptAvailableModel = {
   defaultReasoningEffort: ChatGptReasoningEffort | null;
 };
 
+export function supportsReasoningEffort(model: ChatGptAvailableModel, effort: ChatGptReasoningEffort | null): boolean {
+  return effort === null || model.reasoningEfforts.includes(effort);
+}
+
 export function chatGptDefaultPreferences(models: readonly ChatGptAvailableModel[]): ChatGptPreferences | null {
   const model = models.find((entry) => entry.id === DEFAULT_CHATGPT_MODEL) ?? models.find((entry) => entry.id === "gpt-6.1-terra");
   if (!model) return null;

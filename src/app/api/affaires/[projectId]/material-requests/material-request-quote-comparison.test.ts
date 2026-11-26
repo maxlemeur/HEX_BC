@@ -1,8 +1,6 @@
 import { PDFDocument } from "pdf-lib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { assertLocalChatGptOverride } from "@/lib/ai/chatgpt-local-inference";
-
 import { POST } from "./[requestId]/quotes/[quoteId]/files/[fileId]/comparison/route";
 
 const ids = {
@@ -19,8 +17,8 @@ const mocks = vi.hoisted(() => ({
   quote: vi.fn(),
   file: vi.fn(),
   download: vi.fn(),
-  analysisPreferences: vi.fn(),
   keyState: vi.fn(),
+  credential: vi.fn(),
   prepare: vi.fn(),
   execute: vi.fn(),
   analyze: vi.fn(),
@@ -31,6 +29,7 @@ vi.mock("next/headers", () => ({ headers: () => new Headers({ host: "localhost:3
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
   isLocalChatGptEnabled: () => true,
   assertLocalChatGptHost: vi.fn(),
+  getLocalChatGptCredential: mocks.credential,
 }));
 vi.mock("@/lib/ai/structured-ai", () => ({
   getStructuredAiAvailability: async () => ({ available: true, message: "" }),
@@ -38,7 +37,7 @@ vi.mock("@/lib/ai/structured-ai", () => ({
 }));
 vi.mock("@/lib/ai/access/openai-api", () => ({
   openAiApiKeyAccess: () => ({
-    analysisPreferences: mocks.analysisPreferences, state: mocks.keyState, prepare: mocks.prepare, execute: mocks.execute,
+    state: mocks.keyState, prepare: mocks.prepare, execute: mocks.execute,
   }),
 }));
 vi.mock("@/lib/material-requests/server-shared", () => ({
@@ -81,6 +80,7 @@ describe("material request quote comparison route", () => {
     mocks.authorize.mockResolvedValue({
       project: { id: ids.projectId },
       context: {
+        userId: "fixture-user",
         tenantId: "fixture-tenant",
         supabase: { from: () => query, storage: { from: () => ({ download: mocks.download }) } },
       },
@@ -88,14 +88,18 @@ describe("material request quote comparison route", () => {
     mocks.request.mockResolvedValue({ id: ids.requestId });
     mocks.quote.mockResolvedValue({ id: ids.quoteId, message });
     mocks.file.mockResolvedValue({ data: file(), error: null });
-    mocks.analysisPreferences.mockResolvedValue({ billingSource: "chatgpt_plan" });
+    mocks.keyState.mockResolvedValue({ status: "empty", placeLabel: "Sur ce Mac" });
+    mocks.credential.mockResolvedValue({ ...settings.preferences, accessToken: "fixture-token", profileId: "fixture-profile" });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      models: [{ slug: "demo", display_name: "Démo", visibility: "list", supported_reasoning_levels: ["low"] }],
+    })));
   });
 
   afterEach(() => vi.unstubAllGlobals());
 
   it("requires an explicit AI source before using either provider", async () => {
     expect((await post({})).status).toBe(400);
-    expect(mocks.analysisPreferences).not.toHaveBeenCalled();
+    expect(mocks.keyState).not.toHaveBeenCalled();
   });
 
   it.each([null, "00000000-0000-4000-8000-000000000005"])(
@@ -117,7 +121,6 @@ describe("material request quote comparison route", () => {
     const billingSource = "personal_api_key";
     const connectionId = "00000000-0000-4000-8000-000000000006";
     const analysisPreferences = { billingSource, apiModel: "demo-key", apiReasoningEffort: "low" };
-    mocks.analysisPreferences.mockResolvedValue(analysisPreferences);
     mocks.keyState.mockResolvedValue({
       status: "saved", analysisPreferences,
       connection: { connectionId, offeredModels: [{ id: "demo-key", reasoningEfforts: ["low"] }] },
@@ -135,29 +138,20 @@ describe("material request quote comparison route", () => {
     expect(mocks.analyze).not.toHaveBeenCalled();
   });
 
-  it("returns a French 422 when the plan rejects the requested model", async () => {
-    const pdf = await PDFDocument.create();
-    pdf.addPage();
-    mocks.download.mockResolvedValue({ data: new Blob([Buffer.from(await pdf.save())]), error: null });
-    const fetchModels = vi.fn().mockResolvedValue(Response.json({
-      models: [{ slug: "demo", display_name: "Démo", visibility: "list" }],
-    }));
-    vi.stubGlobal("fetch", fetchModels);
-    mocks.analyze.mockImplementation((_options, _owner, override) => assertLocalChatGptOverride(
-      { userId: "fixture-user", tenantId: "fixture-tenant" },
-      { accessToken: "fixture-token", profileId: "fixture-profile" },
-      override,
-    ));
-    const preferences = { model: "unknown", reasoningEffort: null };
-
+  it.each([
+    { model: "unknown", reasoningEffort: null },
+    { model: "demo", reasoningEffort: "high" },
+  ])("validates the plan's selection (%o) before reading the quote", async (preferences) => {
     const response = await post({ ...settings, preferences });
     expect(response.status).toBe(422);
     expect((await response.json()).error).toMatchObject({
       code: "MATERIAL_REQUEST_ANALYSIS_MODEL_UNAVAILABLE",
       message: "Ce modèle ou ce niveau d’effort ChatGPT n’est pas disponible pour ce compte.",
     });
-    expect(mocks.analyze).toHaveBeenCalledWith(expect.anything(), undefined, preferences);
-    expect(fetchModels).toHaveBeenCalledOnce();
+    expect(mocks.credential).toHaveBeenCalledWith({ userId: "fixture-user", tenantId: "fixture-tenant" });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(mocks.download).not.toHaveBeenCalled();
+    expect(mocks.analyze).not.toHaveBeenCalled();
     expect(mocks.prepare).not.toHaveBeenCalled();
   });
 

@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ScanSearch } from "lucide-react";
 
 import { loadPhotoAnalysisModelOptions } from "@/app/dashboard/_actions/chatgpt";
-import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
+import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -18,7 +18,6 @@ import {
 import type { MaterialRequestPhotoAnalysisAvailability } from "@/lib/material-requests/photo-analysis";
 
 import { formatQuantity } from "./format";
-import { MaterialRequestAnalysisPreferences } from "./MaterialRequestAnalysisPreferences";
 
 const STATUS = {
   missing: { label: "Absent du devis", variant: "danger" },
@@ -190,16 +189,12 @@ export function MaterialRequestQuoteComparison({
   };
 
   if (!file || availability.status === "disabled") return null;
-  const source = settings?.billingSource === "personal_api_key"
-    ? `Clé API OpenAI · jusqu’à ${formatUsdCeiling(QUOTE_COMPARISON_API_CEILING_NANO_USD)} par pièce`
-    : "Abonnement ChatGPT";
+  const showSettings = availability.status === "available" && settings?.preferences;
   const settingsText = availability.status !== "available"
     ? availability.message
     : settingsFailed
       ? "Les réglages IA sont indisponibles. Rechargez la demande pour les relire."
-      : settings
-        ? settings.preferences ? source : "Aucun modèle d’analyse disponible dans Mon profil."
-        : "Lecture des réglages IA…";
+      : settings ? "Aucun modèle d’analyse disponible dans Mon profil." : "Lecture des réglages IA…";
 
   return (
     <div className="min-w-0 space-y-2 rounded-md border border-border bg-surface-subtle p-3">
@@ -209,9 +204,15 @@ export function MaterialRequestQuoteComparison({
           {files.map((entry) => <option key={entry.id} value={entry.id}>{entry.file_name}</option>)}
         </NativeSelect>
       ) : null}
-      {availability.status === "available" && settings?.preferences ? (
-        <MaterialRequestAnalysisPreferences id={settingsId} models={settings.models} preferences={settings.preferences}
-          disabled={busy} onChange={(preferences) => setSettings({ ...settings, preferences })} />
+      {showSettings && settings ? (
+        <AiRequestSettings id={settingsId} messageId={settingsId} defaultSource={settings.billingSource}
+          sources={{ [settings.billingSource]: { available: true, models: settings.models, message: "Abonnement ChatGPT" } }}
+          value={{ source: settings.billingSource, preferences: settings.preferences }}
+          locked={busy} onChange={(value) => {
+            if (value.preferences) setSettings({ ...settings, preferences: value.preferences });
+          }}
+          modelLabel="Modèle d’analyse" fieldsClassName="grid gap-3 sm:grid-cols-2" effortFallback="automatic"
+          keyCeiling={{ nanoUsd: QUOTE_COMPARISON_API_CEILING_NANO_USD, message: (ceiling) => `Clé API OpenAI · jusqu’à ${ceiling} par pièce` }} />
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" variant="outline" loading={busy}
@@ -222,7 +223,7 @@ export function MaterialRequestQuoteComparison({
         </Button>
         {busy ? <span role="status" className="text-xs text-muted-foreground">Lecture du document…</span> : null}
       </div>
-      <p id={settingsId} className="text-xs text-muted-foreground">{settingsText}</p>
+      {!showSettings ? <p id={settingsId} className="text-xs text-muted-foreground">{settingsText}</p> : null}
       {shown && "error" in shown ? <p role="alert" className="text-sm text-danger">{shown.error}</p> : null}
       {shown && "result" in shown ? <ComparisonResult result={shown.result} /> : null}
     </div>

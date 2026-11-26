@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, Download, ImagePlus, Maximize2, RotateCcw, RotateCw, Scissors, Sparkles, Trash2 } from "lucide-react";
 
 import { loadPhotoAnalysisModelOptions } from "@/app/dashboard/_actions/chatgpt";
+import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
 import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
 import type { ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { useToast } from "@/components/feedback/toast-provider";
@@ -39,7 +40,6 @@ import { splitSourceText } from "@/lib/material-requests/source-text";
 
 import { ConfirmButton } from "./cells";
 import { checkPhotoSelection } from "./format";
-import { MaterialRequestAnalysisPreferences } from "./MaterialRequestAnalysisPreferences";
 import { MaterialRequestPdfViewer } from "./MaterialRequestPdfViewer";
 import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
 import type { MaterialRequestEditorApi } from "./useMaterialRequestEditor";
@@ -521,15 +521,15 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
         ) : !settings ? (
           <p role="status" className="text-sm text-muted-foreground">Chargement des modèles…</p>
         ) : preferences ? (
-          <>
-            <MaterialRequestAnalysisPreferences id={hintId} models={settings.models} preferences={preferences}
-              disabled={run !== null || choosing} onChange={changePreferences} />
-            <p className="text-xs text-muted-foreground">
-              {settings.billingSource === "personal_api_key"
-                ? `Clé API OpenAI · jusqu’à ${formatUsdCeiling(MATERIAL_REQUEST_PHOTO_API_CEILING_NANO_USD * Math.max(readableCount, 1))} pour cette lecture (${formatUsdCeiling(MATERIAL_REQUEST_PHOTO_API_CEILING_NANO_USD)} par original).`
-                : "Abonnement ChatGPT"}
-            </p>
-          </>
+          <AiRequestSettings id={hintId} defaultSource={settings.billingSource}
+            sources={{ [settings.billingSource]: { available: true, models: settings.models, message: "Abonnement ChatGPT" } }}
+            value={{ source: settings.billingSource, preferences }}
+            locked={run !== null || choosing} onChange={(value) => { if (value.preferences) changePreferences(value.preferences); }}
+            modelLabel="Modèle d’analyse" fieldsClassName="grid gap-3 sm:grid-cols-2" effortFallback="automatic"
+            keyCeiling={{
+              nanoUsd: MATERIAL_REQUEST_PHOTO_API_CEILING_NANO_USD * Math.max(readableCount, 1),
+              message: (ceiling) => `Clé API OpenAI · jusqu’à ${ceiling} pour cette lecture (${formatUsdCeiling(MATERIAL_REQUEST_PHOTO_API_CEILING_NANO_USD)} par original).`,
+            }} />
         ) : (
           <p role="status" className="text-sm text-muted-foreground">Aucun modèle disponible pour cette source.</p>
         )

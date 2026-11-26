@@ -575,9 +575,6 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
   return {
     state: (owner: AiAccessOwner) => guarded(() => state(owner)),
 
-    analysisPreferences: (owner: AiAccessOwner) => guarded(async () =>
-      readAnalysisPreferences(await readAiAccessFile(deps.directory(), owner))),
-
     saveAnalysisPreferences: (owner: AiAccessOwner, preferences: AiAnalysisPreferences, connectionId: string | null) => guarded(async () => {
       const directory = deps.directory();
       await withAiAccessLock(directory, owner, async () => {
