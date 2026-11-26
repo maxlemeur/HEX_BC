@@ -50,8 +50,9 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   expect(before.data).toEqual([]);
   await expect(screen.getByText("4 pièces en attente de lancement", { exact: true }).first()).toBeVisible();
   const waitingScreenshot = await app.screenshot("intake-awaiting-launch");
+  await expect(screen.getByRole("combobox", "Source de l’IA", { exact: true }).first()).toHaveValue("");
   await screen.getByRole("button", "Lancer l’analyse", { exact: true }).first().click();
-  await expect(screen.getByText(/Votre compte ChatGPT n’est pas connecté ou disponible/)).toBeVisible();
+  await expect(screen.getByText("Analyse du dossier lancée.", { exact: true })).toBeVisible();
   await expect.poll(async () => {
     const found = await documents();
     return found.length === fixtures.length && found.every((doc) => !["awaiting_launch", "queued", "processing"].includes(doc.classification_status));

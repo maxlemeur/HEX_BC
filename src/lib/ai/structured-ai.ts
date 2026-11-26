@@ -73,7 +73,7 @@ export async function callStructuredAi<T>(
   options: StructuredCallOptions<T>,
   workflowOwner?: ChatGptOwner | null,
   override?: ChatGptPreferences,
-): Promise<StructuredCallResult<T> & { provider: "chatgpt" }> {
+): Promise<StructuredCallResult<T> & { provider: "chatgpt"; reasoningEffort?: ChatGptPreferences["reasoningEffort"] }> {
   if (isLocalChatGptEnabled()) {
     if (workflowOwner === null)
       throw new StructuredAiError(

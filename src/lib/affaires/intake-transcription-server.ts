@@ -3,6 +3,11 @@ import { IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/i
 import "server-only";
 
 import { after } from "next/server";
+import { IntakeAiBudgetStopped, IntakeAiLedgerError, type IntakeAiRunner } from "@/lib/affaires/intake-ai-server";
+import type { IntakePersonalAiReceipt } from "@/lib/affaires/intake-ai-settings";
+import { isApiKeyError } from "@/lib/ai/access/api-key-errors";
+import { AffaireIntakeLeaseUnavailableError } from "@/lib/workflows/affaire-intake-lifecycle";
+import { createHash } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
 
@@ -108,7 +113,7 @@ export function scannedPdfPages(read: { pageCount: number | null; pages: Pick<Pd
 
 function failureCode(error: unknown) {
   if (error instanceof LocalChatGptOverrideUnavailableError) return "MODEL_UNAVAILABLE";
-  if (error instanceof StructuredAiError) return error.code;
+  if (error instanceof StructuredAiError || isApiKeyError(error)) return error.code;
   if (error instanceof SyntaxError || error instanceof z.ZodError) return "INVALID_ANSWER";
   return "PROVIDER_ERROR";
 }
@@ -124,6 +129,7 @@ type ServiceClient = ReturnType<typeof createServiceRoleClient>;
 export async function transcribeIntakeDocument(input: {
   supabase: ServiceClient;
   owner: ChatGptOwner;
+  ai?: IntakeAiRunner;
   document: { id: string; tenantId: string; fileName: string };
   mimeType: string;
   bytes: ArrayBuffer;
@@ -131,7 +137,7 @@ export async function transcribeIntakeDocument(input: {
   renewLease: () => Promise<void>;
 }) {
   const table = () => input.supabase.from("affaire_intake_document_transcriptions");
-  const { data: existing, error: existingError } = await table().select("source_sha256,status,error_code")
+  const { data: existing, error: existingError } = await table().select("source_sha256,status,error_code,pages")
     .eq("document_id", input.document.id).eq("tenant_id", input.document.tenantId).maybeSingle();
   if (existingError) throw existingError;
   // A reading of the same content is kept, unless a failure stopped it (quota, access): that one is read again.
@@ -150,7 +156,7 @@ export async function transcribeIntakeDocument(input: {
   const read: { page: number; text: string }[] = [];
   let errorCode: string | null = plan.pagesUninspected ? "PDF_INSPECTION_INCOMPLETE" : null;
   let override: Awaited<ReturnType<typeof assertLocalChatGptOverride>> | null = null;
-  try {
+  if (!input.ai) try {
     const credential = await getLocalChatGptCredential(input.owner);
     // The plan's calls require a model chosen in the profile, even when this reading names its own.
     if (!credential?.model) throw new StructuredAiError("AI_NOT_CONFIGURED", "Connectez votre forfait ChatGPT et choisissez un modèle.");
@@ -160,7 +166,9 @@ export async function transcribeIntakeDocument(input: {
     if (input.owner.connection && error instanceof LocalChatGptConnectionWithdrawnError) throw error;
     errorCode = error instanceof LocalChatGptOverrideUnavailableError || error instanceof StructuredAiError ? failureCode(error) : "AI_AUTH_REQUIRED";
   }
-  for (const page of override ? plan.pages : []) {
+  let receipt: IntakePersonalAiReceipt | undefined;
+  let budgetStop: IntakeAiBudgetStopped | undefined;
+  for (const page of override || input.ai ? plan.pages : []) {
     await input.renewLease();
     const file = await page.file();
     // A page too heavy to send is left unread; the next ones are still read.
@@ -169,16 +177,26 @@ export async function transcribeIntakeDocument(input: {
       continue;
     }
     try {
-      const answer = await callLocalChatGptStructured(input.owner, {
+      const options = {
         beforeSend: input.renewLease,
         prompt: buildIntakeTranscriptionPrompt({ fileName: input.document.fileName, page: page.page, pageCount: plan.pageCount }),
         schema: intakeTranscriptionAnswerSchema, files: [file], timeoutMs: INTAKE_TRANSCRIPTION_PAGE_TIMEOUT_MS,
         context: { promptVersion: INTAKE_TRANSCRIPTION_PROMPT_VERSION },
-      }, undefined, override!);
+      };
+      const answer = input.ai ? await input.ai.run("transcription", options)
+        : await callLocalChatGptStructured(input.owner, options, undefined, override!);
+      receipt = "receipt" in answer ? answer.receipt as IntakePersonalAiReceipt
+        : { source: "chatgpt_plan", model: answer.model, reasoningEffort: answer.reasoningEffort };
       read.push({ page: page.page, text: answer.data.texte.trim() });
     } catch (error) {
       // The next pages would meet the same refusal (quota, access, model): the reading stops here.
-      if (error instanceof IntakePayerAccessLost || (input.owner.connection && error instanceof LocalChatGptConnectionWithdrawnError)) throw error;
+      if (error instanceof IntakePayerAccessLost || error instanceof AffaireIntakeLeaseUnavailableError || error instanceof IntakeAiLedgerError ||
+          ((input.ai || input.owner.connection) && error instanceof LocalChatGptConnectionWithdrawnError)) throw error;
+      if (error instanceof IntakeAiBudgetStopped) {
+        budgetStop = error;
+        errorCode = "AI_KEY_CEILING";
+        break;
+      }
       errorCode = failureCode(error);
       console.error("Affaire intake transcription failed", { documentId: input.document.id, page: page.page, error_code: errorCode });
       break;
@@ -186,13 +204,20 @@ export async function transcribeIntakeDocument(input: {
   }
 
   await input.renewLease();
+  // A later or resumed attempt may have less budget than an earlier reading.
+  // Keep the more complete result for the same bytes and its original receipt.
+  if (budgetStop && existing?.source_sha256 === input.sourceSha256 &&
+      Array.isArray(existing.pages) && existing.pages.length > read.length) throw budgetStop;
   const outcome = summarizeIntakeTranscription({ pagesNeeded: plan.pagesNeeded, pagesSkipped: plan.pagesSkipped, read, errorCode });
   const { error } = await table().upsert({
     tenant_id: input.document.tenantId, document_id: input.document.id, source_sha256: input.sourceSha256, ...outcome,
-    model: INTAKE_TRANSCRIPTION_MODEL, reasoning_effort: INTAKE_TRANSCRIPTION_REASONING_EFFORT,
+    model: receipt?.model ?? null,
+    reasoning_effort: receipt?.reasoningEffort ?? null,
+    ai_source: receipt?.source ?? null,
     prompt_version: INTAKE_TRANSCRIPTION_PROMPT_VERSION,
   }, { onConflict: "document_id" });
   if (error) throw error;
+  if (budgetStop) throw budgetStop;
   return { transcribed: true as const, status: outcome.status };
 }
 
@@ -240,8 +265,10 @@ export async function scheduleIntakeTranscriptionAfterRetry(input: {
   /** The member's own client (their rights read the stored reading) and identity (their plan reads the piece). */
   projectId: string;
   context: { supabase: ServiceClient; userId: string; tenantId: string };
-  document: { id: string; fileName: string }; mimeType: string; bytes: ArrayBuffer; sourceSha256: string;
+  document: { id: string; fileName: string }; mimeType: string; readBytes: () => Promise<ArrayBuffer>; sourceSha256: string;
   reservation: { updatedAt: string; finalIssues: string[] };
+  readAi?: () => Promise<IntakeAiRunner>;
+  defer?: (effect: () => Promise<void>) => void;
 }) {
   const { context, document } = input;
   const owner = { userId: context.userId, tenantId: context.tenantId };
@@ -272,7 +299,7 @@ export async function scheduleIntakeTranscriptionAfterRetry(input: {
       return false;
     }
     const reading = token;
-    after(async () => {
+    (input.defer ?? after)(async () => {
       const supabase = createServiceRoleClient();
       const stillActive = async () => {
         if (!retryReadings.isCurrent(document.id, reading)) throw new Error("A newer retry supersedes this reading.");
@@ -286,10 +313,19 @@ export async function scheduleIntakeTranscriptionAfterRetry(input: {
       };
       try {
         await stillActive();
-        await transcribeIntakeDocument({ supabase, owner, mimeType: input.mimeType, bytes: input.bytes, sourceSha256: input.sourceSha256,
+        const ai = await input.readAi?.();
+        const bytes = await input.readBytes();
+        if (createHash("sha256").update(Buffer.from(bytes)).digest("hex") !== input.sourceSha256) {
+          throw new Error("La source de la pièce a changé depuis son classement.");
+        }
+        await transcribeIntakeDocument({ supabase, owner, ai, mimeType: input.mimeType, bytes, sourceSha256: input.sourceSha256,
           renewLease: stillActive, document: { id: document.id, tenantId: owner.tenantId, fileName: document.fileName } });
-      } catch {
-        console.error("Affaire intake transcription after a retry could not be recorded", { documentId: document.id });
+      } catch (error) {
+        if (error instanceof IntakeAiBudgetStopped) {
+          input.reservation.finalIssues = [error.message, ...input.reservation.finalIssues].slice(0, 10);
+        } else {
+          console.error("Affaire intake transcription after a retry could not be recorded", { documentId: document.id });
+        }
       } finally {
         retryReadings.release(document.id, reading);
         await release(supabase);

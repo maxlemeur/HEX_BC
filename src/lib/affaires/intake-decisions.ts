@@ -1,3 +1,4 @@
+import type { IntakeAiReceipt } from "@/lib/affaires/intake-ai-settings";
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
 import "server-only";
 
@@ -72,6 +73,7 @@ type CategoryProposalInput = {
 async function requestCategory(input: CategoryProposalInput): Promise<{
   result: AffaireIntakeClassificationResult;
   source: "ai" | "heuristic";
+  receipt?: IntakeAiReceipt;
 }> {
   if (getOpenAiDecisionsCapability().status !== "available")
     return { result: input.extracted, source: "heuristic" };
@@ -131,6 +133,7 @@ async function requestCategory(input: CategoryProposalInput): Promise<{
     answer?.status === "answered" && kind.success ? kind.data : null;
   return {
     source: "ai",
+    receipt: { source: "decisions", model: decision.provenance.model, reasoningEffort: null },
     result: {
       ...input.extracted,
       // Keep confidence below the existing auto-classification threshold until human review.
@@ -193,6 +196,7 @@ export async function classifyAutonomousAffaireDocument(input: {
   result: AffaireIntakeClassificationResult;
   source: "ai" | "heuristic";
   analysisFailure?: IntakeAnalysisFailure;
+  receipt?: IntakeAiReceipt;
 }> {
   const capability = getIntakeDecisionsCapability();
   const context = input.decisionsContext;

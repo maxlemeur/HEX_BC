@@ -1,3 +1,7 @@
+import { IntakeAiBudgetStopped, IntakeAiLedgerError, type IntakeAiRunner } from "@/lib/affaires/intake-ai-server";
+import type { IntakeAiReceipt } from "@/lib/affaires/intake-ai-settings";
+import { isApiKeyError } from "@/lib/ai/access/api-key-errors";
+import { AffaireIntakeLeaseUnavailableError } from "@/lib/workflows/affaire-intake-lifecycle";
 import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 import { IntakePayerAccessLost } from "@/lib/affaires/intake-payer-server";
 import { buildClassificationFilePayload } from "@/lib/affaires/intake-file-payload";
@@ -25,7 +29,7 @@ import { addIssue } from "@/lib/affaires/intake-rows";
 const AFFAIRE_INTAKE_CLASSIFICATION_MODEL = "gemini-3-flash-preview";
 
 export function getSafeProviderErrorCode(error: unknown) {
-  if (error instanceof StructuredAiError) return error.code;
+  if (error instanceof StructuredAiError || isApiKeyError(error)) return error.code;
   return error instanceof TakeoffError && Object.values(TakeoffErrorCode).some((code) => code === error.code)
     ? error.code
     : "PROVIDER_ERROR";
@@ -38,12 +42,14 @@ export async function classifyAffaireIntakeDocument(input: {
   readScans?: boolean;
   beforeProviderCall?: () => Promise<void>;
   aiOwner?: ChatGptOwner | null;
+  ai?: IntakeAiRunner;
   decisionsContext?: { owner: ChatGptOwner; projectId: string; documentId: string; sourceVersion: string };
   existingMetadata?: AffaireIntakeExtractedMetadata;
 }): Promise<{
   result: AffaireIntakeClassificationResult;
   source: AffaireIntakeClassificationSource;
   analysisSucceeded?: boolean;
+  receipt?: IntakeAiReceipt;
   analysisFailure?: IntakeAnalysisFailure;
 }> {
   const heuristicResult = getHeuristicAffaireDocumentClassification({
@@ -80,6 +86,8 @@ export async function classifyAffaireIntakeDocument(input: {
       : { ...classified, analysisFailure: classified.analysisFailure ?? { code: "AI_UNAVAILABLE", message: classified.result.issues.find(issue => issue.startsWith("Analyse IA :")) ?? "Le fournisseur IA n’a pas pu analyser cette pièce.", scope: "provider" } };
   }
 
+  if (input.ai?.source === "rules_only") return { result: heuristicResult, source: "heuristic" };
+
   if (!filePayload) {
     return {
       result: {
@@ -97,7 +105,7 @@ export async function classifyAffaireIntakeDocument(input: {
   await input.beforeProviderCall?.();
 
   try {
-    const geminiResult = await callStructuredAi({
+    const options = {
       prompt: buildClassificationPrompt({
         fileName: input.fileName,
         mimeType: input.mimeType,
@@ -109,36 +117,41 @@ export async function classifyAffaireIntakeDocument(input: {
         model: AFFAIRE_INTAKE_CLASSIFICATION_MODEL,
         promptVersion: AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION,
       },
-    }, input.aiOwner);
+    };
+    const answer = input.ai ? await input.ai.run("classification", options) : await callStructuredAi(options, input.aiOwner);
 
     const mergedResult = mergeAffaireDocumentClassificationWithHeuristic({
-      aiResult: geminiResult.data,
+      aiResult: answer.data,
       heuristicResult,
     });
     const source =
-      mergedResult.documentKind === geminiResult.data.documentKind ? "ai" : "heuristic";
+      mergedResult.documentKind === answer.data.documentKind ? "ai" : "heuristic";
 
     return {
       result: withAffaireAiCategoryProposal({ ...mergedResult, issues: [...(filePayload.issues ?? []), ...mergedResult.issues].slice(0, 10) }, new Date().toISOString()),
       source,
       analysisSucceeded: true,
+      ...("receipt" in answer ? { receipt: answer.receipt } : answer.model
+        ? { receipt: { source: "chatgpt_plan", model: answer.model, reasoningEffort: answer.reasoningEffort ?? null } } : {}),
     };
   } catch (error) {
-    if (error instanceof IntakePayerAccessLost || (input.aiOwner?.connection && error instanceof LocalChatGptConnectionWithdrawnError)) throw error;
+    if (error instanceof IntakePayerAccessLost || error instanceof AffaireIntakeLeaseUnavailableError || error instanceof IntakeAiBudgetStopped ||
+        error instanceof IntakeAiLedgerError || ((input.ai || input.aiOwner?.connection) && error instanceof LocalChatGptConnectionWithdrawnError)) throw error;
     console.error("Affaire intake AI classification failed", {
       error_code: getSafeProviderErrorCode(error),
       ...(error instanceof StructuredAiError && error.providerStatus ? { provider_status: error.providerStatus } : {}),
     });
 
+    const message = isApiKeyError(error) ? error.message : structuredAiFailureMessage(error);
     return {
       result: {
         ...heuristicResult,
         issues: addIssue(addIssue(heuristicResult.issues,
           "Classification heuristique retenue car l'analyse IA a echoue."),
-          `Analyse IA : ${structuredAiFailureMessage(error)}`),
+          `Analyse IA : ${message}`),
       },
       source: "heuristic",
-      analysisFailure: { code: getSafeProviderErrorCode(error), message: structuredAiFailureMessage(error), scope: "provider" },
+      analysisFailure: { code: getSafeProviderErrorCode(error), message, scope: "provider" },
     };
   }
 }

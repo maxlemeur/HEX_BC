@@ -698,6 +698,31 @@ describe("a structured call for the lab", () => {
     expect(await service.state(OWNER)).toMatchObject({ connection: { lastUsedAt: NOW.toISOString() } });
   });
 
+  it("keeps the recorded connection across the budget gate and sends nothing after replacement", async () => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const { service } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const state = await service.state(OWNER);
+    if (state.status !== "saved") throw new Error("Fictional key was not saved.");
+    const connection = { id: state.connection.connectionId, version: state.connection.version };
+    expect(await service.hasConnection(OWNER, connection)).toBe(true);
+    await expect(prepareCall(service, { expectedConnectionId: "unrelated-grant" })).rejects.toMatchObject({ code: "AI_KEY_CHANGED" });
+    expect(openai.sent.filter(({ url }) => url.endsWith("/input_tokens"))).toHaveLength(0);
+
+    const beforeCount = vi.fn(async () => {
+      expect(openai.sent.filter(({ url }) => url.endsWith("/input_tokens"))).toHaveLength(0);
+    });
+    const prepared = await prepareCall(service, { expectedConnectionId: connection.id, beforeSend: beforeCount });
+    expect(beforeCount).toHaveBeenCalledOnce();
+    const beforeSend = vi.fn(async () => {
+      await service.save(OWNER, { key: fictionalKey() });
+    });
+    await expect(service.execute(OWNER, prepared, { timeoutMs: 60_000, beforeSend })).rejects.toMatchObject({ code: "AI_KEY_CHANGED" });
+    expect(beforeSend).toHaveBeenCalledOnce();
+    expect(await service.hasConnection(OWNER, connection)).toBe(false);
+    expect(openai.sent.filter(({ url }) => url.endsWith("/v1/responses"))).toHaveLength(0);
+  });
+
   // Review round 2, item C: what was counted is what is sent, once.
   it("sends what was counted even if the caller changes its files afterwards, and only once", async () => {
     const openai = fakeOpenAi(usual(JSON.stringify(items)));
