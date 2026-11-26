@@ -21,14 +21,31 @@ Le code utilise Next.js App Router, React, TypeScript, Supabase et Tailwind ;
 Pour une pile jetable et des comptes de recette, suivre [le guide TesterArmy](docs/testing/tester-army-local-development.md).
 `GET /api/health` renvoie `200` et `db: "up"` si la base répond.
 
-Pour consulter la production depuis le poste, configurer son URL HTTPS et sa
-clé publique dans `.env.local`, puis lancer explicitement
-`npm run dev -- --supabase=production --port 3001`. Le serveur accepte
-uniquement une adresse d’écoute de boucle locale dans ce mode. L’application
-utilise les droits du compte connecté, sans clé de service Supabase ni
-intégration ChatGPT locale. Pour changer de cible, arrêter le serveur et
-relancer la commande correspondante. Le lanceur distingue les cibles dans le
-cache Turbopack et arrête le serveur s’il détecte une boucle de rendu.
+Pour travailler sur la production depuis le poste, utiliser l’une de ces
+commandes explicites.
+
+- `npm run dev:prod -- --port 3001` utilise les droits du compte connecté.
+  Renseigner l’URL HTTPS et la clé publique ensemble dans `.env.local` ou, à
+  défaut, dans `.env`.
+  Le forfait ChatGPT local et les opérations qui exigent la clé de service
+  Supabase, dont le lancement et la lecture d’un métré, sont indisponibles.
+- `npm run dev:prod:full` exige les trois valeurs de production dans le fichier
+  ignoré `.env.supabase.production.local` au côté de `.env.supabase.local`.
+  Y renseigner `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` et
+  `SUPABASE_SERVICE_ROLE_KEY`. Les opérations serveur qui utilisent ce rôle
+  peuvent écrire sur la production. Le métré et la lecture des plans avec le
+  forfait ChatGPT local sont disponibles. L’envoi d’e-mails suit
+  `EMAIL_DELIVERY_MODE` comme dans les autres modes.
+
+Dans `.env.local` et `.env`, garder seulement l’URL et la clé publique pour
+Supabase en production. Next charge ces fichiers lors d’un lancement direct.
+Déplacer toute clé de service de production déjà présente dans le fichier
+dédié au mode complet, que seul le lanceur lit.
+
+Les deux commandes de production écoutent uniquement sur une adresse de boucle
+locale. Pour changer de cible, arrêter le serveur et relancer la commande
+correspondante. Le lanceur distingue les cibles dans le cache Turbopack et
+arrête le serveur s’il détecte une boucle de rendu.
 
 Les secrets restent dans le coffre d’équipe ou dans les fichiers locaux
 ignorés. Pour les autres variables, voir [`.env.example`](.env.example).

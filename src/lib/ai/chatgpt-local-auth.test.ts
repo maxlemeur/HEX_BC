@@ -54,6 +54,14 @@ describe("local ChatGPT authorization", () => {
     vi.stubEnv("MERGEONE_DEV_SUPABASE_TARGET", "local");
     expect(isLocalChatGptEnabled()).toBe(true);
   });
+  it("allows the full hosted dev target and keeps local ChatGPT disabled in a production build", () => {
+    vi.stubEnv("MERGEONE_DEV_SUPABASE_TARGET", "production-full");
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isLocalChatGptEnabled()).toBe(true);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    expect(isLocalChatGptEnabled()).toBe(false);
+  });
   it("accepts an opaque issued client ID when the signed token audience matches", async () => {
     const { start, callback } = await authorize(owner, undefined, {}, "agent_fixture_opaque");
     await finishLocalChatGptSignIn(owner, callback, start.state);

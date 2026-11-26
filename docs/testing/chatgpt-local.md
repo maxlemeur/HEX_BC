@@ -40,8 +40,9 @@ reprise Gemini ; ne l’appliquer à une base partagée qu’après autorisation
 1. Utiliser le Node de `.nvmrc`, préparer la [configuration Supabase locale](../../README.md#démarrer)
    et lancer `npm run dev:chatgpt`. Le serveur écoute sur `127.0.0.1` par défaut.
    Pour écouter sur une autre adresse de développement, préciser `--hostname`
-   (ou `-H`). Le mode Supabase de production est réservé à la consultation et
-   désactive l’intégration ChatGPT locale.
+   (ou `-H`). `npm run dev:prod` désactive l’intégration ChatGPT locale.
+   `npm run dev:prod:full` l’active sur la boucle locale avec les droits de
+   service de la production selon [la configuration du lanceur](../../README.md#démarrer).
 2. Ouvrir `http://127.0.0.1:3000/dashboard/profile` (ou `localhost` sur le même port)
    et se connecter à MergeOne. Si le port 3000 est occupé, utiliser
    `npm run dev:chatgpt -- --port 3015` et ouvrir cette même adresse avec le port 3015.
