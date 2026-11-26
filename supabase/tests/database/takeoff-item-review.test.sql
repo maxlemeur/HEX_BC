@@ -981,12 +981,25 @@ select is(pg_temp.review(pg_temp.cmd('enter_quantity',684,array[302],array[302],
     jsonb_build_object('values',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(302),'quantity',5,'unit','u')),
       'entry',jsonb_build_object('category','documented_calculation'))))->>'outcome','applied','a documented total after withdrawal');
 select is(pg_temp.scope_change(685,'attach',100,5,0)->>'outcome','stale','an unseen destination entry is preserved');
-select is(pg_temp.scope_change(685,'attach',100,5,1)->>'outcome','applied','replace the plan value at its confirmed revision');
+-- Knowing the destination revision does not confirm a replacement.
+select pg_temp.sign_in(4);
+select entered_at as previous_instant from public.takeoff_item_entries
+  where item_id=pg_temp.f(302) and plan_logical_id=pg_temp.f(100) \gset
+select is((select jsonb_build_array(r->>'outcome',r#>'{entry,quantity}',r#>'{entry,unit}',r#>'{entry,category}',
+    r#>'{entry,actor_id}',r#>'{entry,entered_at}',r#>'{entry,revision}') from pg_temp.scope_change(686,'attach',100,5,1) r),
+  jsonb_build_array('collision',2,'u','hypothesis',pg_temp.f(1),:'previous_instant'::timestamptz,1),
+  'attach reports the existing plan value and its provenance without changing either entry');
+select results_eq($$select quantity from public.takeoff_item_entries where item_id=pg_temp.f(302)
+  order by plan_logical_id nulls first$$,$$values (5::numeric),(2::numeric)$$,'both values survive collision');
+select throws_ok($$select pg_temp.scope_change(683,'withdraw',null,4,0)$$,'23505','TAKEOFF_ITEM_REVIEW_INTENT_CONFLICT',
+  'another authorised reviewer cannot replay the original member receipt');
+select pg_temp.sign_in(1);
+select is(pg_temp.scope_change(685,'replace',100,5,1)->>'outcome','applied','replace the plan value at its confirmed revision');
 select results_eq($$select plan_logical_id,revision,quantity,previous_quantity,included from public.takeoff_item_entries
   where item_id=pg_temp.f(302)$$,$$values (pg_temp.f(100),2,5::numeric,2::numeric,true)$$,
   'the plan revision advances and keeps the previous quantity');
 select results_eq($$select before#>>'{destination,category}',after->>'category' from public.takeoff_item_review_events
-  where item_id=pg_temp.f(302) and after->>'scope_action'='attach' and before->>'revision'='5'$$,
+  where item_id=pg_temp.f(302) and after->>'scope_action'='replace' and before->>'revision'='5'$$,
   $$values ('hypothesis'::text,'documented_calculation'::text)$$,'journal preserves the replaced plan entry');
 select pg_temp.sign_in(5);
 select throws_ok($$select pg_temp.scope_change(683,'withdraw',null,4,0)$$,'42501','TAKEOFF_ITEM_REVIEW_FORBIDDEN',

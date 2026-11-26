@@ -69,6 +69,9 @@ begin
           and version_id=m.draft and answer_id=answer_.id and state='live';
         result_ := result_ || jsonb_build_object(step,jsonb_build_array(part_.kind,part_.quantity,part_.marks_revision));
       end if;
+      if source_='verified_count' then
+        result_ := result_ || jsonb_build_object('scope_'||step,pg_temp.scope_after_send());
+      end if;
       work := work+1;
     end loop;
     raise exception using errcode='P4444';
@@ -86,3 +89,8 @@ create temp table revision_lifecycles as
 select is(actual->step,case when step='withdraw' then '0'::jsonb else expected_part end,
   format('%s a %s contribution and read its live journal part and count proof',step,source))
 from revision_lifecycles cross join (values ('replace'),('withdraw'),('add')) as steps(step);
+
+select is(actual->'scope_replace','["stale","sent","sent"]'::jsonb,'a replacement live part keeps the item locked')
+  from revision_lifecycles where source='verified_count';
+select is(actual->'scope_withdraw','["stale","ineligible","applied"]'::jsonb,'a confirmed last withdrawal releases the item')
+  from revision_lifecycles where source='verified_count';
