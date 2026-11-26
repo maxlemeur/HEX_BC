@@ -66,6 +66,63 @@ async function supplyTypes(browser: Browser) {
 }
 
 armyTest(
+  "CAT02 applies the workbook column selection to the preview and the imported draft",
+  { session: "army", tags: ["critical", "catalogue"] },
+  async ({ app, screen, browser, army }) => {
+    const reference = `${army.runPrefix}-CHOIX-COLONNES`;
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      HEADERS,
+      row({
+        ID: reference, Caractéristique: "Tube", Matériau: "Inox", Type_ligne: "Art",
+        Dimension: "DN20", Unité: "ml", "PR. FO": 12.5, "Fiabilité (/10)": 8,
+      }),
+    ]), COSTING_WORKBOOK_SHEET);
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
+    await mkdir(directory, { recursive: true });
+    const workbookPath = path.join(directory, "choix-colonnes.xlsx");
+    await writeFile(workbookPath, XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }) as Buffer);
+
+    await app.open("/dashboard/products/import-workbook");
+    await screen.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(workbookPath);
+    const importButton = screen.getByRole("button", "Importer 1 brouillon", { exact: true });
+    await expect(importButton).toBeEnabled({ timeout: 30_000 });
+
+    const table = screen.getByRole("table", "Articles proposés en brouillon", { exact: true });
+    const columns = screen.getByRole("button", /^Colonnes à importer/);
+    const dialog = screen.getByRole("dialog", "Colonnes à importer", { exact: true });
+    const price = dialog.getByRole("checkbox", "Prix de fourniture", { exact: true });
+    const dimension = dialog.getByRole("checkbox", "Dimension", { exact: true });
+    await columns.tap();
+    await price.tap();
+    await dialog.getByRole("button", "Annuler", { exact: true }).tap();
+    await columns.tap();
+    await expect(price).toBeChecked();
+    await price.tap();
+    await dimension.tap();
+    await dialog.getByRole("button", "Appliquer à l’aperçu", { exact: true }).tap();
+    await expect(importButton).toBeEnabled();
+    await expect(screen.getByRole("button", "Sans prix (0 €) · 1", { exact: true })).toBeVisible();
+    await expect(table.getByText(/12,50\s*€/)).toBeHidden();
+    await expect(table.getByText(/DN20/)).toBeHidden();
+    expect(await cataloguePage(browser, reference, "draft")).toEqual([]);
+
+    await columns.tap();
+    await expect(price).not.toBeChecked();
+    await dimension.tap();
+    await dialog.getByRole("button", "Appliquer à l’aperçu", { exact: true }).tap();
+    await expect(table.getByText(/DN20/).first()).toBeVisible();
+    await importButton.tap();
+    await expect(screen.getByText("Import terminé : 1 brouillon créé.", { exact: true })).toBeVisible();
+    const drafts = await cataloguePage(browser, reference, "draft");
+    expect(drafts).toMatchObject([{
+      reference, catalogue_status: "draft", unit_price_cents: 0, dimensions: "DN20", unit: "ml", reliability_score: 8,
+    }]);
+    await recordEvidence(army, "catalogue-workbook-column-selection", { reference, draft: drafts[0] });
+  },
+);
+
+armyTest(
   "CAT02 the costing workbook becomes catalogue drafts after a preview, and a second import creates nothing",
   { session: "army", tags: ["critical", "catalogue"], timeout: 240_000 },
   async ({ app, screen, browser, army }) => {
