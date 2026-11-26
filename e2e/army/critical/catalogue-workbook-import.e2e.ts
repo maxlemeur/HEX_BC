@@ -67,7 +67,7 @@ async function supplyTypes(browser: Browser) {
 }
 
 armyTest(
-  "CAT06 the costing workbook previews AI row exclusions and imports only the rows the user keeps",
+  "CAT06 the costing workbook previews row exclusions with the personal API key and imports only the rows the user keeps",
   { session: "army", tags: ["critical", "catalogue"], timeout: 180_000 },
   async ({ app, screen, browser, army }) => {
     const refs = ["GALVA-A", "GALVA-B", "INOX"].map((suffix) => `${army.runPrefix}-${suffix}`);
@@ -90,6 +90,7 @@ armyTest(
 
     const criterion = "Supprime les articles en acier galvanisé.";
     const requests: CostingWorkbookSuggestionsRequest[] = [];
+    let keyRegistered = false;
     await browser.route("**/api/catalogue/workbook-import/suggestions", async (route) => {
       if (route.request.method === "GET") {
         await route.fulfill({ json: { ok: true, data: {
@@ -99,7 +100,12 @@ armyTest(
               { id: "plan-a", name: "Forfait A", reasoningEfforts: ["low"], defaultReasoningEffort: "low" },
               { id: "plan-b", name: "Forfait B", reasoningEfforts: ["medium"], defaultReasoningEffort: "medium" },
             ], preferences: { model: "plan-a", reasoningEffort: "low" } },
-            personal_api_key: { available: false, message: "", models: [], preferences: null },
+            personal_api_key: keyRegistered ? {
+              available: true, message: "Clé API OpenAI enregistrée.", models: [
+                { id: "key-a", name: "API A", reasoningEfforts: ["low"], defaultReasoningEffort: "low" },
+                { id: "key-b", name: "API B", reasoningEfforts: ["medium"], defaultReasoningEffort: "medium" },
+              ], preferences: { model: "key-a", reasoningEffort: "low" },
+            } : { available: false, message: "Configurez votre clé API OpenAI dans Mon profil.", models: [], preferences: null },
             decisions: { available: false, message: "" },
           },
         } } });
@@ -108,7 +114,7 @@ armyTest(
       const request = JSON.parse(route.request.postData ?? "{}") as CostingWorkbookSuggestionsRequest;
       requests.push(request);
       await route.fulfill({ json: { ok: true, data: {
-        task: "row_exclusions", provider: "chatgpt_plan", model: "plan-b", analysed: 3, status: "available", message: "",
+        task: "row_exclusions", provider: "personal_api_key", model: "key-b", analysed: 3, status: "available", message: "",
         items: [{ row: 3 }, { row: 5 }],
       } } });
     });
@@ -119,17 +125,26 @@ armyTest(
     await expect(importThree).toBeEnabled({ timeout: 30_000 });
     const trigger = screen.getByRole("button", "Supprimer des lignes avec l’IA", { exact: true });
     const dialog = screen.getByRole("dialog", "Supprimer des lignes avec l’IA", { exact: true });
-    async function suggest() {
-      await trigger.tap();
-      await dialog.getByRole("textbox", "Quelles lignes souhaitez-vous supprimer ?", { exact: true }).fill(criterion);
-      await dialog.getByRole("combobox", "Modèle", { exact: true }).selectOption({ value: "plan-b" });
+    const instruction = dialog.getByRole("textbox", "Quelles lignes souhaitez-vous supprimer ?", { exact: true });
+    async function analyse() {
       await dialog.getByRole("button", "Analyser 3 lignes", { exact: true }).tap();
       await expect(dialog.getByText("2 lignes proposées sur 3 lignes analysées", { exact: true })).toBeVisible();
       await expect(dialog.getByRole("button", "Écarter les lignes sélectionnées", { exact: true })).toBeDisabled();
     }
-    await suggest();
+    await trigger.tap();
+    await instruction.fill(criterion);
+    const apiKeySetup = dialog.getByRole("link", /^Configurer la clé API/);
+    await expect(apiKeySetup).toHaveAttribute("href", "/dashboard/profile#section-cle-api");
+    await expect(apiKeySetup).toHaveAttribute("target", "_blank");
+    keyRegistered = true;
+    await dialog.getByRole("button", "Actualiser les sources d’IA", { exact: true }).tap();
+    await expect(dialog.getByRole("link", /^Gérer la clé API/)).toBeVisible();
+    await expect(instruction).toHaveValue(criterion);
+    await dialog.getByRole("combobox", "Source d’IA", { exact: true }).selectOption({ value: "personal_api_key" });
+    await dialog.getByRole("combobox", "Modèle", { exact: true }).selectOption({ value: "key-b" });
+    await analyse();
     expect(requests[0]).toMatchObject({
-      task: "row_exclusions", criterion, provider: "chatgpt_plan", model: "plan-b", reasoning_effort: "medium",
+      task: "row_exclusions", criterion, provider: "personal_api_key", model: "key-b", reasoning_effort: "medium",
       lines: refs.map((ref, index) => ({ row: [3, 5, 6][index], description: expect.stringContaining(ref) })),
     });
     await dialog.getByRole("button", "Annuler", { exact: true }).tap();
@@ -137,7 +152,10 @@ armyTest(
     expect(await cataloguePage(browser, army.runPrefix, "draft")).toEqual([]);
 
     async function excludeOne() {
-      await suggest();
+      await trigger.tap();
+      await instruction.fill(criterion);
+      await expect(dialog.getByRole("combobox", "Modèle", { exact: true })).toHaveValue("key-b");
+      await analyse();
       await dialog.getByRole("checkbox", /^Ligne Excel 3\b/).check();
       await dialog.getByRole("button", "Écarter 1 ligne de l’import", { exact: true }).tap();
       await expect(screen.getByText("1 ligne écartée de l’import", { exact: true })).toBeVisible();

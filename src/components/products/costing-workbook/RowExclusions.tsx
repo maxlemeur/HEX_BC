@@ -4,7 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { SparklesIcon } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -84,7 +84,7 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
 
 function RowExclusionsForm({ rows, inspection, disabled, onApply }: Props) {
   const id = useId();
-  const { provider, requestOptions, settingsLocked, lockSettings } = useWorkbookAssistant();
+  const { sources, provider, requestOptions, settingsLocked, lockSettings, loadProviders } = useWorkbookAssistant();
   const [criterion, setCriterion] = useState("");
   const [scope, setScope] = useState("0");
   const [loading, setLoading] = useState(false);
@@ -98,6 +98,10 @@ function RowExclusionsForm({ rows, inspection, disabled, onApply }: Props) {
   const requests = scope === "all" ? batches : scopedBatch ? [scopedBatch] : [];
   const total = requests.reduce((sum, lines) => sum + lines.length, 0);
   const answer = proposal?.rows === rows ? proposal : null;
+  const sourceOptions = typeof sources === "object" ? sources : null;
+  const apiKey = sourceOptions?.providers.personal_api_key;
+  const canAnalyse = sourceOptions !== null && provider !== null && !disabled && !settingsLocked
+    && criterion.trim().length > 0 && total > 0;
   const proposed = answer?.proposed ?? [];
   const currentPage = boundedPage(page, proposed.length);
   const start = currentPage * DECISIONS_PER_PAGE;
@@ -112,7 +116,7 @@ function RowExclusionsForm({ rows, inspection, disabled, onApply }: Props) {
   }
 
   async function analyse() {
-    if (!provider || disabled || pending.current || !criterion.trim() || total === 0) return;
+    if (!canAnalyse || !provider || pending.current) return;
     const releaseSettings = lockSettings();
     if (!releaseSettings) return;
     const controller = new AbortController();
@@ -158,7 +162,27 @@ function RowExclusionsForm({ rows, inspection, disabled, onApply }: Props) {
           L’IA applique le critère à chaque ligne à partir d’un extrait de ses cellules.
         </p>
       </div>
-      <AssistantProviderSelect required />
+      <div className="space-y-2">
+        <AssistantProviderSelect required />
+        {sourceOptions && apiKey ? (
+          <>
+            {!apiKey.available && (provider !== null || sourceOptions.defaultProvider !== "personal_api_key") ? (
+              <p className="text-xs text-muted-foreground">{apiKey.message}</p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <a href={settingsLocked ? undefined : "/dashboard/profile#section-cle-api"} target="_blank" rel="noopener noreferrer"
+                aria-disabled={settingsLocked || undefined}
+                className={buttonVariants({ variant: "outline", size: "xs", className: "aria-disabled:opacity-50" })}>
+                {apiKey.available ? "Gérer la clé API" : "Configurer la clé API"}
+                <span className="sr-only"> (nouvel onglet)</span>
+              </a>
+              <Button size="xs" variant="ghost" disabled={settingsLocked} onClick={() => loadProviders(true)}>
+                Actualiser les sources d’IA
+              </Button>
+            </div>
+          </>
+        ) : null}
+      </div>
       {batches.length > 1 ? (
         <div className="space-y-1.5">
           <FieldLabel htmlFor={`${id}-range`}>Lignes à analyser</FieldLabel>
@@ -178,7 +202,7 @@ function RowExclusionsForm({ rows, inspection, disabled, onApply }: Props) {
             : `Jusqu’à ${formatCount(requests.length)} demandes successives.`}
         </p>
       ) : null}
-      <Button variant="secondary" loading={loading} disabled={disabled || settingsLocked || !provider || !criterion.trim() || total === 0}
+      <Button variant="secondary" loading={loading} disabled={!canAnalyse}
         onClick={() => void analyse()}>
         Analyser {formatCount(total)} {plural(total, "ligne", "lignes")}
       </Button>

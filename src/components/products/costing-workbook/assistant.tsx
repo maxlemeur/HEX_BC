@@ -6,6 +6,7 @@ import { SparklesIcon } from "lucide-react";
 
 import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
 import { Button } from "@/components/ui/button";
+import { supportsReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import { AI_REQUEST_SOURCE_LABELS, defaultAiRequestSettings, type AiRequestSettingsValue } from "@/lib/ai/request-settings";
 import { fetchSuggestionProviders } from "@/lib/catalogue/costing-workbook-suggestions-client";
@@ -32,7 +33,7 @@ export type WorkbookAssistant = {
   settingsLocked: boolean;
   lockSettings: () => (() => void) | null;
   chooseSettings: (selection: AiRequestSettingsValue) => void;
-  loadProviders: () => void;
+  loadProviders: (refresh?: boolean) => void;
 };
 
 const NO_ASSISTANT: WorkbookAssistant = {
@@ -50,8 +51,11 @@ export function useWorkbookAssistantState(): WorkbookAssistant {
   const [selection, setSelection] = useState<AiRequestSettingsValue>();
   const [settingsLocked, setSettingsLocked] = useState(false);
   const settingsLock = useRef(false);
+  const loadingSources = useRef(false);
   const loaded = typeof sources === "object" ? sources : null;
-  const { source: provider, preferences } = selection ?? defaultAiRequestSettings(loaded?.defaultProvider ?? null, loaded?.providers ?? {});
+  const { source: provider, preferences } = loaded
+    ? selection ?? defaultAiRequestSettings(loaded.defaultProvider, loaded.providers)
+    : { source: null, preferences: null };
 
   function lockSettings() {
     if (settingsLock.current) return null;
@@ -63,12 +67,25 @@ export function useWorkbookAssistantState(): WorkbookAssistant {
     };
   }
 
-  function loadProviders() {
-    if (settingsLock.current || (sources !== null && sources !== "error")) return;
+  function loadProviders(refresh = false) {
+    if (settingsLock.current || loadingSources.current || (!refresh && sources !== null && sources !== "error")) return;
+    loadingSources.current = true;
     setSources("loading");
     void fetchSuggestionProviders().then((answer) => {
+      setSelection((current) => {
+        if (!current?.source) return current;
+        const option = answer.providers[current.source];
+        if (option.available && current.source === "decisions") return current;
+        if (option.available && "models" in option && current.preferences) {
+          const model = option.models.find(({ id }) => id === current.preferences?.model);
+          if (model && supportsReasoningEffort(model, current.preferences.reasoningEffort)) return current;
+        }
+        return { source: null, preferences: null };
+      });
       setSources(answer);
-    }, () => setSources("error"));
+    }, () => setSources("error")).finally(() => {
+      loadingSources.current = false;
+    });
   }
 
   function chooseSettings(next: AiRequestSettingsValue) {
@@ -90,7 +107,7 @@ export function AssistantProviderSelect({ required = false }: Readonly<{ require
     return (
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span role="alert">{required ? "Les sources d’IA n’ont pas pu être lues." : "Les sources d’IA n’ont pas pu être lues. Les propositions suivent les règles seules."}</span>
-        <Button variant="ghost" size="xs" disabled={settingsLocked} onClick={loadProviders}>Recharger les sources d’IA</Button>
+        <Button variant="ghost" size="xs" disabled={settingsLocked} onClick={() => loadProviders()}>Recharger les sources d’IA</Button>
       </div>
     );
   }

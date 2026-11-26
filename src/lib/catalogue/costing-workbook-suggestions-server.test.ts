@@ -683,9 +683,9 @@ describe("row exclusions", () => {
       "5": { choice: "keep" },
       "6": { choice: "delete" },
     }), { status: "partial" });
-    const result = await suggest({ task: "row_exclusions", provider: "chatgpt_plan", model: "modele-fictif", criterion, lines });
+    const result = await suggest({ task: "row_exclusions", provider: "personal_api_key", model: "modele-fictif", criterion, lines });
     const [call] = asked();
-    expect(call).toMatchObject({ model: "modele-fictif", task: "catalogue-workbook-row-exclusions" });
+    expect(call).toMatchObject({ provider: "personal_api_key", model: "modele-fictif", task: "catalogue-workbook-row-exclusions" });
     expect(call.questions.map((question) => [question.id, question.subject, choicesOf(question)])).toEqual(
       lines.map(({ row, description }) => [String(row), { ligne_excel: row, critere_de_suppression: criterion, cellules: description }, ["exclude", "keep"]]),
     );

@@ -194,6 +194,25 @@ describe("CostingWorkbookImport, proposals", () => {
     expect(suggestions()[0]).not.toHaveProperty("provider");
   });
 
+  it("uses rules for other proposals when a refresh of the selected personal API key fails", async () => {
+    const user = userEvent.setup();
+    answers.sources = () => ok({ defaultProvider: "chatgpt_plan", providers: PERSONAL_SOURCES });
+    await openImport(user);
+    await user.click(screen.getByRole("button", { name: "Supprimer des lignes avec l’IA" }));
+    const dialog = within(screen.getByRole("dialog"));
+    await user.selectOptions(await dialog.findByLabelText("Source d’IA"), "personal_api_key");
+    expect(dialog.getByLabelText("Modèle")).toHaveValue("key-a");
+
+    answers.sources = () => respond(503, {});
+    await user.click(dialog.getByRole("button", { name: "Actualiser les sources d’IA" }));
+    await dialog.findByText("Les sources d’IA n’ont pas pu être lues.");
+    await user.click(dialog.getByRole("button", { name: "Annuler" }));
+    await user.click(screen.getByRole("button", { name: "Doublons possibles" }));
+    await user.click(screen.getByRole("button", { name: "Chercher les doublons" }));
+    await waitFor(() => expect(suggestions()).toHaveLength(1));
+    expect(suggestions()[0]).not.toHaveProperty("provider");
+  });
+
   it("resets an unsupported effort to the new model default and sends it only with the suggestion", async () => {
     const user = userEvent.setup();
     answers.sources = () => ok({ defaultProvider: "chatgpt_plan", providers: PERSONAL_SOURCES });
