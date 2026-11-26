@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { ChevronDownIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 type ExportDropdownProps = {
@@ -30,35 +31,7 @@ export function ExportDropdown({
   loadingLabel = "Export en cours…",
 }: ExportDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelId = useId();
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setIsOpen(false);
-      triggerRef.current?.focus();
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen]);
+  const triggerDisabled = disabled || loading || (excelDisabled && csvDisabled);
 
   const handleExcelClick = useCallback(() => {
     setIsOpen(false);
@@ -71,52 +44,50 @@ export function ExportDropdown({
   }, [onExportCSV]);
 
   return (
-    <div ref={containerRef} className="relative">
-      <Button
-        ref={triggerRef}
-        type="button"
-        variant="outline"
-        size="md"
-        onClick={() => setIsOpen(!isOpen)}
-        disabled={disabled || loading || (excelDisabled && csvDisabled)}
-        aria-expanded={isOpen}
-        aria-controls={isOpen ? panelId : undefined}
-        leftIcon={<DownloadIcon aria-hidden="true" />}
-        rightIcon={
-          <ChevronDownIcon
-            aria-hidden="true"
-            className={cn("size-3.5 transition-transform motion-reduce:transition-none", isOpen && "rotate-180")}
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            size="md"
+            disabled={triggerDisabled}
+            leftIcon={<DownloadIcon aria-hidden="true" />}
+            rightIcon={
+              <ChevronDownIcon
+                aria-hidden="true"
+                className={cn(
+                  "size-3.5 transition-transform motion-reduce:transition-none",
+                  isOpen && "rotate-180"
+                )}
+              />
+            }
           />
         }
       >
         {loading ? loadingLabel : "Exporter"}
-      </Button>
+      </PopoverTrigger>
 
-      {isOpen && (
-        <div
-          id={panelId}
-          className="absolute right-0 top-full z-50 mt-2 w-52 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-dropdown"
+      <PopoverContent align="end" className="w-52 gap-0 p-1">
+        <button
+          type="button"
+          className={itemClass}
+          onClick={handleExcelClick}
+          disabled={loading || excelDisabled}
         >
-          <button
-            type="button"
-            className={itemClass}
-            onClick={handleExcelClick}
-            disabled={loading || excelDisabled}
-          >
-            <FileSpreadsheetIcon aria-hidden="true" />
-            Excel (.xlsx)
-          </button>
-          <button
-            type="button"
-            className={itemClass}
-            onClick={handleCSVClick}
-            disabled={loading || csvDisabled}
-          >
-            <FileTextIcon aria-hidden="true" />
-            Fichier CSV (.csv)
-          </button>
-        </div>
-      )}
-    </div>
+          <FileSpreadsheetIcon aria-hidden="true" />
+          Excel (.xlsx)
+        </button>
+        <button
+          type="button"
+          className={itemClass}
+          onClick={handleCSVClick}
+          disabled={loading || csvDisabled}
+        >
+          <FileTextIcon aria-hidden="true" />
+          Fichier CSV (.csv)
+        </button>
+      </PopoverContent>
+    </Popover>
   );
 }

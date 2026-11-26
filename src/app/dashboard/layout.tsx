@@ -3,7 +3,7 @@ import packageMetadata from "../../../package.json";
 import { AssistantDock } from "@/components/assistant/AssistantDock";
 import { DashboardShell } from "@/components/DashboardShell";
 import { NavigationFeedbackProvider } from "@/components/navigation/NavigationFeedback";
-import { CommandPaletteLoader } from "@/components/ui-legacy/CommandPaletteLoader";
+import { CommandPaletteLoader } from "@/components/navigation/CommandPaletteLoader";
 import { UserProvider } from "@/lib/auth/user-context";
 import { WebVitalsReporter } from "@/components/performance/WebVitalsReporter";
 import { isAssistantEnabled } from "@/lib/assistant/model";

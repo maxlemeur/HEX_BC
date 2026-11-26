@@ -16,7 +16,8 @@ import { TimaxMark, TimaxWordmark } from "@/components/brand/timax-logo";
 import { useUserContext } from "@/lib/auth/user-context";
 import { DashboardNavigationProvider } from "@/components/dashboard/DashboardNavigationContext";
 import { WorkspaceGlobalNavigation } from "@/components/dashboard/WorkspaceGlobalNavigation";
-import { KeyboardShortcutsModal } from "@/components/ui-legacy/KeyboardShortcutsModal";
+import { KeyboardShortcutsModal } from "@/components/navigation/KeyboardShortcutsModal";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { isTextEditingTarget } from "@/hooks/useCommandPalette";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
@@ -31,15 +32,6 @@ const AnalysisProgressIndicator = dynamic(
   { ssr: false },
 );
 const ANALYSIS_PROGRESS_START_DELAY_MS = 500;
-
-const DRAWER_FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "[tabindex]:not([tabindex='-1'])",
-].join(",");
 
 function DeferredAnalysisProgress({ tenantId, userId }: { tenantId: string; userId: string }) {
   const [ready, setReady] = useState(false);
@@ -132,7 +124,7 @@ export function DashboardShell({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const drawerCloseButtonRef = useRef<HTMLButtonElement>(null);
-  const sidebarRef = useRef<HTMLElement>(null);
+  const restoreFocusOnCloseRef = useRef(true);
   const topbarRef = useRef<HTMLElement>(null);
   const mainContentRef = useRef<HTMLElement>(null);
   const previousPathnameRef = useRef(pathname);
@@ -161,12 +153,13 @@ export function DashboardShell({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [drawerOpen]);
 
-  const openDrawer = useCallback(() => setDrawerOpen(true), []);
+  const openDrawer = useCallback(() => {
+    restoreFocusOnCloseRef.current = true;
+    setDrawerOpen(true);
+  }, []);
   const closeDrawer = useCallback((restoreFocus = false) => {
+    restoreFocusOnCloseRef.current = restoreFocus;
     setDrawerOpen(false);
-    if (restoreFocus) {
-      window.requestAnimationFrame(() => menuButtonRef.current?.focus());
-    }
   }, []);
 
   useEffect(() => {
@@ -174,59 +167,16 @@ export function DashboardShell({
       return;
     }
 
-    const drawer = sidebarRef.current;
     const mainContent = mainContentRef.current;
     const topbar = topbarRef.current;
-    const previousOverflow = document.body.style.overflow;
-    const focusFrame = window.requestAnimationFrame(() => {
-      drawerCloseButtonRef.current?.focus();
-    });
-    const handleDrawerKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeDrawer(true);
-        return;
-      }
-
-      if (event.key !== "Tab" || !drawer) {
-        return;
-      }
-
-      const focusableElements = Array.from(
-        drawer.querySelectorAll<HTMLElement>(DRAWER_FOCUSABLE_SELECTOR)
-      );
-      const firstFocusable =
-        drawerCloseButtonRef.current ?? focusableElements[0];
-      const lastFocusable = focusableElements.at(-1);
-
-      if (!firstFocusable || !lastFocusable) {
-        event.preventDefault();
-        drawerCloseButtonRef.current?.focus();
-        return;
-      }
-
-      if (event.shiftKey && document.activeElement === firstFocusable) {
-        event.preventDefault();
-        lastFocusable.focus();
-      } else if (!event.shiftKey && document.activeElement === lastFocusable) {
-        event.preventDefault();
-        firstFocusable.focus();
-      }
-    };
-
-    document.body.style.overflow = "hidden";
     mainContent?.setAttribute("inert", "");
     topbar?.setAttribute("inert", "");
-    document.addEventListener("keydown", handleDrawerKeyDown);
 
     return () => {
-      window.cancelAnimationFrame(focusFrame);
-      document.body.style.overflow = previousOverflow;
       mainContent?.removeAttribute("inert");
       topbar?.removeAttribute("inert");
-      document.removeEventListener("keydown", handleDrawerKeyDown);
     };
-  }, [closeDrawer, drawerOpen]);
+  }, [drawerOpen]);
 
   useEffect(() => {
     if (previousPathnameRef.current === pathname) {
@@ -234,6 +184,7 @@ export function DashboardShell({
     }
 
     previousPathnameRef.current = pathname;
+    restoreFocusOnCloseRef.current = false;
     setDrawerOpen(false);
     window.requestAnimationFrame(() => {
       mainContentRef.current?.focus({ preventScroll: true });
@@ -318,30 +269,30 @@ export function DashboardShell({
         </div>
       </header>
       </DashboardNavigationProvider>
-      {drawerOpen ? (
-        <div
-          className="fixed inset-0 z-[55] bg-black/40"
-          onClick={() => closeDrawer(true)}
-          aria-hidden="true"
-        />
-      ) : null}
-
-      <aside
-        ref={sidebarRef}
-        id="dashboard-sidebar"
-        data-mobile-open={drawerOpen ? "true" : undefined}
-        data-drawer-open={drawerOpen ? "true" : undefined}
-        role={drawerOpen ? "dialog" : undefined}
-        aria-modal={drawerOpen ? "true" : undefined}
-        aria-label={drawerOpen ? "Navigation principale" : undefined}
-        className="no-print dashboard-sidebar dashboard-sidebar--overlay fixed left-0 top-0 z-[60] flex h-screen flex-col"
+      <Sheet
+        open={drawerOpen}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) closeDrawer(true);
+        }}
       >
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          id="dashboard-sidebar"
+          aria-modal="true"
+          aria-label="Navigation principale"
+          initialFocus={drawerCloseButtonRef}
+          finalFocus={() =>
+            restoreFocusOnCloseRef.current ? menuButtonRef.current : false
+          }
+          className="no-print dashboard-sidebar gap-0 border-r-0 p-0 data-[side=left]:w-(--sidebar-width) data-[side=left]:sm:max-w-none"
+        >
         <div className="flex h-20 items-center px-6 mt-2 sidebar-header">
           <Link
             href="/dashboard"
             prefetch={false}
             className="sidebar-logo-link flex items-center gap-3 min-w-0"
-            onClick={() => setDrawerOpen(false)}
+            onClick={() => closeDrawer(false)}
           >
             <TimaxMark className="size-10 rounded-xl text-lg" />
             <div className="sidebar-label min-w-0">
@@ -408,7 +359,7 @@ export function DashboardShell({
             type="button"
             className="mb-2 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/5 hover:text-white/90"
             onClick={() => {
-              setDrawerOpen(false);
+              closeDrawer(false);
               setShortcutsOpen(true);
             }}
             title="Raccourcis clavier"
@@ -425,7 +376,7 @@ export function DashboardShell({
               href="/dashboard/profile"
               prefetch={false}
               className="flex flex-1 items-center gap-3 min-w-0 rounded-lg -m-1.5 p-1.5 transition-colors hover:bg-white/5"
-              onClick={() => setDrawerOpen(false)}
+              onClick={() => closeDrawer(false)}
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-orange text-sm font-bold text-white">
                 {userInitials}
@@ -452,7 +403,8 @@ export function DashboardShell({
             </div>
           </div>
         </div>
-      </aside>
+        </SheetContent>
+      </Sheet>
 
       <main
         ref={mainContentRef}
