@@ -13,7 +13,7 @@ const api = vi.hoisted(() => ({ state: vi.fn(), prepare: vi.fn(), execute: vi.fn
 vi.mock("@/lib/ai/access/openai-api", () => ({ openAiApiKeyAccess: () => api }));
 
 import { ApiKeyError, apiKeyErrorMessage } from "@/lib/ai/access/api-key-errors";
-import { MODEL_TEST_CEILING_NANO_USD } from "@/lib/ai/access/openai-pricing";
+import { boundCountedCall, costOfOpenAiUsage, maxOutputWithin, MODEL_TEST_CEILING_NANO_USD } from "@/lib/ai/access/openai-pricing";
 import { readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
 import type { ChatGptAvailableModel, ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import {
@@ -57,6 +57,7 @@ const FAILURES: Record<ChoiceProvider, string> = {
 };
 const AVAILABLE = "Propositions de l’IA à confirmer : elles ne prouvent rien et n’appliquent rien.";
 const PARTIAL = "Réponse partielle de l’IA : les éléments sans proposition restent à choisir.";
+const OUT_OF_BUDGET = "Le budget de cette demande ne permet pas d’envoyer les questions restantes. Les réponses reçues sont conservées.";
 
 const offered = (id: string) => ({ id, name: id, reasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "medium", verified: true });
 const PLAN_MODELS: ChatGptAvailableModel[] = [
@@ -474,6 +475,36 @@ describe("askChoiceQuestions on the ChatGPT plan", () => {
 });
 
 describe("askChoiceQuestions on the personal API key (6)", () => {
+  const astra = "gpt-6.2-astra";
+
+  function providePricedAstra(countInputTokens = (asked: Asked[]) => 100 + 20 * asked.length) {
+    provide("personal_api_key");
+    api.state.mockResolvedValue({
+      ...SAVED_KEY, connection: { ...SAVED_KEY.connection, offeredModels: [...SAVED_KEY.connection.offeredModels, offered(astra)] },
+    });
+    const execute = api.execute.getMockImplementation()!;
+    api.prepare.mockImplementation(async (_owner, input) => {
+      const inputTokens = countInputTokens(dataOf(input.prompt));
+      const maxOutputTokens = maxOutputWithin({
+        model: input.model, inputTokens, allotmentNanoUsd: input.allotmentNanoUsd, cap: input.outputCap,
+      });
+      if (maxOutputTokens < input.minOutputTokens) throw new ApiKeyError("AI_KEY_CEILING");
+      return { prompt: input.prompt, inputTokens, maxOutputTokens };
+    });
+    api.execute.mockImplementation(async (owner, prepared, options) => {
+      const output = 40 * dataOf(prepared.prompt).length;
+      expect(output).toBeLessThanOrEqual(prepared.maxOutputTokens);
+      return {
+        ...await execute(owner, prepared, options),
+        model: astra,
+        costNanoUsd: costOfOpenAiUsage(astra, {
+          input: prepared.inputTokens, cachedInput: 0, cacheWrite: 0, cacheWrite12h: 0,
+          output, reasoning: 0, total: prepared.inputTokens + output,
+        }, "default"),
+      };
+    });
+  }
+
   it("prepares a text-only request under the ceiling, with the member's default model and not the photo one", async () => {
     const { strictOpenAiSchema } = await vi.importActual<typeof import("@/lib/ai/access/openai-api")>("@/lib/ai/access/openai-api");
     provide("personal_api_key");
@@ -523,11 +554,41 @@ describe("askChoiceQuestions on the personal API key (6)", () => {
     });
     api.execute.mockImplementation(async (...args) => ({ ...await execute(...args), costNanoUsd: 90_000_000 }));
     const result = await ask("personal_api_key", questions(60), { model: "gpt-6.2-sol", reasoning_effort: "medium" });
-    expect(api.prepare.mock.calls.map(([, input]) => input)).toEqual([100_000_000, 10_000_000].map((allotmentNanoUsd) =>
+    const preflights = api.prepare.mock.calls.map(([, input]) => input);
+    expect(preflights.map((input) => dataOf(input.prompt).length)).toEqual([50, 10, 5, 2, 1]);
+    expect(preflights).toEqual([100_000_000, 10_000_000, 10_000_000, 10_000_000, 10_000_000].map((allotmentNanoUsd) =>
       expect.objectContaining({ model: "gpt-6.2-sol", reasoningEffort: "medium", expectedVersion: 4, allotmentNanoUsd })));
     expect(api.execute).toHaveBeenCalledTimes(1);
-    expect(result.status).toBe("partial");
+    expect(result).toMatchObject({ status: "partial", message: OUT_OF_BUDGET });
     expect(result.answers.filter((entry) => entry.choice !== null)).toHaveLength(50);
+  });
+
+  it("splits a 50-question batch for Astra and keeps the answers that fit the shared allowance", async () => {
+    providePricedAstra();
+    const asked = questions(50);
+
+    const result = await ask("personal_api_key", asked, { model: astra });
+
+    const preflights = api.prepare.mock.calls.map(([, input]) => input);
+    expect(preflights.map((input) => [dataOf(input.prompt).length, input.allotmentNanoUsd])).toEqual([
+      [50, 100_000_000], [25, 100_000_000],
+      [25, 55_200_000], [12, 55_200_000], [6, 55_200_000],
+      [6, 43_840_000], [3, 43_840_000], [1, 43_840_000],
+    ]);
+    expect(sent.requests.flat().map((entry) => entry.question)).toEqual(asked.slice(0, 31).map((_, index) => `q${index + 1}`));
+    expect(api.execute).toHaveBeenCalledTimes(2);
+    for (const [index, preflightIndex] of [1, 4].entries()) {
+      const prepared = await api.prepare.mock.results[preflightIndex].value;
+      expect(api.execute.mock.calls[index][1]).toBe(prepared);
+      const bound = boundCountedCall({ model: astra, inputTokens: prepared.inputTokens, maxOutputTokens: prepared.maxOutputTokens });
+      expect(bound.status).toBe("priced");
+      if (bound.status === "priced") expect(bound.nanoUsd).toBeLessThanOrEqual(preflights[preflightIndex].allotmentNanoUsd);
+    }
+    expect(result).toMatchObject({ status: "partial", message: OUT_OF_BUDGET, model: astra });
+    expect(result.answers).toEqual(asked.map(({ id }, index) => ({
+      id, choice: index < 31 ? "alpha" : null, confidence: index < 31 ? 0.9 : null,
+    })));
+    expectOnly("personal_api_key");
   });
 
   it("subtracts preparation time from generation and shares the same signal", async () => {
@@ -548,13 +609,26 @@ describe("askChoiceQuestions on the personal API key (6)", () => {
     }
   });
 
-  it("generates nothing when the request may pass the ceiling", async () => {
-    api.prepare.mockRejectedValue(new ApiKeyError("AI_KEY_CEILING", { detail: { ceiling: "0,10 $ US", bound: "0,14 $ US" } }));
+  it("stops without generation when a single counted question costs more than the allowance", async () => {
+    providePricedAstra(() => 3_000);
 
-    const result = await ask("personal_api_key", questions(120));
+    const result = await ask("personal_api_key", questions(1), { model: astra });
 
-    expect(result.status).toBe("failed");
-    expect(result.message).toContain("plafond de 0,10 $ US");
+    expect(result).toMatchObject({
+      status: "partial", message: OUT_OF_BUDGET, model: null,
+      answers: [{ id: "question-1", choice: null, confidence: null }],
+    });
+    expect(api.prepare).toHaveBeenCalledTimes(1);
+    expect(api.execute).not.toHaveBeenCalled();
+  });
+
+  it("stops without splitting or generation when the input count is unavailable", async () => {
+    provide("personal_api_key");
+    api.prepare.mockRejectedValue(new ApiKeyError("AI_KEY_COUNT_UNAVAILABLE"));
+
+    const result = await ask("personal_api_key", questions(50));
+
+    expect(result).toMatchObject({ status: "failed", message: apiKeyErrorMessage("AI_KEY_COUNT_UNAVAILABLE") });
     expect(api.prepare).toHaveBeenCalledTimes(1);
     expect(api.execute).not.toHaveBeenCalled();
   });
