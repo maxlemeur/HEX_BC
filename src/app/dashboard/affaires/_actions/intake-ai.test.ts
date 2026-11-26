@@ -1,15 +1,29 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { launchAffaireIntakeAnalysis, retryAffaireDocumentAnalysis } from "./intake";
+import { launchAffaireIntakeAnalysis, readAffaireIntakeAiOptions, retryAffaireDocumentAnalysis } from "./intake";
 import { createIntakeAiRunner, IntakeAiBudgetStopped, readIntakeAiBatch, resolveIntakeAiSelection } from "@/lib/affaires/intake-ai-server";
 import { processAffaireIntakeAnalysisLaunch, retryAffaireDocumentAnalysis as retryDocument } from "@/lib/affaires/intake-analysis-server";
 import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { refreshAffaireIntakeFromActiveDocuments } from "@/lib/affaires/intake-derived-state-server";
 
-const { rpc, after, access } = vi.hoisted(() => ({ rpc: vi.fn(), after: vi.fn(), access: vi.fn() }));
+const { rpc, after, access, planGrant } = vi.hoisted(() => ({ rpc: vi.fn(), after: vi.fn(), access: vi.fn(), planGrant: vi.fn() }));
 vi.mock("next/server", async (actual) => ({ ...await actual<typeof import("next/server")>(), after }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: access }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => ({ rpc }) }));
+vi.mock("@/lib/affaires/intake-payer-server", async (actual) => ({
+  ...await actual<typeof import("@/lib/affaires/intake-payer-server")>(),
+  readSelectedIntakePlanConnection: planGrant,
+}));
+vi.mock("@/lib/ai/request-settings-server", () => ({
+  readAiRequestOptions: vi.fn(async () => ({
+    defaultSource: "chatgpt_plan",
+    options: { chatgpt_plan: { ok: true, message: "Forfait fictif", models: [],
+      preferences: { model: "fixture-plan", reasoningEffort: "high" }, connection: null } },
+  })),
+  resolveAiRequest: vi.fn(async () => ({
+    ok: true, source: "chatgpt_plan", connection: null, preferences: { model: "fixture-plan", reasoningEffort: "high" },
+  })),
+}));
 vi.mock("@/lib/affaires/intake-ai-server", async (actual) => ({
   ...await actual<typeof import("@/lib/affaires/intake-ai-server")>(),
   createIntakeAiRunner: vi.fn(), readIntakeAiBatch: vi.fn(), resolveIntakeAiSelection: vi.fn(),
@@ -52,7 +66,9 @@ it("starts the worker with an accepted lot id after recording the explicit authe
   });
   expect(processAffaireIntakeAnalysisLaunch).not.toHaveBeenCalled();
   await after.mock.calls[0][0]();
-  expect(processAffaireIntakeAnalysisLaunch).toHaveBeenCalledExactlyOnceWith(batchId, null);
+  expect(processAffaireIntakeAnalysisLaunch).toHaveBeenCalledExactlyOnceWith(batchId, null, {
+    projectId, tenantId, payerId: userId,
+  });
 });
 
 it("gives all retry documents the same persisted batch and leaves later documents untouched at the cap", async () => {
@@ -71,5 +87,24 @@ it("gives all retry documents the same persisted batch and leaves later document
   await after.mock.calls[0][0]();
   expect(readPage).toHaveBeenCalledOnce();
   expect(refreshAffaireIntakeFromActiveDocuments).not.toHaveBeenCalled();
-  expect(rpc).toHaveBeenLastCalledWith("finish_affaire_intake_ai_retry", { p_batch_id: batchId });
+  expect(rpc).toHaveBeenLastCalledWith("finish_affaire_intake_ai_retry", {
+    p_batch_id: batchId, p_project_id: projectId, p_tenant_id: tenantId, p_payer_id: userId,
+  });
+});
+
+it("refuses a different plan grant between display and acceptance before reserving a batch", async () => {
+  const grantA = { profileId: "fixture-account-a", authorizationId: "fixture-grant-a" };
+  const grantB = { profileId: "fixture-account-b", authorizationId: "fixture-grant-b" };
+  planGrant.mockResolvedValueOnce(grantA).mockResolvedValueOnce(grantB);
+  const real = await vi.importActual<typeof import("@/lib/affaires/intake-ai-server")>("@/lib/affaires/intake-ai-server");
+  vi.mocked(resolveIntakeAiSelection).mockImplementation(real.resolveIntakeAiSelection);
+  const shown = await readAffaireIntakeAiOptions(projectId);
+  expect(shown.planConnectionId).toMatch(/^[0-9a-f]{64}$/);
+  expect(await launchAffaireIntakeAnalysis(projectId, {
+    source: "chatgpt_plan", model: "fixture-plan", effort: "high", expectedConnectionId: shown.planConnectionId!,
+  })).toEqual({
+    message: "Le forfait ChatGPT affiché a changé. Rechargez les réglages avant de lancer l’analyse.",
+  });
+  expect(rpc).not.toHaveBeenCalled();
+  expect(after).not.toHaveBeenCalled();
 });

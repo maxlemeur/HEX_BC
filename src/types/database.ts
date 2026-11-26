@@ -108,8 +108,9 @@ type NullableArguments = NullableArgumentSpec<{
   publish_affaire_intake_brief: "p_actor_id" | "p_lease_token" | "p_expected_brief_updated_at" | "p_draft";
   start_affaire_intake_analysis: "p_profile_id" | "p_authorization_id";
   reserve_affaire_intake_ai_call: "p_lease_token" | "p_effort" | "p_bound";
-  settle_affaire_intake_ai_call: "p_cost";
+  settle_affaire_intake_ai_call: "p_cost" | "p_lease_token";
   stop_affaire_intake_analysis: "p_lease_token";
+  stop_affaire_intake_analysis_v2: "p_lease_token";
   finish_affaire_intake_upload_attempt: "p_next_retry_at" | "p_last_error";
   persist_takeoff_provider_batch_snapshot: "p_provider_batch_id" | "p_provider_batch_state" | "p_provider_batch_updated_at" | "p_provider_state_raw" | "p_message";
   persist_takeoff_provider_batch_snapshot_fenced: "p_provider_batch_id" | "p_provider_batch_state" | "p_provider_batch_updated_at" | "p_provider_state_raw" | "p_message" | "p_processing_lease_token" | "p_provider_reconcile_lease_token";

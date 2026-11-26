@@ -2,7 +2,7 @@ import "server-only";
 
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { canRunIntakeAiBatch, readIntakeAiBatch } from "@/lib/affaires/intake-ai-server";
-import { hostCanReadIntakeScans } from "@/lib/affaires/intake-payer-server";
+import { hostCanReadIntakeScans, stopIntakeAnalysisLaunch } from "@/lib/affaires/intake-payer-server";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 
 // A Mac may share the database with other Macs. Advance through bounded pages even
@@ -33,18 +33,22 @@ async function recoverDueLaunch(paid: boolean) {
       p_user_id: batch.created_by, p_project_id: batch.project_id, p_tenant_id: batch.tenant_id,
     }) : { data: false, error: null };
     if (right.error) throw new Error("Impossible de vérifier le droit du payeur.", { cause: right.error });
-    const recorded = right.data && paid ? await readIntakeAiBatch(service, batch.id) : null;
+    const scope = batch.created_by ? { payerId: batch.created_by, tenantId: batch.tenant_id, projectId: batch.project_id } : undefined;
+    const recorded = scope ? await readIntakeAiBatch(service, batch.id, scope) : null;
     const available = !paid || (recorded ? await canRunIntakeAiBatch(recorded) : owner && await hostCanReadIntakeScans(owner));
     if (!right.data || !available) {
       // SQL keeps a live lease and gives another Mac 30 minutes from the last due time.
-      const stopped = await service.rpc("stop_affaire_intake_analysis", { p_upload_id: batch.id, p_lease_token: null });
-      if (stopped.error) throw new Error("Impossible de vérifier le lancement interrompu.", { cause: stopped.error });
+      if (recorded || !scope) {
+        const stopped = await stopIntakeAnalysisLaunch(service, batch.id, null, true);
+        if (stopped || recorded) continue;
+      }
+      await stopIntakeAnalysisLaunch(service, batch.id, null, false);
       continue;
     }
     // SQL rechecks due time and attempts under the lease. An empty claim may have retired
     // an exhausted launch; continue to the next candidate.
     const { processAffaireIntakeAnalysisLaunch } = await import("@/lib/affaires/intake-analysis-server");
-    if (await processAffaireIntakeAnalysisLaunch(batch.id, owner)) return batch.id;
+    if (await processAffaireIntakeAnalysisLaunch(batch.id, owner, scope)) return batch.id;
   }
   if (data.length < PAGE_SIZE) cursors[lane] = null;
   return null;

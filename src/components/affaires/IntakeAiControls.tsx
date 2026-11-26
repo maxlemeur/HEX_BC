@@ -40,8 +40,8 @@ export function IntakeAiControls({ projectId, retry = false, disabled, submitLab
   const value = selection ?? defaultAiRequestSettings(data.defaultSource, data.sources);
   const { source, preferences } = value;
   const noPersonalSourceAvailable = !data.sources.chatgpt_plan?.available && !data.sources.personal_api_key?.available;
-  const choice: IntakeAiChoice | null = source === "chatgpt_plan" && preferences && data.sources[source]?.available
-    ? { source, model: preferences.model, effort: preferences.reasoningEffort }
+  const choice: IntakeAiChoice | null = source === "chatgpt_plan" && preferences && data.sources[source]?.available && data.planConnectionId
+    ? { source, model: preferences.model, effort: preferences.reasoningEffort, expectedConnectionId: data.planConnectionId }
     : source === "personal_api_key" && preferences && data.sources[source]?.available && data.keyConnectionId
       ? { source, model: preferences.model, effort: preferences.reasoningEffort, expectedConnectionId: data.keyConnectionId }
       : source === null && allowRules && (selection || noPersonalSourceAvailable || data.decisionsSelected) ? { source: "rules_only" } : null;

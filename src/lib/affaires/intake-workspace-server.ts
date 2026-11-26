@@ -1,4 +1,3 @@
-import { readIntakeAiBatch } from "@/lib/affaires/intake-ai-server";
 import { INTAKE_AI_BUDGET_STOP, INTAKE_AI_COST_ABOVE_HOLD } from "@/lib/affaires/intake-ai-settings";
 import { readLaunchConnection } from "@/lib/affaires/intake-payer-server";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
@@ -216,8 +215,8 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   if (publicationDebt.error) throw internalError("Impossible de vérifier si le brief doit être actualisé.", publicationDebt.error);
 
   const stopped = publicationDebt.data[0];
-  const connectionUnavailable = stopped?.last_error === "connection_unavailable" &&
-    (active || Boolean(await readIntakeAiBatch(createServiceRoleClient(), stopped.id)) || Boolean(await readLaunchConnection(stopped.id)));
+  const connectionUnavailable = stopped?.last_error === "ai_connection_unavailable" ||
+    (stopped?.last_error === "connection_unavailable" && (active || Boolean(await readLaunchConnection(stopped.id))));
 
   return {
     projectId: project.id,

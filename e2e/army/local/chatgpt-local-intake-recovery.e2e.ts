@@ -208,7 +208,7 @@ test("INTPROFILE01 a second usable profile cannot take or pay for the first prof
     expect(await sends()).toBe(before + 1);
     await querySql(`update public.affaire_intake_uploads set processing_lease_expires_at=clock_timestamp()-interval '31 minutes' where id='${lot}'`);
     await expect.poll(async () => { await sweep(); return batch(); }, DEV_SERVER_WORK)
-      .toMatchObject({ attempt_count: 1, status: "failed", last_error: "connection_unavailable" });
+      .toMatchObject({ attempt_count: 1, status: "failed", last_error: "ai_connection_unavailable" });
     expect(await sends()).toBe(before + 1);
     await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
     await expect(screen.getByText("Analyse interrompue. La connexion IA choisie au lancement n’est plus disponible.", { exact: true }).first()).toBeVisible();

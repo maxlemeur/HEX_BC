@@ -28,6 +28,15 @@ export async function readLaunchConnection(uploadId: string, service = createSer
   return z.object({ profileId: z.string().min(1), authorizationId: z.string().min(1) }).nullable().parse(data);
 }
 
+export async function stopIntakeAnalysisLaunch(
+  service: ReturnType<typeof createServiceRoleClient>, uploadId: string, leaseToken: string | null, recorded: boolean,
+) {
+  const { data, error } = await service.rpc(recorded ? "stop_affaire_intake_analysis_v2" : "stop_affaire_intake_analysis",
+    { p_upload_id: uploadId, p_lease_token: leaseToken });
+  if (error) throw new Error("Impossible de terminer le lancement interrompu.", { cause: error });
+  return data;
+}
+
 export async function selectedIntakeConnection(owner: ChatGptOwner) {
   if (!isLocalChatGptEnabled()) return null;
   try {

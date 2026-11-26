@@ -1,8 +1,8 @@
-import { canRunIntakeAiBatch, createIntakeAiRunner, readIntakeAiBatch, IntakeAiBudgetStopped, IntakeAiLedgerError, type IntakeAiBatch } from "@/lib/affaires/intake-ai-server";
+import { canRunIntakeAiBatch, createIntakeAiRunner, readIntakeAiBatch, IntakeAiBudgetStopped, IntakeAiLedgerError, type IntakeAiBatch, type IntakeAiBatchScope } from "@/lib/affaires/intake-ai-server";
 import { readEditableIntakeDocument } from "@/lib/affaires/intake-editable-document-server";
 import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
-import { hostCanReadIntakeScans, readLaunchConnection, IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/intake-payer-server";
+import { hostCanReadIntakeScans, readLaunchConnection, IntakePayerAccessLost, requireIntakePayerRight, stopIntakeAnalysisLaunch } from "@/lib/affaires/intake-payer-server";
 import { intakeCurrentBriefActive, readIntakeBriefState } from "@/lib/affaires/intake-current-brief-server";
 import type { ChatGptConnection, ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { readAllRows } from "@/lib/supabase/read-all";
@@ -483,9 +483,11 @@ export async function processAffaireIntakeUpload(uploadId: string) {
   return runClaim(supabase, lifecycleClient, claimResult.claim);
 }
 
-export async function processAffaireIntakeAnalysisLaunch(uploadId: string, readingOwner: ChatGptOwner | null) {
+export async function processAffaireIntakeAnalysisLaunch(
+  uploadId: string, readingOwner: ChatGptOwner | null, scope?: IntakeAiBatchScope,
+) {
   const supabase = createServiceRoleClient();
-  const aiBatch = await readIntakeAiBatch(supabase, uploadId);
+  const aiBatch = scope ? await readIntakeAiBatch(supabase, uploadId, scope) : null;
   const active = !aiBatch && await intakeCurrentBriefActive(supabase);
   const recorded = !aiBatch && readingOwner ? await readLaunchConnection(uploadId, supabase) : null;
   const connection = recorded ?? (active ? null : undefined);
@@ -494,13 +496,12 @@ export async function processAffaireIntakeAnalysisLaunch(uploadId: string, readi
     // Leave the launch available to another host with the authorized profile.
     // SQL only stops it after the recovery window and never takes a live lease.
     if (aiBatch || active || recorded) {
-      const { error } = await supabase.rpc("stop_affaire_intake_analysis", { p_upload_id: uploadId, p_lease_token: null });
-      if (error) throw internalError("Impossible de vérifier le délai de reprise du lancement.", error);
+      await stopIntakeAnalysisLaunch(supabase, uploadId, null, Boolean(aiBatch));
     }
     return null;
   }
   const client = supabase as unknown as durableIntake.DurableWorkflowRpcClient;
-  const claim = await durableIntake.claimAffaireIntakeAnalysisLaunch(client, uploadId);
+  const claim = await durableIntake.claimAffaireIntakeAnalysisLaunch(client, uploadId, Boolean(aiBatch));
   if (!claim) return null;
   await runClaim(supabase, client, claim, connection, aiBatch);
   return claim.uploadId;
@@ -526,9 +527,7 @@ async function runClaim(supabase: ReturnType<typeof createServiceRoleClient>,
       return "failed" as const;
     }
     if (claim.launch && error instanceof IntakePayerAccessLost) {
-      const stopped = await supabase.rpc("stop_affaire_intake_analysis", { p_upload_id: claim.uploadId, p_lease_token: claim.leaseToken });
-      if (stopped.error) throw new Error("Impossible de terminer le lancement interrompu.", { cause: stopped.error });
-      if (stopped.data) return "failed" as const;
+      if (await stopIntakeAnalysisLaunch(supabase, claim.uploadId, claim.leaseToken, Boolean(aiBatch))) return "failed" as const;
     }
     await durableIntake.releaseAffaireIntakeUploadAfterError({
       client: lifecycleClient,

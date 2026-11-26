@@ -41,6 +41,18 @@ async function preparePlanFixture(unsetPreferences = false) {
   return true;
 }
 
+async function fixturePlanChoice() {
+  const { selectedId, profiles } = JSON.parse(await readFile(fixtureStore!, "utf8")) as {
+    selectedId: string;
+    profiles: Array<{ id: string; clientId: string; subject: string; model: string; authorizationId?: string; idToken?: string; reasoningEffort: string | null }>;
+  };
+  const profile = profiles.find(({ id }) => id === selectedId)!;
+  const signedIn = profile.idToken ?? `${profile.clientId}:${profile.subject}`;
+  const grant = profile.authorizationId ?? `legacy:${createHash("sha256").update(`${profile.id}:${signedIn}`).digest("hex")}`;
+  return { source: "chatgpt_plan", model: profile.model, effort: profile.reasoningEffort,
+    expectedConnectionId: createHash("sha256").update(JSON.stringify([profile.id, grant])).digest("hex") };
+}
+
 beforeAll(async () => {
   serverState = await server.start();
   ({ origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, recoverySecret, decisionsControl, workspace: serverWorkspace } = serverState);
@@ -442,7 +454,7 @@ for (const active of [false, true]) test(`INTFRESH${active ? "02" : "01"} a hand
       await expect(retry).toHaveCount(0);
       const beforeRejectedRetry = (await sends()).length;
       await action("retryAffaireDocumentAnalysis", {
-        documentIds: [documentId], choice: { source: "chatgpt_plan", model: "army-plan-model", effort: null },
+        documentIds: [documentId], choice: await fixturePlanChoice(),
       });
       expect((await sends()).length).toBe(beforeRejectedRetry);
       expect((await oldPiece())?.classification_status).toBe("queued");
@@ -941,7 +953,7 @@ for (const unavailableAt of ["classification", "transcription", "lease expiry"] 
         await readFile(path.join(directory, second.file_name)), { contentType: "image/png" });
       expect(restored.error).toBeNull();
       const retry = await callServerAction(browser, await serverActionId("retryAffaireDocumentAnalysis", actionManifest()),
-        { projectId, documentIds: [second.id], choice: { source: "chatgpt_plan", model: "army-plan-model", effort: null } });
+        { projectId, documentIds: [second.id], choice: await fixturePlanChoice() });
       expect(retry).toMatchObject({ status: 200, digest: null });
       await expect.poll(async () => (await client.from("affaire_intake_document_transcriptions").select("status")
         .eq("document_id", second.id).maybeSingle()).data?.status, DEV_SERVER_WORK).toBe("completed");

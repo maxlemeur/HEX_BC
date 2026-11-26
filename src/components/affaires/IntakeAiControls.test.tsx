@@ -11,7 +11,7 @@ vi.mock("@/app/dashboard/affaires/_actions/intake", () => ({
 }));
 
 const options: IntakeAiOptions = {
-  defaultSource: "personal_api_key", keyConnectionId: "connexion-fictive", decisionsSelected: false,
+  defaultSource: "personal_api_key", planConnectionId: "a".repeat(64), keyConnectionId: "connexion-fictive", decisionsSelected: false,
   sources: {
     personal_api_key: {
       available: true, message: "Disponible",
@@ -67,5 +67,19 @@ it("shows one selection for the entire retry and explains the independent Decisi
   await user.click(dialog.getByRole("button", { name: "Démarrer la relance" }));
   expect(submit).toHaveBeenCalledExactlyOnceWith({
     source: "personal_api_key", model: "gpt-6.1-terra", effort: "low", expectedConnectionId: "connexion-fictive",
+  });
+});
+
+it("submits the displayed plan grant with the confirmed retry settings", async () => {
+  const user = userEvent.setup();
+  const submit = vi.fn();
+  vi.mocked(readAffaireIntakeAiOptions).mockResolvedValue({ ...options, defaultSource: "chatgpt_plan" });
+  render(<IntakeAnalysisRetryDialog projectId="affaire-fictive" count={1} onClose={vi.fn()} onSubmit={submit} />);
+  const dialog = within(await screen.findByRole("dialog", { name: "Relancer l’analyse" }));
+  await dialog.findByLabelText("Source de l’IA");
+  await user.selectOptions(dialog.getByLabelText("Effort de raisonnement"), "high");
+  await user.click(dialog.getByRole("button", { name: "Démarrer la relance" }));
+  expect(submit).toHaveBeenCalledExactlyOnceWith({
+    source: "chatgpt_plan", model: "gpt-6.2-sol", effort: "high", expectedConnectionId: options.planConnectionId,
   });
 });

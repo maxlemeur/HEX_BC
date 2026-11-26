@@ -1,12 +1,13 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { ApiKeyError, isApiKeyError } from "@/lib/ai/access/api-key-errors";
 import { openAiApiKeyAccess, type ApiKeyStructuredFile, type PreparedApiKeyCall } from "@/lib/ai/access/openai-api";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
 import { chatGptPreferencesSchema, type ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
-import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
+import type { ChatGptConnection, ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import { readAiRequestOptions, resolveAiRequest } from "@/lib/ai/request-settings-server";
 import type { StructuredCallOptions } from "@/lib/ai/structured-call";
@@ -43,10 +44,14 @@ export class IntakeAiBudgetStopped extends Error {
   constructor(message = INTAKE_AI_BUDGET_STOP) { super(message); }
 }
 
+function planGrantId(connection: ChatGptConnection) {
+  return createHash("sha256").update(JSON.stringify([connection.profileId, connection.authorizationId])).digest("hex");
+}
+
 export async function readIntakeAiOptions(owner: ChatGptOwner): Promise<IntakeAiOptions> {
-  const [{ defaultSource, options }, plan] = await Promise.all([
-    readAiRequestOptions(owner, policy), readSelectedIntakePlanConnection(owner),
-  ]);
+  const plan = await readSelectedIntakePlanConnection(owner);
+  const displayedOwner = plan ? { ...owner, connection: plan } : owner;
+  const { defaultSource, options } = await readAiRequestOptions(displayedOwner, policy);
   const key = options.personal_api_key;
   const planOption = options.chatgpt_plan;
   return {
@@ -59,6 +64,7 @@ export async function readIntakeAiOptions(owner: ChatGptOwner): Promise<IntakeAi
         ? { available: true, message: key.message, models: key.models, preferences: key.preferences }
         : { available: false, message: key?.message ?? "" },
     },
+    planConnectionId: planOption?.ok && plan ? planGrantId(plan) : null,
     keyConnectionId: key?.ok ? key.connection?.id ?? null : null,
     decisionsSelected: isIntakeDecisionsSelected(),
   };
@@ -68,16 +74,27 @@ export async function resolveIntakeAiSelection(owner: ChatGptOwner, choice: Inta
   if (choice.source === "rules_only") return choice;
   // Pin the plan grant before resolving its available model options. A later
   // credential change leaves the recorded grant unavailable on this host.
+  const { expectedConnectionId, ...settings } = choice;
   const planConnection = choice.source === "chatgpt_plan" ? await readSelectedIntakePlanConnection(owner) : null;
-  if (choice.source === "chatgpt_plan" && !planConnection) throw badRequest("Reconnectez votre forfait ChatGPT dans Mon profil.");
-  const resolved = await resolveAiRequest(planConnection ? { ...owner, connection: planConnection } : owner, policy, choice);
+  if (choice.source === "chatgpt_plan" && (!planConnection || planGrantId(planConnection) !== expectedConnectionId)) {
+    throw badRequest("Le forfait ChatGPT affiché a changé. Rechargez les réglages avant de lancer l’analyse.");
+  }
+  const selectedOwner = planConnection ? { ...owner, connection: planConnection } : owner;
+  const resolved = await resolveAiRequest(selectedOwner, policy,
+    choice.source === "personal_api_key" ? choice : settings);
   if (!resolved.ok) throw badRequest(resolved.message);
   const connection = resolved.source === "personal_api_key" ? resolved.connection : planConnection;
   return selectionSchema.parse({ source: resolved.source, preferences: resolved.preferences, connection });
 }
 
-export async function readIntakeAiBatch(service: Service, batchId: string) {
-  const { data, error } = await service.rpc("read_affaire_intake_ai_batch", { p_batch_id: batchId });
+export type IntakeAiBatchScope = { tenantId: string; projectId: string; payerId: string };
+
+export function intakeAiScopeArgs(scope: IntakeAiBatchScope) {
+  return { p_tenant_id: scope.tenantId, p_project_id: scope.projectId, p_payer_id: scope.payerId };
+}
+
+export async function readIntakeAiBatch(service: Service, batchId: string, scope: IntakeAiBatchScope) {
+  const { data, error } = await service.rpc("read_affaire_intake_ai_batch", { ...intakeAiScopeArgs(scope), p_batch_id: batchId });
   if (error) throw internalError("Impossible de lire les réglages IA du lot.", error);
   return batchSchema.nullable().parse(data);
 }
@@ -117,6 +134,8 @@ function apiInput<T>(options: StructuredCallOptions<T>) {
 export function createIntakeAiRunner(service: Service, batch: IntakeAiBatch, leaseToken: string | null) {
   const { selection } = batch;
   const owner = { userId: batch.payer_id, tenantId: batch.tenant_id };
+  const scope = { tenantId: batch.tenant_id, projectId: batch.project_id, payerId: batch.payer_id };
+  const reservationArgs = { ...intakeAiScopeArgs(scope), p_batch_id: batch.id, p_lease_token: leaseToken };
   return {
     source: selection.source,
     async run<T>(stage: Stage, options: StructuredCallOptions<T>): Promise<{ data: T; receipt: IntakePersonalAiReceipt }> {
@@ -131,12 +150,12 @@ export function createIntakeAiRunner(service: Service, batch: IntakeAiBatch, lea
         return { data: answer.data, receipt: { source: selection.source, model: answer.model, reasoningEffort: answer.reasoningEffort } };
       }
 
-      const latest = await readIntakeAiBatch(service, batch.id);
+      const latest = await readIntakeAiBatch(service, batch.id, scope);
       if (!latest || latest.finished_at) throw new IntakeAiLedgerError("Ce lot IA n’est plus disponible.");
       if (latest.budget_stop_message) throw new IntakeAiBudgetStopped(latest.budget_stop_message);
       const reserve = async (bound: number | null) => {
         const { data, error } = await service.rpc("reserve_affaire_intake_ai_call", {
-          p_batch_id: batch.id, p_lease_token: leaseToken, p_stage: stage, p_model: model, p_effort: reasoningEffort, p_bound: bound,
+          ...reservationArgs, p_stage: stage, p_model: model, p_effort: reasoningEffort, p_bound: bound,
         });
         if (error?.message === "INTAKE_LEASE_LOST") throw new AffaireIntakeLeaseUnavailableError(batch.id);
         if (error?.message === "INTAKE_LAUNCH_FORBIDDEN") throw new IntakePayerAccessLost();
@@ -180,7 +199,7 @@ export function createIntakeAiRunner(service: Service, batch: IntakeAiBatch, lea
         });
         if (!callId) throw new IntakeAiLedgerError("Réservation IA manquante.");
         const { error } = await service.rpc("settle_affaire_intake_ai_call", {
-          p_call_id: callId, p_model: answer.model, p_cost: answer.costNanoUsd,
+          ...reservationArgs, p_call_id: callId, p_model: answer.model, p_cost: answer.costNanoUsd,
         });
         if (error) throw new IntakeAiLedgerError("Impossible d’enregistrer le reçu IA.", { cause: error });
         if (answer.schemaError) throw answer.schemaError;

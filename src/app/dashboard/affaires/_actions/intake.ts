@@ -1,7 +1,7 @@
 "use server";
 
 import { after } from "next/server";
-import { createIntakeAiRunner, readIntakeAiBatch, readIntakeAiOptions, resolveIntakeAiSelection, IntakeAiBudgetStopped } from "@/lib/affaires/intake-ai-server";
+import { createIntakeAiRunner, intakeAiScopeArgs, readIntakeAiBatch, readIntakeAiOptions, resolveIntakeAiSelection, IntakeAiBudgetStopped } from "@/lib/affaires/intake-ai-server";
 import { intakeAiChoiceSchema, type IntakeAiChoice } from "@/lib/affaires/intake-ai-settings";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { buildIntakeAnalysisFeedback, type IntakeAnalysisAttempt } from "@/lib/affaires/intake-analysis-feedback";
@@ -119,7 +119,10 @@ export async function launchAffaireIntakeAnalysis(projectId: string, choice: Int
     if (result.outcome === "nothing_waiting") return { message: "Aucune pièce n’attend son lancement." };
     if (result.outcome === "already_running") return { message: "Une analyse du dossier est déjà en cours." };
     after(async () => {
-      try { await processAffaireIntakeAnalysisLaunch(result.batch_id, null); }
+      try {
+        await processAffaireIntakeAnalysisLaunch(result.batch_id, null,
+          { projectId: project.id, tenantId: context.tenantId, payerId: context.userId });
+      }
       catch { console.error("La reprise du lancement intake est nécessaire.", { launchId: result.batch_id }); }
     });
     revalidatePath(`/dashboard/affaires/${project.id}`);
@@ -146,8 +149,9 @@ export async function reclassifyAffaireDocument(
 
 export async function readAffaireIntakeRetryStatus(projectId: string, batchId: string) {
   const { context, project } = await requireAffaireAccess(z.uuid().parse(projectId), "write");
-  const batch = await readIntakeAiBatch(createServiceRoleClient(), z.uuid().parse(batchId));
-  if (!batch || batch.launch_id || batch.project_id !== project.id || batch.payer_id !== context.userId || batch.tenant_id !== context.tenantId) {
+  const batch = await readIntakeAiBatch(createServiceRoleClient(), z.uuid().parse(batchId),
+    { projectId: project.id, tenantId: context.tenantId, payerId: context.userId });
+  if (!batch || batch.launch_id) {
     return { finished: true, message: null };
   }
   return { finished: Boolean(batch.finished_at), message: batch.budget_stop_message };
@@ -180,9 +184,10 @@ export async function retryAffaireDocumentAnalysis(input: {
     throw error;
   }
 
+  const scope = { projectId: project.id, tenantId: context.tenantId, payerId: context.userId };
   const readBatch = async () => {
-    const batch = await readIntakeAiBatch(service, batchId);
-    if (!batch || batch.launch_id || batch.payer_id !== context.userId || batch.tenant_id !== context.tenantId || batch.project_id !== project.id) {
+    const batch = await readIntakeAiBatch(service, batchId, scope);
+    if (!batch || batch.launch_id) {
       throw internalError("Impossible de vérifier le lot de relance.");
     }
     if (batch.budget_stop_message) throw new IntakeAiBudgetStopped(batch.budget_stop_message);
@@ -222,7 +227,7 @@ export async function retryAffaireDocumentAnalysis(input: {
   }
   const hasDeferred = Boolean(deferred.length || (!stopped && uploadId));
   const finish = async () => {
-    const { error } = await service.rpc("finish_affaire_intake_ai_retry", { p_batch_id: batchId });
+    const { error } = await service.rpc("finish_affaire_intake_ai_retry", { ...intakeAiScopeArgs(scope), p_batch_id: batchId });
     if (error) console.error("Impossible de clôturer le lot de relance.", { batchId });
   };
   if (hasDeferred) {

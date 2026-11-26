@@ -17,6 +17,7 @@ vi.mock("@/lib/ai/chatgpt-workflow-owner", () => ({
 const owner = { userId: "e933b17e-e613-401b-93a0-068dfa72aa1f", tenantId: "5587dd1d-75c4-4fb5-a246-d3c7bed177f8" };
 const id = "56f99d58-60b0-45f0-a9a4-d6303b834855";
 const key = { id: "fictional-key-grant", version: 4 };
+const scope = { projectId: id, payerId: owner.userId, tenantId: owner.tenantId };
 const preferences = { model: "gpt-6.2-sol", reasoningEffort: "medium" } as const;
 const batch: IntakeAiBatch = {
   id, launch_id: id, project_id: id, tenant_id: owner.tenantId, payer_id: owner.userId,
@@ -69,7 +70,7 @@ describe("recorded intake requests", () => {
     await expect(runner.run("classification", { ...options, files: [{ mimeType: "text/plain", data: Buffer.from("Extrait fictif").toString("base64") }] }))
       .resolves.toMatchObject({ receipt: { source: "personal_api_key", model: "modèle-retourné", reasoningEffort: "medium" } });
     await runner.run("classification", options);
-    const resumed = createIntakeAiRunner(service, (await readIntakeAiBatch(service, id))!, "second");
+    const resumed = createIntakeAiRunner(service, (await readIntakeAiBatch(service, id, scope))!, "second");
     await resumed.run("transcription", options);
     await expect(resumed.run("brief", options)).rejects.toBeInstanceOf(IntakeAiBudgetStopped);
     await expect(resumed.run("classification", options)).rejects.toThrow("Lot interrompu.");
@@ -104,7 +105,7 @@ it("a resumed worker closes a stopped launch using its recorded balance and noti
   const message = new IntakeAiBudgetStopped().message;
   const rpc = vi.fn(async (name: string) => {
     if (name === "read_affaire_intake_ai_batch") return { data: { ...batch, budget_stop_message: message }, error: null };
-    if (name === "claim_affaire_intake_analysis_launch") return { data: [{ upload_id: id, project_id: id,
+    if (name === "claim_affaire_intake_analysis_launch_v2") return { data: [{ upload_id: id, project_id: id,
       payer_id: owner.userId, tenant_id: owner.tenantId, read_scans: true, attempt_count: 2 }], error: null };
     if (["renew_affaire_intake_upload_lease", "intake_payer_can_write", "finish_affaire_intake_upload_attempt"].includes(name)) {
       return { data: true, error: null };
@@ -113,7 +114,7 @@ it("a resumed worker closes a stopped launch using its recorded balance and noti
   });
   const from = vi.fn();
   vi.mocked(createServiceRoleClient).mockReturnValue({ rpc, from } as never);
-  await expect(processAffaireIntakeAnalysisLaunch(id, null)).resolves.toBe(id);
+  await expect(processAffaireIntakeAnalysisLaunch(id, null, scope)).resolves.toBe(id);
   expect(rpc).toHaveBeenLastCalledWith("finish_affaire_intake_upload_attempt", expect.objectContaining({
     p_upload_id: id, p_status: "failed", p_last_error: message,
   }));

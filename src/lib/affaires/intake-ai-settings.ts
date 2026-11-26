@@ -10,7 +10,7 @@ const modelAndEffort = {
 
 export const intakeAiChoiceSchema = z.discriminatedUnion("source", [
   z.object({ source: z.literal("rules_only") }).strict(),
-  z.object({ source: z.literal("chatgpt_plan"), ...modelAndEffort }).strict(),
+  z.object({ source: z.literal("chatgpt_plan"), ...modelAndEffort, expectedConnectionId: z.string().regex(/^[0-9a-f]{64}$/) }).strict(),
   z.object({ source: z.literal("personal_api_key"), ...modelAndEffort, expectedConnectionId: z.string().min(1).max(200) }).strict(),
 ]);
 
@@ -19,6 +19,7 @@ export type IntakeAiOptions = {
   defaultSource: AiBillingSource | null;
   sources: AiRequestSourceOptions;
   keyConnectionId: string | null;
+  planConnectionId: string | null;
   decisionsSelected: boolean;
 };
 export type IntakePersonalAiReceipt = { source: AiBillingSource; model: string; reasoningEffort: z.infer<typeof chatGptReasoningEffortSchema> | null };
