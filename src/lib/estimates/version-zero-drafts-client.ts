@@ -1,6 +1,8 @@
 import { getRootPayload } from "@/lib/estimates/client-json";
 import { requestJson } from "@/lib/estimates/client-requests";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
+import type { EstimateDraftAiRequest } from "@/lib/estimates/schemas";
+import type { VersionZeroLineOrigin } from "@/lib/estimates/version-zero-utils";
 import { isRecord } from "@/lib/value-guards";
 
 type VersionZeroDraftCounts = NonNullable<
@@ -25,6 +27,7 @@ export type VersionZeroReviewLine = {
   lotId: string;
   order: number;
   reviewStatus: VersionZeroLineReviewStatus;
+  generationOrigin: VersionZeroLineOrigin | null;
   confidence: number;
   confidenceLabel: "elevee" | "moyenne" | "faible";
   proposed: {
@@ -125,7 +128,8 @@ export async function generateVersionZeroDraft(
   input: {
     briefId?: string | null;
     selectedLots?: string[];
-  } = {}
+    ai: EstimateDraftAiRequest;
+  }
 ): Promise<VersionZeroReview> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/version-zero-drafts`,
@@ -137,6 +141,7 @@ export async function generateVersionZeroDraft(
       body: JSON.stringify({
         briefId: input.briefId ?? null,
         selectedLots: input.selectedLots ?? [],
+        ai: input.ai,
       }),
     },
     "Impossible de générer la V0."

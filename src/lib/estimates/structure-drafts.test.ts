@@ -781,7 +781,7 @@ describe("generateEstimateStructureDraft", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(
-      generateEstimateStructureDraft(VERSION_ID, { strategy: "hybrid" })
+      generateEstimateStructureDraft(VERSION_ID, { strategy: "hybrid", ai: { source: "fallback" } })
     ).rejects.toMatchObject({
       code: "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED",
       status: 409,

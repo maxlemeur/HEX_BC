@@ -1,3 +1,9 @@
+export type VersionZeroLineOrigin = "model" | "brief";
+
+export function readVersionZeroLineOrigin(value: unknown): VersionZeroLineOrigin | null {
+  return value === "model" || value === "brief" ? value : null;
+}
+
 export function normalizeVersionZeroLotKey(value: string) {
   return (
     value

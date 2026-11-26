@@ -284,7 +284,7 @@ const RULES: Array<{ rule: string; entryPoints: EntryPoint[]; active: Expected; 
       { name: "fetchVersionZeroDraftSummary", call: () => fetchVersionZeroDraftSummary({ versionId: VERSION_ID }) },
       {
         name: "generateVersionZeroDraft",
-        call: () => generateVersionZeroDraft({ versionId: VERSION_ID }),
+        call: () => generateVersionZeroDraft({ versionId: VERSION_ID, ai: { source: "fallback" } }),
         afterAccess: [ENGINE_3_UNAVAILABLE],
         refusedBefore: WRITERS_ONLY,
       },

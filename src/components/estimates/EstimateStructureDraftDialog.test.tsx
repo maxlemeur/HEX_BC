@@ -3,15 +3,17 @@ import userEvent from "@testing-library/user-event";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 vi.mock("@/lib/estimates/structure-drafts-client", () => ({
-  fetchEstimateStructureDraft: vi.fn(),
   generateEstimateStructureDraft: vi.fn(),
 }));
 
+vi.mock("@/app/dashboard/estimates/_actions/draft-ai-settings", () => ({
+  loadEstimateDraftAiOptions: vi.fn(),
+}));
+
+import { loadEstimateDraftAiOptions } from "@/app/dashboard/estimates/_actions/draft-ai-settings";
+import { offeredOpenAiModels } from "@/lib/ai/access/openai-pricing";
 import { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
-import {
-  fetchEstimateStructureDraft,
-  generateEstimateStructureDraft,
-} from "@/lib/estimates/structure-drafts-client";
+import { generateEstimateStructureDraft } from "@/lib/estimates/structure-drafts-client";
 
 const draftFixture = {
   draftId: "draft-1",
@@ -97,7 +99,19 @@ const draftFixture = {
 describe("EstimateStructureDraftDialog", () => {
   beforeEach(() => {
     vi.mocked(generateEstimateStructureDraft).mockResolvedValue(draftFixture);
-    vi.mocked(fetchEstimateStructureDraft).mockResolvedValue(draftFixture);
+    vi.mocked(loadEstimateDraftAiOptions).mockResolvedValue({
+      defaultSource: "personal_api_key",
+      keyConnectionId: "key-connection-1",
+      sources: {
+        personal_api_key: {
+          available: true,
+          message: "Clé disponible",
+          models: offeredOpenAiModels(new Set(["gpt-6.1-terra"])),
+          preferences: { model: "gpt-6.1-terra", reasoningEffort: "high" },
+        },
+        chatgpt_plan: { available: false, message: "Forfait indisponible", models: [], preferences: null },
+      },
+    });
   });
 
   afterEach(() => {
@@ -105,7 +119,7 @@ describe("EstimateStructureDraftDialog", () => {
     vi.clearAllMocks();
   });
 
-  it("allows applying when a skipped parent contains descendants still marked for merge", async () => {
+  it("prefills the payer and starts on click, then allows applying descendants of a skipped parent", async () => {
     const user = userEvent.setup();
     const mergedChildDraft = {
       ...draftFixture,
@@ -125,7 +139,6 @@ describe("EstimateStructureDraftDialog", () => {
     };
 
     vi.mocked(generateEstimateStructureDraft).mockResolvedValueOnce(mergedChildDraft);
-    vi.mocked(fetchEstimateStructureDraft).mockResolvedValueOnce(mergedChildDraft);
 
     render(
       <EstimateStructureDraftDialog
@@ -153,6 +166,17 @@ describe("EstimateStructureDraftDialog", () => {
       />
     );
 
+    expect(await screen.findByRole("combobox", { name: "Source d’IA" })).toHaveValue("personal_api_key");
+    expect(screen.getByRole("combobox", { name: "Modèle" })).toHaveValue("gpt-6.1-terra");
+    expect(screen.getByRole("combobox", { name: /raisonnement/i })).toHaveValue("high");
+    expect(screen.getByText(/1,00.*US au plus par demande/)).toBeVisible();
+    expect(generateEstimateStructureDraft).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Générer l’aperçu" }));
+    expect(generateEstimateStructureDraft).toHaveBeenCalledWith("version-1", {
+      strategy: "hybrid",
+      ai: { source: "personal_api_key", model: "gpt-6.1-terra", effort: "high", expectedConnectionId: "key-connection-1" },
+    });
     await screen.findByText("Provenance utilisée");
     await user.click(screen.getByRole("button", { name: "Continuer" }));
     await screen.findByText("Lots à retenir");

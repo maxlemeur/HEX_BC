@@ -51,6 +51,7 @@ import {
 import {
   applyEstimateStructureDraftSchema,
   duplicateEstimateSectionSchema,
+  ESTIMATE_DRAFT_AI_CHOICE_REQUIRED,
   generateEstimateStructureDraftSchema,
   generateVersionZeroDraftSchema,
   importEstimateSectionsSchema,
@@ -318,6 +319,9 @@ const portalAndProcurementContracts: RouteContract[] = [
   },
 ];
 
+const estimateDraftAiChoiceErrorDescription =
+  `Une requête autrement valide sans le champ ai reçoit un HTTP 400 avec le code ${ESTIMATE_DRAFT_AI_CHOICE_REQUIRED.code} et le message « ${ESTIMATE_DRAFT_AI_CHOICE_REQUIRED.message} ».`;
+
 const estimateWorkflowContracts: RouteContract[] = [
   {
     id: "get-estimate-approval-journal",
@@ -470,7 +474,7 @@ const estimateWorkflowContracts: RouteContract[] = [
     description: "Produit un brouillon de structure hybride depuis les sources disponibles.",
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
-    body: { schema: generateEstimateStructureDraftSchema, description: "Strategie de generation." },
+    body: { schema: generateEstimateStructureDraftSchema, description: `Stratégie et choix IA. Une génération avec la clé personnelle est plafonnée à 1 USD. ${estimateDraftAiChoiceErrorDescription}` },
     success: [{ status: "201", description: "Brouillon de structure genere." }],
   },
   {
@@ -516,7 +520,7 @@ const estimateWorkflowContracts: RouteContract[] = [
     description: "Genere un brouillon IA a revoir pour les lots selectionnes.",
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
-    body: { schema: generateVersionZeroDraftSchema, description: "Brief et lots selectionnes." },
+    body: { schema: generateVersionZeroDraftSchema, description: `Brief, lots et choix IA. La structure et les lignes partagent le plafond de 1 USD avec la clé personnelle. ${estimateDraftAiChoiceErrorDescription}` },
     success: [{ status: "201", description: "Brouillon version zero genere." }],
   },
   {
