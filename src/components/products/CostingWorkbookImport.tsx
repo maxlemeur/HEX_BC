@@ -765,10 +765,11 @@ export function CostingWorkbookImport({
               ) : null}
             </TabsContent>
             <TabsContent value="supplier-references">
-              {supplierReport ? (
+              {supplierReport && originalRows ? (
                 <SupplierReferenceReview
                   report={supplierReport}
                   rows={rows}
+                  originalRows={originalRows}
                   review={supplierReview}
                   onReviewChange={setSupplierReview}
                   dismissed={dismissed}
