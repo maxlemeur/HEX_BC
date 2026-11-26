@@ -7,6 +7,8 @@
   },
   "scripts": {
     "dev": "node scripts/dev-local.mjs",
+    "dev:prod": "node scripts/dev-local.mjs --supabase=production",
+    "dev:prod:full": "node scripts/dev-local.mjs --supabase=production-full",
     "dev:chatgpt": "node scripts/dev-chatgpt-local.mjs",
     "dev:army": "node --import tsx scripts/run-tester-army-ci.ts dev",
     "build:compile": "node scripts/next-build.mjs --webpack",
@@ -24,6 +26,7 @@
     "e2e:army:performance:navigation": "node scripts/run-tester-army.mjs performance-navigation",
     "e2e:army:performance:navigation:live": "node scripts/run-tester-army.mjs performance-navigation-live",
     "e2e:army:performance:affaire": "node scripts/run-tester-army.mjs performance-affaire",
+    "supabase:local": "node --import tsx scripts/run-local-dev-supabase.ts",
     "supabase:validate": "node --import tsx scripts/validate-supabase-migrations.ts",
     "supabase:manifest:add": "node --import tsx scripts/add-supabase-migrations-to-manifest.ts",
     "supabase:migrations:git-guard": "node --import tsx scripts/guard-supabase-migrations.ts",

@@ -107,3 +107,12 @@ describe("published catalogue review contracts", () => {
       .toBe("#/components/schemas/ApiCostingWorkbookSuggestions");
   });
 });
+
+describe("published material request analysis contract", () => {
+  it("documents the profile condition and the reload refusal for requests without an explicit source", () => {
+    const analysis = published.paths["/api/affaires/{projectId}/material-requests/{requestId}/files/{fileId}/analysis"].post;
+    expect(analysis.requestBody.description).toContain("si le profil désigne le forfait ChatGPT");
+    expect(analysis.responses["409"].description).toContain("Rechargez la demande");
+    expect(analysis.responses["409"].description).toContain("profil ne peut pas être lu");
+  });
+});

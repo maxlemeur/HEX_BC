@@ -7,6 +7,7 @@ import { expect } from "e2e";
 
 import { COSTING_WORKBOOK_SHEET } from "@/lib/catalogue/costing-workbook";
 import type { CostingWorkbookImportReport, CostingWorkbookSupplierReferenceReport } from "@/lib/catalogue/costing-workbook-contract";
+import type { CatalogueImportBatchPage } from "@/lib/catalogue/import-review-contract";
 
 import { apiRequest, armyTest, recordEvidence } from "./fixtures";
 
@@ -170,6 +171,8 @@ armyTest(
       fileInput.setInputFiles(workbookPath),
     ]);
     expect(previewResponse.status).toBe(200);
+    await expect(importPage.getByRole("combobox", "Propositions", { exact: true })).toHaveValue("");
+    await expect(importPage.getByText(/^Source par défaut indisponible : /)).toBeVisible();
     const unitIssue = { row: 5, reference: valveRef, message: "Unité absente : « u » retenue." };
     const expectedPreview: CostingWorkbookImportReport = {
       confirmed: false, articles: 4, new_articles: 3, already_in_catalogue: 1, without_supply_type: withoutSupplyType,
@@ -205,6 +208,12 @@ armyTest(
 
     const draftTable = importPage.getByRole("table", "Articles proposés en brouillon", { exact: true });
     const draftSearch = importPage.getByRole("searchbox", "Rechercher un article proposé", { exact: true });
+    await expect(draftTable.getByRole("row")).toHaveCount(4);
+    const priceFilter = importPage.getByRole("button", "Sans prix (0 €) · 1", { exact: true });
+    await priceFilter.tap();
+    await expect(priceFilter).toHaveAttribute("aria-pressed", "true");
+    await expect(draftTable.getByRole("row")).toHaveCount(2);
+    await priceFilter.tap();
     await expect(draftTable.getByRole("row")).toHaveCount(4);
     await draftSearch.fill("van.r.15");
     await expect(draftTable.getByText(valveRef, { exact: true })).toBeVisible();
@@ -862,6 +871,21 @@ armyTest(
     };
     await undo("références", "1 référence, dont 1 à vérifier", /^Import annulé : 1 référence supprimée\./);
     expect(await itemsOf(draft.id)).toEqual([]);
+
+    // Nine reference imports and the import just undone place the draft batch beyond the first page.
+    for (let index = 0; index < 9; index += 1) {
+      await anotherPendingReference(`NL-OLDER-${index}`);
+    }
+    await browser.goto("/dashboard/products/import-workbook", { waitUntil: "domcontentloaded" });
+    const batchRequest = await apiRequest<Envelope<CatalogueImportBatchPage>>(browser, "GET", "/api/catalogue/import-batches");
+    expect(batchRequest.status).toBe(200);
+    expect(batchRequest.body.data.items).toHaveLength(10);
+    expect(batchRequest.body.data.next_cursor).toBeTruthy();
+    const olderDraft = imports.getByRole("listitem").filter({ hasText: "bible-lumen.xlsx" }).filter({ hasText: "1 article, dont 1 encore en brouillon" });
+    await expect(olderDraft).toBeHidden();
+    const loadOlder = screen.getByRole("button", "Afficher les imports plus anciens", { exact: true });
+    await loadOlder.tap();
+    await expect(olderDraft).toBeVisible({ timeout: 30_000 });
     await undo("articles", "1 article, dont 1 encore en brouillon", /^Import annulé : 1 brouillon supprimé\./);
     expect(await cataloguePage(browser, draftRef, "draft")).toEqual([]);
     expect(await itemsOf(productId)).toMatchObject([{ supplier_sku: "NL-40", reference_needs_review: false, is_active: true }]);
@@ -869,6 +893,7 @@ armyTest(
     await recordEvidence(army, "catalogue-workbook-review-together", {
       source: { sha256: createHash("sha256").update(bytes).digest("hex"), rows: sheetRows.length },
       productId, supplierId, rememberedName: workbookName, checkedTogether: 2, undone: { references: 1, drafts: 1 },
+      olderDraft: { firstPageSize: batchRequest.body.data.items.length, reachedWithPagination: true },
       sameCountReplacement: { removedId: removed.id, newId: replacement.id, staleStatus: 409 },
     });
   },

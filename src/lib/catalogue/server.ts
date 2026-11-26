@@ -1617,7 +1617,7 @@ export async function updateSupplierCatalogItem(
     p_product_url: input.product_url,
   });
 
-  if (error) {
+  if (error && error.code !== "P0002") {
     throw mapSupabaseError(
       error,
       "Impossible de mettre à jour la fiche article-fournisseur.",
@@ -1625,7 +1625,7 @@ export async function updateSupplierCatalogItem(
   }
 
   const row = asRecord(data);
-  if (!row) {
+  if (error || !row) {
     throw notFound("Fiche article-fournisseur introuvable.");
   }
 

@@ -127,9 +127,11 @@ function createSuppliersSupabase(options: {
       const listBuilder = {
         eq: vi.fn(() => listBuilder),
         maybeSingle: vi.fn(async () => ({ data: options.readableRow ?? null, error: null })),
-        order: vi.fn(async () => options.listResult ?? {
+        order: vi.fn(() => listBuilder),
+        range: vi.fn(async () => options.listResult ?? {
           data: [{ id: SUPPLIER_ID, ...VALID_SUPPLIER }],
           error: null,
+          count: 1,
         }),
       };
 
@@ -279,29 +281,57 @@ describe("/api/suppliers", () => {
     });
   });
 
-  it("scopes the workbook directory to the active tenant for a member of two tenants", async () => {
+  describe("a member of two tenants", () => {
     const otherTenant = "33333333-3333-4333-8333-333333333334";
     const otherSupplier = "22222222-2222-4222-8222-222222222223";
-    const fake = createFakeSupabase({
-      userId: USER_ID,
-      tables: {
-        tenant_memberships: [
-          fakeMembership(USER_ID, TENANT_ID, "admin"),
-          { ...fakeMembership(USER_ID, otherTenant, "admin"), is_default: false },
-        ],
-        suppliers: [
-          { id: SUPPLIER_ID, tenant_id: TENANT_ID, name: "Atlas", is_active: true },
-          { id: otherSupplier, tenant_id: otherTenant, name: "Atlas", is_active: true },
-        ],
-      },
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(fake.supabase as never);
+    const archivedSupplier = "22222222-2222-4222-8222-222222222224";
 
-    const scoped = await GET(new Request("http://localhost/api/suppliers?scope=active"));
-    const general = await GET(new Request("http://localhost/api/suppliers"));
-    expect(scoped.status).toBe(200);
-    expect((await scoped.json()).data.items.map(({ id }: { id: string }) => id)).toEqual([SUPPLIER_ID]);
-    expect((await general.json()).data.items.map(({ id }: { id: string }) => id)).toEqual([SUPPLIER_ID, otherSupplier]);
+    beforeEach(() => {
+      const fake = createFakeSupabase({
+        userId: USER_ID,
+        tables: {
+          tenant_memberships: [
+            { ...fakeMembership(USER_ID, otherTenant, "admin"), id: "membership-other", is_default: false },
+            fakeMembership(USER_ID, TENANT_ID, "admin"),
+          ],
+          suppliers: [
+            { id: SUPPLIER_ID, tenant_id: TENANT_ID, name: "Atlas", is_active: true },
+            { id: otherSupplier, tenant_id: otherTenant, name: "Atlas", is_active: true },
+            { id: archivedSupplier, tenant_id: TENANT_ID, name: "Zéphyr", is_active: false },
+          ],
+          purchase_orders: [
+            { id: "order-1", tenant_id: TENANT_ID, supplier_id: SUPPLIER_ID },
+            { id: "order-2", tenant_id: otherTenant, supplier_id: otherSupplier },
+            { id: "order-3", tenant_id: otherTenant, supplier_id: SUPPLIER_ID },
+          ],
+        },
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(fake.supabase as never);
+    });
+
+    it.each(["", "?scope=active"])("lists only active suppliers of the active tenant (%s)", async (query) => {
+      const response = await GET(new Request(`http://localhost/api/suppliers${query}`));
+
+      expect(response.status).toBe(200);
+      expect((await response.json()).data.items).toEqual([expect.objectContaining({ id: SUPPLIER_ID })]);
+    });
+
+    it("counts usage in the active tenant and accepts its archived suppliers", async () => {
+      const used = await GET(new Request(`http://localhost/api/suppliers?view=usage&id=${SUPPLIER_ID}`));
+      const archived = await GET(new Request(`http://localhost/api/suppliers?view=usage&id=${archivedSupplier}`));
+
+      expect(used.status).toBe(200);
+      expect((await used.json()).data.linked_orders_count).toBe(1);
+      expect(archived.status).toBe(200);
+      expect((await archived.json()).data.linked_orders_count).toBe(0);
+    });
+
+    it.each([otherSupplier, "22222222-2222-4222-8222-222222222225"])("returns 404 for usage of an out-of-scope supplier (%s)", async (id) => {
+      const response = await GET(new Request(`http://localhost/api/suppliers?view=usage&id=${id}`));
+
+      expect(response.status).toBe(404);
+      expect((await response.json()).error.message).toBe("Fournisseur introuvable.");
+    });
   });
 
   it("POST does not report success when an archive affects no row", async () => {

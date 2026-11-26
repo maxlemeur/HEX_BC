@@ -602,6 +602,22 @@ describe("suppliers of an article", () => {
     expect(refused.status).toBe(403);
     expect(refused.error?.message).toMatch(/base commune/);
   });
+
+  it.each([
+    ["P0002", "SUPPLIER_CATALOG_ITEM_PRODUCT_NOT_FOUND", 404, "Article introuvable."],
+    ["P0002", "SUPPLIER_CATALOG_ITEM_SUPPLIER_NOT_FOUND", 404, "Fournisseur introuvable."],
+    ["40001", "SUPPLIER_CATALOG_ITEM_SAVE_RETRY", 409, "L’enregistrement de la référence fournisseur a rencontré un conflit. Réessayez."],
+  ])("translates a save refusal %s (%s) after the preliminary reads", async (code, message, status, expectedMessage) => {
+    const fake = seed(ADMIN, "admin", {
+      rpc: { save_supplier_catalog_item: () => ({ data: null, error: { code, message } }) },
+    });
+
+    const refused = await save(ELBOW, { supplier_id: NAMED_SUPPLIER, supplier_sku: "NOM-1" });
+
+    expect(fake.rpcCalls).toContain("save_supplier_catalog_item");
+    expect(refused.status).toBe(status);
+    expect(refused.error?.message).toBe(expectedMessage);
+  });
 });
 
 describe("supplier exception of an article", () => {

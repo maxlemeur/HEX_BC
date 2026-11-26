@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 
-const localConfigFile = ".env.supabase.local";
+const defaultSettingsFile = {
+  local: ".env.supabase.local",
+  production: ".env.local",
+  "production-full": ".env.supabase.production.local",
+};
 const developmentFiles = [".env.development.local", ".env.local", ".env.development", ".env"];
+const productionFiles = [defaultSettingsFile.production, ".env"];
+const modes = Object.keys(defaultSettingsFile);
 
 function readConfig(file) {
   try {
@@ -24,8 +30,8 @@ export function isLoopback(host) {
 export function parseDevArguments(args) {
   const modeArgs = args.filter((arg) => arg === "--supabase" || arg.startsWith("--supabase="));
   const mode = modeArgs[0]?.slice("--supabase=".length) ?? "local";
-  if (modeArgs.length > 1 || (mode !== "local" && mode !== "production")) {
-    throw new Error("Select one Supabase target with --supabase=local or --supabase=production.");
+  if (modeArgs.length > 1 || !modes.includes(mode)) {
+    throw new Error("Select one Supabase target with --supabase=local, --supabase=production or --supabase=production-full.");
   }
   const forwarded = args.filter((arg) => !modeArgs.includes(arg));
   const hostnames = forwarded.flatMap((arg, index) => {
@@ -38,20 +44,41 @@ export function parseDevArguments(args) {
 }
 
 function readSupabaseSettings(mode, environment) {
-  if (environment.E2E_ARMY === "1") return environment;
-  if (mode === "local") {
-    const dedicated = readConfig(localConfigFile);
-    if (dedicated) return dedicated;
+  if (mode === "production-full") {
+    return readConfig(defaultSettingsFile[mode]) ?? {};
   }
-  if (mode === "local" && hasPublicSettings(environment)) return environment;
+  if (mode === "local") {
+    if (environment.E2E_ARMY === "1") return environment;
+    const dedicated = readConfig(defaultSettingsFile[mode]);
+    if (dedicated) return dedicated;
+    if (hasPublicSettings(environment)) return environment;
+  }
   // Keep the project URL and key from the same source. Production uses the
   // existing shared .env.local independently of a .env.development.local override.
-  const files = mode === "production" ? [".env.local", ".env"] : developmentFiles;
+  const files = mode === "local" ? developmentFiles : productionFiles;
   for (const file of files) {
     const config = readConfig(file);
     if (hasPublicSettings(config)) return config;
   }
   return environment;
+}
+
+export function warnIfDirectNextLoadsServiceKey() {
+  for (const file of productionFiles) {
+    let config;
+    try {
+      config = readConfig(file);
+    } catch {
+      // This advisory check must not block a launch using another file.
+      continue;
+    }
+    if (!config?.SUPABASE_SERVICE_ROLE_KEY?.trim()) continue;
+    const url = URL.parse(config.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "");
+    if (url && ["http:", "https:"].includes(url.protocol) && !isLoopback(url.hostname)) {
+      console.warn(`Direct next dev would hold production's service rights from ${file}. Move the full configuration to ${defaultSettingsFile["production-full"]}.`);
+      return;
+    }
+  }
 }
 
 function isPrivilegedKey(key) {
@@ -66,7 +93,8 @@ function isPrivilegedKey(key) {
 }
 
 export function supabaseDevEnvironment(mode, hostnames, environment) {
-  if (mode === "production" && (environment.E2E_ARMY === "1" || hostnames.some((host) => !isLoopback(host)))) {
+  const hosted = mode !== "local";
+  if (hosted && (environment.E2E_ARMY === "1" || hostnames.some((host) => !isLoopback(host)))) {
     throw new Error("Production Supabase is available only in a loopback development server outside TesterArmy.");
   }
   const config = readSupabaseSettings(mode, environment);
@@ -74,7 +102,7 @@ export function supabaseDevEnvironment(mode, hostnames, environment) {
   const key = config.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   const service = config.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
   if (!url || !key) {
-    throw new Error(`Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY together in ${mode === "local" ? localConfigFile : ".env.local"}.`);
+    throw new Error(`Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY together in ${defaultSettingsFile[mode]}.`);
   }
   let backend;
   try {
@@ -87,20 +115,24 @@ export function supabaseDevEnvironment(mode, hostnames, environment) {
     throw new Error("NEXT_PUBLIC_SUPABASE_URL must be a valid Supabase origin.");
   }
   if (mode === "local" && !isLoopback(backend.hostname)) {
-    throw new Error(`Local Supabase requires a loopback URL. Set ${localConfigFile} or explicitly select --supabase=production.`);
+    throw new Error(`Local Supabase requires a loopback URL. Set ${defaultSettingsFile.local} or explicitly select --supabase=production.`);
   }
-  if (mode === "production" && (isLoopback(backend.hostname) || backend.protocol !== "https:")) {
+  if (hosted && (isLoopback(backend.hostname) || backend.protocol !== "https:")) {
     throw new Error("Production Supabase requires a hosted HTTPS URL.");
   }
   if (isPrivilegedKey(key) || key === service) {
     throw new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY must be a public Supabase key.");
+  }
+  if (mode === "production-full" && !service) {
+    throw new Error(`Set SUPABASE_SERVICE_ROLE_KEY in ${defaultSettingsFile[mode]}.`);
   }
   return {
     MERGEONE_DEV_SUPABASE_TARGET: mode,
     NEXT_PUBLIC_SUPABASE_URL: backend.origin,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: key,
     // An empty value prevents Next from filling in a service key from the other target.
-    SUPABASE_SERVICE_ROLE_KEY: mode === "local" ? service : "",
+    SUPABASE_SERVICE_ROLE_KEY: mode === "production" ? "" : service,
     ...(mode === "production" ? { MERGEONE_CHATGPT_LOCAL: "0" } : {}),
+    ...(mode === "production-full" ? { MERGEONE_CHATGPT_LOCAL: "1" } : {}),
   };
 }

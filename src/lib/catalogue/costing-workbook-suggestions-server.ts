@@ -2,10 +2,8 @@ import "server-only";
 
 import {
   askChoiceQuestions,
-  readChoiceProviderAvailability,
+  readChoiceProviderOptions,
   type ChoiceAnswer,
-  type ChoiceProvider,
-  type ChoiceProviderAvailability,
   type ChoiceQuestion,
 } from "@/lib/ai/choice-questions";
 import { getAuthenticatedTenantContext, type AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
@@ -13,6 +11,7 @@ import { canAddToCatalogue } from "@/lib/catalogue/access";
 import type { CostingWorkbookColumn } from "@/lib/catalogue/costing-workbook";
 import { rankSupplierCandidates } from "@/lib/catalogue/costing-workbook-review";
 import type {
+  CostingWorkbookSuggestionProvidersResponse,
   CostingWorkbookSuggestionsRequest,
   CostingWorkbookSuggestionsResponse,
   CostingWorkbookSuggestionsResponseOf,
@@ -20,7 +19,7 @@ import type {
 } from "@/lib/catalogue/costing-workbook-suggestions-contract";
 import { PRODUCT_WRITE_REFUSAL } from "@/lib/catalogue/product-writes";
 import { supplierPickerLabels } from "@/lib/catalogue/supplier-labels";
-import { forbidden, mapSupabaseError } from "@/lib/http/api-response";
+import { forbidden, mapSupabaseError, unprocessableEntity } from "@/lib/http/api-response";
 import { matchLine, prepareCatalogue, type MatchArticle, type MatchCandidate } from "@/lib/material-requests/matching";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { foldWords } from "@/lib/text/fold";
@@ -102,10 +101,10 @@ async function requireImporter(): Promise<AuthenticatedTenantContext> {
   return context;
 }
 
-/** Which AI sources the member can ask from the import screen. No provider is called. */
-export async function readWorkbookSuggestionProviders(): Promise<ChoiceProviderAvailability> {
+/** Which AI sources and models the member can use from the import screen. */
+export async function readWorkbookSuggestionProviders(): Promise<CostingWorkbookSuggestionProvidersResponse> {
   const context = await requireImporter();
-  return readChoiceProviderAvailability({ userId: context.userId, tenantId: context.tenantId });
+  return readChoiceProviderOptions({ userId: context.userId, tenantId: context.tenantId });
 }
 
 type Arbitration = {
@@ -120,24 +119,27 @@ type Arbitration = {
  */
 async function arbitrate(
   context: AuthenticatedTenantContext,
-  provider: ChoiceProvider | undefined,
-  task: CostingWorkbookSuggestionTask,
+  { provider, model, reasoning_effort, task }: CostingWorkbookSuggestionsRequest,
   questions: readonly ChoiceQuestion[],
 ): Promise<Arbitration> {
+  const hasSelection = model !== undefined || reasoning_effort !== undefined;
   if (!provider) {
+    if (hasSelection) throw unprocessableEntity("Choisissez une source d’IA pour définir un modèle ou un niveau de raisonnement.");
     return { outcome: { provider: null, model: null, status: "deterministic", message: DETERMINISTIC_MESSAGE }, pick: () => undefined };
   }
-  if (questions.length === 0) {
+  if (questions.length === 0 && !hasSelection) {
     return { outcome: { provider, model: null, status: "available", message: NOTHING_TO_ASK_MESSAGE }, pick: () => undefined };
   }
   const { id, promptVersion, instructions } = COSTING_WORKBOOK_SUGGESTION_TASKS[task];
   const result = await askChoiceQuestions({
     provider, owner: { userId: context.userId, tenantId: context.tenantId }, task: id, promptVersion, instructions, questions,
+    ...(model !== undefined ? { model } : {}),
+    ...(reasoning_effort !== undefined ? { reasoning_effort } : {}),
   });
   const answers = new Map<string, ChoiceAnswer>(result.answers.map((answer) => [answer.id, answer]));
   const asked = new Map(questions.map((question) => [question.id, new Set(question.choices.map((choice) => choice.value))]));
   return {
-    outcome: { provider: result.provider, model: result.model, status: result.status, message: result.message },
+    outcome: { provider: result.provider, model: result.model, status: result.status, message: questions.length === 0 && result.status === "available" ? NOTHING_TO_ASK_MESSAGE : result.message },
     pick: (questionId) => {
       const answer = answers.get(questionId);
       if (!answer || answer.choice === null || !asked.get(questionId)?.has(answer.choice)) return undefined;
@@ -172,7 +174,7 @@ async function suggestSuppliers(context: AuthenticatedTenantContext, input: Requ
     subject: { nom_dans_le_classeur: name },
     choices: [...candidates.map((candidate) => ({ value: candidate.id, description: descriptions.get(candidate.id) ?? candidate.name })), { value: NONE, description: NO_SUPPLIER }],
   }]));
-  const arbitration = await arbitrate(context, input.provider, "suppliers", questions);
+  const arbitration = await arbitrate(context, input, questions);
 
   return {
     task: "suppliers",
@@ -269,7 +271,7 @@ async function suggestArticles(context: AuthenticatedTenantContext, input: Reque
       { value: NONE, description: NO_ARTICLE },
     ],
   }]));
-  const arbitration = await arbitrate(context, input.provider, "articles", questions);
+  const arbitration = await arbitrate(context, input, questions);
 
   return {
     task: "articles",
@@ -340,7 +342,7 @@ async function suggestSupplyTypes(context: AuthenticatedTenantContext, input: Re
     },
     choices,
   }])) : [];
-  const arbitration = await arbitrate(context, input.provider, "supply_types", questions);
+  const arbitration = await arbitrate(context, input, questions);
 
   return {
     task: "supply_types",
@@ -459,7 +461,7 @@ async function suggestColumns(context: AuthenticatedTenantContext, input: Reques
   const questions: ChoiceQuestion[] = free.length === 0 ? [] : input.missing.flatMap((column) => (matches.has(column) ? [] : [{
     id: column, subject: { colonne_attendue: column, contenu_attendu: columnRole(column) }, choices,
   }]));
-  const arbitration = await arbitrate(context, input.provider, "columns", questions);
+  const arbitration = await arbitrate(context, input, questions);
 
   // A header serves one column: when the arbiter gives it to several, the surest keeps it; a tie leaves it to none.
   const picks = new Map(input.missing.flatMap((column) => {
@@ -506,7 +508,7 @@ async function suggestSupplierCodes(context: AuthenticatedTenantContext, input: 
   const questions: ChoiceQuestion[] = [...new Set(input.values)].map((value) => ({
     id: value, subject: { texte_de_la_cellule: value }, choices: SUPPLIER_CODE_CHOICES,
   }));
-  const arbitration = await arbitrate(context, input.provider, "supplier_codes", questions);
+  const arbitration = await arbitrate(context, input, questions);
   return {
     task: "supplier_codes",
     ...arbitration.outcome,

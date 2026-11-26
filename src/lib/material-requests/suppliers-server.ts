@@ -6,6 +6,7 @@ import {
   type ApiError,
   type SupabaseErrorLike,
   badRequest,
+  conflict,
   forbidden,
   mapSupabaseError,
   notFound,
@@ -278,6 +279,9 @@ function saveRefusal(error: SupabaseErrorLike): ApiError | null {
   if (message.includes("SUPPLIER_CATALOG_ITEM_PRODUCT_LOCKED")) return forbidden(SHARED_PRODUCT_REFUSAL);
   if (message.includes("SUPPLIER_CATALOG_ITEM_PRODUCT_NOT_FOUND")) return notFound(ARTICLE_NOT_FOUND);
   if (message.includes("SUPPLIER_CATALOG_ITEM_SUPPLIER_NOT_FOUND")) return notFound(SUPPLIER_NOT_FOUND);
+  if (error.code === "40001" && message.includes("SUPPLIER_CATALOG_ITEM_SAVE_RETRY")) {
+    return conflict("L’enregistrement de la référence fournisseur a rencontré un conflit. Réessayez.");
+  }
   if (message.includes("SUPPLIER_CATALOG_ITEM_SKU_INVALID")) return badRequest("La référence chez le fournisseur compte 255 caractères au plus.");
   if (message.includes("SUPPLIER_CATALOG_ITEM_URL_INVALID")) {
     return badRequest("L’adresse doit commencer par http:// ou https://, sans espace, en 2 000 caractères au plus.");

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { AI_BILLING_SOURCES } from "@/lib/ai/access/contracts";
 import { chatGptPreferencesSchema } from "@/lib/ai/chatgpt-model-preferences";
+import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 
 import {
@@ -23,7 +24,7 @@ import {
 export const MATERIAL_REQUEST_PHOTO_ANALYSIS_PROMPT_VERSION = "material-request-photo-analysis-v3";
 /** One photo answers within this time (the bound of a call on the ChatGPT plan), or it is not read. */
 export const MATERIAL_REQUEST_PHOTO_ANALYSIS_TIMEOUT_MS = 180_000;
-export const MATERIAL_REQUEST_PHOTO_API_CEILING_NANO_USD = 1_000_000_000;
+export const MATERIAL_REQUEST_PHOTO_API_CEILING_NANO_USD = AI_REQUEST_CEILINGS_NANO_USD.generationOrDocument;
 /** What one photo may weigh when sent, before base64: the bound of the dossier's transcription. */
 export const MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES = 15 * 1024 * 1024;
 

@@ -157,9 +157,9 @@ async function saveMargin1_2({ screen, browser }: Ui, versionId: string) {
   // The API sees the commit before the editor receives it: the button label only comes back with
   // the acknowledgement ("Enregistrement…" meanwhile).
   await expect(save).toBeEnabled({ timeout: 30_000 });
-  await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/);
   await screen.getByTestId("estimate-editor-drawer-close-button").click();
   await expect(dialog).toBeHidden();
+  await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/);
 }
 
 armyTest("V1BT01 a bulk majoration on a legacy V1 draft stores the version totals with its lines", options,

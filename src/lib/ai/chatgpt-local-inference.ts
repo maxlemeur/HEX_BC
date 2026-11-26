@@ -12,7 +12,7 @@ import { readChatGptStore, saveChatGptStore, withChatGptLock, type ChatGptOwner 
 import type { StructuredCallOptions, StructuredCallResult, TokenUsage } from "@/lib/ai/structured-call";
 import { isRecord } from "@/lib/value-guards";
 import {
-  chatGptDefaultPreferences, chatGptModelReasoningCapabilities, chatGptPreferencesSchema, RETIRED_OPENAI_MODEL,
+  chatGptDefaultPreferences, chatGptModelReasoningCapabilities, chatGptPreferencesSchema, supportsReasoningEffort, RETIRED_OPENAI_MODEL,
   type ChatGptAvailableModel, type ChatGptPreferences, type ChatGptReasoningEffort,
 } from "@/lib/ai/chatgpt-model-preferences";
 
@@ -319,7 +319,7 @@ export async function assertLocalChatGptOverride(owner: ChatGptOwner, credential
   if (!parsed.success) throw new LocalChatGptOverrideUnavailableError();
   const requested = parsed.data;
   const model = (await fetchLocalChatGptModels(credential, signal)).find((entry) => entry.id === requested.model);
-  if (!model || (requested.reasoningEffort !== null && !model.reasoningEfforts.includes(requested.reasoningEffort))) {
+  if (!model || !supportsReasoningEffort(model, requested.reasoningEffort)) {
     throw new LocalChatGptOverrideUnavailableError();
   }
   const checked = Object.freeze({ model: requested.model, reasoningEffort: requested.reasoningEffort });

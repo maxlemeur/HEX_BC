@@ -63,12 +63,14 @@ export function WorkbookReviewLayout({ groups, active, onSelect, children }: Rea
           {visibleGroups.map((group, index) => (
             <div key={group[0].id} className={index > 0 ? "grid gap-1 border-t border-border pt-2" : "grid gap-1"}>
               {group.map(({ id, label, count, tone }) => (
-                <button
+                <Button
                   key={id}
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   aria-pressed={id === active}
                   aria-describedby={`${menuId}-${id}`}
-                  className="flex min-w-0 items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left text-sm text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring aria-pressed:bg-primary/10 aria-pressed:font-semibold aria-pressed:text-primary"
+                  className="flex h-auto min-w-0 justify-between gap-3 rounded-md border-0 px-2.5 py-2 text-left font-normal whitespace-normal text-foreground transition-none focus-visible:outline-offset-0 active:not-aria-[haspopup]:scale-100 aria-pressed:bg-primary/10 aria-pressed:font-semibold aria-pressed:text-primary hover:aria-pressed:text-primary"
                   onClick={() => onSelect(id)}
                 >
                   <span>{label}</span>
@@ -79,7 +81,7 @@ export function WorkbookReviewLayout({ groups, active, onSelect, children }: Rea
                   >
                     {formatCount(count)}
                   </span>
-                </button>
+                </Button>
               ))}
             </div>
           ))}
@@ -141,10 +143,10 @@ export function WorkbookCell({ row, slot, column, field = `F${slot}_ref` }: Read
     <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
       <span>{`Ligne ${row} · ${field}`}</span>
       {address ? (
-        <button type="button" aria-label={`Copier la cellule Excel ${address}`} title={`Copier ${address}`} onClick={() => void copyCell()}
-          className="inline-flex items-center gap-1 rounded font-mono text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+        <Button type="button" variant="link" size="xs" aria-label={`Copier la cellule Excel ${address}`} title={`Copier ${address}`} onClick={() => void copyCell()}
+          className="rounded font-mono font-normal underline-offset-auto transition-none select-text focus-visible:outline-offset-0 active:not-aria-[haspopup]:scale-100">
           {address}<CopyIcon className="size-3" aria-hidden="true" />
-        </button>
+        </Button>
       ) : null}
       <span aria-live="polite" className="basis-full empty:hidden">{feedback}</span>
     </div>

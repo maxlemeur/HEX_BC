@@ -6,12 +6,12 @@ vi.mock("@/lib/supabase/server", () => ({
 // The arbiter boundary: no test reaches a provider.
 vi.mock("@/lib/ai/choice-questions", () => ({
   askChoiceQuestions: vi.fn(),
-  readChoiceProviderAvailability: vi.fn(),
+  readChoiceProviderOptions: vi.fn(),
 }));
 
 import {
   askChoiceQuestions,
-  readChoiceProviderAvailability,
+  readChoiceProviderOptions,
   type ChoiceArbitration,
   type ChoiceProvider,
   type ChoiceQuestion,
@@ -684,7 +684,7 @@ describe("rights (1)", () => {
 
     expect(new Set(fake.reads)).toEqual(new Set(["tenant_memberships"]));
     expect(askChoiceQuestions).not.toHaveBeenCalled();
-    expect(readChoiceProviderAvailability).not.toHaveBeenCalled();
+    expect(readChoiceProviderOptions).not.toHaveBeenCalled();
   });
 
   it("lets an engineer ask, for every task", async () => {
@@ -697,15 +697,18 @@ describe("rights (1)", () => {
 
   it("reads the availability of the providers for the member, without asking any", async () => {
     seed(ENGINEER, "engineer");
-    const providers = {
-      chatgpt_plan: { available: true, message: "Connexion ChatGPT configurée." },
-      personal_api_key: { available: false, message: "Configurez votre clé API OpenAI et son modèle dans Mon profil." },
-      decisions: { available: false, message: "Le classement Decisions est désactivé." },
+    const options = {
+      defaultProvider: "personal_api_key" as const,
+      providers: {
+        chatgpt_plan: { available: false, message: "Connectez votre forfait ChatGPT dans Mon profil.", models: [], preferences: null },
+        personal_api_key: { available: false, message: "Configurez votre clé API OpenAI et son modèle dans Mon profil.", models: [], preferences: null },
+        decisions: { available: false, message: "Le classement Decisions est désactivé." },
+      },
     };
-    vi.mocked(readChoiceProviderAvailability).mockResolvedValue(providers);
+    vi.mocked(readChoiceProviderOptions).mockResolvedValue(options);
 
-    expect(await readWorkbookSuggestionProviders()).toEqual(providers);
-    expect(readChoiceProviderAvailability).toHaveBeenCalledWith({ userId: ENGINEER, tenantId: TENANT });
+    expect(await readWorkbookSuggestionProviders()).toEqual(options);
+    expect(readChoiceProviderOptions).toHaveBeenCalledWith({ userId: ENGINEER, tenantId: TENANT });
     expect(askChoiceQuestions).not.toHaveBeenCalled();
   });
 });
