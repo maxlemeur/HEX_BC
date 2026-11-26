@@ -175,10 +175,10 @@ export function createReloadLoopMonitor({ hosted = false } = {}) {
   };
 }
 
-export async function startDevServer({ chatgpt = false } = {}) {
+export async function startDevServer({ args = process.argv.slice(2), chatgpt = false } = {}) {
   let forwarded, mode, hostnames, backend, informational;
   try {
-    ({ forwarded, mode, hostnames } = parseDevArguments(process.argv.slice(2)));
+    ({ forwarded, mode, hostnames } = parseDevArguments(args));
     informational = forwarded.length === 1 && ["--help", "-h", "--version", "-v"].includes(forwarded[0]);
     if (!informational) backend = supabaseDevEnvironment(mode, hostnames, process.env);
   } catch (error) {
