@@ -7,7 +7,6 @@ import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { chatGptPreferencesSchema } from "@/lib/ai/chatgpt-model-preferences";
 import type { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
-import { deriveDeterministicJobId } from "@/lib/takeoff/job-creation-input";
 import type { TakeoffExecutionSelection } from "@/lib/takeoff/preparation";
 
 type Service = ReturnType<typeof createServiceRoleClient>;
@@ -29,8 +28,9 @@ export const TAKEOFF_API_CONNECTION_CHANGED =
   "La clé API OpenAI du payeur a été remplacée ou retirée. Les résultats déjà enregistrés sont conservés.";
 
 export function takeoffPaymentHostId(hostId: string) {
-  // Separate queue for explicit payments. Released workers only poll the physical ChatGPT host.
-  return `urn:uuid:${deriveDeterministicJobId(hostId, "takeoff-personal-api-key")}`;
+  // The installation ID is UUIDv4. UUIDv8 identifies its explicit-payment queue.
+  // Postgres maps both IDs back to the UUIDv4 when locking the Mac.
+  return hostId.replace(/^(urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-)4/, (_, prefix: string) => `${prefix}8`);
 }
 
 export async function assertTakeoffPayer(service: Service, scope: TakeoffPaymentScope) {

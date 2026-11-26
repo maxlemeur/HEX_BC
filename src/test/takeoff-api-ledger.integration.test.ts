@@ -37,7 +37,7 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before com
     const secretMemory = new Map<string, string>();
     const fetchLocal = globalThis.fetch;
     const calls: string[] = [];
-    const settlements: string[] = [];
+    const settlements: { body: string; sentAt: number }[] = [];
     const scopes = globalThis as Record<symbol, unknown>;
     let jobId: string;
     function ledger() {
@@ -67,13 +67,13 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before com
         const url = new URL(input instanceof Request ? input.url : String(input));
         if (url.origin === new URL(backend).origin) {
           if (!url.pathname.endsWith("/rpc/settle_takeoff_api_call")) return fetchLocal(input, init);
-          settlements.push(String(init?.body));
-          if (settlements.length > 1) return fetchLocal(input, init);
-          if (fault === "after commit") {
+          settlements.push({ body: String(init?.body), sentAt: performance.now() });
+          if (settlements.length === 3) return fetchLocal(input, init);
+          if (settlements.length === 1 && fault === "after commit") {
             const committed = await fetchLocal(input, init);
             expect(await committed.json()).toBe(true);
             expect(ledger()).toMatch(/^\d+\|310000000$/);
-          } else {
+          } else if (fault === "before commit") {
             expect(ledger()).toMatch(/^\d+\|$/);
           }
           return Response.json({ message: "Fictional lost settlement response" }, { status: 503 });
@@ -167,9 +167,11 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before com
       const outcome = await processTakeoffJobAttempt(jobId, { correlationId: randomUUID(), trigger: "create" });
       expect(outcome).toMatchObject({ status: "failed_terminal", error_code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" });
       expect(calls).toEqual(["/v1/responses/input_tokens", "/v1/responses", "/v1/responses/input_tokens"]);
-      expect(settlements).toHaveLength(2);
-      expect(settlements[1]).toBe(settlements[0]);
-      expect(JSON.parse(settlements[0])).toMatchObject({ p_cost: 310000000, p_tokens: 151000 });
+      expect(settlements).toHaveLength(3);
+      expect(settlements.map(({ body }) => body)).toEqual(Array<string>(3).fill(settlements[0].body));
+      expect(settlements[1].sentAt - settlements[0].sentAt).toBeGreaterThanOrEqual(450);
+      expect(settlements[2].sentAt - settlements[1].sentAt).toBeGreaterThanOrEqual(950);
+      expect(JSON.parse(settlements[0].body)).toMatchObject({ p_cost: 310000000, p_tokens: 151000 });
       expect(ledger()).toMatch(/^\d+\|310000000$/);
       const account = await api.state(owner);
       expect(account.analysisPreferences?.apiReasoningEffort).toBe("medium");

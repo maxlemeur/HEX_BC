@@ -2,7 +2,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { LocalChatGptConnectionWithdrawnError } from "./chatgpt-sign-in-errors";
 
-const account = vi.hoisted(() => ({ model: "usual", authorizationId: "connection", revoked: false, write: vi.fn() }));
+const account = vi.hoisted(() => ({
+  model: "usual", authorizationId: "connection", revoked: false, write: vi.fn(),
+  hostId: "urn:uuid:d5130000-0000-4000-8000-000000000099",
+}));
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
   isLocalChatGptEnabled: () => true, hasLocalChatGptPlanAccess: () => true,
   getLocalChatGptCredential: async () => {
@@ -13,7 +16,7 @@ vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
 }));
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({
   saveChatGptStore: account.write,
-  getChatGptHostId: async () => "host",
+  getChatGptHostId: async () => account.hostId,
   readChatGptStore: async () => ({ selectedId: "profile", profiles: [{ id: "profile", model: account.model,
     reasoningEffort: "low", authorizationId: account.authorizationId }] }),
 }));
@@ -47,9 +50,9 @@ it.each([null, "high"] as const)("sends the confirmed model and effort %s for pa
   const beforePaidCall = vi.fn(async (branch: string, key?: string) => ({ key: key ?? branch, reserved: true }));
   const ledger = { beforePaidCall, recordPaidUsage: vi.fn(), recordUnknownUsage: vi.fn() };
   const provider = await resolveLocalTakeoffProvider({ from: () => query } as never, {
-    id: "job", created_by: "member", tenant_id: "tenant", execution_host_id: "host", execution_provider: "chatgpt_local",
+    id: "job", created_by: "member", tenant_id: "tenant", execution_host_id: account.hostId, execution_provider: "chatgpt_local",
     launch_request_id: "request", preparation_snapshot: { confirmed_by: "member", execution_selection: {
-      profileId: "profile", hostId: "host", model: "previous-default", reasoningEffort: "medium", authorizationId: "connection" },
+      profileId: "profile", hostId: account.hostId, model: "previous-default", reasoningEffort: "medium", authorizationId: "connection" },
     remeasure_setting: { model: "chosen", reasoningEffort: effort } },
   } as never, { ledger });
   account.model = "edited-before-pdf";
@@ -82,7 +85,7 @@ it("reports an exhausted subscription from the catalogue before any model reques
   const requests = vi.fn(async () => Response.json({ error: { code: "insufficient_quota" } }, { status: 429 }));
   vi.stubGlobal("fetch", requests);
   const result = await readMeasureCatalogue({ userId: "member", tenantId: "tenant" },
-    { profileId: "profile", hostId: "host", authorizationId: "connection", model: "usual", reasoningEffort: "low" });
+    { profileId: "profile", hostId: account.hostId, authorizationId: "connection", model: "usual", reasoningEffort: "low" });
   expect(result.reason).toMatch(/Limite du forfait ChatGPT atteinte/);
   expect(requests).toHaveBeenCalledTimes(1);
   expect(requests).toHaveBeenCalledWith("https://api.openai.com/v1/models", expect.any(Object));
@@ -100,7 +103,8 @@ it("sends the explicitly selected plan model and effort for an ordinary takeoff"
   });
   vi.stubGlobal("fetch", transport);
   const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: { user_id: "member" } }) };
-  const hostId = takeoffPaymentHostId("host");
+  const hostId = takeoffPaymentHostId(account.hostId);
+  expect(hostId).toBe("urn:uuid:d5130000-0000-8000-8000-000000000099");
   const ledger = { beforePaidCall: vi.fn(async () => ({ key: "pdf", reserved: true })), recordPaidUsage: vi.fn(), recordUnknownUsage: vi.fn() };
   const provider = await resolveLocalTakeoffProvider({ from: () => query } as never, {
     id: "job", created_by: "member", tenant_id: "tenant", execution_host_id: hostId, execution_provider: "chatgpt_local",

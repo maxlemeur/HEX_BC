@@ -140,3 +140,10 @@ export function readLocalModelAnswer(evidence: Pick<PageEvidence, "mode">, group
 }
 
 export type { NetworkCode };
+
+/** A request whose answer could not be read: its groups follow the rules, the tokens it consumed are kept. */
+export class LocalGroupsRequestError extends Error {
+  constructor(message: string, readonly totalTokens: number) {
+    super(message);
+  }
+}

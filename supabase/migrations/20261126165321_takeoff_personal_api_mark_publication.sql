@@ -1,5 +1,6 @@
 -- Use the sealed payer's ledger when validating the worker's tile coverage.
-set lock_timeout = '5s';
+begin;
+set local lock_timeout = '5s';
 
 create function private.takeoff_count_mark_tile_attempts(job public.takeoff_jobs, token uuid)
 returns table (call_key text, state text)
@@ -272,3 +273,5 @@ begin
   return query select new_result, false, written;
 end;
 $$;
+
+commit;

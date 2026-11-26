@@ -15,6 +15,7 @@ import { TAKEOFF_NANO_USD_PER_CENT } from "@/lib/takeoff/payment-choice";
 import { assertTakeoffApiConnection, assertTakeoffPayer, readTakeoffApiMandate, TAKEOFF_API_CONNECTION_CHANGED,
   takeoffPaymentError } from "@/lib/takeoff/payment-mandate-server";
 import { takeoffExecutionSelectionSchema } from "@/lib/takeoff/preparation";
+import { LocalGroupsRequestError } from "@/lib/takeoff/vectors/group-local-model";
 import { asRecord } from "@/lib/value-guards";
 
 class ReprepareApiCall extends Error {
@@ -22,6 +23,8 @@ class ReprepareApiCall extends Error {
     super("The takeoff call needs a new budget bound");
   }
 }
+
+const SETTLEMENT_RETRY_DELAYS_MS = [0, 500, 1000];
 
 function apiInput(prompt: string, attachments: StructuredCallFile[]) {
   const files: ApiKeyStructuredFile[] = [];
@@ -106,7 +109,8 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
         ...args, p_call_id: callId, p_cost: cost ?? undefined, p_tokens: tokens ?? undefined,
       };
       // The transaction might have committed before the response was lost. Repeat the exact same settlement.
-      for (let attempt = 0; attempt < 3; attempt += 1) {
+      for (const retryDelay of SETTLEMENT_RETRY_DELAYS_MS) {
+        if (retryDelay > 0) await delay(retryDelay);
         const reply = await Promise.resolve(service.rpc("settle_takeoff_api_call", settlement)).catch(() => null);
         if (!reply || reply.error) continue;
         if (reply.data !== true) break;
@@ -164,6 +168,9 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
       if (answer.costNanoUsd > prepared.boundNanoUsd || totalTokens > prepared.inputTokens + prepared.maxOutputTokens) {
         throw stopForBudget();
       }
+      if (answer.schemaError && branch === "vector_group") {
+        throw new LocalGroupsRequestError("La réponse OpenAI n’a pas le format attendu pour les groupes.", totalTokens);
+      }
       if (answer.schemaError) throw new TakeoffError({
         code: TakeoffErrorCode.AI_SCHEMA, retryable: false, jobId: job.id,
         message: "La réponse OpenAI n’a pas le format attendu pour le métré.",
@@ -175,6 +182,7 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
         tokenCount: tokenUsage.totalTokens, costCents: Math.floor(answer.costNanoUsd / TAKEOFF_NANO_USD_PER_CENT),
         promptVersion: options.context?.promptVersion ?? job.prompt_version ?? "" };
     } catch (error) {
+      if (error instanceof LocalGroupsRequestError) throw error;
       if (settlementStarted && callId !== null) {
         halted = stopForLedger();
         throw halted;
@@ -184,12 +192,17 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
       const apiError = isApiKeyError(error) ? error : null;
       const usage = apiError?.usage;
       const tokens = usage ? Math.max(usage.total, usage.input + usage.output) : apiError?.costNanoUsd === 0 ? 0 : null;
-      const attemptedTile = tile && callId !== null;
+      const attempted = callId !== null;
+      const attemptedTile = tile && attempted;
       try {
         await settle(apiError?.costNanoUsd ?? null, tokens);
       } catch {
         halted = stopForLedger();
         throw attemptedTile ? stopForLedger(true) : halted;
+      }
+      if (branch === "vector_group" && attempted && usage && tokens !== null && apiError && apiError.costNanoUsd !== null
+        && (apiError.code === "AI_KEY_OUTPUT_LIMIT" || apiError.code === "AI_KEY_PROVIDER_FAILED")) {
+        throw new LocalGroupsRequestError(apiError.message, tokens);
       }
       if (attemptedTile && (apiError?.costNanoUsd == null || tokens === null)) {
         halted = stopForLedger();

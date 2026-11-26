@@ -632,7 +632,7 @@ create function pg_temp.detail_confirm(page_no integer) returns jsonb language s
   select jsonb_build_object('preview_digest', repeat('a',64), 'page', page_no, 'shown_sha256', repeat('c', 64),
     'setting', jsonb_build_object('model','autre-modele','reasoning_effort','high'))
 $$;
-create function pg_temp.api_host() returns text language sql immutable as $$ select 'urn:uuid:' || pg_temp.f(199) $$;
+create function pg_temp.api_host() returns text language sql immutable as $$ select 'urn:uuid:d5700000-0000-8000-8000-000000000199' $$;
 create function pg_temp.api_selection() returns jsonb language sql immutable as $$
   select jsonb_build_object('source','personal_api_key','model','personal_api_key','reasoningEffort',null,
     'profileId',pg_temp.f(990),'authorizationId',pg_temp.f(990),'hostId',pg_temp.api_host())

@@ -1,10 +1,12 @@
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { ApiKeyError } from "@/lib/ai/access/api-key-errors";
 import type { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
 import type { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import { resolveTakeoffApiProvider } from "@/lib/takeoff/payment-worker";
+import { LocalGroupsRequestError } from "@/lib/takeoff/vectors/group-local-model";
 
 const mandate = {
   connectionId: "d5130000-0000-4000-8000-000000000001", connectionVersion: 1,
@@ -16,14 +18,15 @@ vi.mock("@/lib/takeoff/payment-mandate-server", () => ({
   readTakeoffApiMandate: async () => mandate,
 }));
 
+const job = {
+  id: "witness-job", tenant_id: "witness-tenant", project_id: "witness-affaire", created_by: "witness-member",
+  preparation_snapshot: { execution_selection: {
+    source: "personal_api_key", model: "personal_api_key", profileId: mandate.connectionId, reasoningEffort: null,
+    hostId: "urn:uuid:d5130000-0000-8000-8000-000000000099", authorizationId: mandate.connectionId,
+  } },
+} as TakeoffJobProcessingRow;
+
 it("waits for the first vector generation to settle, then prepares the second against the freed balance", async () => {
-  const job = {
-    id: "witness-job", tenant_id: "witness-tenant", project_id: "witness-affaire", created_by: "witness-member",
-    preparation_snapshot: { execution_selection: {
-      source: "personal_api_key", model: "personal_api_key", profileId: mandate.connectionId, reasoningEffort: null,
-      hostId: "urn:uuid:d5130000-0000-4000-8000-000000000099", authorizationId: mandate.connectionId,
-    } },
-  } as TakeoffJobProcessingRow;
   const firstDispatched = Promise.withResolvers<void>();
   const secondCounted = Promise.withResolvers<void>();
   const overlapRefused = Promise.withResolvers<void>();
@@ -79,4 +82,33 @@ it("waits for the first vector generation to settle, then prepares the second ag
   await expect(Promise.all([first, second])).resolves.toHaveLength(2);
   expect(dispatched).toEqual(["Premier groupe", "Deuxième groupe"]);
   expect(prepare.mock.calls.map(([, input]) => input.allotmentNanoUsd)).toEqual([10_000, 10_000, 8_800]);
+});
+
+it.each(["invalid schema", "truncated output"])("settles a vector group with %s and leaves future reads available", async (failure) => {
+  const rpc = vi.fn(async (operation: string) => operation === "settle_takeoff_api_call" ? { data: true } : {
+    data: [{ remaining_nano_usd: 10_000, remaining_tokens: 10_000, call_id: "vector-call" }],
+  });
+  const usage = { total: 110, input: 100, output: 10, reasoning: 0, cachedInput: 0, cacheWrite: 0, cacheWrite12h: 0 };
+  const answer = { usage, costNanoUsd: 90, model: mandate.model, durationMs: 1 };
+  const execute = vi.fn(async (_owner: unknown, _prepared: unknown, { beforeSend }: { beforeSend(): Promise<void> }):
+    Promise<typeof answer & { data: { accepted: boolean } | null; schemaError: SyntaxError | null }> => {
+    await beforeSend();
+    return { ...answer, data: { accepted: true }, schemaError: null };
+  }).mockImplementationOnce(async (_owner, _prepared, { beforeSend }) => {
+    await beforeSend();
+    if (failure === "truncated output") throw new ApiKeyError("AI_KEY_OUTPUT_LIMIT", answer);
+    return { ...answer, data: null, schemaError: new SyntaxError("Fictional invalid JSON") };
+  });
+  const access = { prepare: async () => ({ boundNanoUsd: 200, inputTokens: 100, maxOutputTokens: 300 }), execute };
+  const provider = await resolveTakeoffApiProvider(job, () => "lease",
+    { rpc } as unknown as ReturnType<typeof createServiceRoleClient>, access as unknown as ReturnType<typeof openAiApiKeyAccess>);
+  const input = { prompt: "Classe les groupes", schema: z.object({ accepted: z.boolean() }) };
+  const failedGroup = provider.callApiVectorGroup!(input);
+  await expect(failedGroup).rejects.toBeInstanceOf(LocalGroupsRequestError);
+  await expect(failedGroup).rejects.toMatchObject({ totalTokens: 110 });
+  await expect(provider.callApiVectorGroup!(input)).resolves.toMatchObject({ data: { accepted: true } });
+  const settlements = rpc.mock.calls.filter(([operation]) => operation === "settle_takeoff_api_call");
+  expect(settlements).toEqual(Array.from({ length: 2 }, () => ["settle_takeoff_api_call", expect.objectContaining({
+    p_call_id: "vector-call", p_lease_token: "lease", p_cost: 90, p_tokens: 110,
+  })]));
 });

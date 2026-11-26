@@ -86,7 +86,9 @@ async function selectionForConfirmation(context: AuthenticatedTenantContext, inp
     : await getTakeoffExecutionSelection(context.supabase, context, "chatgpt"));
   if (takeoffSelectionFingerprint(selection) !== input.expectedExecutionFingerprint) {
     throw new ApiError({ status: 409, code: "TAKEOFF_CHATGPT_SELECTION_CHANGED",
-      message: "La connexion, le modèle, l’effort ou le budget du métré a changé. Vérifiez les réglages affichés et confirmez de nouveau." });
+      message: input.paymentChoice
+        ? "La connexion, le modèle, l’effort ou le budget du métré a changé. Vérifiez les réglages affichés et confirmez de nouveau."
+        : "Le compte, le modèle ou l’effort ChatGPT a changé. Vérifiez la sélection affichée et confirmez de nouveau." });
   }
   return selection;
 }

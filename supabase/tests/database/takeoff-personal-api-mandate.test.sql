@@ -7,14 +7,15 @@ select no_plan();
 create function pg_temp.f(n integer) returns uuid language sql immutable as $$
   select ('d5130000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid
 $$;
-create function pg_temp.host() returns text language sql immutable as $$ select 'urn:uuid:' || pg_temp.f(99) $$;
+create function pg_temp.physical_host() returns text language sql immutable as $$ select 'urn:uuid:' || pg_temp.f(99) $$;
+create function pg_temp.host() returns text language sql immutable as $$ select 'urn:uuid:d5130000-0000-8000-8000-000000000099' $$;
 create function pg_temp.selection() returns jsonb language sql immutable as $$
   select jsonb_build_object('source', 'personal_api_key', 'profileId', pg_temp.f(200), 'model', 'personal_api_key',
     'reasoningEffort', null, 'hostId', pg_temp.host(), 'authorizationId', pg_temp.f(200))
 $$;
 create function pg_temp.plan_selection(explicit boolean) returns jsonb language sql immutable as $$
   select jsonb_build_object('profileId', 'fictif', 'model', 'modele-fictif', 'reasoningEffort', 'medium',
-    'hostId', case when explicit then pg_temp.host() else 'urn:uuid:' || pg_temp.f(98) end,
+    'hostId', case when explicit then pg_temp.host() else pg_temp.physical_host() end,
     'authorizationId', 'connexion-fictive')
     || case when explicit then '{"source":"chatgpt_plan"}'::jsonb else '{}'::jsonb end
 $$;
@@ -149,6 +150,11 @@ create temp table tile_a as select call_id from pg_temp.reserve(1, 901, 'count_t
 select ok((select call_id is not null from tile_a), 'the count tile has a reservation under its confirmed tile key');
 select is(public.settle_takeoff_api_call((select call_id from tile_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
   pg_temp.f(1), pg_temp.f(901), 0, 0), true, 'a settled tile still counts as attempted');
+select is(public.settle_takeoff_api_call((select call_id from tile_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
+  pg_temp.f(1), pg_temp.f(901), 0, 0), true, 'identical settlement replay succeeds under the live lease');
+select is(public.settle_takeoff_api_call((select call_id from tile_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
+  pg_temp.f(1), pg_temp.f(901), null, null), false, 'the live lease cannot overwrite a known settlement');
+
 create temp table call_a as select call_id from pg_temp.reserve(1, 901, 'pdf', 15000000000, 100000);
 select ok((select call_id is not null from call_a), 'the PDF generation is reserved before dispatch');
 select is((select remaining_nano_usd from pg_temp.reserve(1, 901, 'vector_group')), 10000000000::bigint,
@@ -158,6 +164,9 @@ select is((select reason from pg_temp.reserve(1, 901, 'vector_group', 1100000000
 select is((select reason from pg_temp.reserve(1, 901, 'vector_group', 10000000000, 300000, true)), 'CAPACITY_HELD',
   'an insufficient preparation cannot freeze the request while another call may free capacity');
 update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second' where id = pg_temp.unit(20, 1);
+select is(public.settle_takeoff_api_call((select call_id from call_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
+  pg_temp.f(1), pg_temp.f(901), null, null), false, 'lease 901 cannot settle even before the sweep has run');
+
 select is((select count(*) from public.recover_stale_local_takeoff_jobs(clock_timestamp()) where job_id = pg_temp.unit(20,1)),
   0::bigint, 'the prior recovery cannot stop an expired API job');
 select lives_ok($$select public.recover_takeoff_payment_jobs(clock_timestamp())$$, 'hosted recovery reschedules the lease without the originating Mac');
@@ -171,26 +180,27 @@ select throws_ok($$select * from pg_temp.reserve(1, 901, 'pdf', 1, 1)$$,
 select is((select remaining_nano_usd from pg_temp.reserve(1, 902, 'pdf')), 10000000000::bigint,
   'the retry still sees the crashed call’s full reservation');
 select is(public.settle_takeoff_api_call((select call_id from call_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
-  pg_temp.f(1), pg_temp.f(901), 5000000000, 20000), true, 'a late settlement is matched to the original lease');
+  pg_temp.f(1), pg_temp.f(901), 5000000000, 20000), false, 'lease 901 cannot credit back part of its bound after 902 starts');
 select is(public.settle_takeoff_api_call((select call_id from call_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
-  pg_temp.f(1), pg_temp.f(901), 5000000000, 20000), true, 'acknowledging the same late settlement is idempotent');
-select is(public.settle_takeoff_api_call((select call_id from call_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
-  pg_temp.f(1), pg_temp.f(901), null, null), false, 'a divergent settlement cannot overwrite the original amounts');
+  pg_temp.f(1), pg_temp.f(901), null, null), false, 'the lost response for lease 901 cannot mark 902’s request as unknown');
+select results_eq($$select actual_nano_usd,actual_tokens,settled_at from private.takeoff_api_calls where id = (select call_id from call_a)$$,
+  $$values (null::bigint,null::bigint,null::timestamptz)$$, 'the abandoned reservation remains unsettled at its bound');
+select results_eq($$select reason, remaining_nano_usd, remaining_tokens from pg_temp.reserve(1,902,'pdf')$$,
+  $$values (null::text,10000000000::bigint,300000::bigint)$$, 'lease 902 can still use the balance after the late response');
+
 select is(public.settle_takeoff_api_call((select call_id from call_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
   pg_temp.f(1), pg_temp.f(902), 5000000000, 20000), false, 'the new lease cannot settle the prior lease’s reservation');
 select is(public.finalize_local_takeoff_result(pg_temp.unit(20,1),pg_temp.f(10),pg_temp.f(901),clock_timestamp(),
   'modele-fictif','fixture','{}','[]'), null::uuid, 'a late answer cannot publish with the old lease');
-select is((select reason from pg_temp.reserve(1, 902, 'vector_group', 10000000000, 300000, true)), 'REPREPARE',
-  'a settlement that freed capacity after the count requires a fresh preparation');
 select ok(public.finalize_local_takeoff_result(pg_temp.unit(20,1),pg_temp.f(10),pg_temp.f(902),clock_timestamp(),
   'modele-fictif','fixture','{"extracted_json":{},"warnings":[],"tables":[],"provider_meta":{"fixture":true},"token_count":20,"cost_cents":0,"duration_ms":1}',
   '[]') is not null, 'the new lease publishes one result');
 select is(pg_temp.claim(2, 903), 1::bigint, 'the next plan takes its own lease');
-select is((select remaining_nano_usd from pg_temp.reserve(2, 903, 'pdf')), 20000000000::bigint,
-  'the second plan shares the first plan’s settled cost');
-select is((select reason from pg_temp.reserve(2, 903, 'vector_group', 20000000001, 1)), 'REPREPARE',
+select is((select remaining_nano_usd from pg_temp.reserve(2, 903, 'pdf')), 10000000000::bigint,
+  'the second plan shares the full bound of the abandoned call');
+select is((select reason from pg_temp.reserve(2, 903, 'vector_group', 10000000001, 1)), 'REPREPARE',
   'a stale bound cannot send a generation');
-select is((select reason from pg_temp.reserve(2, 903, 'vector_group', 20000000000, 380000, true)), 'BUDGET_EXHAUSTED',
+select is((select reason from pg_temp.reserve(2, 903, 'vector_group', 10000000000, 300000, true)), 'BUDGET_EXHAUSTED',
   'an unaffordable call with fresh preparation stops the request');
 select is((select reason from pg_temp.reserve(2, 903, 'pdf', 1, 1)), 'BUDGET_EXHAUSTED',
   'no generation can follow the budget stop');
@@ -217,19 +227,36 @@ select is((select count(*) from public.takeoff_results where job_id = pg_temp.un
 -- Normal admission for both plan variants, then the released worker's actual queue, claim and hosted sweep.
 select is((select outcome from pg_temp.launch(21, payment => pg_temp.plan_selection(true))), 'admitted', 'explicit plan choice is admitted');
 select is((select outcome from pg_temp.launch(22, payment => pg_temp.plan_selection(false))), 'admitted', 'legacy plan is admitted without a source field');
-select is((select job_id from public.dispatch_next_takeoff_host_job('urn:uuid:' || pg_temp.f(98))),
+select is((select job_id from public.dispatch_next_takeoff_host_job(pg_temp.physical_host())),
   pg_temp.unit(22,1), 'the released worker sees the unversioned plan only');
 select is((select job_id from public.dispatch_next_takeoff_payment_job(pg_temp.host())),
   pg_temp.unit(21,1), 'the upgraded worker sees the explicit plan choice');
 select is((select count(*) from public.claim_observed_local_takeoff_job(pg_temp.unit(21,1),pg_temp.f(10),pg_temp.host(),
   clock_timestamp(),pg_temp.f(913),clock_timestamp()+interval '10 minutes','fictif','fixture','pending',0)), 0::bigint,
   'the released claim cannot take the explicit plan even if given its queue identity');
-select is((select count(*) from public.claim_observed_local_takeoff_job(pg_temp.unit(22,1),pg_temp.f(10),'urn:uuid:' || pg_temp.f(98),
+select is((select count(*) from public.claim_observed_local_takeoff_job(pg_temp.unit(22,1),pg_temp.f(10),pg_temp.physical_host(),
   clock_timestamp(),pg_temp.f(914),clock_timestamp()+interval '10 minutes','fictif','fixture','pending',0)), 1::bigint,
   'the released claim still runs the legacy plan');
+select is(private.takeoff_local_host_lock_key(pg_temp.host()), private.takeoff_local_host_lock_key(pg_temp.physical_host()),
+  'the two queue identifiers resolve to the same advisory lock');
+select is((select count(*) from public.claim_explicit_takeoff_payment_job(pg_temp.unit(21,1),pg_temp.f(10),pg_temp.host(),
+  clock_timestamp(),pg_temp.f(915),clock_timestamp()+interval '10 minutes','fictif','fixture','pending',0)), 0::bigint,
+  'a legacy plan prevents an explicit plan from starting on the same Mac');
+update public.takeoff_jobs set status = 'failed', analysis_outcome = 'failure' where id = pg_temp.unit(22,1);
+select is((select job_id from public.dispatch_next_takeoff_host_job(pg_temp.physical_host())),
+  pg_temp.unit(22,2), 'the second legacy plan is runnable before the explicit claim');
+
 select is((select count(*) from public.claim_explicit_takeoff_payment_job(pg_temp.unit(21,1),pg_temp.f(10),pg_temp.host(),
   clock_timestamp(),pg_temp.f(915),clock_timestamp()+interval '10 minutes','fictif','fixture','pending',0)), 1::bigint,
   'the versioned claim runs the explicitly selected plan');
+select is((select count(*) from public.claim_observed_local_takeoff_job(pg_temp.unit(22,2),pg_temp.f(10),pg_temp.physical_host(),
+  clock_timestamp(),pg_temp.f(916),clock_timestamp()+interval '10 minutes','fictif','fixture','pending',0)), 0::bigint,
+  'an explicit plan also prevents a released worker from starting a second plan on the same Mac');
+select is((select holder_token from private.takeoff_host_slots where host_id=pg_temp.physical_host()),pg_temp.f(915),
+  'the explicit plan holds the physical Mac’s slot');
+select is((select count(*) from private.takeoff_host_slots where host_id=pg_temp.host()),0::bigint,
+  'the alias does not acquire its own slot');
+
 set local session_replication_role = replica;
 update public.takeoff_jobs set status = 'failed', next_retry_at = now() - interval '2 days',
   processing_lease_token = null, processing_lease_expires_at = null where id = pg_temp.unit(21,1);

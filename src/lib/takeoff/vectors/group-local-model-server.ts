@@ -20,7 +20,7 @@ import { buildGroupEvidence, evidenceLayout, type CandidateEvidence } from "@/li
 import { planEvidenceImages } from "@/lib/takeoff/vectors/group-evidence-images";
 import { startGroupEvidenceRender, type GroupEvidenceSession, type GroupImage } from "@/lib/takeoff/vectors/group-evidence-render-server";
 import {
-  GROUP_LOCAL_MODEL, GROUP_LOCAL_MODEL_LIMITS, groupLocalModelSchema, localModelEntries, localModelPrompt, readLocalModelAnswer, readLocalModelEntries, GROUP_LOCAL_MODEL_PROMPT_VERSION,
+  GROUP_LOCAL_MODEL, GROUP_LOCAL_MODEL_LIMITS, LocalGroupsRequestError, groupLocalModelSchema, localModelEntries, localModelPrompt, readLocalModelAnswer, readLocalModelEntries, GROUP_LOCAL_MODEL_PROMPT_VERSION,
   type GroupLocalModelAnswer, type LocalModelEntries,
 } from "@/lib/takeoff/vectors/group-local-model";
 import { ruleClassOf } from "@/lib/takeoff/vectors/group-rules";
@@ -73,12 +73,7 @@ export class LocalGroupsStop extends Error {
   }
 }
 
-/** A request whose answer could not be read: its groups follow the rules, the tokens it consumed are kept. */
-export class LocalGroupsRequestError extends Error {
-  constructor(message: string, readonly totalTokens: number) {
-    super(message);
-  }
-}
+export { LocalGroupsRequestError } from "./group-local-model";
 
 /** The profile a job runs with (as level C pins it, chatgpt-takeoff.ts): another account or model selected mid-job stops it. */
 export type LocalGroupsSelection = { authorizationId?: string | null; remeasureSetting?: LocalChatGptOverride; profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null };
