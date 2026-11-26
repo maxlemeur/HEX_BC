@@ -793,3 +793,28 @@ it("shows both colleagues' entries on another plan before replacing either in a 
   expect(command.scope).toEqual({ kind: "plan", planKey: R1 });
   expect(command.targets).toEqual(candidates.map((line, index) => expect.objectContaining({ itemId: line.itemId, entryRevision: 7 + index })));
 });
+
+it("keeps the individual plan list when a draft's last eligible destination disappears", async () => {
+  const first = renderTable({ signature: "a" });
+  for (const name of ["Baignoire", "Vanne DN32"]) {
+    fireEvent.change(await screen.findByLabelText(`Quantité saisie pour « ${name} »`), { target: { value: "1" } });
+  }
+  const changed = table({ readings: SCENARIO.map(r => r.itemId === fixtureItemId(4)
+    ? { ...r, sent: true } : r) });
+  client.fetchItemTable.mockResolvedValue(changed);
+  first.rerenderWith({ signature: "b" });
+  await waitFor(() => expect(screen.queryByLabelText("Quantité saisie pour « Vanne DN32 »")).toBeNull());
+  fireEvent.click(screen.getByText("Enregistrer les saisies (2)"));
+  const dialog = within(await screen.findByRole("dialog"));
+  const option = dialog.getByRole("option", { name: "Chaque valeur sur son plan" }) as HTMLOptionElement;
+  fireEvent.change(dialog.getByLabelText("Portée de la saisie"), { target: { value: option.value } });
+  expect(dialog.getByLabelText("Plan pour Baignoire")).toBeEnabled();
+  expect(dialog.getByText(/Aucune portée admissible/)).toBeVisible();
+  fireEvent.change(dialog.getByLabelText("Ce qui fonde ces quantités"), { target: { value: "site_survey" } });
+  fireEvent.change(dialog.getByLabelText("Plan pour Baignoire"), { target: { value: RDC } });
+  expect(dialog.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
+  fireEvent.change(dialog.getByLabelText("Plan pour Vanne DN32"), { target: { value: "draft" } });
+  fireEvent.click(dialog.getByRole("button", { name: "Enregistrer" }));
+  await waitFor(() => expect(client.sendItemReviewCommand).toHaveBeenCalledOnce());
+  expect(client.sendItemReviewCommand.mock.calls[0][1].values).toEqual([{ item_id: fixtureItemId(3), unit: "u", quantity: 1 }]);
+});

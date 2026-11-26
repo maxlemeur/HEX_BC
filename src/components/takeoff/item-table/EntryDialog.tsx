@@ -52,8 +52,7 @@ export function EntryDialog({ projectId, viewScope, values, onClose, onRefused, 
     return () => { active = false; };
   }, [needsRead, projectId, seen]);
   const plans = items[0]?.plans.filter(plan => plan.eligible && items.every(i => i.plans.some(p => p.key === plan.key && p.eligible))) ?? [];
-  const canSplit = items.length > 1 && items.some(i => i.plans.some(p => p.eligible)) &&
-    items.every(i => i.wholeEligible || i.plans.some(p => p.eligible));
+  const canSplit = items.length > 1 && items.some(i => i.plans.some(p => p.eligible));
   const [choice, setChoice] = useState<string | null>(null);
   const sole = plans[0]?.key;
   const suggested = filtered ? plans.find(p => p.key === filtered)?.key : sole && items.every(i => i.plans.length === 1) ? sole : "";
@@ -63,7 +62,8 @@ export function EntryDialog({ projectId, viewScope, values, onClose, onRefused, 
     const eligible = item.plans.filter(plan => plan.eligible);
     const key = selected === "individual" && canSplit ? perItem[item.target.itemId] ?? (eligible.length === 1 ? eligible[0].key : "")
       : selected === "affaire" || plans.some(plan => plan.key === selected) ? selected : "";
-    return { item, eligible, key, destination: entryDestination(item, key), value: seen[index] };
+    const keepDraft = selected === "individual" && key === "draft" && !eligible.length && !item.wholeEligible;
+    return { item, eligible, key, keepDraft, destination: entryDestination(item, key), value: seen[index] };
   });
   const scopeId = useId();
   const categoryId = useId();
@@ -73,7 +73,7 @@ export function EntryDialog({ projectId, viewScope, values, onClose, onRefused, 
   const text = noteText(note);
   const entry = category ? { category, ...(text ? { note: text } : {}) } : null;
   const invalid = entry && quantityEntryError(entry);
-  const complete = entry && !invalid && rows.length > 0 && rows.every(r => r.destination);
+  const complete = entry && !invalid && rows.some(r => r.destination) && rows.every(r => r.destination || r.keepDraft);
   const replacements = rows.filter(r => r.destination?.existing).length;
   const [pending, setPending] = useState<Submission | null>(null);
   const [busy, setBusy] = useState(false);
@@ -141,8 +141,10 @@ export function EntryDialog({ projectId, viewScope, values, onClose, onRefused, 
                 <NativeSelect id={scopeId + id} value={row.key} onChange={e => setPerItem({ ...perItem, [id]: e.target.value })}>
                   <option value="">Choisir…</option>
                   {row.eligible.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
-                  {!row.eligible.length && row.item.wholeEligible && <option value="affaire">Total de toute l’affaire</option>}
+                  {!row.eligible.length && (row.item.wholeEligible ? <option value="affaire">Total de toute l’affaire</option>
+                    : <option value="draft">Garder cette valeur en brouillon</option>)}
                 </NativeSelect>
+                {!row.eligible.length && !row.item.wholeEligible && <FieldDescription>Aucune portée admissible pour ce poste.</FieldDescription>}
               </Field>}
               {existing && <p>La saisie en place sera remplacée, avec sa catégorie et sa note : {formatEntryQuantity(existing.quantity, existing.unit)} · {QUANTITY_ENTRY_CATEGORIES[existing.category]} · {existing.author}, le {date.format(new Date(existing.at))}{existing.note && ` · ${existing.note}`}</p>}
               {row?.destination && row.key !== "affaire" && row.item.wholeEntry && <p>Le total de l’affaire garde la priorité. Ce poste ne part avec aucun plan tant que ce total n’est pas rattaché à un plan ou retiré.</p>}
