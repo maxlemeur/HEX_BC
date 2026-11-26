@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { revisionChoicesSchema, revisionPreviewSchema } from "./contribution-revision-contracts";
 import type { ItemSendPreviewResponse } from "@/lib/takeoff/item-send-contracts";
 import {
   EMPTY_ITEM_SEND_CHOICES,
@@ -206,4 +207,11 @@ describe("what changed between two previews of the same plan", () => {
       "« WC » : envoyé maintenant (1 u).",
     ]);
   });
+});
+
+it("keeps measure confirmations exclusive to the initial send", () => {
+  const additionPreview = revisionPreviewSchema.shape.addition_preview.unwrap();
+  expect(additionPreview.safeParse(preview()).success).toBe(true);
+  expect.soft(revisionChoicesSchema.safeParse({ additions: { review_measures: true } }).success).toBe(false);
+  expect.soft(additionPreview.safeParse(preview({ measure_reviews: [] })).success).toBe(false);
 });

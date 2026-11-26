@@ -157,15 +157,41 @@ test("POSTE-RETENIR04 refuse un échec bloquant et une justification absente, pu
   await dialog.getByRole("checkbox", /preuve de la mesure/).check();
   await dialog.getByRole("button", "Retenir cette mesure", { exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await querySql(`update public.takeoff_items set evidence='Quantité vérifiée sur un autre repère fictif' where job_id='${jobId}' and designation='Compteur';`);
-  await openItem(labels[2]);
+  await expect(screen.getByText("Retenu sur ce plan · 3 u", { exact: true })).toBeVisible();
+  await querySql(`update public.takeoff_items set quantity=4,evidence='Quantité vérifiée sur un autre repère fictif' where job_id='${jobId}' and designation='Compteur';`);
+  // A second database session edits the row while this detail stays mounted. Returning focus revalidates the review.
+  await expect.poll(() => ui.browser.evaluate(() => {
+    window.dispatchEvent(new Event("focus"));
+    return document.body.textContent?.includes("Quantité observée · 4 u") ?? false;
+  }), { timeout: 20_000 }).toBe(true);
+  await expect(screen.getByText(/^Retenu sur ce plan/)).toHaveCount(0);
+  await expect(screen.getByText("Retenu : 3 u", { exact: true })).toHaveCount(0);
   await expect(screen.getByText("Les éléments sur lesquels vous aviez retenu cette mesure ont changé. Vérifiez la mesure à nouveau.")).toBeVisible();
-  await expect(screen.getByText("Quantité observée · 3 u", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Quantité observée · 4 u", { exact: true })).toBeVisible();
   await expect(screen.getByText("Référence DPGF · 1 u", { exact: true })).toBeVisible();
-  await expect(screen.getByText("Écart à la DPGF · 2 u", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Écart à la DPGF · 3 u", { exact: true })).toBeVisible();
   await expect(retain).toBeEnabled();
   await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
   await screen.getByRole("button","Envoyer ce plan au devis : « refus.pdf »", { exact: true }).click();
   await expect(dialog.getByTestId(`item-send-not-sent-${seeded.items.Compteur}`)).toContainText(/accept/i);
   expect(await countOwnedReceipts(seeded.projectId)).toBe(0);
+});
+
+test("POSTE-RETENIR05 montre la preuve corrigée sur la révision à confirmer", options, async ({ ui }) => {
+  const owner = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "PPREUVE", calcPolicy: "absent" });
+  const seeded = await seedItemSendAffaire(owner, { name: `${ui.army.runPrefix}-PREUVE`, labels: ["Compteur"],
+    referenceQuantities: { Compteur: 1 }, plans: [{ name: "preuve.pdf", pdf: await fictionalSendPlanPdf("Plan des compteurs"),
+      measures: { Compteur: { quantity: 3, page: 2 } } }] });
+  await querySql(`update public.takeoff_items set source_page=7,evidence='Repère bleu corrigé',confidence=0.17
+    where job_id='${seeded.plans[0].jobId}';`);
+  await ui.app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
+  await waitForHydration(ui.browser);
+  await ui.screen.getByRole("link", "Détail de « Compteur » sur le plan").click();
+  await ui.screen.getByRole("button", "Retenir cette mesure", { exact: true }).click();
+  const dialog = ui.screen.getByRole("dialog", "Retenir cette mesure", { exact: true });
+  await expect(dialog.getByText("Contribution · page 7", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Contribution · page 2", { exact: true })).toHaveCount(0);
+  await expect(dialog).toContainText("Repère bleu corrigé");
+  await expect(dialog).toContainText("Confiance · 17 %");
+  await expect(dialog).toContainText("Quantité de la contribution · 3 u");
 });
