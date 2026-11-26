@@ -210,7 +210,7 @@ export function ProductsTable({
               const isDraft = product.catalogue_status === "draft";
 
               return (
-                <tr key={product.id} className={product.is_active ? undefined : "opacity-60"}>
+                <tr key={product.id}>
                   {selectable ? (
                     <td>
                       <input
