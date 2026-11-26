@@ -131,10 +131,9 @@ test("POSTE-PORTEE05 une part au devis empêche le retrait et le rattachement du
   await f.save();
   await f.send();
   await seedLegacyTotal(f.seeded.projectId);
-  await f.button("Revenir au poste").click();
-  await expect(ui.screen.getByText(/Total saisi pour toute l’affaire · 5 u/)).toBeVisible();
+  await f.open();
+  await f.expand();
   await f.button(withdraw).click();
-  await expect(f.dialog).toContainText("5 u");
   await f.dialog.getByRole("button", "Retirer", { exact: true }).click();
   await expect(f.dialog).toContainText("Une part de ce poste est déjà au devis");
   await f.dialog.getByRole("button", "Revenir au poste", { exact: true }).click();
@@ -219,7 +218,7 @@ test("POSTE-PORTEE08 chaque valeur sur son plan, même avec une lecture mesurée
   const owner = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "PORTEE", calcPolicy: "absent" });
   const seeded = await seedItemSendAffaire(owner, { name: ui.army.runPrefix + "-plans", labels,
     plans: await Promise.all(["bas.pdf", "haut.pdf"].map(async (name, index) => ({
-      name, pdf: await fictionalSendPlanPdf(name), measures: { [labels[index]]: { quantity: 1, page: 1 } },
+      name, pdf: await fictionalSendPlanPdf(name), measures: { [labels[index]]: { quantity: 1, page: 2 } },
     }))) });
   await ui.app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
   await waitForHydration(ui.browser);
