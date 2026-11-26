@@ -9,8 +9,11 @@ import { z } from "zod";
 import { ApiKeyError, apiKeyErrorMessage, type ApiKeyErrorCode } from "@/lib/ai/access/api-key-errors";
 import type { ApiKeySecret } from "@/lib/ai/access/api-key-secret";
 import { writeAiAccessFile } from "@/lib/ai/access/api-key-store";
+import * as openAiApi from "@/lib/ai/access/openai-api";
 import { createOpenAiApiKeyAccess, strictOpenAiSchema, type OpenAiApiKeyDeps } from "@/lib/ai/access/openai-api";
 import { SecretStoreError, type SecretItem, type SecretStore } from "@/lib/ai/access/secret-store";
+import { runAssistantLoop, type AssistantEvent, type AssistantTool } from "@/lib/assistant/loop";
+import { createAssistantModel } from "@/lib/assistant/model";
 import { normalizeReportedError } from "@/lib/observability/error-reporter";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 
@@ -128,6 +131,95 @@ async function failure(promise: Promise<unknown>): Promise<ApiKeyError> {
 
 const keysIn = (keychain: ReturnType<typeof memoryKeychain>) =>
   [...keychain.items.entries()].map(([name, secret]) => [name, secret.reveal("openai-request")]);
+
+describe("streamed assistant requests with a personal key", () => {
+  const model = "gpt-6.2-astra";
+  const preferences = { model, reasoningEffort: "low" } as const;
+  const eventsResponse = (events: unknown[]) => new Response(events.map((event) =>
+    `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  const delta = (text: string) => ({ type: "response.output_text.delta", delta: text });
+  const terminal = { type: "response.completed", response: { status: "completed", model, service_tier: "default",
+    usage: { input_tokens: 10_000, output_tokens: 1_000, total_tokens: 11_000 }, output: [] } };
+  const tool: AssistantTool = { name: "lire", description: "Lire le devis.", activity: "Lecture du devis", input: z.object({}),
+    run: vi.fn(async () => ({ total: 10 })) };
+
+  async function assistant(fetch: OpenAiApiKeyDeps["fetch"], tools: AssistantTool[] = []) {
+    const { service } = access(fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    vi.spyOn(openAiApi, "openAiApiKeyAccess").mockReturnValue(service);
+    return createAssistantModel({ owner: OWNER, instructions: "Lire le devis.", access: {
+      source: "personal_api_key", connectionVersion: 1, preferences,
+    }, tools });
+  }
+
+  it("counts each complete request with its tools and stops before a third generation exceeds the message budget", async () => {
+    let counts = 0;
+    let generations = 0;
+    const provider = fakeOpenAi((key, endpoint) => {
+      if (endpoint === "/v1/models") return listed([model]);
+      if (endpoint === "/v1/responses/input_tokens") return counted(++counts === 3 ? 1_000 : 10_000);
+      const call = { type: "function_call", name: "lire", call_id: `call_${++generations}`, arguments: "{}" };
+      return eventsResponse([
+        ...(generations === 1 ? [delta("Total provisoire " + key.slice(0, 10)), delta(key.slice(10) + ".")] : []),
+        { type: "response.output_item.done", item: call }, terminal,
+      ]);
+    });
+    const adapter = await assistant(provider.fetch, [tool]);
+    const emitted: AssistantEvent[] = [];
+    const before = await storedFiles();
+    await expect(runAssistantLoop({ input: [{ role: "user", content: "Total ?" }], tools: [tool],
+      callModel: adapter.callModel, emit: (event) => emitted.push(event), signal: new AbortController().signal,
+    })).rejects.toMatchObject({ code: "AI_KEY_CEILING" });
+    const calls = provider.sent.slice(1);
+    expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
+      "/v1/responses/input_tokens", "/v1/responses", "/v1/responses/input_tokens", "/v1/responses", "/v1/responses/input_tokens",
+    ]);
+    for (const index of [0, 2]) {
+      expect(calls[index + 1]?.body).toMatchObject({
+        ...calls[index]?.body, stream: true, store: false, service_tier: "default", include: ["reasoning.encrypted_content"],
+      });
+    }
+    expect(calls[0]?.body).toMatchObject({ model, reasoning: { effort: "low" }, tools: [{ type: "function", name: "lire" }] });
+    expect(calls[2]?.body?.input).toEqual(expect.arrayContaining([{ type: "function_call_output", call_id: "call_1", output: '{"total":10}' }]));
+    expect(calls[1]?.body?.max_output_tokens).toBe(4096);
+    expect(calls[3]?.body?.max_output_tokens).toBe(1500);
+    expect(adapter.dispatched()).toBe(true);
+    expect(emitted.flatMap((event) => event.type === "text" ? [event.delta] : []).join("")).toBe("Total provisoire [clé masquée].");
+    expect(await storedFiles()).toEqual(before);
+  });
+
+  it("does not generate when the provider cannot count the request with tools", async () => {
+    const provider = fakeOpenAi((_key, endpoint) => endpoint === "/v1/models" ? listed([model]) : providerError(400, {}));
+    const adapter = await assistant(provider.fetch, [tool]);
+    await expect(adapter.callModel({ input: [], toolsAllowed: true }, () => undefined, new AbortController().signal))
+      .rejects.toMatchObject({ code: "AI_KEY_COUNT_UNAVAILABLE" });
+    expect(provider.sent).toHaveLength(2);
+    expect(adapter.dispatched()).toBe(false);
+  });
+
+  it.each(["count", "stream"] as const)("passes Stop through to the active %s and sends nothing afterwards", async (stage) => {
+    const controller = new AbortController();
+    const fetch = vi.fn(async (input: string, init: RequestInit) => {
+      if (input.endsWith("/models")) return listed([model]);
+      const counting = input.endsWith("/input_tokens");
+      if (counting && stage === "stream") return counted(10_000);
+      if (counting) {
+        controller.abort();
+        init.signal?.throwIfAborted();
+      }
+      return new Response(new ReadableStream({
+        start(stream) {
+          init.signal?.addEventListener("abort", () => stream.error(init.signal?.reason), { once: true });
+          stream.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(delta("Texte partiel."))}\n\n`));
+        },
+      }));
+    });
+    const adapter = await assistant(fetch);
+    await expect(adapter.callModel({ input: [], toolsAllowed: true }, () => controller.abort(), controller.signal))
+      .rejects.toMatchObject({ name: "AbortError" });
+    expect(fetch).toHaveBeenCalledTimes(stage === "count" ? 2 : 3);
+  });
+});
 
 describe("add and verify a key", () => {
   it("lists the models without attachment or generation, saves the key as a versioned item and shows it masked", async () => {

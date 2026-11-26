@@ -16,6 +16,7 @@ import {
   openAiQualifiedModelIds,
 } from "@/lib/ai/access/openai-pricing";
 import { resolveSecretStore, SecretStoreError, type SecretItem, type SecretStore } from "@/lib/ai/access/secret-store";
+import { chatGptStreamEvents, type ChatGptStreamEvent } from "@/lib/ai/chatgpt-local-inference";
 import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { containsCredential, REDACTED } from "@/lib/observability/redaction";
 
@@ -23,11 +24,12 @@ import { containsCredential, REDACTED } from "@/lib/observability/redaction";
 // obtains the saved key (`resolveKey`, from the Keychain) and the one place that
 // sends a key, to the fixed origin https://api.openai.com, redirects refused.
 // - Discovery: GET /v1/models, no attachment, no generation.
-// - Generation: POST /v1/responses, not streamed, store false, the Standard
+// - Generation: POST /v1/responses, store false, the Standard
 //   tier pinned (service_tier "default"), no prompt cache write requested
 //   (prompt_cache_options.mode "explicit" without breakpoint), the effort only
 //   when chosen, a strict JSON schema when the schema allows it (JSON mode and
-//   the schema in the developer message otherwise), then Zod.
+//   the schema in the developer message otherwise), then Zod. Assistant
+//   turns use the same counting and pricing rules and stream plain text and function calls.
 // - Money: a call with a document is prepared first: its exact request is
 //   counted by POST /v1/responses/input_tokens (it sends the document, which
 //   the member agreed to by launching); the output budget is what the call's
@@ -185,14 +187,13 @@ function abortReason(signal: AbortSignal): unknown {
   return signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted", "AbortError");
 }
 
-async function send(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, path: Endpoint,
-  request: { body?: string; timeoutMs: number; lostCode: ApiKeyErrorCode; signal?: AbortSignal }): Promise<Reply> {
+async function fetchWith(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, path: Endpoint,
+  request: { body?: string; timeoutMs: number; lostCode: ApiKeyErrorCode; signal?: AbortSignal }): Promise<Response> {
   if (request.signal?.aborted) throw abortReason(request.signal);
   const timeout = AbortSignal.timeout(request.timeoutMs);
   const signal = request.signal ? AbortSignal.any([timeout, request.signal]) : timeout;
-  let response: Response;
   try {
-    response = await deps.fetch(`${OPENAI_ORIGIN}${path}`, {
+    return await deps.fetch(`${OPENAI_ORIGIN}${path}`, {
       method: request.body === undefined ? "GET" : "POST",
       headers: { authorization: `Bearer ${secret.reveal("openai-request")}`, ...(request.body === undefined ? {} : { "content-type": "application/json" }) },
       ...(request.body === undefined ? {} : { body: request.body }),
@@ -202,6 +203,9 @@ async function send(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, path: Endpoint
     if (request.signal?.aborted) throw abortReason(request.signal);
     throw new ApiKeyError(notSent(error) ? "AI_KEY_UNREACHABLE" : request.lostCode);
   }
+}
+
+async function readReply(response: Response, secret: ApiKeySecret, request: { lostCode: ApiKeyErrorCode; signal?: AbortSignal }): Promise<Reply> {
   const requestId = safeField(response.headers.get("x-request-id"), secret, REQUEST_ID);
   let text: string;
   try {
@@ -217,6 +221,11 @@ async function send(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, path: Endpoint
     body = null;
   }
   return { status: response.status, body, requestId, retryAfter: response.headers.get("retry-after") };
+}
+
+async function send(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, path: Endpoint,
+  request: { body?: string; timeoutMs: number; lostCode: ApiKeyErrorCode; signal?: AbortSignal }): Promise<Reply> {
+  return readReply(await fetchWith(deps, secret, path, request), secret, request);
 }
 
 /** `error.type` and `error.code` of a reply, only when they look like codes. */
@@ -334,10 +343,11 @@ function serializeRequest(request: GenerationRequest): SerializedRequest {
   return { model: request.model, text: JSON.stringify(requestInput(request)) };
 }
 
-function generationBody(request: SerializedRequest, maxOutputTokens: number) {
+function generationBody(request: SerializedRequest, maxOutputTokens: number, stream = false) {
   return JSON.stringify({
     ...JSON.parse(request.text) as Record<string, unknown>, store: false, max_output_tokens: maxOutputTokens,
     service_tier: OPENAI_PRICE_TABLE.serviceTier,
+    ...(stream ? { stream: true, include: ["reasoning.encrypted_content"] } : {}),
     // Explicit caching without breakpoints: no cache write. A write would still fit the bound (priced at its rate).
     prompt_cache_options: { mode: "explicit" },
   });
@@ -418,6 +428,36 @@ function maskAnswerValue(value: unknown, secret: ApiKeySecret, depth = 0): unkno
   if (depth > 32 || value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map((entry) => maskAnswerValue(entry, secret, depth + 1));
   return Object.fromEntries(Object.entries(value).map(([name, entry]) => [maskAnswerString(name, secret), maskAnswerValue(entry, secret, depth + 1)]));
+}
+
+/** Keep the last token-like word until its end, so a key split across deltas is masked before any of it is sent. */
+async function* maskedToolEvents(response: Response, secret: ApiKeySecret, onCompleted: (response: unknown) => void) {
+  let pending = "";
+  try {
+    for await (const event of chatGptStreamEvents(response)) {
+      if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
+        let tail = event.delta.length;
+        while (tail > 0 && /[A-Za-z0-9_-]/.test(event.delta[tail - 1]!)) tail -= 1;
+        if (tail === 0) {
+          pending += event.delta;
+        } else {
+          yield { ...event, delta: maskAnswerString(pending + event.delta.slice(0, tail), secret) };
+          pending = event.delta.slice(tail);
+        }
+        continue;
+      }
+      if (event.type === "response.completed") {
+        if (pending) yield { type: "response.output_text.delta", delta: maskAnswerString(pending, secret) };
+        pending = "";
+        onCompleted(event.response);
+      }
+      yield maskAnswerValue(event, secret) as ChatGptStreamEvent;
+    }
+  } catch (error) {
+    if (pending) yield { type: "response.output_text.delta", delta: maskAnswerString(pending, secret) };
+    throw error;
+  }
+  if (pending) yield { type: "response.output_text.delta", delta: maskAnswerString(pending, secret) };
 }
 
 /**
@@ -534,7 +574,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
   }
 
   /** The resolver: the saved key of this member, for this adapter only. */
-  async function resolveKey(owner: AiAccessOwner, expectedVersion?: number) {
+  async function readKey(owner: AiAccessOwner, expectedVersion?: number) {
     const store = requireStore();
     const connection = (await readAiAccessFile(deps.directory(), owner)).connections.openai;
     if (!connection) throw new ApiKeyError("AI_KEY_MISSING");
@@ -542,6 +582,11 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     const secret = await store.read(await itemOf(owner, connection.version));
     if (!secret) throw new ApiKeyError("AI_KEY_MISSING");
     if (secret.suffix !== connection.suffix) throw new ApiKeyError("AI_KEY_CHANGED");
+    return { store, secret, connection };
+  }
+
+  async function resolveKey(owner: AiAccessOwner, expectedVersion?: number) {
+    const { store, secret, connection } = await readKey(owner, expectedVersion);
     await sweep(store, owner);
     return { secret, connection };
   }
@@ -574,6 +619,62 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
 
   return {
     state: (owner: AiAccessOwner) => guarded(() => state(owner)),
+
+    /** A counted, capped Responses turn with only application function tools. No provider-hosted tools incur fees. */
+    streamToolTurn: <T>(owner: AiAccessOwner, options: {
+      expectedVersion: number; model: string; reasoningEffort: AiReasoningEffort | null;
+      input: unknown[]; tools: Array<{ type: "function"; name: string; description: string; parameters: unknown; strict: false }>;
+      toolChoice: "auto" | "none"; allotmentNanoUsd: number; outputCap: number; minOutputTokens: number;
+      timeoutMs: number; signal: AbortSignal; onDispatch(): void;
+    }, read: (events: AsyncIterable<ChatGptStreamEvent>) => Promise<T>) => guarded(async () => {
+      options.signal.throwIfAborted();
+      const price = openAiQualifiedModel(options.model);
+      if (!price) throw new ApiKeyError("AI_KEY_PRICE_UNKNOWN");
+      if (options.reasoningEffort !== null && !price.reasoningEfforts.includes(options.reasoningEffort)) {
+        throw new ApiKeyError("AI_KEY_MODEL_NOT_OFFERED");
+      }
+      const request = { model: options.model, text: JSON.stringify({
+        model: options.model, input: options.input, tools: options.tools, tool_choice: options.toolChoice,
+        parallel_tool_calls: false,
+        ...(options.reasoningEffort === null ? {} : { reasoning: { effort: options.reasoningEffort } }),
+      }) };
+      const { secret } = await readKey(owner, options.expectedVersion);
+      const inputTokens = await countWith(deps, secret, request, options.signal);
+      const maxOutputTokens = maxOutputWithin({ model: request.model, inputTokens, allotmentNanoUsd: options.allotmentNanoUsd, cap: options.outputCap });
+      const bound = boundCountedCall({ model: request.model, inputTokens, maxOutputTokens });
+      if (maxOutputTokens < options.minOutputTokens || bound.status !== "priced" || bound.nanoUsd > options.allotmentNanoUsd) {
+        throw new ApiKeyError("AI_KEY_CEILING");
+      }
+      // A change during the count cannot turn this generation into a charge on another key.
+      const active = await readKey(owner, options.expectedVersion);
+      if (!active.secret.equals(secret)) throw new ApiKeyError("AI_KEY_CHANGED");
+      options.signal.throwIfAborted();
+      const dispatch = { body: generationBody(request, maxOutputTokens, true), timeoutMs: options.timeoutMs,
+        lostCode: "AI_KEY_RESPONSE_LOST" as const, signal: options.signal };
+      options.onDispatch();
+      const response = await fetchWith(deps, secret, "/v1/responses", dispatch);
+      if (!response.ok) throw failureOf(await readReply(response, secret, dispatch), deps.now());
+      let reservedNanoUsd = bound.nanoUsd;
+      const result = await read(maskedToolEvents(response, secret, (terminal) => {
+        const parsed = responsesReply.safeParse(terminal);
+        if (!parsed.success) return;
+        const { usage, service_tier: tier, model } = parsed.data;
+        if ((usage && (usage.input_tokens > inputTokens || usage.output_tokens > maxOutputTokens)) ||
+          (tier && tier !== OPENAI_PRICE_TABLE.serviceTier) ||
+          (model && model.replace(/-\d{4}-\d{2}-\d{2}$/, "") !== request.model)) {
+          throw new ApiKeyError("AI_KEY_COST_UNKNOWN");
+        }
+        // Keep the full worst-case input charge. Only release unused output with a matching terminal usage report.
+        if (tier !== OPENAI_PRICE_TABLE.serviceTier || !model || !usage) return;
+        const used = boundCountedCall({ model: request.model, inputTokens, maxOutputTokens: usage.output_tokens });
+        if (used.status === "priced") reservedNanoUsd = used.nanoUsd;
+      })).catch((error: unknown) => {
+        if (isApiKeyError(error)) throw error;
+        throw new ApiKeyError((error as { truncated?: boolean } | null)?.truncated ? "AI_KEY_OUTPUT_LIMIT" : "AI_KEY_PROVIDER_FAILED");
+      });
+      options.signal.throwIfAborted();
+      return { result, spentBoundNanoUsd: reservedNanoUsd };
+    }, options.signal),
 
     saveAnalysisPreferences: (owner: AiAccessOwner, preferences: AiAnalysisPreferences, connectionId: string | null) => guarded(async () => {
       const directory = deps.directory();

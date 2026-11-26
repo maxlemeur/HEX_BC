@@ -2,12 +2,14 @@ import "server-only";
 
 import { z } from "zod";
 
+import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
 import { assertLocalChatGptHost, getLocalChatGptCredential, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
-import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import type { ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import type { AssistantTool, CallAssistantModel } from "@/lib/assistant/loop";
-import { readAssistantModelTurn } from "@/lib/assistant/model-turn";
+import { readAssistantModelTurn, readAssistantTurnEvents } from "@/lib/assistant/model-turn";
+import { ASSISTANT_KEY_CEILING } from "@/lib/assistant/request-settings";
 import { notFound } from "@/lib/http/api-response";
 
 const RESPONSES_URL = "https://api.openai.com/v1/responses";
@@ -32,19 +34,13 @@ export function assertAssistantRequest(host: string | null) {
   }
 }
 
-/**
- * What a request to the model is signed and addressed with. The member's ChatGPT
- * plan is the only source today; an API key held by the company is the second
- * one planned, and reaches the same Responses API with the same request.
- */
-export type AssistantAccess = {
-  source: "chatgpt_plan";
-  accessToken: string;
-  model: string;
-  reasoningEffort: ChatGptReasoningEffort | null;
-};
+/** The payer and parameters resolved for this message, before its tool loop. */
+export type AssistantAccess = { preferences: ChatGptPreferences } & (
+  | { source: "chatgpt_plan"; accessToken: string }
+  | { source: "personal_api_key"; connectionVersion: number }
+);
 
-export async function resolveAssistantAccess(owner: ChatGptOwner): Promise<AssistantAccess> {
+export async function readAssistantPlanToken(owner: ChatGptOwner): Promise<string> {
   let credential: Awaited<ReturnType<typeof getLocalChatGptCredential>>;
   try {
     credential = await getLocalChatGptCredential(owner);
@@ -52,55 +48,58 @@ export async function resolveAssistantAccess(owner: ChatGptOwner): Promise<Assis
     throw new StructuredAiError("AI_AUTH_REQUIRED", "L’accès au forfait ChatGPT n’est plus valide. Reconnectez votre compte dans Mon profil.");
   }
   if (!credential) throw new StructuredAiError("AI_AUTH_REQUIRED", "Connectez votre compte ChatGPT dans Mon profil pour utiliser l’assistant.");
-  if (!credential.model) throw new StructuredAiError("AI_NOT_CONFIGURED", "Choisissez un modèle ChatGPT dans Mon profil pour utiliser l’assistant.");
-  return {
-    source: "chatgpt_plan", accessToken: credential.accessToken, model: credential.model,
-    reasoningEffort: credential.reasoningEffort ?? null,
-  };
+  return credential.accessToken;
 }
 
-/**
- * The model of one user turn. Access is resolved before every request: a turn
- * can outlive a short-lived token, and the profile's model can change meanwhile.
- */
+/** One model and one API key budget for all the sequential turns of a message. */
 export function createAssistantModel(options: {
-  owner: ChatGptOwner; instructions: string; tools: AssistantTool[];
-}): { callModel: CallAssistantModel; lastModel(): string | null } {
+  owner: ChatGptOwner; access: AssistantAccess; instructions: string; tools: AssistantTool[];
+}): { callModel: CallAssistantModel; dispatched(): boolean } {
+  const access = { ...options.access };
+  const { model, reasoningEffort } = access.preferences;
   const tools = options.tools.map((tool) => ({
-    type: "function", name: tool.name, description: tool.description,
+    type: "function" as const, name: tool.name, description: tool.description,
     parameters: z.toJSONSchema(tool.input, { unrepresentable: "any" }),
     // Arguments are validated here, by each tool's schema: the model may omit optional ones.
-    strict: false,
+    strict: false as const,
   }));
-  let lastModel: string | null = null;
+  let dispatched = false;
+  let remainingNanoUsd = ASSISTANT_KEY_CEILING as number;
   return {
-    lastModel: () => lastModel,
+    dispatched: () => dispatched,
     callModel: async (request, onDelta, signal) => {
-      const access = await resolveAssistantAccess(options.owner);
-      lastModel = access.model;
+      signal.throwIfAborted();
+      // Keep the rules at the start of the input so the provider can cache them.
+      const input = [
+        { role: "developer", content: options.instructions },
+        ...request.input,
+        ...(request.finalInstruction ? [{ role: "developer", content: request.finalInstruction }] : []),
+      ];
+      const toolChoice = request.toolsAllowed ? "auto" : "none";
+      if (access.source === "personal_api_key") {
+        const turn = await openAiApiKeyAccess().streamToolTurn(options.owner, {
+          expectedVersion: access.connectionVersion, model, reasoningEffort, input, tools, toolChoice,
+          allotmentNanoUsd: remainingNanoUsd, outputCap: 4096, minOutputTokens: 256,
+          timeoutMs: MODEL_CALL_TIMEOUT_MS, signal, onDispatch: () => { dispatched = true; },
+        }, (events) => readAssistantTurnEvents(events, onDelta));
+        remainingNanoUsd -= turn.spentBoundNanoUsd;
+        return turn.result;
+      }
+      dispatched = true;
       const response = await fetch(RESPONSES_URL, {
         method: "POST",
         headers: { authorization: `Bearer ${access.accessToken}`, "content-type": "application/json" },
         body: JSON.stringify({
-          model: access.model, store: false, stream: true,
-          ...(access.reasoningEffort === null ? {} : { reasoning: { effort: access.reasoningEffort } }),
+          model, store: false, stream: true,
+          ...(reasoningEffort === null ? {} : { reasoning: { effort: reasoningEffort } }),
           // Nothing is stored at the provider: reasoning comes back encrypted and is replayed with the tool results.
           include: ["reasoning.encrypted_content"],
-          // The rules open the input as its developer message: the provider caches that prefix from the second
-          // request on. The models from GPT-6.2 on send the top-level `instructions` field after the input and bill
-          // it uncached at every request, so nothing goes there. The loop's closing words on the last request are a
-          // developer message too, after everything read: said as the rules, and the cached prefix stays whole.
-          input: [
-            { role: "developer", content: options.instructions },
-            ...request.input,
-            ...(request.finalInstruction ? [{ role: "developer", content: request.finalInstruction }] : []),
-          ],
-          tools,
-          tool_choice: request.toolsAllowed ? "auto" : "none",
+          input, tools, tool_choice: toolChoice,
           parallel_tool_calls: false,
         }),
         signal: AbortSignal.any([signal, AbortSignal.timeout(MODEL_CALL_TIMEOUT_MS)]),
         cache: "no-store",
+        redirect: "error",
       });
       return readAssistantModelTurn(response, onDelta);
     },

@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { requireAffaireAccess, type AffaireAccess } from "@/lib/affaires/access-server";
+import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { isAssistantEnabled } from "@/lib/assistant/model";
 import type { AssistantTokenUsage } from "@/lib/assistant/model-turn";
 import type { AssistantScreen } from "@/lib/assistant/prompt";
@@ -102,6 +103,7 @@ export async function deleteAssistantThread(threadId: string): Promise<void> {
 type MessageInput = {
   threadId: string; status?: AssistantMessage["status"]; content: string;
   activity?: AssistantActivity[]; screen?: AssistantScreen | null; model?: string | null;
+  reasoningEffort?: ChatGptReasoningEffort | null;
   tokenUsage?: AssistantTokenUsage | null; errorCode?: string | null;
 };
 
@@ -113,7 +115,9 @@ export async function appendAssistantMessage(context: AffaireAccess["context"], 
     thread_id: input.threadId, tenant_id: context.tenantId, user_id: context.userId, role: input.role,
     reply_to: input.role === "assistant" ? input.replyTo : null,
     status: input.status ?? "complete", content: input.content, activity: input.activity ?? [],
-    screen_context: input.screen ?? null, model: input.model ?? null, token_usage: input.tokenUsage ?? null,
+    screen_context: input.screen ?? null, model: input.model ?? null,
+    token_usage: input.reasoningEffort === undefined ? input.tokenUsage ?? null
+      : { ...input.tokenUsage, reasoningEffort: input.reasoningEffort },
     error_code: input.errorCode ?? null,
   }).select(MESSAGE_COLUMNS).single();
   if (error) throw mapSupabaseError(error, "Impossible d’enregistrer le message.");

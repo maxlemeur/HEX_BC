@@ -2,9 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 vi.mock("@/lib/assistant/threads-server", () => ({ readAssistantThread: vi.fn(), appendAssistantMessage: vi.fn() }));
-vi.mock("@/lib/assistant/model", () => ({ createAssistantModel: vi.fn() }));
+vi.mock("@/lib/assistant/model", () => ({ createAssistantModel: vi.fn(), readAssistantPlanToken: vi.fn(async () => "fictional-plan-token") }));
 vi.mock("@/lib/assistant/tools", () => ({ buildAssistantTools: vi.fn(() => []) }));
+vi.mock("@/lib/ai/chatgpt-local-store", () => ({
+  readChatGptStore: vi.fn(async () => ({ selectedId: "fixture", profiles: [{ id: "fixture", authorizationId: "fixture-authorization" }] })),
+}));
+vi.mock("@/lib/ai/request-settings-server", () => ({ resolveAiRequest: vi.fn() }));
 
+import { ApiKeyError } from "@/lib/ai/access/api-key-errors";
+import { resolveAiRequest } from "@/lib/ai/request-settings-server";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { prepareAssistantReply, runAssistantReply, type AssistantStreamEvent } from "@/lib/assistant/conversation";
 import type { AssistantDocumentLedger } from "@/lib/assistant/document-citations";
@@ -28,7 +34,7 @@ function threadWith(messages: AssistantMessage[]) {
 function modelAnswering(callModel: CallAssistantModel) {
   const requests: AssistantModelRequest[] = [];
   vi.mocked(createAssistantModel).mockReturnValue({
-    lastModel: () => "fixture-model",
+    dispatched: () => requests.length > 0,
     callModel: (request, onDelta, signal) => { requests.push(structuredClone(request)); return callModel(request, onDelta, signal); },
   });
   return requests;
@@ -42,6 +48,9 @@ async function reply(prepared: Awaited<ReturnType<typeof prepareAssistantReply>>
 describe("assistant conversation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(resolveAiRequest).mockResolvedValue({
+      ok: true, source: "chatgpt_plan", preferences: { model: "fixture-model", reasoningEffort: "high" }, connection: null,
+    });
     vi.mocked(appendAssistantMessage).mockImplementation(async (_context, input) =>
       ({ ...message("saved", input.role, input.content, input.status ?? "complete"), activity: input.activity ?? [], errorCode: input.errorCode ?? null }));
   });
@@ -63,7 +72,7 @@ describe("assistant conversation", () => {
       { role: "user", content: "Et la TVA ?" },
     ]);
     expect(appendAssistantMessage).toHaveBeenLastCalledWith(context, expect.objectContaining({
-      role: "assistant", status: "complete", content: "La TVA est de 20,00 €.", model: "fixture-model", tokenUsage: usage,
+      role: "assistant", status: "complete", content: "La TVA est de 20,00 €.", model: "fixture-model", reasoningEffort: "high", tokenUsage: usage,
     }));
     expect(events.at(-1)).toMatchObject({ type: "done", error: null, message: { status: "complete" } });
   });
@@ -229,6 +238,19 @@ describe("assistant conversation", () => {
     // The log names the refusal and its status, never the question or the answer.
     expect(error).toHaveBeenCalledWith("assistant_reply_failed", "AI_QUOTA", 429);
     error.mockRestore();
+  });
+
+  it("keeps the partial answer and records a durable reason when the next turn does not fit", async () => {
+    threadWith([]);
+    modelAnswering(async (_request, onDelta) => {
+      onDelta({ type: "text", delta: "Voici le total." });
+      throw new ApiKeyError("AI_KEY_CEILING");
+    });
+    const events = await reply(await prepareAssistantReply("thread-1", { content: "Total ?" }));
+    expect(appendAssistantMessage).toHaveBeenLastCalledWith(context, expect.objectContaining({
+      role: "assistant", status: "interrupted", content: "Voici le total.", errorCode: "AI_KEY_CEILING",
+    }));
+    expect(events.at(-1)).toMatchObject({ type: "done", error: null, message: { errorCode: "AI_KEY_CEILING" } });
   });
 
   it("words a rejected request for the assistant, not for a document", async () => {
