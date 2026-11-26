@@ -3,9 +3,11 @@
 import { headers } from "next/headers";
 import { z } from "zod";
 
+import { readAiRequestOptions } from "@/lib/ai/request-settings-server";
 import { assertAssistantRequest, isAssistantEnabled } from "@/lib/assistant/model";
+import { ASSISTANT_AI_SOURCES, type AssistantAiOptions } from "@/lib/assistant/request-settings";
 import {
-  createAssistantThread, deleteAssistantThread, listAssistantThreads, readAssistantThread,
+  createAssistantThread, deleteAssistantThread, listAssistantThreads, readAssistantThread, requireAssistantProject,
   type AssistantMessage, type AssistantThread,
 } from "@/lib/assistant/threads-server";
 import { ApiError } from "@/lib/http/api-response";
@@ -39,6 +41,23 @@ function threadTitle(question: string) {
 export async function loadAssistantThreads(projectId: string): Promise<Result<AssistantThread[]>> {
   if (!isAssistantEnabled()) return { ok: true, data: [] };
   return result(() => listAssistantThreads(id.parse(projectId)));
+}
+
+export async function loadAssistantAiOptions(projectId: string): Promise<Result<AssistantAiOptions>> {
+  return result(async () => {
+    const { context: { userId, tenantId } } = await requireAssistantProject(id.parse(projectId));
+    const { defaultSource, options } = await readAiRequestOptions({ userId, tenantId }, { allowedSources: ASSISTANT_AI_SOURCES });
+    const sources: AssistantAiOptions["sources"] = {};
+    for (const source of ASSISTANT_AI_SOURCES) {
+      const option = options[source];
+      if (!option) continue;
+      sources[source] = option.ok
+        ? { available: true, message: option.message, models: option.models, preferences: option.preferences }
+        : { available: false, message: option.message };
+    }
+    const key = options.personal_api_key;
+    return { defaultSource, sources, keyConnectionId: key?.ok ? key.connection?.id ?? null : null };
+  });
 }
 
 export async function loadAssistantThread(threadId: string): Promise<Result<{ thread: AssistantThread; messages: AssistantMessage[] }>> {

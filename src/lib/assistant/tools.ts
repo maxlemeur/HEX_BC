@@ -37,17 +37,9 @@ export function buildAssistantTools(scope: {
   // One answer reads several ranges of a plan set in turn: the document read last is kept, and only it, so that
   // it is downloaded once (access is still checked on every read).
   const downloads = new Map<string, Promise<Uint8Array>>();
-  // One user turn reads the same estimate several times: compute it once.
-  const readings = new Map<string, Promise<EstimateReading>>();
-  const reading = (versionId: string) => {
-    const cached = readings.get(versionId);
-    if (cached) return cached;
-    const loaded = loadEstimateReading({ versionId, projectId: scope.projectId });
-    readings.set(versionId, loaded);
-    // A refused reading (edited meanwhile, no access) is not kept: the next call reads again.
-    loaded.catch(() => { if (readings.get(versionId) === loaded) readings.delete(versionId); });
-    return loaded;
-  };
+  // Reuse the computed estimate within one answer after checking access and view.
+  const readings = new Map<string, EstimateReading>();
+  const reading = (versionId: string) => loadEstimateReading({ versionId, projectId: scope.projectId, cache: readings });
 
   return [
     {

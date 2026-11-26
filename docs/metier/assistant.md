@@ -94,6 +94,17 @@ tableur ou DWG, fonctionner sur le site hébergé.
    sans la dupliquer. Si une autre question a été posée entre-temps dans la
    même conversation (un second onglet), la relance est refusée et la
    conversation est rechargée. Aucun autre fournisseur n'est essayé.
+8. **Réglages par message.** Le panneau préremplit la source choisie dans
+   « Mon profil ». Avant chaque envoi, y compris une suggestion ou une relance,
+   le membre peut choisir le forfait ChatGPT ou sa clé API OpenAI, le modèle et
+   l'effort de raisonnement. Ces réglages restent les mêmes pendant toute la
+   réponse. Le choix dans le panneau ne modifie pas « Mon profil ».
+   Avec la clé, le plafond affiché de 0,50 USD couvre toute la réponse, lectures
+   comprises. OpenAI compte gratuitement l'entrée complète de chaque appel
+   avant sa génération, pièces et outils compris. MergeOne borne le coût de
+   l'entrée et de la sortie, raisonnement compris, avec le budget restant.
+   Si un appel ne tient plus dans ce budget, la réponse partielle et le motif de
+   l'arrêt restent dans la conversation.
 
 ## Outils donnés au modèle
 
@@ -238,7 +249,7 @@ déjà.
   avec ses citations vérifiées, l'est.
 - Les erreurs journalisées ne contiennent ni question, ni réponse, ni charge du
   fournisseur : seulement un code et, pour un refus du fournisseur, son statut.
-- Le modèle et les jetons enregistrés avec une réponse sont indicatifs : l'auteur
+- Le modèle, l'effort et les jetons enregistrés avec une réponse sont indicatifs : l'auteur
   d'une conversation peut écrire dans ses propres messages. Ils ne doivent pas
   servir de base à un quota ou à une facturation.
 - Le nom, la référence et le client de l'affaire sont transmis au modèle comme
@@ -247,7 +258,7 @@ déjà.
 ## Activation
 
 L'assistant est éteint par défaut. Il existe seulement là où `MERGEONE_ASSISTANT=1`
-est posé **et** où le forfait ChatGPT local est disponible
+est posé et où l'accès IA local est activé
 ([connexion locale](../testing/chatgpt-local.md)) :
 
 ```sh
@@ -255,8 +266,7 @@ MERGEONE_ASSISTANT=1 npm run dev:chatgpt
 ```
 
 Sans cela, le bouton n'apparaît pas et la route répond 404, comme pour toute
-requête qui n'arrive pas sur `127.0.0.1`. Le modèle et le niveau d'effort sont
-ceux choisis dans « Mon profil ».
+requête qui n'arrive pas sur `127.0.0.1`.
 
 ## Vérification
 

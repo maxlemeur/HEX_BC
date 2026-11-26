@@ -774,6 +774,9 @@ if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the esti
     await screen.getByTestId("assistant-toggle").click();
     const panel = screen.getByTestId("assistant-panel");
     await expect(panel).toBeVisible();
+    await expect(panel.getByLabel("Source IA", { exact: true })).toHaveValue("chatgpt_plan", DEV_SERVER_WORK);
+    await expect(panel.getByLabel("Modèle", { exact: true })).toHaveValue("army-plan-model");
+    await panel.getByLabel("Effort de raisonnement", { exact: true }).selectOption({ value: "high" });
     await panel.getByTestId("assistant-input").fill(question);
     await panel.getByTestId("assistant-send").click();
     const answer = panel.getByTestId("assistant-message-assistant");
@@ -790,14 +793,16 @@ if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the esti
     const sent = (await readTransport()).filter((entry) => entry.task === "assistant");
     expect(sent.map((entry) => entry.step)).toEqual([0, 1, 2]);
     expect(sent.every((entry) => entry.question === question && entry.toolChoice === "auto" && entry.model === "army-plan-model")).toBe(true);
+    expect(sent.map((entry) => entry.reasoningEffort)).toEqual(["high", "high", "high"]);
     expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
 
     // Persistence, as its author: the question, then the complete answer with what it read.
-    const saved = await client.from("assistant_messages").select("role, status, content, activity, model").order("created_at");
+    const saved = await client.from("assistant_messages").select("role, status, content, activity, model, token_usage").order("created_at");
     expect(saved.error).toBeNull();
     expect(saved.data).toEqual([
-      { role: "user", status: "complete", content: question, activity: [], model: null },
+      { role: "user", status: "complete", content: question, activity: [], model: null, token_usage: null },
       { role: "assistant", status: "complete", model: "army-plan-model",
+        token_usage: expect.objectContaining({ reasoningEffort: "high" }),
         content: `Le total HT du devis est de ${total}. La ligne [[ligne:${ids.versionId}/${line.id}|${line.title}]] vaut ${total}.`,
         activity: [{ name: "lire_devis", activity: "Lecture du devis", ok: true },
           { name: "lire_lignes_devis", activity: "Lecture des lignes du devis", ok: true }] },

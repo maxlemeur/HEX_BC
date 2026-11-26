@@ -217,7 +217,8 @@ globalThis.fetch = async (input, init) => {
     const transcriptionSent = body.input.some(entry => Array.isArray(entry.content) && entry.content.some(part =>
       part.type === "input_text" && part.text.startsWith("Transcription automatique non vérifiée")));
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "assistant",
-      step: outputs.length, toolChoice: body.tool_choice, question, model: body.model, transcriptionSent }) + "\n");
+      step: outputs.length, toolChoice: body.tool_choice, question, model: body.model,
+      reasoningEffort: body.reasoning?.effort ?? null, transcriptionSent }) + "\n");
     const completed = { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 20, output_tokens: 8, total_tokens: 28 } } };
     const sse = events => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     const call = (name, args) => sse([{ type: "response.output_item.done", output_index: 0, item: {

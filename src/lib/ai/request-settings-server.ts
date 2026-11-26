@@ -10,11 +10,12 @@ import {
 import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { readCachedLocalChatGptModelOptions, readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
+import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { supportsReasoningEffort, type ChatGptAvailableModel, type ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { AI_REQUEST_PROFILE_UNREADABLE } from "@/lib/ai/request-settings";
 import { getStructuredAiAvailability } from "@/lib/ai/structured-ai";
 
-type Owner = { userId: string; tenantId: string };
+type Owner = ChatGptOwner;
 type RequestPolicy = {
   /** Omit the usage on screens without a profile override. */
   usage?: AiAnalysisUsage;

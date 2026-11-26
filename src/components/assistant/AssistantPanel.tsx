@@ -6,8 +6,9 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type Keyboard
 import useSWR from "swr";
 
 import {
-  loadAssistantThread, loadAssistantThreads, removeAssistantThread, startAssistantThread,
+  loadAssistantAiOptions, loadAssistantThread, loadAssistantThreads, removeAssistantThread, startAssistantThread,
 } from "@/app/dashboard/_actions/assistant";
+import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
 import type { AssistantScope } from "@/components/assistant/AssistantDock";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,10 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { affaireIntakeFileUrl } from "@/lib/affaires/intake";
+import { supportsReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import { defaultAiRequestSettings, type AiRequestSettingsValue } from "@/lib/ai/request-settings";
 import { readAssistantStream, splitAssistantText } from "@/lib/assistant/client-stream";
+import { ASSISTANT_CEILING_MESSAGE, ASSISTANT_KEY_CEILING } from "@/lib/assistant/request-settings";
 import type { AssistantActivity, AssistantMessage } from "@/lib/assistant/threads-server";
 
 type Draft = { text: string; activity: AssistantActivity[]; running: string | null };
@@ -125,6 +129,15 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
 }) {
   const { projectId, screen } = scope;
   const threads = useSWR(["assistant-threads", projectId], () => loadAssistantThreads(projectId), { revalidateOnFocus: false });
+  const ai = useSWR(["assistant-ai-options", projectId], () => loadAssistantAiOptions(projectId), { revalidateOnFocus: false, keepPreviousData: false });
+  const options = ai.data?.ok ? ai.data.data : null;
+  const [choice, setChoice] = useState<AiRequestSettingsValue>();
+  const settings = options ? choice ?? defaultAiRequestSettings(options.defaultSource, options.sources) : null;
+  const sourceOptions = settings?.source ? options?.sources[settings.source] : undefined;
+  const selectedModel = sourceOptions?.models?.find((model) => model.id === settings?.preferences?.model);
+  const canSend = Boolean(!ai.isValidating && sourceOptions?.available && selectedModel && settings?.preferences
+    && supportsReasoningEffort(selectedModel, settings.preferences.reasoningEffort)
+    && (settings.source !== "personal_api_key" || options?.keyConnectionId));
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -170,7 +183,11 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
 
   const send = useCallback(async (content: string, retryOf?: string) => {
     const question = content.trim();
-    if (!question || request.current || loading) return;
+    if (!question || request.current || loading || !canSend || !settings?.source || !settings.preferences) return;
+    const aiSettings = {
+      source: settings.source, model: settings.preferences.model, effort: settings.preferences.reasoningEffort,
+      ...(settings.source === "personal_api_key" ? { connectionId: options?.keyConnectionId } : {}),
+    };
     setFailure(null);
     setAnnouncement("L’assistant répond.");
     let threadId = activeThreadId;
@@ -204,7 +221,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
       const response = await fetch(`/api/assistant/threads/${threadId}/messages`, {
         method: "POST", credentials: "same-origin", signal: controller.signal,
         headers: { "content-type": "application/json", accept: "text/event-stream" },
-        body: JSON.stringify({ content: question, screen, ...(retryOf ? { retryOf } : {}) }),
+        body: JSON.stringify({ content: question, screen, aiSettings, ...(retryOf ? { retryOf } : {}) }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null) as { error?: { message?: string; code?: string } } | null;
@@ -229,7 +246,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
           const shown = event.message ?? (written.trim() || activity.length > 0 ? local(event.error ? "failed" : "complete") : null);
           if (shown) setMessages((current) => [...current, shown]);
           if (event.error) setFailure({ ...event.error, retryable: true });
-          setAnnouncement(event.error ? event.error.message : "Réponse terminée.");
+          setAnnouncement(event.error?.message ?? (shown?.errorCode === "AI_KEY_CEILING" ? ASSISTANT_CEILING_MESSAGE : "Réponse terminée."));
         }
       });
       if (!finished) throw new AssistantUserError("La connexion a été coupée avant la fin de la réponse. Réessayez.");
@@ -251,13 +268,17 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
         }
         setFailure({ code, message, retryable: !stale });
         setAnnouncement(message);
+        if (code === "ASSISTANT_AI_CONNECTION_CHANGED") {
+          setChoice(settings);
+          void ai.mutate();
+        }
       }
     } finally {
       request.current = null;
       setDraft(null);
       void threads.mutate();
     }
-  }, [activeThreadId, loading, onActiveThreadChange, projectId, screen, threads]);
+  }, [activeThreadId, ai, canSend, loading, onActiveThreadChange, options, projectId, screen, settings, threads]);
 
   const lastQuestion = [...messages].reverse().find((message) => message.role === "user") ?? null;
   const lastMessage = messages[messages.length - 1];
@@ -277,7 +298,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
   }
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (sending || loading || !input.trim()) return;
+    if (sending || loading || !input.trim() || !canSend) return;
     const question = input;
     setInput("");
     void send(question);
@@ -348,7 +369,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
               {SUGGESTIONS[screen.screen].map((suggestion) => (
                 <li key={suggestion}>
                   <Button type="button" variant="outline" size="sm" className="h-auto w-full justify-start whitespace-normal py-2 text-left"
-                    onClick={() => void send(suggestion)}>
+                    disabled={!canSend} onClick={() => void send(suggestion)}>
                     {suggestion}
                   </Button>
                 </li>
@@ -368,7 +389,11 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
             {message.content ? (
               <AnswerText text={message.content} streaming={false} projectId={projectId} verified={!message.id.startsWith(LOCAL)} />
             ) : null}
-            {message.status === "interrupted" ? <p className="text-xs text-muted-foreground">Réponse interrompue.</p> : null}
+            {message.status === "interrupted" ? (
+              <p className="text-xs text-muted-foreground">
+                {message.errorCode === "AI_KEY_CEILING" ? ASSISTANT_CEILING_MESSAGE : "Réponse interrompue."}
+              </p>
+            ) : null}
             {message.status === "failed" && !failure ? <p className="text-xs text-muted-foreground">Cette réponse n’a pas abouti.</p> : null}
           </div>
         ))}
@@ -390,13 +415,25 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
           </Alert>
         ) : null}
         {canRetry ? (
-          <Button type="button" variant="outline" size="sm" onClick={retry} data-testid="assistant-retry">
+          <Button type="button" variant="outline" size="sm" disabled={!canSend} onClick={retry} data-testid="assistant-retry">
             Réessayer
           </Button>
         ) : null}
       </div>
 
-      <form onSubmit={submit} className="shrink-0 border-t border-border bg-surface p-3">
+      <form onSubmit={submit} className="shrink-0 space-y-2 border-t border-border bg-surface p-3">
+        {options && settings ? (
+          <AiRequestSettings
+            sources={options.sources} defaultSource={options.defaultSource} value={settings} onChange={setChoice}
+            sourcePicker={{ label: "Source IA" }} locked={sending}
+            keyCeiling={{ nanoUsd: ASSISTANT_KEY_CEILING, message: (ceiling) =>
+              `Votre compte OpenAI sera facturé jusqu’à ${ceiling} par envoi, relance comprise. Ce plafond couvre aussi les lectures.` }}
+          />
+        ) : ai.error || ai.data?.ok === false ? (
+          <p className="text-xs text-muted-foreground">{ai.data?.ok === false ? ai.data.message : CONNECTION_FAILED}</p>
+        ) : (
+          <Spinner aria-label="Chargement des réglages IA" />
+        )}
         <div className="flex items-end gap-2">
           <Textarea
             value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onKeyDown}
@@ -411,7 +448,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
           ) : (
             <IconButton
               type="submit" label="Envoyer" icon={<ArrowUp aria-hidden="true" className="size-4" />} variant="primary" size="icon"
-              disabled={!input.trim() || loading} data-testid="assistant-send"
+              disabled={!input.trim() || loading || !canSend} data-testid="assistant-send"
             />
           )}
         </div>
