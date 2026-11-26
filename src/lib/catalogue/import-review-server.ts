@@ -9,8 +9,6 @@ import { buildCatalogueAccess, canAddToCatalogue, canEditCatalogueRecord } from 
 import { readEngineersCanEditShared } from "@/lib/catalogue/access-server";
 import { workbookSupplierNameKey } from "@/lib/catalogue/costing-workbook";
 import {
-  bulkValidationSummary,
-  CATALOGUE_BULK_INCOMPLETE,
   REFERENCE_QUEUE_CHANGED,
   REVIEW_REFERENCES_MAX,
   type BulkProductsInput,
@@ -24,6 +22,7 @@ import {
   type SupplierAlias,
   type UndoImportResult,
 } from "@/lib/catalogue/import-review-contract";
+import { bulkValidationSummary, CATALOGUE_BULK_INCOMPLETE } from "@/lib/catalogue/import-review-feedback";
 import { catalogueStatusError, PRODUCT_WRITE_REFUSAL } from "@/lib/catalogue/product-writes";
 import { ApiError, badRequest, conflict, forbidden, mapSupabaseError, notFound, type SupabaseErrorLike } from "@/lib/http/api-response";
 import { readAllRows } from "@/lib/supabase/read-all";

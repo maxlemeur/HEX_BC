@@ -16,13 +16,13 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { fetchPendingSupplierReferences, reviewSupplierReferences } from "@/lib/catalogue/import-review-client";
 import {
-  CATALOGUE_BULK_INCOMPLETE,
   PENDING_REFERENCE_PAGE_SIZES,
   REFERENCE_QUEUE_CHANGED,
   type PendingSupplierReferencePage,
   type PendingReferencesQuery,
   type ReviewReferencesInput,
 } from "@/lib/catalogue/import-review-contract";
+import { CATALOGUE_BULK_INCOMPLETE } from "@/lib/catalogue/import-review-feedback";
 import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import {
   catalogueErrorMessage,

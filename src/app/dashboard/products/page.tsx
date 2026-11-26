@@ -31,7 +31,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { IconButton } from "@/components/ui/icon-button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { useOptionalUserContext } from "@/lib/auth/user-context";
-import { bulkValidationSummary, CATALOGUE_BULK_INCOMPLETE } from "@/lib/catalogue/import-review-contract";
+import { bulkValidationSummary, CATALOGUE_BULK_INCOMPLETE } from "@/lib/catalogue/import-review-feedback";
 import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { assignProductsSupplyType, validateDraftProducts } from "@/lib/catalogue/import-review-client";
 import { PRODUCT_VALIDATION_INCOMPLETE } from "@/lib/catalogue/product-validation";
