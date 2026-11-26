@@ -27,6 +27,8 @@ import {
   assignVersionZeroLotKeys,
   matchVersionZeroLotsByLabel,
   normalizeVersionZeroLotKey,
+  readVersionZeroLineOrigin,
+  type VersionZeroLineOrigin,
 } from "@/lib/estimates/version-zero-utils";
 import {
   buildEstimateStructurePreview,
@@ -144,6 +146,7 @@ export type VersionZeroReviewLine = {
   lotId: string;
   order: number;
   reviewStatus: VersionZeroLineReviewStatus;
+  generationOrigin: VersionZeroLineOrigin | null;
   confidence: number;
   confidenceLabel: "elevee" | "moyenne" | "faible";
   proposed: {
@@ -238,6 +241,7 @@ export type VersionZeroReview = {
 };
 
 type InternalVersionZeroLine = {
+  generationOrigin: VersionZeroLineOrigin;
   proposedTitle: string;
   proposedDescription: string | null;
   proposedQuantity: number | null;
@@ -546,6 +550,7 @@ function buildFallbackLots(input: {
     const lines: InternalVersionZeroLine[] =
       relevantScope.length > 0
         ? relevantScope.slice(0, 3).map((entry, lineIndex) => ({
+            generationOrigin: "brief",
             proposedTitle:
               lineIndex === 0
                 ? `${lotLabel} - prestation principale`
@@ -563,6 +568,7 @@ function buildFallbackLots(input: {
           }))
         : [
             {
+              generationOrigin: "brief",
               proposedTitle: `${lotLabel} - chiffrage à consolider`,
               proposedDescription:
                 "Lot identifie dans le brief confirme, mais decomposition détaillée à revoir.",
@@ -659,7 +665,8 @@ function mergeGeneratedLots(input: {
 
       const lines =
         aiLot.lines.length > 0
-          ? aiLot.lines.map((line) => ({
+          ? aiLot.lines.map((line): InternalVersionZeroLine => ({
+              generationOrigin: "model",
               proposedTitle: line.title,
               proposedDescription: line.description,
               proposedQuantity: line.quantity,
@@ -863,6 +870,7 @@ async function persistGeneratedDraft(input: {
       missing_signals: line.missingSignals,
       metadata: {
         risk_signals: line.riskSignals,
+        generation_origin: line.generationOrigin,
       },
     }))
   ) satisfies EstimateVersionZeroLineInsert[];
@@ -976,6 +984,7 @@ function normalizeReviewLine(row: EstimateVersionZeroLineRow): VersionZeroReview
     lotId: row.lot_id,
     order: row.line_order,
     reviewStatus: row.review_status,
+    generationOrigin: readVersionZeroLineOrigin(metadata.generation_origin),
     confidence: clampConfidence(row.confidence),
     confidenceLabel: getConfidenceLabel(clampConfidence(row.confidence)),
     proposed: {
@@ -1220,12 +1229,8 @@ export async function generateVersionZeroDraft(input: {
   if (usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw new EstimateEngineUnavailableError();
 
   assertDraftStatus(version.status);
-  await assertDraftLockOwnedByCurrentUser({
-    supabase,
-    tenantId,
-    versionId: input.versionId,
-    userId,
-  });
+  const draftLock = { supabase, tenantId, versionId: input.versionId, userId };
+  await assertDraftLockOwnedByCurrentUser(draftLock);
   await assertVersionIsEmpty({
     supabase,
     tenantId,
@@ -1254,6 +1259,7 @@ export async function generateVersionZeroDraft(input: {
     operation: "version_zero_draft",
     run: async () => {
       const sourceLinks = await loadBriefSourceLinks({ supabase, briefId: brief.id });
+      await assertDraftLockOwnedByCurrentUser(draftLock);
       // V0 uses structure suggestions as input, without replacing a standalone pending preview.
       const structurePreview = await withEstimateAiGenerationLease({
         supabase,
@@ -1295,16 +1301,17 @@ export async function generateVersionZeroDraft(input: {
       const lots = assignVersionZeroLotKeys(
         mergeGeneratedLots({ fallbackLots, aiLots: aiResult?.data?.lots ?? null })
       );
+      const lines = lots.flatMap((lot) => lot.lines);
       const spentNanoUsd = ai?.spentNanoUsd ?? null;
       const generation: InternalVersionZeroGeneration = {
         lots,
-        summaryText: aiResult?.data
-          ? aiResult.data.summary
+        summaryText: lines.some((line) => line.generationOrigin === "model")
+          ? aiResult?.data?.summary ?? null
           : `V0 générée sur ${lots.length} lot(s), à revoir avant toute application.`,
         generationMetadata: {
           model: aiResult?.model ?? null,
           prompt_version: aiResult?.promptVersion ?? VERSION_ZERO_PROMPT_VERSION,
-          used_fallback: !aiResult?.data,
+          used_fallback: lines.some((line) => line.generationOrigin === "brief"),
           structure_used_fallback: structurePreview?.metadata.used_fallback ?? null,
           billing_source: ai?.source ?? null,
           reasoning_effort: ai?.preferences.reasoningEffort ?? null,
@@ -1689,6 +1696,7 @@ export async function materializeVersionZeroDraft(input: {
             line_id: line.id,
             lot_label: lot.label,
             review_status: line.reviewStatus,
+            generation_origin: line.generationOrigin,
             confidence: line.confidence,
             generated_at: draft.created_at,
             materialized_at: materializedAt,
@@ -1891,6 +1899,7 @@ export async function enrichEstimateItemsWithVersionZeroProvenance(input: {
         lot_label: lot?.lot_label ?? null,
         application_order: application.application_order,
         review_status: normalizedLine.reviewStatus,
+        generation_origin: normalizedLine.generationOrigin,
         confidence: normalizedLine.confidence,
         generated_at: draft.created_at,
         materialized_at: draft.materialized_at,

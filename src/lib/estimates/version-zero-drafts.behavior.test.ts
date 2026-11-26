@@ -249,7 +249,7 @@ function makeApplication(input: {
 }
 
 function defaultAcceptedLine() {
-  return makeLine({
+  const line = makeLine({
     id: ACCEPTED_LINE_ID,
     order: 0,
     reviewStatus: "accepted",
@@ -258,6 +258,7 @@ function defaultAcceptedLine() {
     proposedQuantity: 12,
     proposedUnit: "ml",
   });
+  return { ...line, metadata: { ...line.metadata, generation_origin: "brief" } };
 }
 
 function createSupabaseHarness(scenario: HarnessScenario = {}) {
@@ -486,6 +487,12 @@ describe("materializeVersionZeroDraft", () => {
     expect(lineItems.every((item) => item.parent_id === sectionItems[0].id)).toBe(
       true
     );
+    expect(lineItems[0]).toMatchObject({
+      quantity: 12,
+      unit_price_ht_cents: 0,
+      line_total_ht_cents: 0,
+      source_metadata: { applications: [{ generation_origin: "brief", effective: { unit: "ml" } }] },
+    });
     expect(lineItems[1]).toMatchObject({
       description: "Description validee",
       quantity: 2.5,
@@ -777,6 +784,7 @@ describe("enrichEstimateItemsWithVersionZeroProvenance", () => {
         {
           application_order: 0,
           review_status: "accepted",
+          generation_origin: "brief",
           proposed: {
             title: "Cable cuivre",
             description: "Fourniture et pose",

@@ -5,6 +5,7 @@ import { useId, useState, type FocusEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 
 import { usePopover } from "@/hooks/usePopover";
+import { readVersionZeroLineOrigin, type VersionZeroLineOrigin } from "@/lib/estimates/version-zero-utils";
 import { SUPPORTED_TAKEOFF_SOURCE_BADGE_PROVIDERS } from "@/lib/takeoff/source-badge";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { isRecord, toNonEmptyString } from "@/lib/value-guards";
@@ -90,6 +91,7 @@ type GeneratedOuvrageSnapshot = {
 
 type VersionZeroApplication = {
   draftId: string;
+  generationOrigin: VersionZeroLineOrigin | null;
   lotLabel: string | null;
   reviewStatus: string | null;
   confidence: number | null;
@@ -415,6 +417,7 @@ function parseVersionZeroApplications(value: unknown): VersionZeroApplication[] 
       const effective = isRecord(application.effective) ? application.effective : {};
       return {
         draftId,
+        generationOrigin: readVersionZeroLineOrigin(application.generation_origin),
         lotLabel: toNonEmptyString(
           typeof application.lot_label === "string" ? application.lot_label : null
         ),
@@ -547,6 +550,14 @@ export function TakeoffSourceBadge({
   if (isVersionZeroDraft && versionZeroApplications.length === 0) {
     return null;
   }
+  const versionZeroFromBrief = isVersionZeroDraft &&
+    versionZeroApplications.every((application) => application.generationOrigin === "brief");
+  const versionZeroFromModel = isVersionZeroDraft &&
+    versionZeroApplications.every((application) => application.generationOrigin === "model");
+  const versionZeroLabel = versionZeroFromBrief ? "V0 · Brief" : versionZeroFromModel ? "IA V0" : "V0";
+  const provenanceLabel = isAssemblyLibrary ? "la provenance de la bibliothèque"
+    : isVersionZeroDraft && !versionZeroFromModel ? "la provenance de la V0"
+    : "la provenance IA";
 
   const sourceFileLabel = toNonEmptyString(sourceFileName) ?? NOT_AVAILABLE_LABEL;
   const sourcePageLabel = formatSourcePage(sourcePage);
@@ -581,7 +592,7 @@ export function TakeoffSourceBadge({
     : isGeneratedOuvrage
       ? "IA ouvrage"
       : isVersionZeroDraft
-        ? "IA V0"
+        ? versionZeroLabel
       : `IA${triggerLabelSuffix}`;
 
   return (
@@ -601,10 +612,9 @@ export function TakeoffSourceBadge({
         onClick={toggle}
         aria-expanded={isOpen}
         aria-describedby={isOpen ? tooltipId : undefined}
-        aria-label={isAssemblyLibrary ? "Afficher la provenance de la bibliothèque" : "Afficher la provenance IA"}
+        aria-label={`Afficher ${provenanceLabel}`}
       >
         <span aria-hidden="true">{triggerText}</span>
-        <span className="sr-only">{isAssemblyLibrary ? "Provenance de bibliothèque disponible pour cette ligne" : "Provenance IA disponible pour cette ligne"}</span>
       </button>
 
       {!isAiStructure && !isVersionZeroDraft && estimateItemId ? (
@@ -761,7 +771,9 @@ export function TakeoffSourceBadge({
             </>
           ) : isVersionZeroDraft ? (
             <>
-              <p className="takeoff-source-badge__title">V0 IA materialisee</p>
+              <p className="takeoff-source-badge__title">
+                {versionZeroFromBrief ? "V0 issue du brief confirmé" : "V0 matérialisée"}
+              </p>
               <div className="space-y-3 text-sm text-[var(--slate-700)]">
                 {versionZeroApplications.slice(0, 3).map((application) => (
                   <div

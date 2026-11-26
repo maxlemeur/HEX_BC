@@ -1,4 +1,5 @@
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
+import { parseEstimateDraftGenerationBody } from "@/lib/estimates/draft-ai-generation";
 import { generateVersionZeroDraftSchema } from "@/lib/estimates/schemas";
 import {
   fetchVersionZeroDraftSummary,
@@ -25,7 +26,9 @@ export async function POST(
 ) {
   try {
     const versionId = await uuidRouteParam(params, "versionId");
-    const body = generateVersionZeroDraftSchema.parse(await parseJsonBody(request, badRequest));
+    const body = parseEstimateDraftGenerationBody(
+      generateVersionZeroDraftSchema, await parseJsonBody(request, badRequest)
+    );
     const data = await generateVersionZeroDraft({
       versionId,
       briefId: body.brief_id ?? null,

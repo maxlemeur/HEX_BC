@@ -18979,7 +18979,7 @@
           }
         ],
         "requestBody": {
-          "description": "Stratégie et choix IA. Une génération avec la clé personnelle est plafonnée à 1 USD.",
+          "description": "Stratégie et choix IA. Une génération avec la clé personnelle est plafonnée à 1 USD. Une requête autrement valide sans le champ ai reçoit un HTTP 400 avec le code ESTIMATE_DRAFT_AI_CHOICE_REQUIRED et le message « Rechargez la page pour choisir votre source IA avant de générer. ».",
           "required": true,
           "content": {
             "application/json": {
@@ -20414,7 +20414,7 @@
           }
         ],
         "requestBody": {
-          "description": "Brief, lots et choix IA. La structure et les lignes partagent le plafond de 1 USD avec la clé personnelle.",
+          "description": "Brief, lots et choix IA. La structure et les lignes partagent le plafond de 1 USD avec la clé personnelle. Une requête autrement valide sans le champ ai reçoit un HTTP 400 avec le code ESTIMATE_DRAFT_AI_CHOICE_REQUIRED et le message « Rechargez la page pour choisir votre source IA avant de générer. ».",
           "required": true,
           "content": {
             "application/json": {

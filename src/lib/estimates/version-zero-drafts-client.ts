@@ -2,6 +2,7 @@ import { getRootPayload } from "@/lib/estimates/client-json";
 import { requestJson } from "@/lib/estimates/client-requests";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import type { EstimateDraftAiRequest } from "@/lib/estimates/schemas";
+import type { VersionZeroLineOrigin } from "@/lib/estimates/version-zero-utils";
 import { isRecord } from "@/lib/value-guards";
 
 type VersionZeroDraftCounts = NonNullable<
@@ -26,6 +27,7 @@ export type VersionZeroReviewLine = {
   lotId: string;
   order: number;
   reviewStatus: VersionZeroLineReviewStatus;
+  generationOrigin: VersionZeroLineOrigin | null;
   confidence: number;
   confidenceLabel: "elevee" | "moyenne" | "faible";
   proposed: {

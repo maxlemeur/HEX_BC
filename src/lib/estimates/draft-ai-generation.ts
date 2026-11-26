@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { z } from "zod";
 import { ApiKeyError, isApiKeyError } from "@/lib/ai/access/api-key-errors";
 import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
 import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
@@ -7,8 +8,9 @@ import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import { readAiRequestOptions, resolveAiRequest } from "@/lib/ai/request-settings-server";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
 import type { StructuredCallOptions } from "@/lib/ai/structured-call";
-import type { EstimateDraftAiRequest } from "@/lib/estimates/schemas";
-import { conflict } from "@/lib/http/api-error";
+import { ESTIMATE_DRAFT_AI_CHOICE_REQUIRED, type EstimateDraftAiRequest } from "@/lib/estimates/schemas";
+import { badRequest, conflict } from "@/lib/http/api-error";
+import { isRecord } from "@/lib/value-guards";
 
 const policy = { allowedSources: ["chatgpt_plan", "personal_api_key"] } as const;
 const ceiling = AI_REQUEST_CEILINGS_NANO_USD.generationOrDocument;
@@ -18,6 +20,19 @@ const outputTokens = {
   structure: { min: 4_096, cap: 8_192 },
   lots: { min: 8_192, cap: 16_384 },
 } satisfies Record<Step, { min: number; cap: number }>;
+
+export function parseEstimateDraftGenerationBody<T>(schema: z.ZodType<T>, payload: unknown): T {
+  const result = schema.safeParse(payload);
+  if (result.success) return result.data;
+  if (
+    isRecord(payload) && !Object.hasOwn(payload, "ai") &&
+    result.error.issues.every(({ path }) => path.length === 1 && path[0] === "ai")
+  ) {
+    const { code, message } = ESTIMATE_DRAFT_AI_CHOICE_REQUIRED;
+    throw badRequest(message, undefined, code);
+  }
+  throw result.error;
+}
 
 export async function readEstimateDraftAiOptions(owner: Owner) {
   const { defaultSource, options } = await readAiRequestOptions(owner, policy);

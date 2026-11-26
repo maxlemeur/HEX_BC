@@ -1184,6 +1184,11 @@ export const estimateDraftAiRequestSchema = z.discriminatedUnion("source", [
 ]);
 export type EstimateDraftAiRequest = z.infer<typeof estimateDraftAiRequestSchema>;
 
+export const ESTIMATE_DRAFT_AI_CHOICE_REQUIRED = {
+  code: "ESTIMATE_DRAFT_AI_CHOICE_REQUIRED",
+  message: "Rechargez la page pour choisir votre source IA avant de générer.",
+} as const;
+
 export const generateEstimateStructureDraftSchema = z.object({
   strategy: estimateStructureDraftStrategySchema.optional().default("hybrid"),
   ai: estimateDraftAiRequestSchema,

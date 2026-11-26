@@ -470,7 +470,7 @@ export function VersionZeroDraftDialog({
               </dl>
 
               {review.draft.generationMetadata.used_fallback === true ? (
-                <Alert variant="info">Brouillon de secours construit à partir du brief confirmé.</Alert>
+                <Alert variant="info">Des lignes ont été proposées à partir du brief confirmé.</Alert>
               ) : review.draft.generationMetadata.structure_used_fallback === true ? (
                 <Alert variant="info">La structure a été déduite des sources disponibles.</Alert>
               ) : null}
@@ -566,6 +566,11 @@ export function VersionZeroDraftDialog({
                                   <Badge variant={STATUS_BADGE[line.reviewStatus].variant}>
                                     {STATUS_BADGE[line.reviewStatus].label}
                                   </Badge>
+                                  {line.generationOrigin ? (
+                                    <Badge variant="neutral">
+                                      {line.generationOrigin === "brief" ? "Brief confirmé" : "Proposition IA"}
+                                    </Badge>
+                                  ) : null}
                                   <span className="text-xs text-muted-foreground">
                                     {CONFIDENCE_LABELS[line.confidenceLabel] ?? line.confidenceLabel}{" "}
                                     {confidenceText(line.confidence)}

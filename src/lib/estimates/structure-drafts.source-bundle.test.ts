@@ -22,7 +22,12 @@ vi.mock(import("@/lib/ai/access/openai-api"), async (original) => ({
   ...await original(),
   openAiApiKeyAccess: vi.fn(),
 }));
+vi.mock(import("next/headers"), async (original) => ({
+  ...await original(),
+  headers: vi.fn(),
+}));
 
+import { headers } from "next/headers";
 import { POST as postStructure } from "@/app/api/estimates/[versionId]/structure-drafts/route";
 import { POST as postV0 } from "@/app/api/estimates/[versionId]/version-zero-drafts/route";
 import type { ApiKeySecret } from "@/lib/ai/access/api-key-secret";
@@ -30,6 +35,7 @@ import { createOpenAiApiKeyAccess, openAiApiKeyAccess } from "@/lib/ai/access/op
 import { resolveAiRequest } from "@/lib/ai/request-settings-server";
 import { fetchMappedRowsForImport } from "@/lib/affaires/import-flow-server";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import { generateEstimateStructureDraft } from "@/lib/estimates/structure-drafts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -1988,22 +1994,26 @@ describe("structure and V0 generation routes", () => {
       new Request("http://localhost", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ai, ...(route === "v0" ? { briefId: BRIEF_ID, selectedLots: lots } : {}) }),
+        body: JSON.stringify({
+          ...(route === "v0" ? { briefId: BRIEF_ID, selectedLots: lots } : { strategy: "hybrid" }),
+          ai,
+        }),
       }),
       { params: Promise.resolve({ versionId: VERSION_ID }) },
     );
   }
 
-  const reportPlan = () => vi.mocked(callStructuredAi).mockImplementation(async (options, _owner, preferences) => ({
-    data: options.schema.parse(options.prompt.includes("Lots cibles:") ? lotsAnswer : structureAnswer),
-    model: preferences!.model,
-    promptVersion: options.context!.promptVersion!,
-    durationMs: 1,
-    costCents: 0,
-    tokenCount: 10,
-    tokenUsage: { inputTokens: 5, reasoningTokens: 0, outputTokens: 5, totalTokens: 10 },
-    provider: "chatgpt",
-  }));
+  const reportPlan = (answer: unknown = lotsAnswer) =>
+    vi.mocked(callStructuredAi).mockImplementation(async (options, _owner, preferences) => ({
+      data: options.schema.parse(options.prompt.includes("Lots cibles:") ? answer : structureAnswer),
+      model: preferences!.model,
+      promptVersion: options.context!.promptVersion!,
+      durationMs: 1,
+      costCents: 0,
+      tokenCount: 10,
+      tokenUsage: { inputTokens: 5, reasoningTokens: 0, outputTokens: 5, totalTokens: 10 },
+      provider: "chatgpt",
+    }));
 
   async function paidAdapter({
     model = "gpt-6.2-astra",
@@ -2066,6 +2076,65 @@ describe("structure and V0 generation routes", () => {
   afterEach(async () => {
     vi.resetAllMocks();
     await Promise.all(temporaryDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it("refuses V0 before sending any generation when the lock moves to a second page", async () => {
+    const fake = fixture();
+    const firstPage = "11111111-aaaa-4aaa-8aaa-111111111111";
+    const secondPage = "22222222-aaaa-4aaa-8aaa-222222222222";
+    vi.mocked(headers).mockResolvedValue(new Headers({ [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: firstPage }));
+    fake.tables.draft_locks[0].session_id = firstPage;
+    vi.mocked(resolveAiRequest).mockImplementation(async () => {
+      fake.tables.draft_locks[0].session_id = secondPage;
+      return planSelection;
+    });
+    reportPlan();
+
+    const response = await post("v0", planChoice);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatchObject({
+      message: "Cette version est déjà verrouillée dans une autre page d'édition.",
+      details: { lock: { session_id: secondPage, is_current_user: true, is_current_session: false } },
+    });
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
+    expect(fake.tables.estimate_version_zero_drafts).toBeUndefined();
+  });
+
+  it.each([
+    ["réponse vide", [], false],
+    ["lot absent", [lotsAnswer.lots[0]], true],
+    ["lot sans lignes", [lotsAnswer.lots[0], { ...lotsAnswer.lots[1], lines: [] }], true],
+  ] as const)("attributes V0 lines to their effective source after a model answer with %s", async (_name, modelLots, firstLotFromModel) => {
+    fixture();
+    vi.mocked(resolveAiRequest).mockResolvedValue(planSelection);
+    reportPlan({ lots: modelLots });
+
+    const response = await post("v0", planChoice);
+    expect(response.status).toBe(201);
+    const { data } = await response.json();
+    expect(data.draft.generationMetadata.used_fallback).toBe(true);
+    expect(data.lots[0].lines[0]).toMatchObject(firstLotFromModel
+      ? { generationOrigin: "model", effective: { title: "Peinture – poste 1", quantity: 1.25, unit: "m²" } }
+      : { generationOrigin: "brief", effective: { title: "Peinture - prestation principale", quantity: null, unit: null } });
+    expect(data.lots[1].lines).toHaveLength(2);
+    for (const line of data.lots[1].lines) {
+      expect(line).toMatchObject({ generationOrigin: "brief", effective: { quantity: null, unit: null } });
+    }
+  });
+
+  it("keeps the brief origin on lines generated without AI", async () => {
+    const fake = fixture();
+
+    const response = await post("v0", { source: "fallback" });
+    expect(response.status).toBe(201);
+    const { data } = await response.json();
+    expect(data.draft.generationMetadata.used_fallback).toBe(true);
+    expect(data.lots[0].lines[0]).toMatchObject({ generationOrigin: "brief" });
+    expect(fake.tables.estimate_version_zero_lines[0]).toMatchObject({ metadata: { generation_origin: "brief" } });
+    expect(resolveAiRequest).not.toHaveBeenCalled();
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
   });
 
   it.each(["structure", "v0"] as const)("passes the authenticated owner's plan choice through %s", async (route) => {
@@ -2173,7 +2242,15 @@ describe("structure and V0 generation routes", () => {
     vi.mocked(resolveAiRequest).mockResolvedValue({
       ok: false, reason: "connection_changed", message: "La clé a changé.",
     });
-    expect((await post(route)).status).toBe(400);
+    const staleClient = await post(route);
+    expect(staleClient.status).toBe(400);
+    expect((await staleClient.json()).error).toMatchObject({
+      code: "ESTIMATE_DRAFT_AI_CHOICE_REQUIRED",
+      message: "Rechargez la page pour choisir votre source IA avant de générer.",
+    });
+    const invalidChoice = await post(route, null);
+    expect(invalidChoice.status).toBe(400);
+    expect((await invalidChoice.json()).error.code).toBe("VALIDATION_ERROR");
     expect(resolveAiRequest).not.toHaveBeenCalled();
 
     const response = await post(route, {
