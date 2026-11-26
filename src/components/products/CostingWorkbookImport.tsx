@@ -45,6 +45,10 @@ import {
   workbookFileOriginalRows,
   type CostingWorkbookRows,
 } from "@/lib/catalogue/costing-workbook-file";
+import { validateDraftProducts } from "@/lib/catalogue/import-review-client";
+import { bulkValidationSummary } from "@/lib/catalogue/import-review-feedback";
+import { catalogueErrorMessage } from "@/lib/catalogue/supplier-items-client";
+import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { asRecord } from "@/lib/value-guards";
 
 import type { DuplicateSearch } from "./costing-workbook/ArticleDuplicates";
@@ -103,7 +107,7 @@ type Outcome =
 
 /** The supply type the office gave to the articles of given sheet rows: those the reader could not classify. */
 type SupplyTypeRows = Readonly<Record<number, string>>;
-type RequestOptions = { previewToken?: string; supplyTypes?: SupplyTypeChoices; supplyTypeRows?: SupplyTypeRows };
+type RequestOptions = { selectedRows?: readonly number[]; expectedTenantId?: string; previewToken?: string; supplyTypes?: SupplyTypeChoices; supplyTypeRows?: SupplyTypeRows };
 
 function isReport(value: unknown): value is CostingWorkbookImportReport {
   const record = asRecord(value);
@@ -171,6 +175,7 @@ export function CostingWorkbookImport({
   onImported,
   onImportRecorded,
 }: Readonly<CostingWorkbookImportProps>) {
+  const isAdmin = useOptionalUserContext()?.profile?.tenant_role === "admin";
   const [mode, setMode] = useState<Mode>("articles");
   const modeRef = useRef<Mode>("articles");
   const [fileName, setFileName] = useState<string | null>(null);
@@ -181,6 +186,7 @@ export function CostingWorkbookImport({
   const [supplyTypeRows, setSupplyTypeRows] = useState<SupplyTypeRows>({});
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
   const [duplicateSearch, setDuplicateSearch] = useState<DuplicateSearch | null>(null);
+  const [knownDuplicateRows, setKnownDuplicateRows] = useState<ReadonlySet<number>>(new Set());
   const [phase, setRenderedPhase] = useState<Phase>("idle");
   const phaseRef = useRef<Phase>("idle");
   const [revision, setRevision] = useState(0);
@@ -192,6 +198,7 @@ export function CostingWorkbookImport({
   const [supplierReview, setSupplierReview] = useState(INITIAL_SUPPLIER_REVIEW);
   const [articleReview, setArticleReview] = useState(INITIAL_ARTICLE_REVIEW);
   const [error, setError] = useState<string | null>(null);
+  const [validationFeedback, setValidationFeedback] = useState<{ text: string; failed: boolean } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [skippedCorrections, setSkippedCorrections] = useState<SkippedCorrection[]>([]);
   const [rejectedWorkbookEdits, setRejectedWorkbookEdits] = useState<RejectedWorkbookEdit[]>([]);
@@ -269,6 +276,8 @@ export function CostingWorkbookImport({
         ...(forSuppliers
           ? { preview_token: options.previewToken }
           : {
+            selected_rows: options.selectedRows,
+            expected_tenant_id: options.expectedTenantId,
             supply_type_families: options.supplyTypes?.size
               ? [...options.supplyTypes].map(([family_code, supply_type_id]) => ({ family_code, supply_type_id }))
               : undefined,
@@ -476,6 +485,7 @@ export function CostingWorkbookImport({
     forgetSupplyTypes();
     setDismissed(new Set());
     setDuplicateSearch(null);
+    setKnownDuplicateRows(new Set());
     setPreviews({});
     setResults({});
     setSupplierReview(INITIAL_SUPPLIER_REVIEW);
@@ -531,9 +541,12 @@ export function CostingWorkbookImport({
   const articlePreview = preview && "new_articles" in preview ? preview : null;
   const toImport = articlePreview?.new_articles ?? supplierReport?.to_import ?? 0;
 
-  async function runImport() {
+  async function runImport(selectedRows?: readonly number[]) {
     if (!rows || !preview || toImport === 0 || isBusy || editorDirty || phaseRef.current !== "idle") return;
+    const expectedTenantId = selectedRows ? articlePreview?.review_tenant_id : undefined;
+    if (selectedRows && (!isAdmin || !expectedTenantId || selectedRows.length === 0)) return;
     importingRef.current = true;
+    setValidationFeedback(null);
     setPhase("importing");
     setError(null);
     setNotice(null);
@@ -542,10 +555,35 @@ export function CostingWorkbookImport({
     // A write can change the catalogue that the other mode's preview was based on.
     setPreviews({ [mode]: preview });
     const outcome = await send(mode, rows, true, {
+      selectedRows,
+      expectedTenantId,
       previewToken: supplierReport?.preview_token ?? undefined,
       supplyTypes: supplyTypeChoices,
       supplyTypeRows,
     });
+    let validation: { text: string; failed: boolean } | null = null;
+    if (selectedRows && outcome.ok && "new_articles" in outcome.report) {
+      const report = outcome.report;
+      if (report.confirmed && report.import_batch_id && report.new_articles === selectedRows.length) {
+        try {
+          const checked = await validateDraftProducts({ import_batch_id: report.import_batch_id });
+          const failed = checked.validated !== report.new_articles || checked.incomplete > 0 || checked.skipped > 0;
+          validation = {
+            text: failed
+              ? `${bulkValidationSummary(checked)} Vérifiez l’état du lot dans les imports récents.`
+              : bulkValidationSummary(checked),
+            failed,
+          };
+        } catch (failure) {
+          validation = {
+            text: catalogueErrorMessage(failure, "La validation du lot n’a pas pu être confirmée. Vérifiez son état dans les imports récents."),
+            failed: true,
+          };
+        }
+      } else {
+        validation = { text: "L’import ne correspond plus à la sélection. Vérifiez le lot dans les imports récents.", failed: true };
+      }
+    }
     importingRef.current = false;
     if (!outcome.ok && outcome.aborted) return;
     if (!supplierMode && !outcome.ok && outcome.code === COSTING_WORKBOOK_IMPORT_INCOMPLETE) onImportRecorded?.();
@@ -555,17 +593,19 @@ export function CostingWorkbookImport({
     }
     setPhase("idle");
     if (outcome.ok) {
-      setPreviews({});
+      setPreviews(selectedRows ? { articles: preview } : {});
       // New drafts are articles the references can now attach to: a result of the references shown before them
       // no longer says what is left to import.
       setResults((previous) => (supplierMode ? { ...previous, [mode]: outcome.report } : { [mode]: outcome.report }));
       onImportRecorded?.();
+      setValidationFeedback(validation);
+      if (selectedRows) void runPreview("articles", rows);
       if (!supplierMode) await refreshCatalogue();
       return;
     }
     if (outcome.code === COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN) forgetSupplyTypes();
     setError(outcome.message);
-    if (outcome.stale || (supplierMode && outcome.retry)) {
+    if (outcome.stale || ((supplierMode || selectedRows) && outcome.retry)) {
       // The catalogue may have changed, or the response may have been lost after a successful write.
       setPreviews({});
       setCanRetry(true);
@@ -669,7 +709,7 @@ export function CostingWorkbookImport({
                   Voir les brouillons
                 </Link>
               ) : null}
-              {preview && !result ? (
+              {preview && (!result || !supplierMode) ? (
                 <Button
                   loading={phase === "importing"}
                   disabled={isBusy || editorDirty || toImport === 0}
@@ -699,6 +739,9 @@ export function CostingWorkbookImport({
             ) : null}
             {error ? <Alert variant="danger">{error}</Alert> : null}
             {notice ? <Alert variant="info">{notice}</Alert> : null}
+            {articleResult && validationFeedback ? (
+              <Alert variant={validationFeedback.failed ? "warning" : "success"}>{validationFeedback.text}</Alert>
+            ) : null}
             {articleResult ? (
               <Alert variant="success">
                 {articleResult.new_articles === 0
@@ -722,7 +765,7 @@ export function CostingWorkbookImport({
           {articleResult ? (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <p className="text-sm text-foreground-secondary">
-                Vérifiez chaque brouillon puis validez-le depuis le catalogue.
+                Les brouillons à valider sont disponibles dans le catalogue et dans les imports récents.
               </p>
               {articleResult.supplier_references_not_imported > 0 ? (
                 <Button variant="secondary" size="sm" disabled={isBusy} onClick={() => changeMode("supplier-references")}>
@@ -760,8 +803,18 @@ export function CostingWorkbookImport({
                   supplyTypeRows={supplyTypeRows}
                   onSupplyTypeRows={chooseSupplyTypeRows}
                   duplicateSearch={duplicateSearch}
-                  onDuplicateSearch={setDuplicateSearch}
+                  knownDuplicateRows={knownDuplicateRows}
+                  onDuplicateSearch={(search) => {
+                    setDuplicateSearch(search);
+                    if (!search) return;
+                    const found = search.found.map(({ row }) => row);
+                    const complete = search.searched === articlePreview.new_articles
+                      && (search.status === "available" || search.status === "deterministic");
+                    setKnownDuplicateRows((previous) => new Set(complete ? found : [...previous, ...found]));
+                  }}
                   onShowSupplierReferences={() => changeMode("supplier-references")}
+                  onValidate={isAdmin && articlePreview.review_tenant_id ? (selection) => void runImport(selection) : undefined}
+                  editorDirty={editorDirty}
                 />
               ) : null}
             </TabsContent>

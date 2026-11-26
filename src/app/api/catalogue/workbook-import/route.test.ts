@@ -209,6 +209,31 @@ describe("POST /api/catalogue/workbook-import", () => {
     vi.clearAllMocks();
   });
 
+  it("creates only the selected workbook rows in one isolated draft batch", async () => {
+    const fake = seed(ADMIN, "admin");
+    const answer = await send({ rows: SHEET, confirm: true, selected_rows: [6, 8], expected_tenant_id: TENANT });
+    expect(answer.status).toBe(200);
+    expect(answer.data).toMatchObject({ new_articles: 2, already_in_catalogue: 3, import_batch_id: BATCH });
+    expect([...draftsOf(fake).values()].map(({ reference, import_batch_id }) => [reference, import_batch_id]))
+      .toEqual([[SHEET[5][1], BATCH], [SHEET[7][1], BATCH]]);
+  });
+
+  it("rejects selection confirmation across an enterprise change", async () => {
+    const fake = seed(ADMIN, "admin");
+    const preview = await importSheet(SHEET, false);
+    expect(preview.data?.review_tenant_id).toBe(TENANT);
+    const answer = await send({ rows: SHEET, confirm: true, selected_rows: [6], expected_tenant_id: OTHER_TENANT });
+    expect(answer.status).toBe(409);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("rejects the whole selection when a line is already in the catalogue", async () => {
+    const fake = seed(ADMIN, "admin");
+    const answer = await send({ rows: SHEET, confirm: true, selected_rows: [3, 6], expected_tenant_id: TENANT });
+    expect(answer.status).toBe(409);
+    expect(fake.writes).toEqual([]);
+  });
+
   it("conforms to the published report schema in preview, confirmation and an empty confirmation", async () => {
     seed(ADMIN, "admin");
     const validate = new Ajv().compile(openapi.components.schemas.ApiCostingWorkbookImportReport);
@@ -227,6 +252,7 @@ describe("POST /api/catalogue/workbook-import", () => {
     expect(answer.status).toBe(200);
     expect(answer.data).toEqual({
       confirmed: false,
+      review_tenant_id: TENANT,
       ...SHEET_REPORT,
       proposed_articles: [6, 7, 8, 9].map((row) => ({ row, without_supply_type: false })),
       // The company's own types, by name, for the screen's choice (13).

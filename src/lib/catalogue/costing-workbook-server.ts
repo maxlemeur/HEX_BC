@@ -204,9 +204,14 @@ function productRow({ article, supplyTypeId }: PlannedDraft, tenantId: string, b
  * Every draft carries the import it comes from (TI-711): the office validates the drafts of an import together,
  * or undoes the import while its drafts are untouched.
  */
-async function writeDrafts({ supabase, tenantId }: AuthenticatedTenantContext, plan: Plan, sourceName: string | undefined): Promise<Report> {
+async function writeDrafts(
+  { supabase, tenantId }: AuthenticatedTenantContext,
+  plan: Plan,
+  drafts: readonly PlannedDraft[],
+  sourceName: string | undefined,
+): Promise<Report> {
   const created: PlannedDraft[] = [];
-  if (plan.drafts.length === 0) return reportOf(plan, true, created);
+  if (drafts.length === 0) return reportOf(plan, true, created);
 
   const batch = await supabase.rpc("start_workbook_article_import", { p_tenant_id: tenantId, p_source_name: sourceName ?? null });
   if (batch.error?.code === "42501") {
@@ -234,14 +239,14 @@ async function writeDrafts({ supabase, tenantId }: AuthenticatedTenantContext, p
     return new ApiError({
       status: mapped.status,
       code: COSTING_WORKBOOK_IMPORT_INCOMPLETE,
-      message: batchFailure ?? (`L’import s’est arrêté : ${count(created.length)} brouillons créés sur ${count(plan.drafts.length)}. `
+      message: batchFailure ?? (`L’import s’est arrêté : ${count(created.length)} brouillons créés sur ${count(drafts.length)}. `
         + "Relancez l’import du même classeur : il ne crée que les articles qui manquent encore au catalogue."),
       details,
     });
   };
 
-  for (let start = 0; start < plan.drafts.length; start += WRITE_CHUNK) {
-    const chunk = plan.drafts.slice(start, start + WRITE_CHUNK);
+  for (let start = 0; start < drafts.length; start += WRITE_CHUNK) {
+    const chunk = drafts.slice(start, start + WRITE_CHUNK);
     const { error } = await supabase.from("products").insert(chunk.map((draft) => productRow(draft, tenantId, batchId)));
     if (error) throw stopped(error);
     created.push(...chunk);
@@ -253,9 +258,18 @@ export async function importCostingWorkbook(input: CostingWorkbookArticlesInput)
   const context = await getAuthenticatedTenantContext();
   if (!canAddToCatalogue(context.tenantRole)) throw forbidden(PRODUCT_WRITE_REFUSAL);
 
+  if (input.confirm && input.selected_rows && context.tenantId !== input.expected_tenant_id) {
+    throw conflict("L’entreprise active a changé depuis l’aperçu. Actualisez le classeur avant de confirmer.");
+  }
+
   // The sheet first: a sheet of another shape is refused without reading the catalogue.
   const read = readCostingWorkbookImportSheet(input.rows);
   const plan = planImport(read, await readCompany(context), input);
-  if (!input.confirm) return reportOf(plan, false, plan.drafts);
-  return writeDrafts(context, plan, input.source_name);
+  if (!input.confirm) return { ...reportOf(plan, false, plan.drafts), review_tenant_id: context.tenantId };
+  const selected = input.selected_rows ? new Set(input.selected_rows) : null;
+  const drafts = selected ? plan.drafts.filter(({ article }) => selected.has(article.row)) : plan.drafts;
+  if (selected && drafts.length !== selected.size) {
+    throw conflict("La sélection a changé depuis l’aperçu. Actualisez le classeur avant de confirmer.");
+  }
+  return writeDrafts(context, plan, drafts, input.source_name);
 }
