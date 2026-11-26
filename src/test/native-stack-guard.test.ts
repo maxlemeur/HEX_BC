@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -153,6 +154,68 @@ describe("native stack slots", () => {
       await expect(refusal).rejects.not.toThrow(/private-fixture-credential|startup-|__supabase_stack_host__/);
     } finally {
       held.release();
+      home.mockRestore();
+      fs.rmSync(fixture.home, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    "running", "starting", "first-start", "unowned", "look-alike", "wrong-id", "missing-id",
+    "missing-owner", "invalid-owner", "changed-config",
+  ])("counts native hosts by their persistent development stack identity (%s)", async (scenario) => {
+    const fixture = currentHostFixture();
+    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
+    const directory = path.join(fixture.home, "slots");
+    const base = path.join(fixture.home, ".supabase", "mergeone-dev");
+    const active = path.join(base, "active");
+    const projectId = "mergeone-dev-11111111-2222-3333-4444-555555555555";
+    const project = path.join(active, projectId);
+    const supabase = path.join(project, "supabase");
+    const config = `project_id = "${projectId}"\n`;
+    const slots: Array<{ release: () => void }> = [];
+    try {
+      fs.mkdirSync(supabase, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(path.join(supabase, "config.toml"), scenario === "changed-config" ? `${config}# changed\n` : config, { mode: 0o600 });
+      if (scenario !== "missing-owner") {
+        const record = JSON.stringify({
+          projectId,
+          configHash: createHash("sha256").update(config).digest("hex"),
+          registryId: scenario === "wrong-id" ? "c".repeat(64)
+            : scenario === "first-start" || scenario === "missing-id" ? undefined : fixture.stackId,
+          pendingRegistryId: scenario === "first-start" ? fixture.stackId : undefined,
+          ports: { 54321: 43211 },
+        });
+        fs.writeFileSync(path.join(active, "owner.json"), scenario === "invalid-owner" ? "{" : record, { mode: 0o600 });
+      }
+      let projectRoot = fs.realpathSync(project);
+      if (scenario === "unowned") projectRoot = fixture.root;
+      if (scenario === "look-alike") {
+        projectRoot = path.join(fs.realpathSync(fixture.root), ".supabase", "mergeone-dev", "active", projectId);
+        fs.mkdirSync(projectRoot, { recursive: true });
+      }
+      const saved = {
+        ...fixture.saved,
+        identity: { projectRoot, stackName: "default", branchContext: "ordinary-workspace" },
+      };
+      const starting = scenario === "starting" || scenario === "first-start";
+      if (starting) fs.writeFileSync(fixture.startup, JSON.stringify({ register: saved }));
+      else fs.writeFileSync(fixture.state, JSON.stringify(saved));
+      const acquire = (pid: number) => acquireNativeStackSlot({
+        label: `campaign ${pid}`, directory, pid, limit: 3, isAlive: () => true,
+        listProcesses: () => [`501 1 ${fixture.command}`],
+      });
+      slots.push(await acquire(101));
+      slots.push(await acquire(102));
+      if (scenario === "running" || starting) {
+        slots.push(await acquire(103));
+        const refusal = acquire(104);
+        await expect(refusal).rejects.toThrow(/3 of 3 places[\s\S]*campaign 101[\s\S]*campaign 102[\s\S]*campaign 103/);
+        await expect(refusal).rejects.not.toThrow(/native stack not owned by a guarded run/);
+      } else {
+        await expect(acquire(103)).rejects.toThrow(/3 of 3 places[\s\S]*campaign 101[\s\S]*campaign 102[\s\S]*native stack not owned by a guarded run/);
+      }
+    } finally {
+      for (const slot of slots) slot.release();
       home.mockRestore();
       fs.rmSync(fixture.home, { recursive: true, force: true });
     }

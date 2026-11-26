@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { isLocalProductionBuild } from "../../scripts/next-build-env.mjs";
+import { isLocalDevStackHost } from "./local-dev-supabase-owner";
 
 /**
  * Native runs one user may own at once on one host, by default: a native
@@ -132,7 +133,7 @@ function identityRoot(value: unknown): string | undefined {
 }
 
 /** Only the user's native registry is readable from a process command line. */
-function currentStackHostRoot(args: string): string | undefined {
+function currentStackHostIdentity(args: string) {
   const match = /^(.+) ([a-f0-9]{64}) (.+[/\\]startup-[a-f0-9]{32}\.json)$/.exec(args);
   if (!match) return;
   const [, roots, stackId, startup] = match;
@@ -171,17 +172,18 @@ function currentStackHostRoot(args: string): string | undefined {
   const saved = readIdentity(path.join(stackDirectory, "state.json"), false);
   const starting = readIdentity(startup, true);
   if (saved === null || starting === null || (saved && starting && canonical(saved) !== canonical(starting))) return;
-  return saved ?? starting;
+  const root = saved ?? starting;
+  if (root) return { root, registryId: stackId };
 }
 
 /** Workdirs of native stack hosts, with an opaque fallback for unknown formats. */
 function stackHosts(entries: ReturnType<typeof processEntries>) {
-  return entries.flatMap(({ pid, command }) => {
+  return entries.flatMap<{ root?: string; registryId?: string; detail: string }>(({ pid, command }) => {
     // Match the executable, not a shell or grep command mentioning an owner.
     const host = /^(.+?) __supabase_stack_host__ (.*)$/.exec(command);
     if (!host || path.basename(host[1]) !== "supabase") return [];
     const executable = host[1];
-    const unknown = { root: undefined, detail: `PID ${pid ?? "unknown"} (identity unavailable)` };
+    const unknown = { detail: `PID ${pid ?? "unknown"} (identity unavailable)` };
     if (/\s/.test(executable)) {
       // ps does not quote executable paths containing spaces. Check the whole
       // prefix first, including directories named `env projet` or `sh projet`.
@@ -197,17 +199,18 @@ function stackHosts(entries: ReturnType<typeof processEntries>) {
     }
     const args = host[2];
     const inline = /^(.+?) (\{.*)$/.exec(args);
-    let root: string | undefined;
     if (inline && absolutePath(inline[1])) {
       try {
-        root = identityRoot(JSON.parse(inline[2]));
+        const root = identityRoot(JSON.parse(inline[2]));
+        if (root) return [{ root, detail: root }];
       } catch {
         // Legacy descriptors may include credentials: never echo them.
       }
     } else {
-      root = currentStackHostRoot(args);
+      const identity = currentStackHostIdentity(args);
+      if (identity) return [{ ...identity, detail: identity.root }];
     }
-    return [{ root, detail: root ?? unknown.detail }];
+    return [unknown];
   });
 }
 
@@ -276,7 +279,8 @@ function liveSlots(directory: string, isAlive: (pid: number) => boolean) {
  * both: never more than `limit` are admitted, though both may back off. Stack
  * hosts no live slot owns (a crashed or unguarded run, a manual stack) and
  * production builds (`node scripts/next-build.mjs`) take places too; those
- * are counted best effort, from a process listing.
+ * are counted best effort, from a process listing. The verified persistent
+ * development stack runs outside this capacity limit.
  */
 export async function acquireNativeStackSlot(options: AcquireNativeStackSlotOptions): Promise<NativeStackSlot> {
   const directory = options.directory ?? defaultNativeStackSlotDirectory();
@@ -308,7 +312,11 @@ export async function acquireNativeStackSlot(options: AcquireNativeStackSlotOpti
         const commands = processEntries(listProcesses());
         holders = [
           ...slots.filter((slot) => slot.file !== file).map((slot) => `run PID ${slot.pid}: ${slot.detail}`),
-          ...stackHosts(commands).filter(({ root }) => !root || !owned.has(canonical(root)))
+          ...stackHosts(commands).filter(({ root, registryId }) => {
+            if (!root) return true;
+            const canonicalRoot = canonical(root);
+            return !owned.has(canonicalRoot) && !(registryId && isLocalDevStackHost(canonicalRoot, registryId, os.homedir()));
+          })
             .map(({ detail }) => `native stack not owned by a guarded run: ${detail}`),
           ...productionBuilds(commands, new Set(slots.map((slot) => slot.pid)))
             .map((command) => `production build: ${command.slice(0, 120)}`),
