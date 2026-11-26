@@ -156,8 +156,9 @@ export async function prepareChatGptServerWorkspace() {
  * "intake" warms the affaire's intake desk in each of the three chatgpt-local-intake-* journey files.
  * "intake-dpgf" is only needed by the dossier spreadsheet import journey.
  * "takeoff-activity" warms the browser reads that start when the decisions journeys open the activity center.
+ * "takeoff-launch-panel" warms the dashboard's deferred poll and the dev error bundle before LOCAL01.
  */
-export type ChatGptCompileWave = "profile" | "journeys" | "intake" | "intake-dpgf" | "takeoff-activity" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
+export type ChatGptCompileWave = "profile" | "journeys" | "intake" | "intake-dpgf" | "takeoff-activity" | "takeoff-launch-panel" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
 
 /**
  * In the order Next compiles them when they are asked together (run 43073132489): the pages with the estimate
@@ -178,6 +179,15 @@ export function chatGptCompileRequests(wave: ChatGptCompileWave): CompileRequest
   const callback: CompileRequest = { path: "/auth/chatgpt/callback", expected: [302, 303, 307] };
   if (wave === "profile") {
     return [{ path: "/dashboard", expected: [200] }, { path: "/dashboard/profile", expected: [200] }, callback];
+  }
+  if (wave === "takeoff-launch-panel") {
+    // The launch dialog starts on the recap. An aborted page-contributions read made Next compile
+    // /_error and refresh the page between saving the draft and dispatching the cadrage action (#636).
+    // In webpack dev, requesting the Pages Router error bundle compiles both sides of /_error.
+    return [
+      route("/api/affaires/analysis-progress"),
+      { path: "/_next/static/chunks/pages/_error.js", anonymous: true, expected: [200] },
+    ];
   }
   if (wave === "journeys") {
     return [
