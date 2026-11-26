@@ -104,6 +104,64 @@ describe("recorded intake requests", () => {
     expect(plan).not.toHaveBeenCalled();
   });
 
+  it("only sends the page whose concurrent reservation fits the shared balance", async () => {
+    const bound = 1_300_000_000;
+    const cost = 500_000_000;
+    let remaining = batch.remaining_nano_usd;
+    let stopped = false;
+    const counted = Promise.withResolvers<void>();
+    const firstSent = Promise.withResolvers<void>();
+    const firstAnswer = Promise.withResolvers<void>();
+    const sent = vi.fn();
+    const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
+      if (name === "read_affaire_intake_ai_batch") return { data: { ...batch,
+        remaining_nano_usd: remaining, budget_stop_message: stopped ? "Lot interrompu." : null } };
+      if (name === "reserve_affaire_intake_ai_call") {
+        const requested = Number(args.p_bound);
+        if (stopped || requested > remaining) {
+          stopped = true;
+          return { data: null };
+        }
+        remaining -= requested;
+        return { data: "receipt" };
+      }
+      if (name === "settle_affaire_intake_ai_call") {
+        remaining += bound - Number(args.p_cost);
+        return { data: null };
+      }
+      throw new Error(`Unexpected call ${name}`);
+    });
+    prepare.mockImplementation(async (_owner, input) => {
+      expect(input.allotmentNanoUsd).toBe(batch.ceiling_nano_usd);
+      if (input.prompt === "Seconde pièce fictive") {
+        counted.resolve();
+        await firstSent.promise;
+      } else await counted.promise;
+      return { boundNanoUsd: bound };
+    });
+    execute.mockImplementation(async (_owner, _prepared, input) => {
+      await input.beforeSend();
+      sent();
+      firstSent.resolve();
+      await firstAnswer.promise;
+      return { data: { answer: "Fictif" }, model: "gpt-6.1-terra", costNanoUsd: cost, schemaError: null };
+    });
+    const service = { rpc } as never;
+    const first = createIntakeAiRunner(service, batch, null).run("transcription", options);
+    const second = createIntakeAiRunner(service, batch, null).run("transcription", { ...options, prompt: "Seconde pièce fictive" });
+    try {
+      await expect(second).rejects.toBeInstanceOf(IntakeAiBudgetStopped);
+      expect(sent).toHaveBeenCalledOnce();
+      expect(remaining).toBe(700_000_000);
+    } finally {
+      firstAnswer.resolve();
+      await first;
+    }
+    expect(remaining).toBe(1_500_000_000);
+    await expect(createIntakeAiRunner(service, batch, null).run("transcription", options)).rejects.toThrow("Lot interrompu.");
+    expect(sent).toHaveBeenCalledOnce();
+  });
+
   it("resumes the same plan profile under a renewed authorization and keeps the recorded settings", async () => {
     selectedPlan.mockResolvedValue(renewedPlan);
     planCatalogue.mockResolvedValue({ models: [offeredModel] });

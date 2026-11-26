@@ -232,11 +232,11 @@ export async function retryAffaireDocumentAnalysis(input: {
   };
   if (hasDeferred) {
     after(async () => {
-      // Keep each scheduled reservation's cleanup even when a preceding page
-      // exhausts the budget. The recorded stop prevents further dispatch.
-      for (const effect of deferred) {
-        try { await effect(); }
-        catch { console.error("Impossible de clôturer une transcription de la relance.", { batchId }); }
+      // Start every reading while its reservation is fresh. Each effect cleans
+      // up its own piece, and the shared ledger fences further paid sends.
+      const readings = await Promise.allSettled(deferred.map(async effect => effect()));
+      for (const reading of readings) {
+        if (reading.status === "rejected") console.error("Impossible de clôturer une transcription de la relance.", { batchId });
       }
       if (!stopped && uploadId) {
         try {
