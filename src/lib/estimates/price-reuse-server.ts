@@ -1,10 +1,7 @@
 import "server-only";
 
-import { headers } from "next/headers";
-
-import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
-import { getStructuredAiAvailability } from "@/lib/ai/structured-ai";
+import { readAiRequestOptions } from "@/lib/ai/request-settings-server";
 import { executeEstimateBatch } from "@/lib/estimates/batch";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
@@ -94,18 +91,26 @@ async function readComparison(versionId: string, referenceVersionId: string) {
   return { context, target, reference, targetItems, referenceItems, targetLines, referenceLines, targetPath, referencePath, matches };
 }
 
-async function readArbiters(context: Context) {
-  const capability = getOpenAiDecisionsCapability();
-  let chatgpt = { available: false, message: "Le forfait ChatGPT est utilisable dans MergeOne local, sur le Mac connecté." };
-  if (isLocalChatGptEnabled()) {
-    try {
-      assertLocalChatGptHost((await headers()).get("host"));
-      chatgpt = await getStructuredAiAvailability({ tenantId: context.tenantId, userId: context.userId });
-    } catch {
-      chatgpt = { available: false, message: "Le forfait ChatGPT n’est utilisable que depuis MergeOne local, sur ce Mac." };
-    }
-  }
-  return { decisions: { available: capability.status === "available", message: capability.message }, chatgpt };
+async function readArbiters(context: Context): Promise<Pick<PriceReusePreview, "arbiters" | "default_billing_source">> {
+  const { defaultSource, options } = await readAiRequestOptions({ tenantId: context.tenantId, userId: context.userId }, {
+    allowedSources: ["chatgpt_plan", "personal_api_key"],
+  });
+  const asArbiter = (option: typeof options.chatgpt_plan) => ({
+    available: option?.ok === true,
+    message: option?.message ?? "Cette source d’IA est indisponible.",
+    models: option?.ok ? option.models : [],
+    preferences: option?.ok ? option.preferences : null,
+  });
+  const decisions = getOpenAiDecisionsCapability();
+  return {
+    default_billing_source: defaultSource,
+    arbiters: {
+      chatgpt: asArbiter(options.chatgpt_plan),
+      personal_api_key: asArbiter(options.personal_api_key),
+      decisions: { available: decisions.status === "available", message: decisions.status === "available"
+        ? `Modèle fixe : ${decisions.model}. ${decisions.message}` : decisions.message },
+    },
+  };
 }
 
 async function readVersionLabel(context: Context, versionId: string) {
@@ -128,7 +133,7 @@ export async function previewPriceReuse(versionId: string, input: PriceReusePrev
   const targetById = new Map(targetLines.map((item) => [item.id, item]));
   const usedReferences = new Set(matches.flatMap((match) => match.candidates.map((candidate) => candidate.referenceId)));
   const used = [...usedReferences].map((id) => referenceById.get(id)!);
-  const [roleNames, supplyNames, arbiters, label] = await Promise.all([
+  const [roleNames, supplyNames, aiOptions, label] = await Promise.all([
     readNames(context, "labor_roles", new Set(used.map((item) => item.labor_role_id).filter((id): id is string => Boolean(id)))),
     readNames(context, "supply_types", new Set(used.map((item) => item.supply_type_id).filter((id): id is string => Boolean(id)))),
     readArbiters(context),
@@ -159,7 +164,7 @@ export async function previewPriceReuse(versionId: string, input: PriceReusePrev
       h_mo_per_unit: item.h_mo_per_unit === null ? null : Number(item.h_mo_per_unit), pu_ht_cents: item.pu_ht_cents,
       labor_role_name: item.labor_role_id ? roleNames.get(item.labor_role_id) ?? null : null,
       supply_type_name: item.supply_type_id ? supplyNames.get(item.supply_type_id) ?? null : null })),
-    arbiters,
+    ...aiOptions,
   });
 }
 
@@ -172,15 +177,16 @@ export async function arbitratePriceReuse(versionId: string, input: PriceReuseAr
   const comparison = await readComparison(versionId, input.reference_version_id);
   const { context, target, reference, targetLines, referenceLines, targetPath, referencePath, matches } = comparison;
   assertReferenceUnchanged(reference.version.updated_at, input.reference_updated_at);
-  const [arbiters, label] = await Promise.all([readArbiters(context), readVersionLabel(context, reference.version.id)]);
-  const arbiter = arbiters[input.provider];
   const requested = new Set(input.line_ids.map((id) => id.toLowerCase()));
   // Only lines still « à vérifier » with candidates are sent: the client never chooses what the provider sees.
   const toReview = matches.filter((match: PriceReuseMatch) => requested.has(match.lineId.toLowerCase()) &&
     match.status === "to_review" && match.candidates.length > 0);
-  if (!arbiter.available) {
-    return priceReuseArbitrationSchema.parse({ provider: input.provider, model: null, status: "unavailable", message: arbiter.message,
-      answers: toReview.map((match) => ({ line_id: match.lineId, reference_line_id: null, confidence: null })) });
+  if (input.provider === "decisions") {
+    const capability = getOpenAiDecisionsCapability();
+    if (capability.status !== "available") {
+      return priceReuseArbitrationSchema.parse({ provider: input.provider, model: null, status: "unavailable", message: capability.message,
+        answers: toReview.map((match) => ({ line_id: match.lineId, reference_line_id: null, confidence: null })) });
+    }
   }
   if (toReview.length === 0) {
     return priceReuseArbitrationSchema.parse({ provider: input.provider, model: null, status: "available",
@@ -188,9 +194,11 @@ export async function arbitratePriceReuse(versionId: string, input: PriceReuseAr
   }
   const targetById = new Map(targetLines.map((item) => [item.id, item]));
   const referenceById = new Map(referenceLines.map((item) => [item.id, item]));
+  const label = input.provider === "decisions" ? await readVersionLabel(context, reference.version.id) : null;
   const result = await arbitratePriceReuseLines({
-    provider: input.provider, owner: { tenantId: context.tenantId, userId: context.userId }, projectId: target.project.id,
-    referenceLabel: `${reference.project.name} v${label.versionNumber}`,
+    ...input,
+    owner: { tenantId: context.tenantId, userId: context.userId }, projectId: target.project.id,
+    referenceLabel: label ? `${reference.project.name} v${label.versionNumber}` : "",
     lines: toReview.map((match) => {
       const item = targetById.get(match.lineId)!;
       return { lineId: item.id, title: item.title, unitCode: item.unit_code, sectionPath: targetPath(item),

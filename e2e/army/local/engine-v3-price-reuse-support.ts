@@ -158,23 +158,29 @@ export async function verifyPriceReuseArbitration(ui: Ui, army: ArmyState, owner
   const referenceBefore = await readEstimate(ui.browser, fixture.reference.versionId);
   const dialog = await openAndCompare(ui, army, fixture, "prx02");
   const status = dialog.getByTestId("price-reuse-ai-status");
-  const arbitrate = async (provider: "Decisions" | "ChatGPT") => {
+  const source = dialog.getByLabel("Source d’IA", { exact: true });
+  await expect(source).toHaveValue("chatgpt_plan");
+  await expect(dialog.getByLabel("Modèle", { exact: true })).toHaveValue("army-plan-model");
+  const arbitrate = async (provider: "Decisions" | "ChatGPT", value: string) => {
     const start = (await readTransport()).length;
-    await dialog.getByRole("button", `Départager avec ${provider}`, { exact: true }).tap();
+    await source.selectOption({ value });
+    if (value === "chatgpt_plan") await dialog.getByLabel("Effort de raisonnement", { exact: true }).selectOption({ value: "high" });
+    await dialog.getByRole("button", "Départager", { exact: true }).tap();
     await expect(status).toHaveText(`${provider} : 1 proposition pour 1 ligne à vérifier.`, { timeout: 120_000 });
     return { calls: (await readTransport()).slice(start), rows: await readRows(ui) };
   };
   // The matcher proposes R3 (tie, first); both fixtures answer the last candidate, R6: the row shows the AI's choice.
   expect((await readRows(ui))[T3.id]).toMatchObject({ reference: R3.id, origin: "À confirmer" });
-  const decisions = await arbitrate("Decisions");
-  const chatgpt = await arbitrate("ChatGPT");
+  const decisions = await arbitrate("Decisions", "decisions");
+  await expect(dialog.getByLabel("Modèle", { exact: true })).toHaveCount(0);
+  const chatgpt = await arbitrate("ChatGPT", "chatgpt_plan");
   await recordEvidence(army, "prx02-arbitrations", { decisions, chatgpt });
   expect({ calls: decisions.calls, t3: decisions.rows[T3.id] }).toEqual({
     calls: [{ provider: "decisions-fixture", questions: 1 }],
     t3: { status: "to_review", checked: false, reference: R6.id, origin: "Decisions · 80 %" },
   });
-  expect({ calls: chatgpt.calls.map(({ provider, task, lines }) => ({ provider, task, lines })), t3: chatgpt.rows[T3.id] }).toEqual({
-    calls: [{ provider: "chatgpt-fixture", task: "price-reuse", lines: 1 }],
+  expect({ calls: chatgpt.calls, t3: chatgpt.rows[T3.id] }).toEqual({
+    calls: [{ provider: "chatgpt-fixture", task: "price-reuse", lines: 1, model: "army-plan-model", reasoningEffort: "high", sourceMatched: true }],
     t3: { status: "to_review", checked: false, reference: R6.id, origin: "ChatGPT · 70 %" },
   });
   await dialog.getByRole("button", "Retenir les propositions de l’IA (1)", { exact: true }).tap();

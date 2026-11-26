@@ -9,7 +9,7 @@ import {
 } from "@/lib/ai/access/contracts";
 import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
-import { readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
+import { readCachedLocalChatGptModelOptions, readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { supportsReasoningEffort, type ChatGptAvailableModel, type ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { AI_REQUEST_PROFILE_UNREADABLE } from "@/lib/ai/request-settings";
@@ -111,6 +111,7 @@ export function aiRequestApiKeyOptions(state: ApiKeyAccessState, usage?: AiAnaly
 
 async function sourceOptions(
   owner: Owner, access: LocalAccess, source: AiBillingSource, usage: AiAnalysisUsage | undefined, profile?: Profile,
+  planCatalogue: "live" | "cached" = "live",
 ): Promise<SourceOptions> {
   if (source === "personal_api_key") return aiRequestApiKeyOptions((profile ?? await readProfile(owner, access)).key, usage);
   if (access === "disabled") return refusal("source_unavailable", "Le forfait ChatGPT est utilisable dans MergeOne local, sur le Mac connecté.");
@@ -118,7 +119,8 @@ async function sourceOptions(
   const availability = await getStructuredAiAvailability(owner, { allowUnselectedModel: true });
   if (!availability.available) return refusal("source_unavailable", availability.message);
   try {
-    const { models, preferences } = await readLocalChatGptModelOptions(owner);
+    const { models, preferences } = await (planCatalogue === "cached"
+      ? readCachedLocalChatGptModelOptions(owner) : readLocalChatGptModelOptions(owner));
     const override = usage && profile?.key.analysisPreferences?.overrides?.[usage]?.chatgpt_plan;
     const model = override && models.find((entry) => entry.id === override.model);
     const selected = model && override && supportsReasoningEffort(model, override.reasoningEffort) ? override : preferences;
@@ -130,13 +132,15 @@ async function sourceOptions(
 }
 
 /** Read the options for a screen using the same defaults and availability rules as dispatch. */
-export async function readAiRequestOptions(owner: Owner, policy: RequestPolicy) {
+export async function readAiRequestOptions(
+  owner: Owner, policy: RequestPolicy, planCatalogue: "live" | "cached" = "live",
+) {
   const access = await localAccess();
   const profile = await readProfile(owner, access);
   const options: Partial<Record<AiBillingSource, SourceOptions>> = {};
   await Promise.all(policy.allowedSources.map(async (source) => {
     const choice = resolveAiRequestSource(profile.defaultSource, policy, source);
-    options[source] = typeof choice === "string" ? await sourceOptions(owner, access, choice, policy.usage, profile) : choice;
+    options[source] = typeof choice === "string" ? await sourceOptions(owner, access, choice, policy.usage, profile, planCatalogue) : choice;
   }));
   return { defaultSource: profile.defaultSource, options };
 }

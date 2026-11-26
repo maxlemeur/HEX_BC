@@ -1,10 +1,13 @@
 import {
   estimateExplanationDetailQuerySchema,
-  estimateExplanationResponseSchema,
+  priceExplanationGeneratedResponseSchema,
+  priceExplanationGenerationSchema,
+  priceExplanationReadResponseSchema,
 } from "@/lib/estimates/explanation-schemas";
-import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { uuidRouteParams } from "@/lib/http/request";
-import { getEstimateLineExplanation } from "@/lib/estimates/explanations";
+import { badRequest, forbidden, ok, toErrorResponse } from "@/lib/http/api-response";
+import { parseJsonBody, uuidRouteParams } from "@/lib/http/request";
+import { isSameOriginRequest } from "@/lib/http/same-origin";
+import { generateEstimateLineExplanation, getEstimateLineExplanation } from "@/lib/estimates/explanations";
 
 export const runtime = "nodejs";
 
@@ -22,17 +25,33 @@ export async function GET(
   try {
     const { versionId, lineId } = await uuidRouteParams(params, "versionId", "lineId");
     const query = parseQuery(request);
-    const explanation = await getEstimateLineExplanation({
+    const result = await getEstimateLineExplanation({
       versionId,
       lineId,
       includeDetail: query.detail,
     });
 
-    return ok(
-      estimateExplanationResponseSchema.parse({
-        explanation,
-      })
-    );
+    const response = ok(priceExplanationReadResponseSchema.parse(result));
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
+  } catch (error) {
+    return toErrorResponse(error);
+  }
+}
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ versionId: string; lineId: string }> }
+) {
+  try {
+    if (!isSameOriginRequest(request)) throw forbidden("Origine de la demande refusée.");
+    const scope = await uuidRouteParams(params, "versionId", "lineId");
+    const query = parseQuery(request);
+    const settings = priceExplanationGenerationSchema.parse(await parseJsonBody(request, badRequest));
+    const result = await generateEstimateLineExplanation({
+      ...scope, includeDetail: query.detail, settings, signal: request.signal,
+    });
+    return ok(priceExplanationGeneratedResponseSchema.parse(result));
   } catch (error) {
     return toErrorResponse(error);
   }
