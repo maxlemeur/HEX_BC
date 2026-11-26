@@ -52,6 +52,12 @@ describe("Team A hub synthetic dev scenarios", { session: "army", tags: ["critic
       title: "Team A accepted with hypothesis",
     });
 
+    // The plans card starts this read when the hub mounts, even while it is hidden.
+    // Finish its cold compile before opening the hub to keep the development
+    // server's Fast Refresh away from the register filter navigation (#676).
+    const activity = await page.request.get(`/api/takeoff/activity-center?project_id=${projectId}`);
+    expect(activity.status()).toBe(200);
+
     await openTeamADevHubScenario(page, {
       projectId,
       scenario: "accepted-with-hypothesis",
