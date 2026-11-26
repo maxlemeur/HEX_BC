@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from "react-dom";
 
 import {
-  AssistantAiSettingsMenu, AssistantAiSettingsProvider, useAssistantAiSettings, type AssistantContextOption,
+  AssistantAiSettingsMenu, AssistantAiSettingsProvider, useAssistantAiSettings,
 } from "@/components/ai/AssistantAiSettings";
 import { Button } from "@/components/ui/button";
 import { assistantContextForPath, ASSISTANT_CONTEXT_LABELS, type AssistantSessionContext, type WorkbookSnapshot } from "@/lib/assistant/session-context";
