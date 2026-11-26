@@ -146,24 +146,27 @@ armyTest(
     ]) {
       const header = table.getByRole("button", `${label} · filtrer`, { exact: true });
       await header.tap();
-      await expect(screen.getByRole("combobox", "Mode de filtre", { exact: true })).toHaveValue("values");
-      const picker = screen.getByRole("combobox", `Valeur exacte ${label}`, { exact: true });
+      const filter = screen.getByRole("dialog", label, { exact: true });
+      await expect(filter.getByRole("combobox", "Mode de filtre", { exact: true })).toHaveValue("values");
+      const picker = filter.getByRole("combobox", `Valeur exacte ${label}`, { exact: true });
       await picker.tap();
       await picker.fill(exact);
       await expect(screen.getByRole("option", similar, { exact: true })).toBeVisible();
       await screen.getByRole("option", exact, { exact: true }).tap();
       await expect(table.getByText(reference, { exact: true })).toBeVisible();
       await expect(table.getByText(otherReference, { exact: true })).toBeHidden();
-      await screen.getByRole("button", "Effacer le filtre", { exact: true }).tap();
+      await filter.getByRole("button", "Effacer le filtre", { exact: true }).tap();
       await header.tap();
+      await expect(filter).toBeHidden();
     }
 
     await pageSize.selectOption({ value: "all" });
     await expect(table.getByRole("row")).toHaveCount(17);
     const filterButton = table.getByRole("button", /^Commentaire · P · filtrer/);
     await filterButton.tap();
-    await screen.getByRole("combobox", "Mode de filtre", { exact: true }).selectOption({ value: "contains" });
-    const search = screen.getByRole("searchbox", "Filtre Commentaire · P", { exact: true });
+    const commentFilter = screen.getByRole("dialog", "Commentaire · P", { exact: true });
+    await commentFilter.getByRole("combobox", "Mode de filtre", { exact: true }).selectOption({ value: "contains" });
+    const search = commentFilter.getByRole("searchbox", "Filtre Commentaire · P", { exact: true });
     await search.fill("Inexistant");
     await expect(table.getByText("Aucun article ne correspond à la recherche.", { exact: true })).toBeVisible();
     await expect(importButton).toBeEnabled();
