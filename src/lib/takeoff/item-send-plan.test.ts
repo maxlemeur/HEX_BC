@@ -184,19 +184,19 @@ describe("planTakeoffItemSend — grouping", () => {
     expect(plan.notAdded).toEqual([expect.objectContaining({ itemId: wc.id, role: "alternative", quantity: 1, page: 4 })]);
   });
 
-  it("plan A sent 3 washbasins, plan B brings 2: one line of five, never five unit lines", () => {
-    const earlierLine = line(1, { title: "Lavabo", quantity: 3, parentId: sectionId(2) });
+  it.each([[3, 2, 5], [2, 5, 7]])("cumulates %i existing and %i measured units into %i without a reference", (before, added, after) => {
+    const earlierLine = line(1, { title: "Lavabo", quantity: before, parentId: sectionId(2) });
     const plan = planTakeoffItemSend(input({
       plan: { key: "plan-b", name: "Plan B — R+1", location: located("A", "R+1") },
-      items: [lavabo], answers: [measured(lavabo, [{ quantity: 2, page: 1 }])],
+      items: [lavabo], answers: [measured(lavabo, [{ quantity: added, page: 1 }])],
       destination: draft([earlierLine], { sections: [{ id: sectionId(1), parentId: null, title: "Plomberie" },
         { id: sectionId(2), parentId: sectionId(1), title: "Appareils sanitaires" }] }),
       earlier: { targets: [{ itemId: lavabo.id, breakdown: "together", compartmentKey: "together", estimateItemId: earlierLine.id,
-        parts: [part()] }], sections: [] },
+        parts: [part({ quantity: before })] }], sections: [] },
     }));
     expect(plan.targets).toHaveLength(1);
     expect(plan.targets[0].line).toEqual(expect.objectContaining({ kind: "earlier_line", estimateItemId: earlierLine.id }));
-    expect(plan.targets[0].quantity).toEqual(expect.objectContaining({ before: 3, earlier: 3, added: 2, after: 5 }));
+    expect(plan.targets[0].quantity).toEqual(expect.objectContaining({ reference: null, gap: null, before, earlier: before, added, after }));
     expect(plan.sections).toEqual([]);
   });
 

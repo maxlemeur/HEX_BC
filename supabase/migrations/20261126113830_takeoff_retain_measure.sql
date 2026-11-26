@@ -3,13 +3,17 @@
 begin;
 set local lock_timeout='2s';
 set local check_function_bodies=off;
-lock table public.takeoff_items, public.takeoff_item_review_commands in share row exclusive mode nowait;
+lock table public.takeoff_items, public.takeoff_item_review_commands, public.takeoff_item_answers in share row exclusive mode nowait;
 
 -- A targeted verification is tied to the facts the member saw. A rules pass immediately after
 -- that save can evaluate identical results. Its clock alone does not change the justification.
 create function private.takeoff_measure_row_facts(i public.takeoff_items)
 returns jsonb language sql stable set search_path='' set timezone='UTC' as $$
-  select to_jsonb(i) - array['rules_evaluated_at','rules_stale_at']
+  select jsonb_build_object('designation',i.designation,'quantity',i.quantity,'unit',i.unit,
+    'source_page',i.source_page,'source_file_name',i.source_file_name,'evidence',i.evidence,'metadata',i.metadata,
+    'confidence',i.confidence,'rule_results',i.rule_results,'rules_stale',i.rules_stale,'is_excluded',i.is_excluded,
+    'exclusion_reason',i.exclusion_reason,'entry_category',i.quantity_entry_category,'entry_note',i.quantity_entry_note,
+    'entry_by',i.quantity_entered_by,'entry_at',i.quantity_entered_at,'justification',i.verification_justification)
 $$;
 create table private.takeoff_measure_justifications (
   item_id uuid primary key references public.takeoff_items(id) on delete cascade,
@@ -20,119 +24,159 @@ revoke all on private.takeoff_measure_justifications from public,anon,authentica
 
 -- The existing BEFORE trigger has already validated the coded reasons against these exact results.
 create function private.record_takeoff_measure_justification() returns trigger language plpgsql
-security definer set search_path='' as $$
+security definer set search_path='' set timezone='UTC' as $$
 begin
   if not exists(select 1 from public.takeoff_item_answer_observations o where o.takeoff_item_id=new.id and o.role='contribution')
     then return null; end if;
   insert into private.takeoff_measure_justifications as j(item_id,revision)
-  values(new.id,private.takeoff_sha256(private.takeoff_measure_row_facts(new)))
+  values(new.id,private.takeoff_sha256(jsonb_build_array(private.takeoff_measure_row_facts(new),new.verified_by,new.verified_at)))
   on conflict(item_id) do update set revision=excluded.revision;
   return null;
 end;
 $$;
 create trigger record_takeoff_measure_justification after update of is_verified, verified_at, verification_justification on public.takeoff_items
   for each row when (current_user='authenticated' and new.is_verified and new.verified_by=auth.uid()
-    and new.verified_at is not null and new.verification_justification is not null)
+    and new.verified_at is not null and new.verification_justification is not null
+    and (not old.is_verified or
+      row(old.verification_justification->>'reason_code',old.verification_justification#>>'{scale_dimension,reason_code}',
+        old.verification_justification#>>'{area_printed,reason_code}') is distinct from
+      row(new.verification_justification->>'reason_code',new.verification_justification#>>'{scale_dimension,reason_code}',
+        new.verification_justification#>>'{area_printed,reason_code}')))
   execute function private.record_takeoff_measure_justification();
 
--- Released targeted reviews have no hash. An unchanged row can still prove its review:
--- its authenticated audit event followed the last row and rules revisions and names the same
--- actor, complete failures and coded reasons. A later, unprovable revision needs a new review.
-create function private.takeoff_legacy_measure_justified(i public.takeoff_items)
-returns boolean language sql stable set search_path='' as $$
-  select exists(select 1 from public.audit_logs log where log.tenant_id=i.tenant_id and log.user_id=i.verified_by
-    and log.table_name='takeoff_items' and log.record_id=i.job_id and log.action='takeoff.item.modified'
-    and log.created_at>=i.updated_at and log.created_at>=i.rules_evaluated_at
-    and log.after_data#>>'{metadata,item_id}'=i.id::text and log.after_data#>>'{metadata,field}'='is_verified'
-    and log.after_data#>'{metadata,next_value}'='true'::jsonb
-    and log.after_data#>'{metadata,justification}'=i.verification_justification
-    and log.after_data#>'{metadata,rule_failures}'=coalesce((select f.failure_keys from takeoff_internal.rule_failure_proofs f
-      where f.item_id=i.id),public.takeoff_rule_failure_keys(i.rule_results)))
-$$;
-
--- The command is immutable. A subsequent bulk decision has its own command_id and therefore
--- cannot inherit this acknowledgement. The scope, actor and instant are also in the review journal.
+-- The acknowledgement and its origin command are immutable. An independent acceptance
+-- clears the current lineage. The scope, actor and instant are also in the review journal.
 create table private.takeoff_retained_measures (
   command_id uuid primary key references public.takeoff_item_review_commands(id) on delete cascade,
   acknowledged jsonb not null,
-  revision text not null
+  revision text not null,
+  restored_revision text not null
 );
 alter table private.takeoff_retained_measures enable row level security;
 revoke all on private.takeoff_retained_measures from public,anon,authenticated,service_role;
 
+-- Decision rows receive a fresh command ID on reinstatement. Keep the individual origin
+-- until a new acceptance actually replaces it. An unchanged selection writes no decision.
+create table private.takeoff_measure_lineage (
+  answer_id uuid primary key references public.takeoff_item_answers(id) on delete cascade,
+  command_id uuid not null references private.takeoff_retained_measures(command_id) on delete cascade
+);
+create index takeoff_measure_lineage_command_idx on private.takeoff_measure_lineage(command_id);
+alter table private.takeoff_measure_lineage enable row level security;
+revoke all on private.takeoff_measure_lineage from public,anon,authenticated,service_role;
+create function private.clear_replaced_measure_lineage() returns trigger language plpgsql
+security definer set search_path='' as $$
+begin
+  delete from private.takeoff_measure_lineage l using public.takeoff_item_answer_decisions d
+  where d.command_id=new.id and d.answer_id=l.answer_id;
+  return null;
+end;
+$$;
+create trigger clear_replaced_measure_lineage after insert on public.takeoff_item_review_commands
+  for each row when (new.gesture='accept_measured') execute function private.clear_replaced_measure_lineage();
+
 -- Inputs independent of any decision, so both an undecided answer and a stored decision can use
 -- the same calculation. Limit the list and observations by their indexed keys before aggregating.
-create function private.takeoff_measure_facts(a public.takeoff_item_answers)
-returns jsonb language sql stable set search_path='' set timezone='UTC' as $$
-  with latest as (
-    select r.id,r.revision from public.takeoff_list_revisions r where r.tenant_id=a.tenant_id
-      and r.project_id=a.project_id order by r.revision desc limit 1
+create function private.takeoff_measure_batch_facts(p_tenant uuid,p_project uuid,p_answers uuid[])
+returns table(answer_id uuid,facts jsonb) language sql stable set search_path='' set timezone='UTC' as $$
+  with answers as materialized (
+    select a.* from public.takeoff_item_answers a
+    where a.id=any(p_answers) and a.tenant_id=p_tenant and a.project_id=p_project
+  ), latest as (
+    select r.id,r.revision from public.takeoff_list_revisions r where r.tenant_id=p_tenant
+      and r.project_id=p_project order by r.revision desc limit 1
   ), entry as (
-    select e.*,latest.revision from latest join public.takeoff_list_revision_entries e on e.revision_id=latest.id and e.item_id=a.item_id
+    select a.id as answer_id,e.revision_id,e.expected_unit,e.reference_quantity,e.origin,latest.revision
+    from answers a cross join latest join public.takeoff_list_revision_entries e on e.revision_id=latest.id and e.item_id=a.item_id
   ), threshold as (
-    select public.takeoff_low_confidence_threshold((select f.value from public.feature_flags f where f.tenant_id=a.tenant_id
+    select public.takeoff_low_confidence_threshold((select f.value from public.feature_flags f where f.tenant_id=p_tenant
       and f.flag_key='TAKEOFF_LOW_CONFIDENCE_THRESHOLD' and f.enabled)) as value
   ), rows_ as (
-    select o.id as observation_id,i.id,i.quantity,i.unit,i.updated_at,i.rules_evaluated_at,i.is_verified,i.verified_at,i.verified_by,
+    select a.id as answer_id,o.id as observation_id,i.id,i.quantity,i.unit,i.updated_at,i.rules_evaluated_at,i.is_verified,i.verified_at,i.verified_by,
       i.verification_justification,i.rule_results,private.takeoff_sha256(private.takeoff_measure_row_facts(i)) as facts_hash,
-      case when i.is_verified and i.verification_justification is not null and j.item_id is null
-        then private.takeoff_legacy_measure_justified(i) else false end as legacy_justified,
       not exists(select 1 from jsonb_array_elements(i.rule_results) r where r->>'status'='fail'
         and r->>'code'='AREA_PRINTED_MISMATCH'
         and i.verification_justification#>>'{area_printed,reason_code}' <> 'measured_outline_retained'
         and r#>>'{details,expected_basis}'=i.verification_justification#>>'{area_printed,retained_basis}'
         and case when jsonb_typeof(r#>'{details,printed_m2}')='number'
           then i.quantity < (r#>>'{details,printed_m2}')::numeric-0.0005 else false end) as printed_floor_met,
-      j.revision as justification_revision,
+      case when j.revision is not null then j.revision=private.takeoff_sha256(jsonb_build_array(
+        private.takeoff_measure_row_facts(i),i.verified_by,i.verified_at)) end as stamp_valid,
       private.takeoff_item_row_anomalies(a.outcome,a.reason_code,i.id is not null,i.is_excluded,i.rules_stale,i.rule_results,
         i.confidence,t.value,i.evidence,i.source_page,i.metadata,i.quantity_entry_category,i.unit,e.expected_unit) as anomalies
-    from entry e cross join threshold t join lateral (
-      select obs.* from public.takeoff_item_answer_observations obs where obs.answer_id=a.id and obs.role='contribution'
-    ) o on true
+    from entry e join answers a on a.id=e.answer_id cross join threshold t
+    join public.takeoff_item_answer_observations o on o.answer_id=a.id and o.role='contribution'
     left join public.takeoff_items i on i.id=o.takeoff_item_id and i.tenant_id=a.tenant_id and i.job_id=a.job_id
     left join private.takeoff_measure_justifications j on j.item_id=i.id
   ), amounts as (
-    select private.takeoff_item_total(array_agg(quantity)) as quantity,min(unit) as unit,
-      count(distinct private.takeoff_unit_token(unit))>1 as unit_conflict from rows_
-  )
-  select jsonb_build_object('answer_id',a.id,'item_id',a.item_id,'plan_id',a.plan_logical_id,'answer_revision',a.content_sha256,
-    'list_revision_id',e.revision_id,'list_revision',e.revision,'reference',e.reference_quantity,'origin',e.origin,
-    'marks_revision',private.takeoff_count_marks_revision(a.id),'quantity',q.quantity,'unit',q.unit,
-    'expected_unit',e.expected_unit,'gap',abs(q.quantity-e.reference_quantity),
-    'gap_required',coalesce(private.takeoff_quantity_requires_review(e.reference_quantity,q.quantity),false),
-    'unit_conflict',q.unit_conflict,'rows',coalesce((select jsonb_agg(jsonb_build_object('id',r.id,'observation_id',r.observation_id,
+    select r.answer_id,private.takeoff_item_total(array_agg(r.quantity)) as quantity,min(r.unit) as unit,
+      count(distinct private.takeoff_unit_token(r.unit))>1 as unit_conflict,
+      jsonb_agg(jsonb_build_object('id',r.id,'observation_id',r.observation_id,
       'revision',r.facts_hash,'updated_at',r.updated_at,'rules_evaluated_at',r.rules_evaluated_at,'anomalies',r.anomalies,
       'verified_by',r.verified_by,'verified_at',r.verified_at,'justification',r.verification_justification,
       'rule_results',r.rule_results,'justified',coalesce(r.is_verified and r.verified_at is not null and r.verified_by is not null
-        and r.verification_justification is not null and r.printed_floor_met and (r.justification_revision=r.facts_hash or r.legacy_justified),false)) order by r.observation_id) from rows_ r),'[]'::jsonb))
-  from entry e cross join amounts q
+        and r.verification_justification is not null and r.printed_floor_met and r.stamp_valid,false)) order by r.observation_id) as rows
+    from rows_ r group by r.answer_id
+  )
+  select a.id,jsonb_build_object('answer_id',a.id,'item_id',a.item_id,'plan_id',a.plan_logical_id,'answer_revision',a.content_sha256,
+    'list_revision_id',e.revision_id,'list_revision',e.revision,'reference',e.reference_quantity,'origin',e.origin,
+    'marks_revision',private.takeoff_count_marks_revision(a.id),'quantity',q.quantity,'unit',q.unit,
+    'confidence_threshold',(select value from threshold),'expected_unit',e.expected_unit,'gap',abs(q.quantity-e.reference_quantity),
+    'gap_required',coalesce(private.takeoff_quantity_requires_review(e.reference_quantity,q.quantity),false),
+    'unit_conflict',coalesce(q.unit_conflict,false),'rows',coalesce(q.rows,'[]'::jsonb))
+  from entry e join answers a on a.id=e.answer_id left join amounts q on q.answer_id=a.id
 $$;
 
-create function private.takeoff_item_decision_effective(d public.takeoff_item_answer_decisions,a public.takeoff_item_answers,
-  p_unverified boolean,p_marks integer,p_retained private.takeoff_retained_measures)
-returns text language sql stable set search_path='' as $$
-  select case when p_retained.command_id is not null and d.kind='accepted'
-      and p_retained.revision is distinct from private.takeoff_sha256(private.takeoff_measure_facts(a)) then 'none'
-    else private.takeoff_item_decision_effective(d.kind,p_unverified,d.marks_revision,p_marks) end
+create function private.takeoff_measure_facts(a public.takeoff_item_answers)
+returns jsonb language sql stable set search_path='' as $$
+  select f.facts from private.takeoff_measure_batch_facts(a.tenant_id,a.project_id,array[a.id]) f
 $$;
+
+-- The original audit keeps every stamp. For effectiveness, the retention's own verification
+-- of a clean row cannot change what it consents to. Coded reviews retain their actor and time.
+-- Set-aside/reinstate re-evaluates the restored rows: its new evaluation clock is expected,
+-- while any change in content, rule result, proof, author of a justification or threshold still counts.
+create function private.takeoff_measure_revision(facts jsonb, restored boolean)
+returns text language sql immutable set search_path='' as $$
+  select private.takeoff_sha256((facts - 'rows') || jsonb_build_object('rows',(
+    select jsonb_agg((r - 'updated_at'
+      - case when restored then 'rules_evaluated_at' else '' end)
+      - case when r->'justification'='null'::jsonb then array['verified_at','verified_by'] else '{}'::text[] end
+      order by n) from jsonb_array_elements(facts->'rows') with ordinality rows_(r,n))))
+$$;
+
 create or replace function private.takeoff_item_table_pairs(p_tenant_id uuid, p_project_id uuid, p_plan_logical_id uuid)
 returns table (item_id uuid, plan_logical_id uuid, plan_file_id uuid, plan_name text, plan_generation text, job_id uuid,
   unit_state text, reading text, answer_id uuid, outcome text, location_key text, location_label text,
   decision_kind text, decision_revision integer, plan_entry_id uuid, answer_job_id uuid, sent boolean,
   decision_effective text)
 language sql stable security definer set search_path = '' as $$
+  with requested as materialized (
+    select p.* from private.takeoff_item_reading_pairs(p_tenant_id,p_project_id,p_plan_logical_id) p
+  ), individual as materialized (
+    select l.answer_id,d.command_id<>l.command_id as restored,
+      case when d.command_id=l.command_id then retained.revision else retained.restored_revision end as saved_revision
+    from requested p join private.takeoff_measure_lineage l on l.answer_id=p.answer_id
+    join public.takeoff_item_answer_decisions d on d.answer_id=l.answer_id and d.kind='accepted'
+    join private.takeoff_retained_measures retained on retained.command_id=l.command_id
+  ), current_individual as materialized (
+    select i.answer_id,i.saved_revision=private.takeoff_measure_revision(f.facts,i.restored) as effective
+    from individual i left join private.takeoff_measure_batch_facts(p_tenant_id,p_project_id,
+      array(select selected.answer_id from individual selected)) f on f.answer_id=i.answer_id
+  )
   select p.item_id, p.plan_logical_id, p.plan_file_id, p.plan_name, p.plan_generation, p.job_id, p.unit_state, p.reading,
     p.answer_id, p.outcome, loc.location_key, loc.location_label, d.kind, coalesce(d.revision, 0),
     case when p_plan_logical_id is null then pe.id end, a.job_id, coalesce(aj.status::text = 'applied', false),
-    private.takeoff_item_decision_effective(d,a,exists (select 1 from public.takeoff_item_answer_observations o
+    case when individual.answer_id is not null and individual.effective is not true then 'none'
+    else private.takeoff_item_decision_effective(d.kind,exists (select 1 from public.takeoff_item_answer_observations o
         join public.takeoff_items i on i.id = o.takeoff_item_id
         where o.answer_id = p.answer_id and o.role = 'contribution' and not i.is_verified),
-      private.takeoff_count_marks_revision(p.answer_id),retained)
-  from private.takeoff_item_reading_pairs(p_tenant_id, p_project_id, p_plan_logical_id) p
+      d.marks_revision,private.takeoff_count_marks_revision(p.answer_id)) end
+  from requested p
   left join public.takeoff_item_answers a on a.id = p.answer_id
   left join public.takeoff_jobs aj on aj.id = a.job_id and aj.tenant_id = p_tenant_id
   left join public.takeoff_item_answer_decisions d on d.answer_id = p.answer_id
-  left join private.takeoff_retained_measures retained on retained.command_id=d.command_id
+  left join current_individual individual on individual.answer_id=p.answer_id
   left join public.takeoff_item_entries pe on pe.tenant_id = p_tenant_id and pe.project_id = p_project_id
     and pe.item_id = p.item_id and pe.plan_logical_id = p.plan_logical_id
   left join lateral (
@@ -191,6 +235,7 @@ begin
   end loop;
   if cardinality(rows_to_justify)>0 then reason:=coalesce(reason,'justification_required'); end if;
   return facts || jsonb_build_object('revision',private.takeoff_sha256(jsonb_build_array(facts,pair.decision_revision)),
+    'facts_revision',private.takeoff_measure_revision(facts,false),'restored_revision',private.takeoff_measure_revision(facts,true),
     'decision_revision',pair.decision_revision,'reason',reason,'rows_to_justify',rows_to_justify,
     'rules_required',rules_required,'proof_required',proof_required);
 end;
@@ -207,6 +252,19 @@ begin
   select * into strict a from public.takeoff_item_answers
     where (tenant_id,project_id,id)=(p_tenant_id,p_project_id,p_answer_id);
   return private.takeoff_measure_review(a);
+end;
+$$;
+
+-- Serialize the final permission decision with committed edits to the member and tenant.
+-- The project row is already held FOR SHARE, including its owner and archived state.
+create function private.lock_takeoff_measure_reviewer(p_tenant uuid,p_project uuid,p_actor uuid)
+returns boolean language plpgsql set search_path='' as $$
+begin
+  perform 1 from public.tenants t join public.tenant_memberships m on m.tenant_id=t.id
+    where t.id=p_tenant and m.user_id=p_actor for share of t,m;
+  return p_actor=auth.uid() and p_tenant=public.current_tenant_id()
+    and coalesce(private.can_access_takeoff_scope(p_tenant,p_project,null,false),false)
+    and coalesce(private.takeoff_item_list_writer(p_tenant,p_project,p_actor),false);
 end;
 $$;
 
@@ -238,11 +296,11 @@ begin
     and jsonb_typeof(p_acknowledgement->'proof_checked')='boolean') is not true then
     raise exception 'TAKEOFF_ITEM_REVIEW_INVALID' using errcode='22023';
   end if;
-  -- Project first (the send and publication lock it too), list, review, job rules,
+  -- Project first (the send and publication lock it too), review, list, job rules,
   -- marks, then contributions in ID order. Re-read the decision and every acknowledgement under these locks.
-  perform 1 from public.estimate_projects where id=p_project_id and tenant_id=p_tenant_id for key share;
-  perform private.lock_takeoff_item_list(p_project_id);
+  perform 1 from public.estimate_projects where id=p_project_id and tenant_id=p_tenant_id for share;
   perform pg_advisory_xact_lock(hashtextextended('takeoff-item-review:'||p_project_id,0));
+  perform private.lock_takeoff_item_list(p_project_id);
   if p_tenant_id is distinct from public.current_tenant_id() or
     not coalesce(private.takeoff_item_list_writer(p_tenant_id,p_project_id,actor),false) then
     raise exception 'TAKEOFF_ITEM_REVIEW_FORBIDDEN' using errcode='42501';
@@ -264,7 +322,11 @@ begin
   perform private.lock_takeoff_count_marks_revision(a.id);
   perform 1 from public.takeoff_items i join public.takeoff_item_answer_observations o on o.takeoff_item_id=i.id
     where o.answer_id=a.id and o.role='contribution' order by i.id for update of i;
-  review:=private.takeoff_measure_review(a);
+  if private.lock_takeoff_measure_reviewer(p_tenant_id,p_project_id,actor) is not true then
+    raise exception 'TAKEOFF_ITEM_REVIEW_FORBIDDEN' using errcode='42501';
+  end if;
+  select private.takeoff_measure_review(current_answer) into strict review from public.takeoff_item_answers current_answer
+    where (current_answer.tenant_id,current_answer.project_id,current_answer.id)=(p_tenant_id,p_project_id,p_answer_id);
   if review->>'reason'='answer_changed' or review->'revision' is distinct from p_acknowledgement->'revision' then
     return jsonb_build_object('outcome','stale');
   end if;
@@ -290,8 +352,9 @@ begin
   result:=jsonb_build_object('outcome','applied','command_id',receipt,'item_id',a.item_id,'answer_id',a.id);
   insert into public.takeoff_item_review_commands(id,tenant_id,project_id,intent_key,actor_id,gesture,command_sha256,outcome,created_at)
     values(receipt,a.tenant_id,a.project_id,p_intent_key,actor,'accept_measured',digest,result,decided);
-  insert into private.takeoff_retained_measures(command_id,acknowledged,revision) values(receipt,
-    review || jsonb_build_object('confirmation',p_acknowledgement),private.takeoff_sha256(private.takeoff_measure_facts(a)));
+  insert into private.takeoff_retained_measures(command_id,acknowledged,revision,restored_revision) values(receipt,
+    review || jsonb_build_object('confirmation',p_acknowledgement),review->>'facts_revision',review->>'restored_revision');
+  insert into private.takeoff_measure_lineage(answer_id,command_id) values(a.id,receipt);
   insert into public.takeoff_item_review_events(tenant_id,project_id,command_id,item_id,answer_id,plan_logical_id,event,before,after,actor_id,at)
     values(a.tenant_id,a.project_id,receipt,a.item_id,a.id,a.plan_logical_id,'accepted','{"kind":"none"}',
       jsonb_build_object('kind','accepted','quantity',review->'quantity','unit',review->'unit','individual',true),actor,decided);
@@ -310,9 +373,13 @@ declare
 begin
   select r.acknowledged,d.answer_id,d.revision into saved from public.takeoff_item_answers a
     join public.takeoff_item_answer_decisions d on d.answer_id=a.id and d.kind='accepted'
-    join private.takeoff_retained_measures r on r.command_id=d.command_id
+    join private.takeoff_measure_lineage l on l.answer_id=d.answer_id
+    join private.takeoff_retained_measures r on r.command_id=l.command_id
     where (a.tenant_id,a.project_id,a.job_id,a.item_id)=(p_tenant,p_project,p_job,(p_target->>'item_id')::uuid);
   if not found then return null; end if;
+  -- Without a numeric reference on either side the acceptance settled proof or rules only.
+  -- The released reconciliation and price guards still check the planned destination.
+  if p_reference is null and saved.acknowledged->>'reference' is null then return null; end if;
   matched:=case when saved.acknowledged#>>'{origin,kind}'='dpgf' then
     p_target#>>'{line,kind}'='dpgf_line' and exists(select 1 from public.read_estimate_dpgf_raw_rows(p_tenant,p_version) l
       where l.estimate_item_id=line_id and l.raw_row_id::text=lower(saved.acknowledged#>>'{origin,rawRowId}')
@@ -382,7 +449,7 @@ begin
     with needed(answer_id, earlier_revision) as (
       select a.id, null::integer from public.takeoff_item_answers a
       join public.takeoff_item_answer_decisions d on d.answer_id = a.id
-      left join private.takeoff_retained_measures retained on retained.command_id = d.command_id
+      left join private.takeoff_measure_lineage retained on retained.answer_id=d.answer_id and d.kind='accepted'
       where a.tenant_id = p_tenant and a.job_id = p_job and (d.quantity_source = 'verified_count' or retained.command_id is not null)
       union all
       select part.answer_id, part.marks_revision from public.takeoff_item_send_parts part
@@ -570,7 +637,7 @@ begin
     earlier_proofs_current := private.takeoff_item_send_lock_proofs(tenant, target_job_id, target_version, plan -> 'targets');
     perform 1 from public.takeoff_items i join public.takeoff_item_answer_observations o on o.takeoff_item_id=i.id
       join public.takeoff_item_answer_decisions d on d.answer_id=o.answer_id
-      join private.takeoff_retained_measures m on m.command_id=d.command_id
+      join private.takeoff_measure_lineage m on m.answer_id=d.answer_id and d.kind='accepted'
       where i.job_id=target_job_id and o.role='contribution' order by i.id for share of i;
     if destination_kind = 'existing_draft' then
       perform 1 from public.estimate_items as item
@@ -987,7 +1054,7 @@ begin
 
   select p_revision_receipt is null and exists(select 1 from public.takeoff_item_answers a
     join public.takeoff_item_answer_decisions d on d.answer_id=a.id
-    join private.takeoff_retained_measures m on m.command_id=d.command_id where a.job_id=target_job_id)
+    join private.takeoff_measure_lineage m on m.answer_id=d.answer_id and d.kind='accepted' where a.job_id=target_job_id)
     into has_retained;
   -- Every target, read again and computed here.
   for target in select value from pg_catalog.jsonb_array_elements(plan -> 'targets') loop
@@ -1702,8 +1769,8 @@ end;
 $$;
 
 revoke all on function private.takeoff_measure_row_facts(public.takeoff_items),
-  private.record_takeoff_measure_justification(),private.takeoff_legacy_measure_justified(public.takeoff_items),private.takeoff_measure_facts(public.takeoff_item_answers),
-  private.takeoff_item_decision_effective(public.takeoff_item_answer_decisions,public.takeoff_item_answers,boolean,integer,private.takeoff_retained_measures),
+  private.record_takeoff_measure_justification(),private.clear_replaced_measure_lineage(),private.lock_takeoff_measure_reviewer(uuid,uuid,uuid),private.takeoff_measure_revision(jsonb,boolean),private.takeoff_measure_facts(public.takeoff_item_answers),
+  private.takeoff_measure_batch_facts(uuid,uuid,uuid[]),
   private.takeoff_measure_review(public.takeoff_item_answers),
   private.takeoff_measure_destination(uuid,uuid,uuid,uuid,jsonb,numeric,numeric,numeric,numeric),
   private.takeoff_measure_printed_gap(jsonb,uuid)

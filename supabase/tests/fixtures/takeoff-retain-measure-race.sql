@@ -25,3 +25,23 @@ select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_SEND_PRE
   'the locked writer observed the new decision: '||extensions.dblink_error_message('race_b'));
 select is((select count(*)::integer from extensions.dblink_get_result('race_b',false) x(answer text)),0,'B drained');
 select is(pg_temp.written(20),'0/0/0/0/completed','no partial send');
+
+-- Exercise the final permission gate without issuing a business write. The SQL
+-- contract test also checks where the public writer calls this gate.
+select to_regprocedure('private.lock_takeoff_measure_reviewer(uuid,uuid,uuid)') is not null as has_locked_reviewer \gset
+\if :has_locked_reviewer
+select is(extensions.dblink_exec('race_setup',format('begin; update public.tenant_memberships set role=''director''
+  where tenant_id=%L and user_id=%L',pg_temp.tenant(),pg_temp.f(1))),'UPDATE 1','role change pending');
+select is(extensions.dblink_exec('race_a','begin; set local role postgres'),'SET','exercise the private permission gate with the member identity');
+select is(extensions.dblink_send_query('race_a',format('select private.lock_takeoff_measure_reviewer(%L,%L,%L)',
+  pg_temp.tenant(),pg_temp.f(20),pg_temp.f(1))),1,'evaluate permission');
+select ok(pg_temp.waits_for('race_a','race_setup'),'permission evaluation waits for the membership');
+select is(extensions.dblink_exec('race_setup','commit'),'COMMIT','role change commits');
+select is((select allowed from extensions.dblink_get_result('race_a') x(allowed boolean)),false,'committed demotion denies retention');
+select is((select count(*)::integer from extensions.dblink_get_result('race_a') x(r boolean)),0,'permission evaluation drained');
+select is(extensions.dblink_exec('race_a','rollback'),'ROLLBACK','close permission probe');
+select is(extensions.dblink_exec('race_setup',format('update public.tenant_memberships set role=''engineer''
+  where tenant_id=%L and user_id=%L',pg_temp.tenant(),pg_temp.f(1))),'UPDATE 1','restore fixture role');
+\else
+select fail('the writer needs a permission gate that serializes with membership changes');
+\endif
