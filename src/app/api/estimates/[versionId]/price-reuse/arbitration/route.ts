@@ -3,7 +3,7 @@ import { priceReuseArbitrationInputSchema } from "@/lib/estimates/price-reuse-co
 import { arbitratePriceReuse } from "@/lib/estimates/price-reuse-server";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
-/** Arbitrage Decisions ou forfait ChatGPT des lignes à vérifier, sans écriture (docs/metier/reprise-des-prix.md). */
+/** Arbitrage des lignes à vérifier par la source IA choisie, sans écriture (docs/metier/reprise-des-prix.md). */
 export async function POST(request: Request, { params }: { params: Promise<{ versionId: string }> }) {
   try {
     const versionId = await uuidRouteParam(params, "versionId");
