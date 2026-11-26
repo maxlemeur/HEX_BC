@@ -582,8 +582,9 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
               <ItemDetailEvidencePane ref={evidence} projectId={projectId} line={line} choice={choice} plan={view}
                 measureRetention={choice.kind === "reading" && review && answer ? <MeasureRetention
                   key={`${viewerKey}:${review.answer_id}:${review.revision}:${canReview}`} projectId={projectId}
-                  planName={choice.planName} jobId={choice.jobId} review={review} label={line.label}
-                  undecided={!choice.reading.decision} canReview={canReview} onRefused={historyRefused}
+                  observations={answer.observations} planName={choice.planName} jobId={choice.jobId} review={review} label={line.label}
+                  undecided={!choice.reading.decision} acceptedMeasure={choice.reading.decision?.kind === "accepted"
+                    && !choice.reading.quantityDecision} canReview={canReview} onRefused={historyRefused}
                   onRefresh={() => { rereadItem(itemId); void measure.mutate(); }} /> : reviewId && measure.error ?
                     <Button size="xs" variant="outline" onClick={() => void measure.mutate()}>Relire la mesure</Button> : null}
                 documentState={documentState} names={names} planNames={planNames} outsideFilter={!found && outside !== null}

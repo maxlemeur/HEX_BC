@@ -11,11 +11,12 @@ import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
 
 type Props = {
+  observations: ReadonlyArray<{ observationId: string; page: number | null }>;
   projectId: string; jobId: string; label: string; planName: string;
-  review: MeasureReview; undecided: boolean; canReview: boolean; onRefresh: () => void; onRefused: (error: unknown) => boolean;
+  review: MeasureReview; undecided: boolean; acceptedMeasure: boolean; canReview: boolean; onRefresh: () => void; onRefused: (error: unknown) => boolean;
 };
 
-export function MeasureRetention({ projectId, jobId, label, planName, review, undecided, canReview, onRefresh, onRefused }: Props) {
+export function MeasureRetention({ observations, projectId, jobId, label, planName, review, undecided, acceptedMeasure, canReview, onRefresh, onRefused }: Props) {
   const [intent, setIntent] = useState<string | null>(null);
   const [checks, setChecks] = useState({ gap_checked: false, rules_checked: false, proof_checked: false });
   const sending = useRef(false);
@@ -29,10 +30,14 @@ export function MeasureRetention({ projectId, jobId, label, planName, review, un
   ] as const;
   const ready = !review.reason && requirements.every(({ key, needed }) => !needed || checks[key]);
   const actionable = canReview && (review.reason === null || review.reason === "justification_required");
+  function location(observationId: string) {
+    const page = observations.find(observation => observation.observationId === observationId)?.page;
+    return page ? ` · page ${page}` : "";
+  }
   const links = review.rows.filter(row => row.needs_justification && row.id).map(row => {
     const href = takeoffReviewHref({ projectId, jobId, targeted: true, line: row.id! });
     const params = new URLSearchParams({ reponse: review.answer_id, contribution: row.id! });
-    return <Link key={row.id} className="block underline" href={href + "&" + params}>Justifier la contribution</Link>;
+    return <Link key={row.id} className="block underline" href={href + "&" + params}>Justifier la contribution{location(row.observation_id)}</Link>;
   });
   const amount = (value: number | null, unit = review.unit) => value === null ? "Aucune" : formatItemQuantity(value, unit);
   const facts = <div className="space-y-2">
@@ -40,7 +45,9 @@ export function MeasureRetention({ projectId, jobId, label, planName, review, un
     <p>Référence DPGF · {amount(review.reference, review.expected_unit)}</p>
     {review.gap !== null && <p>Écart à la DPGF · {amount(review.gap)}</p>}
     {review.proof_required && <p>Confiance inférieure au seuil de {Math.round(review.confidence_threshold * 100)} %.</p>}
-    {review.rows.filter(row => row.failures.length > 0).map(row => <div key={row.observation_id}>
+    {review.rows.filter(row => row.failures.length > 0 || row.low_confidence).map(row => <div key={row.observation_id}>
+      <p className="font-medium">Contribution{location(row.observation_id)}</p>
+      {row.low_confidence && <p>La preuve de cette contribution doit être vérifiée.</p>}
       {row.failures.map((failure, index) => <p key={index}>Contrôle en échec · {failure}</p>)}
       {row.justification.length > 0 && <p>Justification de {row.author ?? "l’auteur"} · {row.justification.join(" · ")}</p>}
     </div>)}
@@ -62,7 +69,8 @@ export function MeasureRetention({ projectId, jobId, label, planName, review, un
   }
   return <div className="space-y-2">
     {expired && <><p role="status">Les éléments sur lesquels vous aviez retenu cette mesure ont changé. Vérifiez la mesure à nouveau.</p>{facts}</>}
-    {review.reason && <p>{measureRefusals[review.reason]}</p>}
+    {acceptedMeasure && review.previously_retained && <p>Retenu sur ce plan · {amount(review.quantity)}</p>}
+    {review.reason && !(acceptedMeasure && review.reason === "already_decided") && <p>{measureRefusals[review.reason]}</p>}
     {canReview && review.reason === "justification_required" && links}
     {actionable && <Button variant="outline" size="sm" onClick={() => {
       setChecks({ gap_checked: false, rules_checked: false, proof_checked: false }); setError(""); setIntent(crypto.randomUUID());

@@ -123,7 +123,8 @@ test("POSTE-RETENIR04 refuse un échec bloquant et une justification absente, pu
   const { jobId } = seeded.plans[0];
   await querySql(`update public.takeoff_items set rule_results=jsonb_build_array(jsonb_build_object('rule','dn_network',
     'version',2,'status','fail','code',case designation when 'Réseau bloqué' then 'DN_NETWORK_MATERIAL_BLOCKED' else 'DN_NETWORK_NETWORK_MISSING' end,
-    'reason','Contrôle du réseau fictif','acceptable',designation='Réseau à justifier')) where job_id='${jobId}' and designation <> 'Compteur';`);
+    'reason','Contrôle du réseau fictif','acceptable',designation='Réseau à justifier')) where job_id='${jobId}' and designation <> 'Compteur';
+    update public.takeoff_items set confidence=0.1 where job_id='${jobId}' and designation='Compteur';`);
   async function openItem(label: string) {
     await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
     await waitForHydration(ui.browser);
@@ -140,6 +141,8 @@ test("POSTE-RETENIR04 refuse un échec bloquant et une justification absente, pu
   await retain.click();
   const dialog = screen.getByRole("dialog");
   await dialog.getByRole("checkbox", /écart/).check();
+  await expect(dialog.getByRole("button", "Retenir cette mesure", { exact: true })).toBeDisabled();
+  await dialog.getByRole("checkbox", /preuve de la mesure/).check();
   await dialog.getByRole("button", "Retenir cette mesure", { exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await querySql(`update public.takeoff_items set evidence='Quantité vérifiée sur un autre repère fictif' where job_id='${jobId}' and designation='Compteur';`);
