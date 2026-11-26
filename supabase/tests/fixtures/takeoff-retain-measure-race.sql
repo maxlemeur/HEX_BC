@@ -82,3 +82,44 @@ select is(extensions.dblink_exec('race_setup',format('update public.tenant_membe
 \else
 select fail('the writer needs a permission gate that serializes with membership changes');
 \endif
+
+select count(*) as retention_events_before from public.takeoff_item_review_events
+where tenant_id=pg_temp.tenant() and project_id=pg_temp.f(20) \gset
+
+-- Add an observation point only in the writer connection's uncommitted test transaction.
+-- The original permission check runs with the member's identity after this fixture-only barrier.
+select is(extensions.dblink_exec('race_a','begin; set local role postgres'),'SET','open an isolated instrumented transaction');
+select is(extensions.dblink_exec('race_a',format('update public.takeoff_items set rules_evaluated_at=clock_timestamp()
+  where id=%L',pg_temp.f(820))),'UPDATE 1','fresh eligible measure within the writer test transaction');
+select is(extensions.dblink_exec('race_a',$fixture$
+  do $install$ begin
+    execute replace(pg_get_functiondef('private.lock_takeoff_measure_reviewer(uuid,uuid,uuid)'::regprocedure),
+      'FUNCTION private.lock_takeoff_measure_reviewer(', 'FUNCTION pg_temp.review_permission_under_test(');
+  end $install$;
+  create or replace function private.lock_takeoff_measure_reviewer(p_tenant uuid,p_project uuid,p_actor uuid)
+    returns boolean language plpgsql set search_path='' as $gate$
+  begin
+    perform pg_catalog.pg_advisory_xact_lock(669,622);
+    return pg_temp.review_permission_under_test(p_tenant,p_project,p_actor);
+  end $gate$;
+  set local role authenticated
+$fixture$),'SET','the test suspension is private to the writer transaction');
+select is(extensions.dblink_exec('race_c','begin; do $$begin perform pg_advisory_xact_lock(669,622); end$$'),'DO','close the fixture barrier');
+select is(extensions.dblink_send_query('race_a',pg_temp.retain_sql(622)),1,'submit the eligible measure as the authenticated member');
+select ok(pg_temp.waits_for('race_a','race_c'),'the public writer reached the final check after its entry checks');
+select is(extensions.dblink_exec('race_setup',format('update public.tenant_memberships set role=''director''
+  where tenant_id=%L and user_id=%L',pg_temp.tenant(),pg_temp.f(1))),'UPDATE 1','commit demotion while the public call is suspended');
+select is(extensions.dblink_exec('race_c','commit'),'COMMIT','release the fixture barrier');
+select ok(pg_temp.answered('race_a'),'the public call finishes after the demotion');
+select is((select count(*)::integer from extensions.dblink_get_result('race_a',false) as r(result jsonb)),
+  0,'the in-flight public command returns no result or receipt');
+select ok(extensions.dblink_error_message('race_a') like '%TAKEOFF_ITEM_REVIEW_FORBIDDEN%',
+  'the in-flight command reports a withdrawn right');
+select is((select count(*)::integer from extensions.dblink_get_result('race_a',false) as r(result jsonb)),0,'drain public result');
+select is(extensions.dblink_exec('race_a','rollback'),'ROLLBACK','remove the transaction-local instrumentation');
+select is((select count(*) from public.takeoff_item_review_events where tenant_id=pg_temp.tenant() and project_id=pg_temp.f(20)),
+  :'retention_events_before'::bigint,'the refused command added no review events');
+select ok(not exists(select 1 from public.takeoff_item_review_commands where tenant_id=pg_temp.tenant()
+  and project_id=pg_temp.f(20) and intent_key=pg_temp.f(622)),'no command receipt for the refused intention');
+select is(extensions.dblink_exec('race_setup',format('update public.tenant_memberships set role=''engineer''
+  where tenant_id=%L and user_id=%L',pg_temp.tenant(),pg_temp.f(1))),'UPDATE 1','restore fixture membership');
