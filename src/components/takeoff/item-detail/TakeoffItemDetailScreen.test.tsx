@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { SWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -60,6 +60,8 @@ window.history.replaceState = (data: unknown, unused: string, url?: string | URL
 };
 
 import { TakeoffItemDetailScreen } from "@/components/takeoff/item-detail/TakeoffItemDetailScreen";
+import * as itemClient from "@/lib/takeoff/item-table-client";
+import type { MeasureReview } from "@/lib/takeoff/measure-review-contracts";
 import { TakeoffApiError } from "@/lib/takeoff/client-http";
 import { takeoffItemDetailHref } from "@/lib/takeoff/review-href";
 import type { ItemTableAddress } from "@/lib/takeoff/item-table-query";
@@ -108,7 +110,7 @@ afterEach(() => {
 
 const TABLE = "posteState=measured&posteState=not_found&tab=jobs";
 function FreshCache({ children }: { children: ReactNode }) {
-  return <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>{children}</SWRConfig>;
+  return <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, focusThrottleInterval: 0 }}>{children}</SWRConfig>;
 }
 
 function open(item: string, plan: string | null, job: string | null, table = TABLE) {
@@ -776,5 +778,62 @@ describe("TakeoffItemDetailScreen, check of #483", () => {
     render(<TakeoffItemDetailScreen projectId={DETAIL_PROJECT} viewerKey="tenant:member"/>,{wrapper:FreshCache});
     await settle();
     expect(getDocument).toHaveBeenCalledWith(expect.objectContaining({url:`/api/takeoff/jobs/${JOB_RDC}/vector-plans/${COPY_RDC}`}));
+  });
+});
+
+describe("the retention panel checks the current measure", () => {
+  const expiry = "Les éléments sur lesquels vous aviez retenu cette mesure ont changé. Vérifiez la mesure à nouveau.";
+  const basin = DETAIL_READINGS.find(row => row.itemId === ITEMS.basin && row.planKey === PLAN_RDC)!;
+  const retained: MeasureReview = {
+    answer_id: basin.answer!.answerId, item_id: ITEMS.basin, plan_id: PLAN_RDC, revision: "a".repeat(64), decision_revision: 1,
+    quantity: 3, unit: "u", expected_unit: "u", reference: 1, gap: 2, gap_required: true,
+    previously_retained: true, retained: { quantity: 3, unit: "u" }, reason: "already_decided",
+    confidence_threshold: 0.5, rules_required: false, proof_required: false, rows: [],
+  };
+  function show() { return open(ITEMS.basin, PLAN_RDC, JOB_RDC, `postePlan=${PLAN_RDC}`); }
+  function expectNoAcceptance() {
+    expect(evidence().queryByText(/^Retenu sur ce plan/)).toBeNull();
+    expect(evidence().queryByText(/^Retenu : [0-9]/)).toBeNull();
+    expect(evidence().queryByText(/^Accepté par /)).toBeNull();
+  }
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it("withdraws cached acceptance on a failed re-read and checks again on retry", async () => {
+    const read = vi.spyOn(itemClient, "fetchMeasureReview").mockResolvedValue(retained);
+    show();
+    await screen.findByText("Retenu sur ce plan · 3 u");
+    read.mockRejectedValueOnce(new Error("Lecture interrompue"));
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    await screen.findByText("Impossible de vérifier la décision sur cette mesure.");
+    expectNoAcceptance();
+    expect(evidence().queryByRole("button", { name: "Retenir cette mesure" })).toBeNull();
+    fireEvent.click(evidence().getByRole("button", { name: "Relire la mesure" }));
+    await screen.findByText("Retenu sur ce plan · 3 u");
+  });
+
+  it("withdraws the accepted amount when a different verified count requires a quantity choice", async () => {
+    const read = vi.spyOn(itemClient, "fetchMeasureReview").mockResolvedValue(retained);
+    show();
+    await screen.findByText("Retenu sur ce plan · 3 u");
+    read.mockResolvedValue({ ...retained, revision: "b".repeat(64), reason: "quantity_choice", retained: null });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await screen.findByText("Choisissez la source de quantité dans le détail du comptage.");
+    expectNoAcceptance();
+    expect(evidence().getByText(expiry)).toBeInTheDocument();
+  });
+
+  it("checks the state while the first review is pending and then shows why the decision expired", async () => {
+    const pending = Promise.withResolvers<MeasureReview>();
+    vi.spyOn(itemClient, "fetchMeasureReview").mockReturnValue(pending.promise);
+    scenario.readings = [{ ...basin, decision: null }];
+    show();
+    await screen.findByRole("heading", { name: "Lavabo céramique" });
+    expect(evidence().getByText("Vérification de la décision sur cette mesure…")).toBeInTheDocument();
+    expectNoAcceptance();
+    expect(evidence().queryByRole("button", { name: "Retenir cette mesure" })).toBeNull();
+    await act(async () => pending.resolve({ ...retained, quantity: 4, gap: 3, retained: null, reason: null }));
+    expect(evidence().getByText(expiry)).toBeInTheDocument();
+    expect(evidence().getByText("Quantité observée · 4 u")).toBeInTheDocument();
   });
 });
