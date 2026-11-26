@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import { takeoffApiHostId } from "@/lib/takeoff/payment-mandate-server";
 import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
@@ -94,13 +95,17 @@ export async function runLocalTakeoffDispatcherPass(options: { attempt?: Takeoff
   const service = options.service ?? createServiceRoleClient();
   running = (async () => {
     const hostId = options.hostId ?? await getChatGptHostId();
+    const hosts = options.hostId ? [hostId] : [hostId, takeoffApiHostId(hostId)];
     const total: TakeoffDispatchPass = { ran: [], closed: [], nextDueAt: null };
     do {
       again = false;
-      const pass = await dispatchOnce(service, hostId, options.attempt ?? defaultAttempt);
-      total.ran.push(...pass.ran);
-      total.closed.push(...pass.closed);
-      total.nextDueAt = pass.nextDueAt;
+      total.nextDueAt = null;
+      for (const queueHost of hosts) {
+        const pass = await dispatchOnce(service, queueHost, options.attempt ?? defaultAttempt);
+        total.ran.push(...pass.ran);
+        total.closed.push(...pass.closed);
+        if (pass.nextDueAt && (!total.nextDueAt || pass.nextDueAt < total.nextDueAt)) total.nextDueAt = pass.nextDueAt;
+      }
     } while (again);
     return total;
   })();

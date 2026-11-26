@@ -1,5 +1,11 @@
 import "server-only";
 
+import { TAKEOFF_NANO_USD_PER_CENT, type TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
+import { assertTakeoffApiConnection, readTakeoffApiMandate, takeoffApiHostId,
+  takeoffPaymentError, usesTakeoffApiKey, type TakeoffApiMandate } from "@/lib/takeoff/payment-mandate-server";
+import { resolveTakeoffPayment } from "@/lib/takeoff/payment-server";
+import { databaseError, gestureResult, payerNoticeDigest, readPayerSubscription, selectionParameters,
+  type GestureRow } from "./launch-payer-server";
 import { readAdmittedPlanRequests } from "./admitted-plan-readings-server";
 import { attestBriefPlanChoice } from "./brief-plan-choice-server";
 import { BRIEF_PLAN_CHANGED, sealedBriefPlansSchema, type BriefPlanSelection, type SealedBriefPlans } from "./brief-plan-choice";
@@ -13,10 +19,9 @@ import { DOCUMENT_SELECT, normalizeDocumentRow } from "@/lib/affaires/intake-row
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import {
-  compareTakeoffSelection, getConfirmedTakeoffExecutionOwner, readLocalChatGptSubscription, type LocalChatGptSubscription,
+  compareTakeoffSelection, getConfirmedTakeoffExecutionOwner, readLocalChatGptSubscription,
 } from "@/lib/ai/chatgpt-takeoff";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/http/api-response";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -29,7 +34,7 @@ import { deriveDeterministicJobId } from "@/lib/takeoff/job-creation-input";
 import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
   buildTakeoffLaunchManifest, decideTakeoffLaunch, describeTakeoffLaunchReason, isTakeoffLaunchReason, splitTakeoffLaunchManifest,
-  TAKEOFF_AUTOMATIC_PAYER_NOTICE, TAKEOFF_GROUPED_UNIT_KEY,
+  TAKEOFF_GROUPED_UNIT_KEY,
   type AnyTakeoffLaunchManifest, type TakeoffLaunchManifest, type TakeoffLaunchOrder, type TakeoffLaunchPiece, type TakeoffLaunchReason,
   type TakeoffRelaunchChoice, describeTakeoffRelaunchWithoutPlans,
   type TakeoffLaunchRequestState, type TakeoffPlanLaunchManifest,
@@ -38,7 +43,7 @@ import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import { isTakeoffPlanDispatchActive } from "@/lib/takeoff/local-dispatcher";
 import {
   createTakeoffPreparationSnapshot, evaluateTakeoffPreparation, TakeoffPreparationNotReadyError,
-  type TakeoffExecutionSelection, type TakeoffPreparation, type TakeoffPreparationSnapshot,
+  takeoffExecutionSelectionSchema, type TakeoffExecutionSelection, type TakeoffPreparation, type TakeoffPreparationSnapshot,
 } from "@/lib/takeoff/preparation";
 import { sealedMeasuringOrder } from "@/lib/takeoff/item-list-seal-server";
 import { itemListReadingRefusalDetails, itemListReadingTooLarge, sealItemListReading } from "@/lib/takeoff/poste-reading-admission-server";
@@ -64,12 +69,10 @@ import {
 import { readTakeoffVisibleSources } from "@/lib/takeoff/source-visibility-server";
 import type { Database, Json } from "@/types/database";
 
+export { databaseError, readAutomaticTakeoffPayerNotice, readBriefConfirmationPayerNotice, type TakeoffLaunchGestureResult } from "./launch-payer-server";
+
 type Service = SupabaseClient<Database>;
 type Context = AuthenticatedTenantContext;
-
-export function databaseError(error: { code?: string; message: string }, message: string): never {
-  throw mapSupabaseError({ ...error, code: error.code ?? "UNKNOWN" }, message);
-}
 
 /**
  * The named refusals of the launch functions, in French, mapped once for every caller; any other error is the database's
@@ -130,38 +133,6 @@ export async function isTakeoffLaunchActive(service: Service = createServiceRole
   return data === true;
 }
 
-function selectionParameters(subscription: LocalChatGptSubscription | { issue: "MANDATE_REQUIRED"; selection: null }) {
-  return subscription.selection
-    ? { p_host: subscription.selection.hostId, p_selection: subscription.selection as unknown as Json }
-    : { p_blocked_reason: subscription.issue };
-}
-
-/** The member's subscription on this Mac when the one payer rule lets them pay on the affaire; never read otherwise. */
-async function readPayerSubscription(service: Service, context: Context, projectId: string, host: string | null | undefined) {
-  const { data: mayPay, error } = await service.rpc("takeoff_payer_may_launch", {
-    p_tenant_id: context.tenantId, p_project_id: projectId, p_user_id: context.userId });
-  if (error) databaseError(error, "Impossible de vérifier qui peut payer le métré de cette affaire.");
-  if (mayPay !== true) return { issue: "MANDATE_REQUIRED" as const, selection: null };
-  return readLocalChatGptSubscription({ userId: context.userId, tenantId: context.tenantId }, host);
-}
-
-type GestureRow = { request_id: string | null; state: string | null; reason_code: string | null; payer_id: string | null };
-
-/** What a gesture leaves: the request, its state and its reason in French, and the gesture it now allows this member. */
-export type TakeoffLaunchGestureResult = {
-  requestId: string; state: TakeoffLaunchRequestState; reason: TakeoffLaunchReason | null; message: string | null;
-  action: TakeoffLaunchAction; actionLabel: string | null;
-};
-async function gestureResult(service: Service, row: GestureRow, actorId: string, hasLocalRuntime: boolean): Promise<TakeoffLaunchGestureResult | null> {
-  if (!row.request_id || !row.state) return null;
-  const reason = isTakeoffLaunchReason(row.reason_code) ? row.reason_code : null;
-  const { data: allowed, error } = await service.rpc("takeoff_launch_request_action", { p_request_id: row.request_id, p_actor: actorId });
-  if (error) databaseError(error, "Impossible de lire le métré de l’affaire.");
-  const action = viewerLaunchAction(allowed, hasLocalRuntime, row.state, row.reason_code);
-  return { requestId: row.request_id, state: row.state as TakeoffLaunchRequestState, reason,
-    message: reason ? describeTakeoffLaunchReason(reason) : null, action, actionLabel: describeTakeoffLaunchAction(action) };
-}
-
 /**
  * The confirmation of an affaire's brief through the server, in one commit: the member's right to confirm it, the
  * brief's compare-and-set on the revision the member saw, its event, the reservation of the affaire's automatic request
@@ -171,16 +142,26 @@ async function gestureResult(service: Service, row: GestureRow, actorId: string,
  */
 export async function confirmAffaireBriefWithTakeoff(input: {
   context: Context; projectId: string; expectedUpdatedAt: string; plans: BriefPlanSelection; notice: string | null; host: string | null;
+  paymentChoice?: TakeoffPaymentChoice;
 }) {
   const { context } = input;
   const service = createServiceRoleClient();
   const [subscription, session] = await Promise.all([
-    input.plans.length ? readPayerSubscription(service, context, input.projectId, input.host) : null,
+    input.plans.length ? (input.paymentChoice
+      ? resolveTakeoffPayment({ ...context, projectId: input.projectId }, input.paymentChoice, service)
+        .then(({ selection }) => ({ issue: null, selection }))
+      : readPayerSubscription(service, context, input.projectId, input.host)) : null,
     // The member's verified session claims: the database evaluates the released brief policy under them (none refuses).
     context.supabase.auth.getClaims().then(({ data, error }) => (error ? null : data?.claims ?? null), () => null),
   ]);
   const choice = await attestBriefPlanChoice(context, input.projectId, input.plans);
   if ("message" in choice) return { outcome: "choice_refused" as const, takeoff: null, ...choice };
+  if (input.paymentChoice && subscription) {
+    const { data: expected, error } = await payerNoticeDigest(service, { ...context, projectId: input.projectId }, subscription.selection);
+    if (error) databaseError(error, "Impossible de vérifier le mandat de paiement du métré.");
+    if (!input.notice || expected !== input.notice) return { outcome: "choice_refused" as const, takeoff: null,
+      code: "TAKEOFF_PAYER_NOTICE_CHANGED", message: "Le payeur, les réglages ou le budget du métré ont changé. Rechargez la mention de paiement." };
+  }
   const { data, error } = await service.rpc("confirm_affaire_brief_plan_choice", {
     p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId,
     // No notice: the brief is confirmed and engages nobody.
@@ -214,11 +195,22 @@ export async function confirmAffaireBriefWithTakeoff(input: {
  */
 export async function assumeTakeoffLaunchRequest(input: {
   context: Context; projectId: string; requestId: string; seenRevision: number; action: "take_on" | "resume"; host: string | null;
+  paymentChoice?: TakeoffPaymentChoice;
 }) {
   const { context, projectId } = input;
   await assertPreparationProjectAccess(context, projectId, true);
   const service = createServiceRoleClient();
-  const subscription = await readLocalChatGptSubscription({ userId: context.userId, tenantId: context.tenantId }, input.host);
+  if (!input.paymentChoice) {
+    const { data: mandate, error } = await service.from("takeoff_launch_requests").select("mandate_selection")
+      .eq("tenant_id", context.tenantId).eq("project_id", projectId).eq("id", input.requestId).maybeSingle();
+    if (error) databaseError(error, "Impossible de vérifier le mandat du métré.");
+    if (usesTakeoffApiKey({ execution_selection: mandate?.mandate_selection })) {
+      throw takeoffPaymentError("Choisissez qui paiera le métré avant de reprendre la demande.");
+    }
+  }
+  const subscription = input.paymentChoice
+    ? { issue: null, selection: (await resolveTakeoffPayment({ ...context, projectId }, input.paymentChoice, service)).selection }
+    : await readLocalChatGptSubscription({ userId: context.userId, tenantId: context.tenantId }, input.host);
   if (subscription.issue) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: describeTakeoffLaunchReason(subscription.issue) });
@@ -236,38 +228,6 @@ export async function assumeTakeoffLaunchRequest(input: {
   }
   if (row.state === "evaluating") wakeTakeoffLaunchConsumer();
   return (await gestureResult(service, row, context.userId, true))!;
-}
-
-/**
- * The payer notice of the brief's confirmation, for the member whose subscription the analysis will use: its text and
- * the digest the confirmation carries back (the member, both cut-offs and the subscription and settings it was shown
- * with on this Mac). None when the member may not pay, before both cut-offs or with the module off. A read that fails
- * throws: it is never taken for « no notice ».
- */
-export async function readAutomaticTakeoffPayerNotice(context: Context, project: { id: string }, host?: string | null) {
-  const service = createServiceRoleClient();
-  const subscription = await readPayerSubscription(service, context, project.id, host);
-  if (subscription.issue === "MANDATE_REQUIRED") return null;
-  const { data, error } = await service.rpc("takeoff_payer_notice", {
-    p_tenant_id: context.tenantId, p_project_id: project.id, p_actor: context.userId,
-    p_selection: (subscription.selection ?? null) as unknown as Json, p_module_default: takeoffModuleDefault(),
-  });
-  if (error) databaseError(error, "Impossible de vérifier quel forfait ChatGPT le métré utilisera.");
-  if (typeof data !== "string") return null;
-  return { message: TAKEOFF_AUTOMATIC_PAYER_NOTICE, digest: data };
-}
-
-/**
- * The one rule of the notice the confirmation dialog shows, read when it opens: only for a brief to confirm, read now
- * under the member's own session, then as readAutomaticTakeoffPayerNotice gives it. The dialog sends back the digest of
- * what it showed; a brief that reached the page after its render is read here, not taken from that render.
- */
-export async function readBriefConfirmationPayerNotice(context: Context, project: { id: string }, host?: string | null) {
-  const { data, error } = await context.supabase.from("affaire_briefs").select("status")
-    .eq("tenant_id", context.tenantId).eq("project_id", project.id).maybeSingle();
-  if (error) databaseError(error, "Impossible de lire le brief de l’affaire.");
-  if ((data as { status?: string } | null)?.status !== "a_confirmer") return null;
-  return readAutomaticTakeoffPayerNotice(context, project, host);
 }
 
 // The Mac's loop: evaluate the requests whose mandate it holds, then admit them.
@@ -340,6 +300,7 @@ async function sealAutomaticSnapshot(service: Service, input: {
   tenantId: string; projectId: string; planSet: DossierPlanSet; payerId: string; selection: TakeoffExecutionSelection; jobId: string;
   /** One analysis per plan is active: the units are split per plan (and only then may a list of items be sealed). */
   perPlan: boolean;
+  apiMandate?: TakeoffApiMandate;
   selectedPlans: SealedBriefPlans | null;
   documents: ReadonlyArray<{ id: string; size_bytes: number; upload_id: string | null }>;
   /** Plans of the dossier the analysis cannot read (not PDF): named in the coverage, never read. */
@@ -443,7 +404,8 @@ async function sealAutomaticSnapshot(service: Service, input: {
   if ("blocked" in order) return { state: "blocked", reason: order.blocked, pieces: [] };
   const manifest = buildTakeoffLaunchManifest({ intent: "initial", sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
     omittedPlans, omittedReferences: sealed.omittedReferences, preparationRevision: snapshot.preparation_revision,
-    budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents }, order: order.order });
+    budget: { tokens: input.apiMandate?.maxTokens ?? config.maxTotalTokens,
+      cost_cents: input.apiMandate ? input.apiMandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT : config.maxCostCents }, order: order.order });
   return { snapshot, manifest, sourceFile, pageCounts: sealed.planPageCounts, items: order.items };
 }
 
@@ -564,8 +526,24 @@ async function evaluateClaimedRequest(service: Service, claim: ClaimedRequest, t
     return { requestId: claim.request_id, outcome: refusal.state, jobId: null, reason: refusal.reason };
   };
   // The claim returned only requests of this Mac's mandates, of a tenant whose module is on (checked again at admission).
-  const subscription = await readLocalChatGptSubscription({ userId: claim.payer_id, tenantId: claim.tenant_id });
-  const comparison = compareTakeoffSelection(claim.mandate_selection, subscription.selection);
+  const owner = { userId: claim.payer_id, tenantId: claim.tenant_id, projectId: claim.project_id };
+  const selection = takeoffExecutionSelectionSchema.safeParse(claim.mandate_selection);
+  const apiSelection = selection.success && selection.data.source === "personal_api_key" ? selection.data : null;
+  if (apiSelection && !claim.payer_eligible) return refuse({ state: "blocked", reason: "PAYER_NOT_ELIGIBLE", pieces: [] });
+  let apiMandate: TakeoffApiMandate | undefined;
+  if (apiSelection) {
+    try {
+      apiMandate = await readTakeoffApiMandate(service, owner, apiSelection);
+      await assertTakeoffApiConnection(owner, apiMandate);
+    } catch (error) {
+      if (!(error instanceof TakeoffError)) throw error;
+      return refuse({ state: "blocked", reason: "API_KEY_CONNECTION_CHANGED", pieces: [] });
+    }
+  }
+  const fixed = selection.success && selection.data.source === "chatgpt_plan" ? selection.data : undefined;
+  const subscription = apiSelection ? { issue: null, selection: apiSelection }
+    : await readLocalChatGptSubscription(owner, undefined, fixed);
+  const comparison = apiSelection ? "unchanged" : compareTakeoffSelection(claim.mandate_selection, subscription.selection, fixed);
   const [brief, documents, planSet, reservation] = await Promise.all([
     service.from("affaire_briefs").select("status").eq("tenant_id", claim.tenant_id).eq("project_id", claim.project_id).maybeSingle(),
     readDossierDocuments(service, claim.tenant_id, claim.project_id),
@@ -608,7 +586,7 @@ async function evaluateClaimedRequest(service: Service, claim: ClaimedRequest, t
   const perPlan = await isTakeoffPlanDispatchActive(service);
   if (selectedPlans && !perPlan) return refuse({ state: "blocked", reason: "TAKEOFF_DISABLED", pieces: [] });
   const sealed = await sealAutomaticSnapshot(service, { tenantId: claim.tenant_id, projectId: claim.project_id, planSet: planSet!,
-    payerId: claim.payer_id, selection: mandate.selection!, jobId, documents, perPlan, selectedPlans,
+    payerId: claim.payer_id, selection: apiSelection ?? fixed ?? mandate.selection!, jobId, documents, perPlan, selectedPlans, apiMandate,
     unsupportedPlans: selectedPlans ? [] : documents.filter((document) => document.document_kind === "plans" && document.upload_status === "uploaded"
       && document.classification_status === "classified" && document.mime_type?.toLowerCase() !== "application/pdf"
       && getAffaireIntakeFileExtension(document.file_name) !== "pdf")
@@ -646,20 +624,22 @@ export async function evaluateTakeoffLaunchRequests(): Promise<TakeoffLaunchEval
   if (!isLocalChatGptEnabled()) return [];
   const service = createServiceRoleClient();
   const hostId = await getChatGptHostId();
-  const token = randomUUID();
-  const { data, error } = await service.rpc("claim_takeoff_launch_evaluations", { p_host_id: hostId, p_token: token, p_limit: 5,
-    p_module_default: takeoffModuleDefault() });
-  if (error) databaseError(error, "Impossible de lire les métrés à démarrer.");
   const results: TakeoffLaunchEvaluation[] = [];
-  for (const claim of (data ?? []) as ClaimedRequest[]) {
-    try {
-      results.push(await evaluateClaimedRequest(service, claim, token, hostId));
-    } catch (cause) {
-      // The lease is given back and the next pass evaluates it again; the third failure in a row blocks it, visibly.
-      console.error("takeoff.launch_request.evaluation_failed", { requestId: claim.request_id,
-        code: cause instanceof TakeoffError ? cause.code : (cause as { code?: string })?.code ?? null });
-      const { error: failureError } = await service.rpc("record_takeoff_launch_evaluation_failure", { p_request_id: claim.request_id, p_token: token });
-      if (failureError) console.error("takeoff.launch_request.failure_unrecorded", { requestId: claim.request_id });
+  for (const queueHost of [hostId, takeoffApiHostId(hostId)]) {
+    const token = randomUUID();
+    const { data, error } = await service.rpc("claim_takeoff_launch_evaluations", { p_host_id: queueHost, p_token: token, p_limit: 5,
+      p_module_default: takeoffModuleDefault() });
+    if (error) databaseError(error, "Impossible de lire les métrés à démarrer.");
+    for (const claim of (data ?? []) as ClaimedRequest[]) {
+      try {
+        results.push(await evaluateClaimedRequest(service, claim, token, queueHost));
+      } catch (cause) {
+        // The lease is given back and the next pass evaluates it again; the third failure in a row blocks it, visibly.
+        console.error("takeoff.launch_request.evaluation_failed", { requestId: claim.request_id,
+          code: cause instanceof TakeoffError ? cause.code : (cause as { code?: string })?.code ?? null });
+        const { error: failureError } = await service.rpc("record_takeoff_launch_evaluation_failure", { p_request_id: claim.request_id, p_token: token });
+        if (failureError) console.error("takeoff.launch_request.failure_unrecorded", { requestId: claim.request_id });
+      }
     }
   }
   return results;
@@ -771,6 +751,7 @@ export type TakeoffRelaunchResult = {
 export async function launchTakeoffRelaunch(input: {
   context: Context; projectId: string; planSetId: string; preparationRevision: number; intentKey: string;
   predecessorJobId: string | null; planFileIds?: string[] | null; host?: string | null;
+  paymentChoice?: TakeoffPaymentChoice;
 }): Promise<TakeoffRelaunchResult> {
   const { context } = input;
   await assertPreparationProjectAccess(context, input.projectId, true);
@@ -813,6 +794,9 @@ export async function launchTakeoffRelaunch(input: {
   const recorded = (replayed as Array<{ outcome: string; request_id: string; job_id: string | null }> | null)?.[0];
   if (recorded) {
     return { outcome: recorded.outcome as TakeoffRelaunchResult["outcome"], requestId: recorded.request_id, jobId: recorded.job_id };
+  }
+  if (commandPlans.predecessorUsedKey && !input.paymentChoice) {
+    throw takeoffPaymentError("Choisissez qui paiera cette nouvelle analyse du métré.");
   }
   if (await isTakeoffPlanDispatchActive(service)) {
     // No receipt: the plans of the analysis it replaces are read at their current copies.
@@ -862,12 +846,26 @@ async function relaunchSeal(service: Service, input: RelaunchInput) {
     preparationRevision: input.preparationRevision, planSetId: input.planSetId, level: "C", provider: "chatgpt" });
   // The member's own subscription, as pinned at the confirmation of the preparation (its connection included), and the
   // same on this Mac now.
-  const owner = await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot);
+  const explicit = input.paymentChoice
+    ? await resolveTakeoffPayment({ ...context, projectId: input.projectId }, input.paymentChoice, service) : null;
+  if (explicit) {
+    snapshot.execution_selection = explicit.selection;
+    snapshot.confirmed_by = context.userId;
+    snapshot.confirmed_at = new Date().toISOString();
+  } else if (snapshot.execution_selection?.source === "personal_api_key") {
+    throw takeoffPaymentError("Choisissez qui paiera la nouvelle analyse du métré.");
+  }
+  const owner = await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot,
+    snapshot.execution_selection?.source === "personal_api_key" ? input.projectId : undefined);
   if (!snapshot.execution_selection?.authorizationId) {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
       message: "Confirmez à nouveau la préparation pour utiliser votre forfait ChatGPT." });
   }
   const config = await getTakeoffLevelCProcessingConfigForTenant(context.tenantId, { supabase: service });
+  if (explicit?.apiMandate) {
+    config.maxTotalTokens = explicit.apiMandate.maxTokens;
+    config.maxCostCents = explicit.apiMandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT;
+  }
   return { snapshot, owner, config };
 }
 
@@ -916,14 +914,16 @@ export async function relaunchManifest(service: Service, context: Context, planS
  * them. `names`: each plan of that analysis as it named it.
  */
 async function relaunchCommandPlans(service: Service, input: RelaunchInput): Promise<{
-  ids: string[] | null; derived: boolean; names: Map<string, string>;
+  ids: string[] | null; derived: boolean; names: Map<string, string>; predecessorUsedKey?: boolean;
 }> {
   const names = new Map<string, string>();
-  if (input.planFileIds?.length) return { ids: [...new Set(input.planFileIds.map((id) => id.toLowerCase()))].sort(), derived: false, names };
-  if (!input.predecessorJobId) return { ids: null, derived: false, names };
+  const named = input.planFileIds?.length ? [...new Set(input.planFileIds.map((id) => id.toLowerCase()))].sort() : null;
+  if (!input.predecessorJobId) return { ids: named, derived: false, names };
   const { data: predecessor, error } = await service.from("takeoff_jobs").select("launch_unit_key, preparation_snapshot")
     .eq("tenant_id", input.context.tenantId).eq("project_id", input.projectId).eq("id", input.predecessorJobId!).maybeSingle();
   if (error) databaseError(error, "Impossible de lire l’analyse à relancer.");
+  const predecessorUsedKey = usesTakeoffApiKey(predecessor?.preparation_snapshot);
+  if (named) return { ids: named, derived: false, names, predecessorUsedKey };
   const sources = ((predecessor?.preparation_snapshot as { preparation?: { sources?: Array<{ document_id?: unknown;
     document_name?: unknown; kind?: unknown; active?: unknown }> } } | null)?.preparation?.sources ?? []);
   for (const source of sources) {
@@ -935,8 +935,8 @@ async function relaunchCommandPlans(service: Service, input: RelaunchInput): Pro
   const read = key?.startsWith("plan:") ? [key.slice("plan:".length)]
     : sources.flatMap((source) => source.active === true && source.kind === "plan" && typeof source.document_id === "string"
       && !source.document_id.startsWith("upload:") ? [source.document_id] : []);
-  if (!read.length) return { ids: null, derived: false, names };
-  return { ids: [...new Set(read.map((id) => id.toLowerCase()))].sort(), derived: true, names };
+  if (!read.length) return { ids: null, derived: false, names, predecessorUsedKey };
+  return { ids: [...new Set(read.map((id) => id.toLowerCase()))].sort(), derived: true, names, predecessorUsedKey };
 }
 
 /**

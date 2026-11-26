@@ -165,7 +165,7 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
     },
     rpc: {
       // The claim hands this Mac only its own mandates, of a tenant whose module is on, with the mandate's selection.
-      claim_takeoff_launch_evaluations: (args) => ({ data: (args as { p_module_default: boolean }).p_module_default
+      claim_takeoff_launch_evaluations: (args) => ({ data: (args as { p_module_default: boolean }).p_module_default && (args as { p_host_id: string }).p_host_id === HOST
         ? [{ request_id: REQUEST, tenant_id: TENANT, project_id: PROJECT, origin: "automatic", payer_id: PAYER, mark: 7,
           mandate_selection: SELECTION, payer_eligible: true }] : [], error: null }),
       record_takeoff_launch_evaluation: (args) => { recorded.push(args); return { data: "blocked", error: null }; },
@@ -383,7 +383,7 @@ describe("evaluateTakeoffLaunchRequests", () => {
     const { fake } = dossier();
     await evaluateTakeoffLaunchRequests();
     expect(fake.rpcCalls.filter((call) => ["claim_takeoff_launch_evaluations", "admit_takeoff_launch_request"].includes(call.fn))
-      .map((call) => (call.args as { p_module_default?: boolean }).p_module_default)).toEqual([true, true]);
+      .map((call) => (call.args as { p_module_default?: boolean }).p_module_default)).toEqual([true, true, true]);
   });
 
   it("waits, before reading any plan, while another request of the affaire runs", async () => {
@@ -763,6 +763,7 @@ function gesture(input: { launchActive?: boolean; reply?: Record<string, unknown
     takeoff_plan_dispatch_is_active: () => ({ data: input.perPlan === true, error: null }),
     claim_takeoff_launch_evaluations: () => ({ data: [], error: null }),
   }, tables: {
+    takeoff_launch_requests: () => ({ data: { mandate_selection: SELECTION }, error: null }),
     // The analysis a command replaces: a plan's unit of one analysis per plan, whose copy is still in the plan set.
     takeoff_jobs: () => ({ data: { launch_unit_key: `plan:${PLAN_FILE}`, preparation_snapshot: null, launch_request_id: null },
       error: null }),
@@ -922,7 +923,7 @@ describe("assumeTakeoffLaunchRequest", () => {
   it("refuses, in French, a gesture the database refuses because the takeoff module is off", async () => {
     vi.mocked(createServiceRoleClient).mockReturnValue(createSupabaseFake({ rpc: {
       take_on_takeoff_launch_request: () => { return { data: null, error: { message: "TAKEOFF_LAUNCH_MODULE_DISABLED", code: "55000" } }; },
-    } }).client as never);
+    }, tables: { takeoff_launch_requests: () => ({ data: { mandate_selection: SELECTION }, error: null }) } }).client as never);
     await expect(takeOn()).rejects.toMatchObject({ status: 403, message: "Le module Takeoff est désactivé pour ce tenant." });
   });
 });
@@ -2096,8 +2097,9 @@ describe("the page limit of a request read plan by plan", () => {
         },
       },
       rpc: {
-        claim_takeoff_launch_evaluations: () => ({ data: [{ request_id: REQUEST, tenant_id: TENANT, project_id: PROJECT, origin: "automatic",
-          payer_id: PAYER, mark: 7, mandate_selection: SELECTION, payer_eligible: true }], error: null }),
+        claim_takeoff_launch_evaluations: (args) => ({ data: (args as { p_host_id: string }).p_host_id === HOST
+          ? [{ request_id: REQUEST, tenant_id: TENANT, project_id: PROJECT, origin: "automatic",
+            payer_id: PAYER, mark: 7, mandate_selection: SELECTION, payer_eligible: true }] : [], error: null }),
         record_takeoff_launch_evaluation: (args) => { recorded.push(args); return { data: "blocked", error: null }; },
         record_takeoff_launch_evaluation_failure: () => ({ data: "evaluating", error: null }),
         takeoff_plan_dispatch_is_active: () => ({ data: input.perPlan, error: null }),

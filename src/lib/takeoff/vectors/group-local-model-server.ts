@@ -54,6 +54,18 @@ export const GROUP_LOCAL_MODEL_CONCURRENCY = 4;
 /** One request to the local plan: its words and images, its answer read group by group and its usage. */
 export type LocalGroupsCall = (request: { prompt: string; images: GroupImage[] }) => Promise<{ data: LocalModelEntries; totalTokens: number }>;
 
+/** Use the job's already-authorized and budgeted API call for its vector groups. */
+export function apiKeyGroupsCall(call: import("@/lib/ai/structured-call").StructuredCall): LocalGroupsCall {
+  return async ({ prompt, images }) => {
+    const answer = await call({
+      prompt, schema: groupLocalModelSchema, timeoutMs: GROUP_LOCAL_MODEL.timeoutMs,
+      files: images.map((image) => ({ mimeType: image.mimeType, data: image.data })),
+      context: { promptVersion: GROUP_LOCAL_MODEL_PROMPT_VERSION },
+    });
+    return { data: localModelEntries(answer.data), totalTokens: answer.tokenCount };
+  };
+}
+
 /** Why a request stops the job's plan: its quota or rate limit, its access, or the measured model not offered. */
 export class LocalGroupsStop extends Error {
   constructor(readonly reason: "local_quota" | "local_access" | "local_model_unavailable", message: string) {

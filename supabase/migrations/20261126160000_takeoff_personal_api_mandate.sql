@@ -1,0 +1,417 @@
+create table private.takeoff_api_mandates (
+  id uuid primary key,
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  project_id uuid not null references public.estimate_projects(id) on delete cascade,
+  payer_id uuid not null,
+  settings jsonb not null,
+  check (jsonb_typeof(settings) = 'object')
+);
+
+create table private.takeoff_api_calls (
+  id uuid primary key default gen_random_uuid(),
+  mandate_id uuid not null references private.takeoff_api_mandates(id) on delete cascade,
+  scope_id uuid not null,
+  job_id uuid not null,
+  lease_token uuid not null,
+  branch text not null check (branch in ('pdf', 'vector_group')),
+  bound_nano_usd bigint not null check (bound_nano_usd > 0),
+  bound_tokens bigint not null check (bound_tokens > 0),
+  actual_nano_usd bigint check (actual_nano_usd >= 0),
+  actual_tokens bigint check (actual_tokens >= 0),
+  settled_at timestamptz
+);
+create index takeoff_api_calls_balance_idx on private.takeoff_api_calls (mandate_id, scope_id);
+alter table private.takeoff_api_mandates enable row level security;
+alter table private.takeoff_api_calls enable row level security;
+revoke all on private.takeoff_api_mandates, private.takeoff_api_calls from public, anon, authenticated, service_role;
+
+create table private.takeoff_api_budget_stops (
+  mandate_id uuid not null references private.takeoff_api_mandates(id) on delete cascade,
+  scope_id uuid not null,
+  reason text not null check (reason in ('BUDGET_EXHAUSTED', 'PAYER_NOT_ELIGIBLE', 'TAKEOFF_DISABLED')),
+  primary key (mandate_id, scope_id)
+);
+alter table private.takeoff_api_budget_stops enable row level security;
+revoke all on private.takeoff_api_budget_stops from public, anon, authenticated, service_role;
+
+create or replace function private.takeoff_launch_mandate_reasons() returns text[]
+language sql immutable set search_path = '' as $$
+  select array['OPERATOR_REQUIRED', 'MANDATE_REQUIRED', 'LOCAL_RUNTIME_REQUIRED', 'HOST_NOT_AUTHORISED',
+    'CHATGPT_NOT_CONNECTED', 'CHATGPT_ACCESS_REVOKED', 'CHATGPT_MODEL_MISSING', 'CHATGPT_SELECTION_CHANGED',
+    'API_KEY_CONNECTION_CHANGED', 'PAYER_NOT_ELIGIBLE', 'EVALUATION_FAILED']
+$$;
+
+create function public.seal_takeoff_api_mandate(
+  p_id uuid, p_tenant_id uuid, p_project_id uuid, p_payer_id uuid, p_settings jsonb
+) returns void language plpgsql security definer set search_path = '' as $$
+begin
+  if not private.takeoff_launch_payer_eligible(p_tenant_id, p_project_id, p_payer_id) then
+    raise exception 'TAKEOFF_LAUNCH_PAYER_NOT_ELIGIBLE' using errcode = '42501';
+  end if;
+  if (p_settings->>'connectionId')::uuid is null or coalesce((p_settings->>'connectionVersion')::bigint, 0) <= 0
+    or coalesce((p_settings->>'maxTokens')::bigint, 0) <= 0 or coalesce((p_settings->>'maxNanoUsd')::bigint, 0) <= 0
+    or coalesce(p_settings->>'model', '') = '' or coalesce(p_settings->>'hostId', '') !~ '^urn:uuid:[0-9a-f-]{36}$'
+    or (p_settings - array['connectionId','connectionVersion','maxTokens','maxNanoUsd','model','hostId','reasoningEffort']) <> '{}'::jsonb
+  then
+    raise exception 'TAKEOFF_API_MANDATE_INVALID' using errcode = '22023';
+  end if;
+  insert into private.takeoff_api_mandates (id, tenant_id, project_id, payer_id, settings)
+  values (p_id, p_tenant_id, p_project_id, p_payer_id, p_settings)
+  on conflict (id) do nothing;
+  if not exists (select 1 from private.takeoff_api_mandates m
+    where m.id = p_id and m.tenant_id = p_tenant_id and m.project_id = p_project_id
+      and m.payer_id = p_payer_id and m.settings = p_settings) then
+    raise exception 'TAKEOFF_API_MANDATE_INVALID' using errcode = '42501';
+  end if;
+end;
+$$;
+
+create function public.read_takeoff_api_mandate(p_id uuid, p_tenant_id uuid, p_project_id uuid, p_payer_id uuid)
+returns jsonb language sql stable security definer set search_path = '' as $$
+  select m.settings from private.takeoff_api_mandates m
+  where m.id = p_id and m.tenant_id = p_tenant_id and m.project_id = p_project_id and m.payer_id = p_payer_id
+    and private.takeoff_launch_payer_eligible(p_tenant_id, p_project_id, p_payer_id)
+$$;
+
+create or replace function private.assert_takeoff_launch_selection(p_host text, p_selection jsonb)
+returns void language plpgsql immutable set search_path = '' as $$
+begin
+  if p_host is null or p_host !~ '^urn:uuid:[0-9a-f-]{36}$' or p_selection is null or jsonb_typeof(p_selection) <> 'object'
+    or p_selection ->> 'hostId' is distinct from p_host
+    or coalesce(p_selection ->> 'profileId', '') = '' or coalesce(p_selection ->> 'model', '') = ''
+    or not (p_selection ? 'reasoningEffort') or coalesce(p_selection ->> 'authorizationId', '') = ''
+    or coalesce(p_selection ->> 'source', 'chatgpt_plan') not in ('chatgpt_plan', 'personal_api_key')
+    or (p_selection - array['profileId', 'model', 'reasoningEffort', 'hostId', 'authorizationId', 'source']) <> '{}'::jsonb then
+    raise exception 'TAKEOFF_LAUNCH_SELECTION_INVALID' using errcode = '22023';
+  end if;
+end;
+$$;
+
+create function private.assert_takeoff_api_scope(
+  p_selection jsonb, p_tenant_id uuid, p_project_id uuid, p_payer_id uuid, p_host_id text
+) returns void language plpgsql security definer set search_path = '' as $$
+begin
+  if p_selection->>'source' = 'personal_api_key' and not exists (
+    select 1 from private.takeoff_api_mandates m
+    where m.id::text = p_selection->>'authorizationId' and m.id::text = p_selection->>'profileId'
+      and m.tenant_id = p_tenant_id and m.project_id = p_project_id and m.payer_id = p_payer_id
+      and m.settings->>'hostId' = p_host_id and p_selection->>'hostId' = p_host_id
+      and p_selection->>'model' = 'personal_api_key' and p_selection->'reasoningEffort' = 'null'::jsonb
+  ) then
+    raise exception 'TAKEOFF_API_MANDATE_INVALID' using errcode = '42501';
+  end if;
+end;
+$$;
+
+create function private.guard_takeoff_api_request() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform private.assert_takeoff_api_scope(new.mandate_selection, new.tenant_id, new.project_id, new.payer_id, new.execution_host_id);
+  return new;
+end;
+$$;
+create trigger guard_takeoff_api_request before insert or update of mandate_selection, payer_id, execution_host_id
+on public.takeoff_launch_requests for each row execute function private.guard_takeoff_api_request();
+
+create function private.guard_takeoff_api_job() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  selection jsonb := new.preparation_snapshot->'execution_selection';
+begin
+  if tg_op = 'INSERT' then
+    perform private.assert_takeoff_api_scope(selection, new.tenant_id, new.project_id, new.created_by, new.execution_host_id);
+  elsif old.preparation_snapshot->'execution_selection'->>'source' = 'personal_api_key' then
+    if selection is distinct from old.preparation_snapshot->'execution_selection' then
+      raise exception 'TAKEOFF_API_MANDATE_INVALID' using errcode = '42501';
+    end if;
+    if new.status = 'processing' and old.status <> 'processing'
+      and pg_catalog.current_setting('mergeone.takeoff_api_claim', true) is distinct from old.id::text then
+      return null;
+    end if;
+    -- The previously deployed recovery can scan every host. Its unleased failures cannot close API work.
+    if new.status = 'failed' and (
+      old.status <> 'processing' or old.processing_lease_expires_at is null or old.processing_lease_expires_at <= pg_catalog.clock_timestamp()
+    ) and pg_catalog.current_setting('mergeone.takeoff_api_recovery', true) is distinct from old.execution_host_id then
+      return null;
+    end if;
+  elsif selection->>'source' = 'personal_api_key' then
+    raise exception 'TAKEOFF_API_MANDATE_INVALID' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+create trigger zz_takeoff_api_job_insert after insert on public.takeoff_jobs
+for each row execute function private.guard_takeoff_api_job();
+create trigger aa00_takeoff_api_job_update before update on public.takeoff_jobs
+for each row execute function private.guard_takeoff_api_job();
+
+alter table public.takeoff_jobs add constraint takeoff_jobs_api_mandate_shape
+  check (preparation_snapshot->'execution_selection'->>'source' is distinct from 'personal_api_key'
+    or (level = 'C' and execution_provider is not distinct from 'chatgpt_local' and execution_host_id is not null and created_by is not null))
+  not valid;
+
+create function public.claim_personal_api_takeoff_job(
+  p_job_id uuid, p_tenant_id uuid, p_host_id text, p_started_at timestamptz, p_lease_token uuid,
+  p_lease_expires_at timestamptz, p_model text, p_prompt_version text, p_observed_status text, p_observed_retry_count integer
+) returns setof public.takeoff_jobs language plpgsql security definer set search_path = '' as $$
+begin
+  if not exists (select 1 from public.takeoff_jobs j where j.id = p_job_id and j.tenant_id = p_tenant_id
+    and j.execution_host_id = p_host_id and j.preparation_snapshot->'execution_selection'->>'source' = 'personal_api_key') then
+    return;
+  end if;
+  perform pg_catalog.set_config('mergeone.takeoff_api_claim', p_job_id::text, true);
+  return query execute 'select * from public.claim_observed_local_takeoff_job($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)'
+    using p_job_id, p_tenant_id, p_host_id, p_started_at, p_lease_token, p_lease_expires_at, p_model,
+      p_prompt_version, p_observed_status, p_observed_retry_count;
+  perform pg_catalog.set_config('mergeone.takeoff_api_claim', '', true);
+end;
+$$;
+
+-- Both pre-count reads and pre-dispatch reservations use the same scope and lease.
+create function public.reserve_takeoff_api_call(
+  p_job_id uuid, p_tenant_id uuid, p_project_id uuid, p_payer_id uuid, p_lease_token uuid,
+  p_module_default boolean, p_branch text, p_bound bigint default null, p_tokens bigint default null,
+  p_exhausted boolean default false
+) returns table (reason text, remaining_nano_usd bigint, remaining_tokens bigint, call_id uuid)
+language plpgsql security definer set search_path = '' as $$
+declare
+  job public.takeoff_jobs;
+  mandate private.takeoff_api_mandates;
+  billing_scope uuid;
+  refusal text;
+  usd_left bigint;
+  tokens_left bigint;
+  reserved uuid;
+begin
+  job := private.lock_takeoff_paying_job(p_job_id, p_lease_token);
+  if job.tenant_id is distinct from p_tenant_id or job.project_id is distinct from p_project_id
+    or job.created_by is distinct from p_payer_id
+    or job.preparation_snapshot->'execution_selection'->>'source' is distinct from 'personal_api_key' then
+    raise exception 'TAKEOFF_API_MANDATE_INVALID' using errcode = '42501';
+  end if;
+  select m.* into mandate from private.takeoff_api_mandates m
+  where m.id = (job.preparation_snapshot->'execution_selection'->>'authorizationId')::uuid
+    and m.tenant_id = p_tenant_id and m.project_id = p_project_id and m.payer_id = p_payer_id;
+  if not found or (job.launch_request_id is not null and not exists (
+    select 1 from public.takeoff_launch_requests r where r.id = job.launch_request_id and r.state = 'admitted'
+      and r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.payer_id = p_payer_id
+      and r.mandate_selection = job.preparation_snapshot->'execution_selection'
+  )) then
+    raise exception 'TAKEOFF_API_MANDATE_INVALID' using errcode = '42501';
+  end if;
+  billing_scope := coalesce(job.launch_request_id, job.id);
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-api:' || billing_scope::text, 0));
+  select s.reason into refusal from private.takeoff_api_budget_stops s
+  where s.mandate_id = mandate.id and s.scope_id = billing_scope;
+  if not found then
+    refusal := private.takeoff_job_payment_refusal(job, p_module_default);
+    if p_exhausted and refusal is null then refusal := 'BUDGET_EXHAUSTED'; end if;
+    if refusal is not null then
+      insert into private.takeoff_api_budget_stops (mandate_id, scope_id, reason) values (mandate.id, billing_scope, refusal);
+    end if;
+  end if;
+  if refusal is not null then
+    return query select refusal, 0::bigint, 0::bigint, null::uuid;
+    return;
+  end if;
+  if exists (select 1 from private.takeoff_api_calls c where c.mandate_id = mandate.id and c.scope_id = billing_scope
+    and c.settled_at is not null and (c.actual_nano_usd is null or c.actual_tokens is null)) then
+    return query select 'USAGE_UNKNOWN'::text, 0::bigint, 0::bigint, null::uuid;
+    return;
+  end if;
+  select (mandate.settings->>'maxNanoUsd')::bigint - coalesce(sum(coalesce(c.actual_nano_usd, c.bound_nano_usd)), 0),
+    (mandate.settings->>'maxTokens')::bigint - coalesce(sum(coalesce(c.actual_tokens, c.bound_tokens)), 0)
+  into usd_left, tokens_left from private.takeoff_api_calls c where c.mandate_id = mandate.id and c.scope_id = billing_scope;
+  if usd_left <= 0 or tokens_left <= 0 or p_bound > usd_left or p_tokens > tokens_left then
+    insert into private.takeoff_api_budget_stops (mandate_id, scope_id, reason) values (mandate.id, billing_scope, 'BUDGET_EXHAUSTED');
+    return query select 'BUDGET_EXHAUSTED'::text, greatest(0, usd_left), greatest(0, tokens_left), null::uuid;
+    return;
+  end if;
+  if p_bound is not null or p_tokens is not null then
+    insert into private.takeoff_api_calls (mandate_id, scope_id, job_id, lease_token, branch, bound_nano_usd, bound_tokens)
+    values (mandate.id, billing_scope, job.id, p_lease_token, p_branch, p_bound, p_tokens) returning id into reserved;
+  end if;
+  return query select null::text, usd_left, tokens_left, reserved;
+end;
+$$;
+
+create function public.settle_takeoff_api_call(
+  p_call_id uuid, p_job_id uuid, p_tenant_id uuid, p_project_id uuid, p_payer_id uuid, p_lease_token uuid,
+  p_cost bigint default null, p_tokens bigint default null
+) returns boolean language sql security definer set search_path = '' as $$
+  -- A delayed response belongs to the reservation's original lease, even after a crash and a new attempt.
+  with settled as (
+    update private.takeoff_api_calls c set actual_nano_usd = p_cost, actual_tokens = p_tokens, settled_at = pg_catalog.clock_timestamp()
+    from private.takeoff_api_mandates m
+    where c.id = p_call_id and c.job_id = p_job_id and c.lease_token = p_lease_token and c.settled_at is null
+      and c.mandate_id = m.id and m.tenant_id = p_tenant_id and m.project_id = p_project_id and m.payer_id = p_payer_id
+    returning c.id
+  )
+  select exists(select 1 from settled)
+$$;
+
+-- Only this Mac's current runtime can reschedule an expired API lease. Its prior reservations still debit the request.
+create function public.recover_personal_api_takeoff_jobs(p_host_id text)
+returns void language plpgsql security definer set search_path = '' as $$
+begin
+  perform pg_catalog.set_config('mergeone.takeoff_api_recovery', p_host_id, true);
+  with expired as (
+    select j.id from public.takeoff_jobs j
+    where j.execution_host_id = p_host_id and j.status = 'processing'
+      and j.processing_lease_expires_at <= pg_catalog.clock_timestamp()
+      and j.preparation_snapshot->'execution_selection'->>'source' = 'personal_api_key'
+    order by j.id limit 20 for update skip locked
+  )
+  update public.takeoff_jobs j set status = 'failed',
+    completed_at = pg_catalog.clock_timestamp(), last_error_at = pg_catalog.clock_timestamp(),
+    error_code = 'TAKEOFF_WORKER_OUTCOME_UNKNOWN',
+    error_message = 'Le traitement du métré a été interrompu. Les dépenses réservées et les résultats enregistrés sont conservés.',
+    processing_lease_token = null, processing_lease_expires_at = null,
+    next_retry_at = case when j.retry_count < 3 then pg_catalog.clock_timestamp() end,
+    analysis_outcome = case when j.retry_count >= 3 then 'failure' end
+  from expired where j.id = expired.id;
+  perform pg_catalog.set_config('mergeone.takeoff_api_recovery', '', true);
+end;
+$$;
+
+revoke all on function private.assert_takeoff_api_scope(jsonb, uuid, uuid, uuid, text),
+  private.guard_takeoff_api_request(), private.guard_takeoff_api_job() from public, anon, authenticated, service_role;
+
+revoke all on function public.seal_takeoff_api_mandate(uuid,uuid,uuid,uuid,jsonb),
+  public.read_takeoff_api_mandate(uuid,uuid,uuid,uuid),
+  public.claim_personal_api_takeoff_job(uuid,uuid,text,timestamptz,uuid,timestamptz,text,text,text,integer),
+  public.reserve_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,boolean,text,bigint,bigint,boolean),
+  public.settle_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,uuid,bigint,bigint),
+  public.recover_personal_api_takeoff_jobs(text) from public, anon, authenticated;
+
+grant execute on function public.seal_takeoff_api_mandate(uuid,uuid,uuid,uuid,jsonb),
+  public.read_takeoff_api_mandate(uuid,uuid,uuid,uuid),
+  public.claim_personal_api_takeoff_job(uuid,uuid,text,timestamptz,uuid,timestamptz,text,text,text,integer),
+  public.reserve_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,boolean,text,bigint,bigint,boolean),
+  public.settle_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,uuid,bigint,bigint),
+  public.recover_personal_api_takeoff_jobs(text) to service_role;
+
+-- A recovered API job may retry because its prior paid calls still hold their full reservations.
+create or replace function private.set_takeoff_analysis_outcome()
+returns trigger
+language plpgsql security definer
+set search_path = pg_catalog
+as $$
+declare
+  finished_at timestamptz := clock_timestamp();
+  writer_role text := coalesce(nullif(current_setting('role', true), 'none'), session_user::text);
+  worker_write boolean := writer_role in ('service_role', 'postgres');
+  activated boolean := exists (select 1 from private.takeoff_completion_activation a where a.active_from <= finished_at);
+  host_work boolean;
+begin
+  if tg_op = 'INSERT' then
+    if new.analysis_outcome is not null or new.analysis_finished_at is not null
+      or new.analysis_completion_event_id is not null or new.analysis_requested_by is not null
+      or new.analysis_queued_at is not null then
+      raise exception 'TAKEOFF_ANALYSIS_FIELDS_RESERVED' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+  if new.analysis_requested_by is distinct from old.analysis_requested_by then
+    raise exception 'TAKEOFF_ANALYSIS_REQUESTER_RESERVED' using errcode = '42501';
+  end if;
+  new.analysis_queued_at := old.analysis_queued_at;
+  -- The Mac's own work: a claim, a lease renewal, or an end it wrote (not a closure by the recovery).
+  host_work := new.execution_provider = 'chatgpt_local' and worker_write and (
+    (old.status is distinct from 'processing' and new.status = 'processing')
+    or (old.status = 'processing' and new.status = 'processing'
+      and new.processing_lease_expires_at is distinct from old.processing_lease_expires_at)
+    or (old.status = 'processing' and new.status in ('completed', 'failed')
+      and new.error_code is distinct from 'TAKEOFF_WORKER_OUTCOME_UNKNOWN'));
+
+  if old.status in ('failed', 'canceled') and new.status = 'pending' then
+    -- Only the member who launched a job sends it back to pending: its analysis runs on the launcher's own
+    -- subscription. A deliberate change, effective before activation too. The worker's retries (failed to
+    -- processing) and the service role are not concerned.
+    if writer_role = 'authenticated' and old.created_by is distinct from (select auth.uid()) then
+      raise exception 'TAKEOFF_RELAUNCH_LAUNCHER_ONLY' using errcode = '42501';
+    end if;
+    new.analysis_queued_at := finished_at;
+    -- This trigger runs after the existing authenticated reset allowlist.
+    -- Attribute the accepted reset from its own session, not its payload.
+    if writer_role = 'authenticated' then
+      new.analysis_requested_by := (select auth.uid());
+    end if;
+  end if;
+
+  -- The deployed pre-M3 writers retain their behavior before activation.
+  if not activated and old.analysis_outcome is null then
+    new.analysis_outcome := null;
+    new.analysis_finished_at := old.analysis_finished_at;
+    new.analysis_completion_event_id := old.analysis_completion_event_id;
+    return new;
+  end if;
+
+  if old.execution_provider = 'chatgpt_local' and old.status = 'failed'
+    and old.next_retry_at is not null and new.status = 'pending'
+  then
+    raise exception 'TAKEOFF_ANALYSIS_RETRY_SCHEDULED' using errcode = '23514';
+  end if;
+  if old.execution_provider = 'chatgpt_local' and old.status = 'failed' and new.status = 'processing'
+    and (old.analysis_outcome is not null or old.next_retry_at > finished_at
+      or old.retry_count >= 3)
+  then
+    return null;
+  end if;
+  if new.analysis_finished_at is distinct from old.analysis_finished_at
+    or new.analysis_completion_event_id is distinct from old.analysis_completion_event_id
+    or (new.analysis_outcome is distinct from old.analysis_outcome and (
+      not worker_write or old.analysis_outcome is not null or new.analysis_outcome is distinct from 'failure'
+      or new.status <> 'failed' or (
+        old.status not in ('pending', 'processing') and not (
+          -- The recovery closes a due retry that nobody took, that waited past the ceiling, or whose Mac was silent.
+          old.status = 'failed' and old.next_retry_at is not null and new.next_retry_at is null
+          and new.error_code in ('TAKEOFF_WORKER_NOT_STARTED', 'TAKEOFF_WORKER_QUEUE_EXPIRED', 'TAKEOFF_WORKER_HOST_SILENT')
+        )
+      )
+    ))
+  then
+    raise exception 'TAKEOFF_ANALYSIS_FIELDS_RESERVED' using errcode = '42501';
+  end if;
+
+  if new.status = 'canceled' and (old.status in ('pending', 'processing')
+    or (old.status = 'failed' and old.analysis_outcome is null and new.next_retry_at is null
+      and old.launch_unit_key like 'plan:%')) then
+    new.analysis_outcome := 'canceled';
+  elsif old.execution_provider = 'chatgpt_local' and old.status = 'processing'
+    and new.status in ('completed', 'failed') then
+    if not worker_write then
+      raise exception 'TAKEOFF_ANALYSIS_FIELDS_RESERVED' using errcode = '42501';
+    end if;
+    if new.status = 'failed' and (new.analysis_outcome = 'failure' or (
+      old.preparation_snapshot->'execution_selection'->>'source' = 'personal_api_key'
+      and current_setting('mergeone.takeoff_api_recovery', true) = old.execution_host_id
+      and new.next_retry_at is not null
+    )) and new.error_code = 'TAKEOFF_WORKER_OUTCOME_UNKNOWN' then
+      -- Recovery has already verified staleness in its UPDATE predicate.
+      null;
+    elsif old.processing_lease_token is null or old.processing_lease_expires_at <= finished_at then
+      raise exception 'TAKEOFF_ANALYSIS_LEASE_EXPIRED' using errcode = '23514';
+    end if;
+    if new.status = 'completed' then
+      new.analysis_outcome := 'success';
+    end if;
+  end if;
+
+  if new.analysis_outcome is distinct from old.analysis_outcome then
+    new.analysis_finished_at := finished_at;
+    -- M4 supplies the parent FK. Child jobs still record an outcome, and the
+    -- request finalizer will allocate its own event after all children settle.
+    if to_jsonb(new) ->> 'launch_request_id' is null then
+      new.analysis_completion_event_id := gen_random_uuid();
+    end if;
+  end if;
+  -- Only once the cutoff is set: before it, no write of a job touches another table.
+  if host_work and activated then
+    insert into private.takeoff_local_job_work as w (job_id, host_id, worked_at)
+    values (new.id, new.execution_host_id, finished_at)
+    on conflict (job_id) do update set worked_at = greatest(w.worked_at, excluded.worked_at);
+  end if;
+  return new;
+end;
+$$;

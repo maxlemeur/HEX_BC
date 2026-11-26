@@ -1,0 +1,1 @@
+alter table public.takeoff_jobs validate constraint takeoff_jobs_api_mandate_shape;

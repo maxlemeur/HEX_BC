@@ -11,14 +11,17 @@ import { isTakeoffPlanDispatchActive, runLocalTakeoffDispatcherPass } from "@/li
 // The database decides the order and the Mac's slot (takeoff-plan-dispatcher.test.sql); a pass runs one attempt per job
 // it is handed, until the Mac is busy or nothing is due, then waits for the next retry due.
 type Handed = { job_id: string | null; trigger_kind?: string | null; next_due_at?: string | null; closed_jobs?: string[] };
+const hostId = "urn:uuid:00000000-0000-4000-8000-000000000099";
 const queue: Handed[] = [];
+const keyQueue: Handed[] = [];
 beforeEach(() => {
   vi.clearAllMocks();
   queue.length = 0;
-  rpc.mockImplementation(async (name: string) => {
+  keyQueue.length = 0;
+  rpc.mockImplementation(async (name: string, args?: { p_host_id: string }) => {
     if (name === "takeoff_plan_dispatch_is_active") return { data: true, error: null };
     expect(name).toBe("dispatch_next_takeoff_host_job");
-    return { data: [queue.shift() ?? { job_id: null, trigger_kind: null, next_due_at: null, closed_jobs: [] }], error: null };
+    return { data: [(args?.p_host_id === hostId ? queue : keyQueue).shift() ?? { job_id: null, trigger_kind: null, next_due_at: null, closed_jobs: [] }], error: null };
   });
 });
 afterEach(() => vi.useRealTimers());
@@ -65,13 +68,21 @@ describe("runLocalTakeoffDispatcherPass", () => {
     queue.push({ job_id: null, next_due_at: due });
     const attempt = vi.fn(async () => done);
     await runLocalTakeoffDispatcherPass({ attempt });
-    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledTimes(2);
     queue.push({ job_id: "late", trigger_kind: "retry" });
     processAttempt.mockResolvedValue({ status: "completed" });
     await vi.advanceTimersByTimeAsync(46_000);
     // The pass the timer starts runs the worker's own attempt.
-    await vi.waitFor(() => expect(rpc).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(rpc).toHaveBeenCalledTimes(5));
     expect(processAttempt).toHaveBeenCalledWith("late", expect.objectContaining({ trigger: "retry" }));
+  });
+
+  it("drains the API queue on the same Mac", async () => {
+    queue.push({ job_id: "subscription" });
+    keyQueue.push({ job_id: "personal-key" });
+    const attempt = vi.fn(async () => done);
+    await expect(runLocalTakeoffDispatcherPass({ attempt })).resolves.toMatchObject({ ran: ["subscription", "personal-key"] });
+    expect(attempt.mock.calls).toEqual([["subscription", "create"], ["personal-key", "create"]]);
   });
 
   it("reads the activation from the database", async () => {

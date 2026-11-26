@@ -659,6 +659,7 @@ describe("failures of a paid call", () => {
     const error = await failure(service.test(OWNER, "gpt-6.1-terra"));
     expect(error.usage).toEqual({ input: 1_200, cachedInput: 200, cacheWrite: 0, cacheWrite12h: 0, output: 300, reasoning: 100, total: 1_500 });
     expect(error.model).toBe("gpt-6.1-terra-2026-10-01");
+    expect(error.costNanoUsd).toBe(2_510_000);
   });
 });
 
@@ -787,6 +788,19 @@ describe("a structured call for the lab", () => {
     const [sent, reads] = [openai.sent.length, keychain.state.reads];
     expect((await failure(prepareCall(service, { expectedVersion: 1 }))).code).toBe("AI_KEY_CHANGED");
     expect([openai.sent.length, keychain.state.reads]).toEqual([sent, reads]);
+  });
+
+  it("does not send if the key changes during pre-dispatch admission", async () => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const { service } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const call = await prepareCall(service);
+    const error = await failure(service.execute(OWNER, call, {
+      timeoutMs: 60_000,
+      beforeSend: async () => { await service.save(OWNER, { key: fictionalKey() }); },
+    }));
+    expect(error).toMatchObject({ code: "AI_KEY_CHANGED", costNanoUsd: 0 });
+    expect(openai.sent.filter((request) => request.url.endsWith("/v1/responses"))).toEqual([]);
   });
 
   it("masks the key and any credential echoed in the answer, the model id and the request id", async () => {

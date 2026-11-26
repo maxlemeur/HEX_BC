@@ -54473,6 +54473,44 @@
             "type": "boolean",
             "const": true
           },
+          "payment_choice": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "chatgpt_plan",
+                  "personal_api_key"
+                ]
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "effort": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "expectedConnectionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "expectedConnectionId"
+            ],
+            "additionalProperties": false
+          },
           "mark_schedule": {
             "type": "object",
             "properties": {
@@ -54960,6 +54998,44 @@
           "from_finds": {
             "type": "boolean",
             "const": true
+          },
+          "payment_choice": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "chatgpt_plan",
+                  "personal_api_key"
+                ]
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "effort": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "expectedConnectionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "expectedConnectionId"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -55195,7 +55271,28 @@
                   "name"
                 ],
                 "additionalProperties": false,
-                "description": "Le membre qui confirme : la demande utilise son propre forfait ChatGPT, jamais celui du signataire du dossier."
+                "description": "Le membre qui confirme : la demande utilise la source de paiement qu’il confirme."
+              },
+              "payment": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "chatgpt_plan",
+                      "personal_api_key"
+                    ]
+                  },
+                  "maxCostCents": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "source"
+                ],
+                "additionalProperties": false
               },
               "subscription": {
                 "oneOf": [

@@ -138,10 +138,12 @@ export class ApiKeyError extends Error {
   readonly model: string | null;
   /** The tier OpenAI served a billed failure with: its usage is priced only on Standard. */
   readonly serviceTier: string | null;
+  /** Zero for a confirmed rejection, null when billing could not be verified. */
+  readonly costNanoUsd: number | null;
 
   constructor(code: ApiKeyErrorCode, options: {
     providerStatus?: number | null; requestId?: string | null; retryAt?: string | null; detail?: ApiKeyErrorDetail;
-    usage?: ApiKeyCallUsage | null; model?: string | null; serviceTier?: string | null;
+    usage?: ApiKeyCallUsage | null; model?: string | null; serviceTier?: string | null; costNanoUsd?: number | null;
   } = {}) {
     super(apiKeyErrorMessage(code, { ...options.detail, retryAt: options.retryAt ?? null }));
     this.name = "ApiKeyError";
@@ -152,6 +154,7 @@ export class ApiKeyError extends Error {
     this.usage = options.usage ?? null;
     this.model = options.model ?? null;
     this.serviceTier = options.serviceTier ?? null;
+    this.costNanoUsd = options.costNanoUsd ?? null;
   }
 
   /** Every boundary serializes these fields only. */

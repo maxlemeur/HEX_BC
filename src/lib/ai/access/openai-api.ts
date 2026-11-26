@@ -76,11 +76,13 @@ export type OpenAiApiKeyDeps = {
   writeMetadata: (directory: string, owner: AiAccessOwner, file: AiAccessFile) => Promise<void>;
 };
 
-export type ApiKeyStructuredFile = { data: string; mimeType: "application/pdf" | "image/png" | "image/jpeg" | "image/webp" };
+export type ApiKeyStructuredFile = { data: string; mimeType: "application/pdf" | "image/png" | "image/jpeg" | "image/webp";
+  detail?: "low" | "high" | "auto" };
 
 export type ApiKeyPrepareInput<T> = {
   /** The connection version the page showed: a key replaced since then is not used. */
   expectedVersion: number;
+  expectedConnectionId?: string;
   model: string;
   reasoningEffort: AiReasoningEffort | null;
   prompt: string;
@@ -92,6 +94,8 @@ export type ApiKeyPrepareInput<T> = {
   outputCap: number;
   /** Below this output budget the call cannot hold a useful answer: refused. */
   minOutputTokens: number;
+  /** An optional total token balance for this request, across its paid calls. */
+  maxTotalTokens?: number;
   /** Caller cancellation signal, combined with the counting timeout. */
   signal?: AbortSignal;
 };
@@ -201,7 +205,7 @@ async function fetchWith(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, path: End
     });
   } catch (error) {
     if (request.signal?.aborted) throw abortReason(request.signal);
-    throw new ApiKeyError(notSent(error) ? "AI_KEY_UNREACHABLE" : request.lostCode);
+    throw notSent(error) ? new ApiKeyError("AI_KEY_UNREACHABLE", { costNanoUsd: 0 }) : new ApiKeyError(request.lostCode);
   }
 }
 
@@ -260,7 +264,7 @@ function retryAtOf(header: string | null, now: Date): string | null {
 
 function failureOf(reply: Reply, now: Date): ApiKeyError {
   const { type, code } = errorFields(reply.body);
-  const base = { providerStatus: reply.status, requestId: reply.requestId };
+  const base = { providerStatus: reply.status, requestId: reply.requestId, costNanoUsd: 0 };
   const refusal = authRefusal(reply);
   if (refusal === "permission") return new ApiKeyError("AI_KEY_MODEL_FORBIDDEN", base);
   if (refusal) return new ApiKeyError("AI_KEY_REFUSED", base);
@@ -270,7 +274,7 @@ function failureOf(reply: Reply, now: Date): ApiKeyError {
     return new ApiKeyError("AI_KEY_RATE_LIMITED", { ...base, retryAt: retryAtOf(reply.retryAfter, now) });
   }
   if ([400, 409, 413, 422].includes(reply.status)) return new ApiKeyError("AI_KEY_REQUEST_REJECTED", base);
-  return new ApiKeyError("AI_KEY_PROVIDER_FAILED", base);
+  return new ApiKeyError("AI_KEY_PROVIDER_FAILED", { ...base, costNanoUsd: null });
 }
 
 const modelsReply = z.looseObject({ data: z.array(z.looseObject({ id: z.string() })).max(5_000) });
@@ -321,7 +325,7 @@ function requestInput(request: GenerationRequest) {
   for (const file of request.files) {
     content.push(file.mimeType === "application/pdf"
       ? { type: "input_file", filename: "document.pdf", file_data: `data:application/pdf;base64,${file.data}` }
-      : { type: "input_image", image_url: `data:${file.mimeType};base64,${file.data}` });
+      : { type: "input_image", image_url: `data:${file.mimeType};base64,${file.data}`, ...(file.detail ? { detail: file.detail } : {}) });
   }
   const developer = strict ? ANSWER_RULE
     : `${ANSWER_RULE}\n\nSchéma JSON : ${JSON.stringify(z.toJSONSchema(request.schema, { unrepresentable: "any" }))}`;
@@ -403,7 +407,8 @@ async function generateWith(
   const model = safeField(answer.model, secret, MODEL_ID) ?? request.model;
   const serviceTier = safeField(answer.service_tier, secret, PROVIDER_CODE);
   const usage = answer.usage ? usageOf(answer.usage) : null;
-  const context = { providerStatus: reply.status, requestId: reply.requestId, usage, model, serviceTier };
+  const context = { providerStatus: reply.status, requestId: reply.requestId, usage, model, serviceTier,
+    costNanoUsd: usage ? costOfOpenAiUsage(model, usage, serviceTier) : null };
   if (answer.status === "incomplete") {
     throw new ApiKeyError(answer.incomplete_details?.reason === "max_output_tokens" ? "AI_KEY_OUTPUT_LIMIT" : "AI_KEY_PROVIDER_FAILED", context);
   }
@@ -499,7 +504,7 @@ const MODEL_TEST_SCHEMA = z.object({ connexion: z.literal("ok") }).strict();
 const MODEL_TEST_PROMPT = "Test de connexion de MergeOne, sans document : réponds exactement {\"connexion\":\"ok\"}.";
 
 /** The requests of prepared calls, kept here: a prepared call carries its bound, never its request. */
-const preparedRequests = new WeakMap<PreparedApiKeyCall, { owner: string; request: SerializedRequest; schema: z.ZodType }>();
+const preparedRequests = new WeakMap<PreparedApiKeyCall, { owner: string; request: SerializedRequest; schema: z.ZodType; connectionId: string }>();
 const ownerScope = (owner: AiAccessOwner) => JSON.stringify([owner.userId, owner.tenantId]);
 
 export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = {}) {
@@ -594,9 +599,15 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     return { store, secret, connection };
   }
 
-  async function resolveKey(owner: AiAccessOwner, expectedVersion?: number) {
-    const { store, secret, connection } = await readKey(owner, expectedVersion);
+  async function resolveKey(owner: AiAccessOwner, expectedVersion?: number, expectedConnectionId?: string) {
+    const { store, secret, connection } = await readKey(owner, expectedVersion, expectedConnectionId);
     await sweep(store, owner);
+    if (expectedConnectionId) {
+      const active = (await readAiAccessFile(deps.directory(), owner)).connections.openai;
+      if (active?.connection_id !== expectedConnectionId || active.version !== connection.version) {
+        throw new ApiKeyError("AI_KEY_CHANGED", { costNanoUsd: 0 });
+      }
+    }
     return { secret, connection };
   }
 
@@ -843,12 +854,12 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       const price = openAiQualifiedModel(input.model);
       if (!price) throw new ApiKeyError("AI_KEY_PRICE_UNKNOWN");
       if (input.reasoningEffort !== null && !price.reasoningEfforts.includes(input.reasoningEffort)) throw new ApiKeyError("AI_KEY_MODEL_NOT_OFFERED");
-      const { secret, connection } = await resolveKey(owner, input.expectedVersion);
+      const { secret, connection } = await resolveKey(owner, input.expectedVersion, input.expectedConnectionId);
       // Serialized once: the count and the generation send this exact text.
       const request = serializeRequest({ model: input.model, reasoningEffort: input.reasoningEffort, prompt: input.prompt, schema: input.schema,
         schemaName: "mergeone_extraction", files: input.files });
       const inputTokens = await countWith(deps, secret, request, input.signal);
-      const maxOutputTokens = maxOutputWithin({ model: input.model, inputTokens, allotmentNanoUsd: input.allotmentNanoUsd, cap: input.outputCap });
+      const maxOutputTokens = maxOutputWithin({ model: input.model, inputTokens, allotmentNanoUsd: input.allotmentNanoUsd, cap: Math.max(0, Math.min(input.outputCap, (input.maxTotalTokens ?? Infinity) - inputTokens)) });
       if (maxOutputTokens < input.minOutputTokens) {
         const smallest = boundCountedCall({ model: input.model, inputTokens, maxOutputTokens: input.minOutputTokens });
         throw new ApiKeyError("AI_KEY_CEILING", { detail: { ceiling: formatUsdCeiling(input.allotmentNanoUsd),
@@ -858,20 +869,30 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       if (bound.status !== "priced" || bound.nanoUsd > input.allotmentNanoUsd) throw new ApiKeyError("AI_KEY_CEILING");
       const prepared: PreparedApiKeyCall = Object.freeze({ model: input.model, reasoningEffort: input.reasoningEffort,
         connectionVersion: connection.version, inputTokens, maxOutputTokens, boundNanoUsd: bound.nanoUsd, allotmentNanoUsd: input.allotmentNanoUsd });
-      preparedRequests.set(prepared, { owner: ownerScope(owner), request, schema: input.schema });
+      preparedRequests.set(prepared, { owner: ownerScope(owner), request, schema: input.schema, connectionId: connection.connection_id });
       return prepared;
     }, input.signal),
 
-    /** Sends a prepared call, once, with the key still in service at that version. */
-    execute: <T>(owner: AiAccessOwner, prepared: PreparedApiKeyCall, options: { timeoutMs: number; signal?: AbortSignal }): Promise<ApiKeyStructuredResult<T>> =>
-      guarded(async () => {
-        if (options.signal?.aborted) throw abortReason(options.signal);
-        const held = preparedRequests.get(prepared);
-        if (!held) throw new ApiKeyError("AI_KEY_UNEXPECTED");
-        if (held.owner !== ownerScope(owner)) throw new ApiKeyError("AI_KEY_CHANGED");
-        // Single use: a prepared call is sent at most once.
-        preparedRequests.delete(prepared);
-        const { secret, connection } = await resolveKey(owner, prepared.connectionVersion);
+    /** Sends a prepared call, once, after the caller's pre-dispatch admission succeeds. */
+    execute: async <T>(owner: AiAccessOwner, prepared: PreparedApiKeyCall, options: {
+      timeoutMs: number; signal?: AbortSignal; beforeSend?: () => Promise<void>;
+    }): Promise<ApiKeyStructuredResult<T>> => {
+      if (options.signal?.aborted) throw abortReason(options.signal);
+      const held = preparedRequests.get(prepared);
+      if (!held) throw new ApiKeyError("AI_KEY_UNEXPECTED", { costNanoUsd: 0 });
+      if (held.owner !== ownerScope(owner)) throw new ApiKeyError("AI_KEY_CHANGED", { costNanoUsd: 0 });
+      // Single use: a prepared call is sent at most once.
+      preparedRequests.delete(prepared);
+      const { secret, connection } = await guarded(() => readKey(owner, prepared.connectionVersion, held.connectionId))
+        .catch((error: ApiKeyError) => { throw new ApiKeyError(error.code, { costNanoUsd: 0 }); });
+      await options.beforeSend?.();
+      return guarded(async () => {
+        if (options.beforeSend) {
+          const active = (await readAiAccessFile(deps.directory(), owner)).connections.openai;
+          if (active?.connection_id !== held.connectionId || active.version !== prepared.connectionVersion) {
+            throw new ApiKeyError("AI_KEY_CHANGED", { costNanoUsd: 0 });
+          }
+        }
         if (options.signal?.aborted) throw abortReason(options.signal);
         const startedAt = Date.now();
         let answer: Awaited<ReturnType<typeof generateWith>>;
@@ -899,7 +920,8 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
           if (error instanceof SyntaxError || error instanceof z.ZodError) return { ...answered, data: null, schemaError: error, refused: answer.refused };
           throw new ApiKeyError("AI_KEY_UNEXPECTED");
         }
-      }, options.signal),
+      }, options.signal);
+    },
   };
 }
 

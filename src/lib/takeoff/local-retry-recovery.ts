@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
+import { takeoffApiHostId } from "@/lib/takeoff/payment-mandate-server";
 import { TAKEOFF_RETRY_MAX } from "@/lib/takeoff/constants";
 import { isTakeoffPlanDispatchActive, runLocalTakeoffDispatcherPass } from "@/lib/takeoff/local-dispatcher";
 
@@ -64,6 +65,10 @@ export function startLocalTakeoffRetryRecovery() {
       // The dispatcher serves this Mac's whole queue in the database's order once one analysis per plan is active, and
       // after a withdrawal the plans of one analysis per plan already admitted (one at a time); with none, it answers
       // nothing and this poll keeps its former path for every other job.
+      const hostId = await getChatGptHostId();
+      const keyHost = takeoffApiHostId(hostId);
+      const { error: keyRecoveryError } = await client.rpc("recover_personal_api_takeoff_jobs", { p_host_id: keyHost });
+      if (keyRecoveryError && keyRecoveryError.code !== "PGRST202") console.error("takeoff.api_retry_recovery.deferred");
       const active = await isTakeoffPlanDispatchActive(client).catch(() => false);
       await runLocalTakeoffDispatcherPass({ service: client }).catch(() => console.error("takeoff.local_retry_recovery.dispatch_failed"));
       if (active) return;
@@ -77,7 +82,7 @@ export function startLocalTakeoffRetryRecovery() {
         .select("id, tenant_id, status, created_at, launch_unit_key, tenants!inner(is_active)")
         .eq("tenants.is_active", true)
         .eq("execution_provider", "chatgpt_local")
-        .eq("execution_host_id", await getChatGptHostId())
+        .in("execution_host_id", [hostId, keyHost])
         .is("analysis_outcome", null)
         .or(`status.eq.pending,and(status.eq.failed,retry_count.lt.${TAKEOFF_RETRY_MAX},next_retry_at.lte.${due}${unexpired})`)
         .order("id")
