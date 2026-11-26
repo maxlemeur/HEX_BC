@@ -29,13 +29,14 @@ import {
   normalizeVersionZeroLotKey,
 } from "@/lib/estimates/version-zero-utils";
 import {
-  generateEstimateStructureDraft,
+  buildEstimateStructurePreview,
   withEstimateAiGenerationLease,
 } from "@/lib/estimates/structure-drafts";
-import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { resolveEstimateDraftAi, type EstimateDraftAiGeneration } from "@/lib/estimates/draft-ai-generation";
 import type { Database, Json } from "@/types/database";
 
 import type {
+  EstimateDraftAiRequest,
   VersionZeroDraftStatus,
   VersionZeroLineReviewStatus,
   VersionZeroLotStatus,
@@ -600,7 +601,8 @@ function buildFallbackLots(input: {
   });
 }
 
-async function tryGenerateGeminiLots(input: {
+async function generateModelLots(input: {
+  ai: NonNullable<EstimateDraftAiGeneration>;
   projectName: string;
   brief: AffaireBriefRow;
   sourceLinks: AffaireBriefSourceLinkRow[];
@@ -631,7 +633,7 @@ async function tryGenerateGeminiLots(input: {
     `Fichiers source: ${sourceFiles.join(", ") || "non renseignés"}`,
   ].join("\n");
 
-  const result = await callStructuredAi({
+  return input.ai.generate("lots", {
     prompt,
     schema: VersionZeroGeminiSchema,
     timeoutMs: 25_000,
@@ -639,8 +641,6 @@ async function tryGenerateGeminiLots(input: {
       promptVersion: VERSION_ZERO_PROMPT_VERSION,
     },
   });
-
-  return result;
 }
 
 function mergeGeneratedLots(input: {
@@ -1205,6 +1205,7 @@ export async function generateVersionZeroDraft(input: {
   versionId: string;
   briefId?: string | null;
   selectedLots?: string[];
+  ai: EstimateDraftAiRequest;
 }) {
   const context = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
@@ -1245,118 +1246,98 @@ export async function generateVersionZeroDraft(input: {
     );
   }
 
+  const ai = await resolveEstimateDraftAi({ tenantId, userId }, input.ai);
+
   return withEstimateAiGenerationLease({
     supabase,
     versionId: input.versionId,
     operation: "version_zero_draft",
     run: async () => {
-      const [sourceLinks, structureDraftResult] = await Promise.all([
-    loadBriefSourceLinks({
-      supabase,
-      briefId: brief.id,
-    }),
-    generateEstimateStructureDraft(input.versionId, {
-      strategy: "hybrid",
-    }).catch(() => null),
-  ]);
-
-  const structureLots =
-    structureDraftResult?.nodes
-      .filter((node) => node.parent_id === null)
-      .map((node) => node.label) ?? [];
-  const briefLots = pickStringArray(brief.lots, 20);
-  const availableLots = uniqueStrings([...briefLots, ...structureLots]);
-  const selectedLots =
-    input.selectedLots && input.selectedLots.length > 0
-      ? uniqueStrings(input.selectedLots)
-      : availableLots;
-
-  if (selectedLots.length === 0) {
-    throw badRequest(
-      "Aucun lot exploitable n'a été trouvé dans le brief confirmé.",
-      undefined,
-      "EST384_NO_LOTS"
-    );
-  }
-
-  const fallbackLots = buildFallbackLots({
-    brief,
-    sourceLinks,
-    lotLabels: selectedLots,
-  });
-
-  const aiResult = await tryGenerateGeminiLots({
-    projectName: project.name,
-    brief,
-    sourceLinks,
-    lotLabels: selectedLots,
-  }).catch((error: unknown) => {
-    return {
-      data: null,
-      model: null,
-      promptVersion: VERSION_ZERO_PROMPT_VERSION,
-      tokenCount: null,
-      costCents: null,
-      durationMs: null,
-      error,
-    };
-  });
-
-  const lots = assignVersionZeroLotKeys(
-    mergeGeneratedLots({
-      fallbackLots,
-      aiLots: aiResult && "data" in aiResult && aiResult.data ? aiResult.data.lots : null,
-    })
-  );
-
-  const generation: InternalVersionZeroGeneration = {
-    lots,
-    summaryText:
-      aiResult && "data" in aiResult && aiResult.data
-        ? aiResult.data.summary
-        : `V0 générée sur ${lots.length} lot(s), à revoir avant toute application.`,
-    generationMetadata: {
-      model: aiResult && "model" in aiResult ? aiResult.model : null,
-      prompt_version:
-        aiResult && "promptVersion" in aiResult
-          ? aiResult.promptVersion
-          : VERSION_ZERO_PROMPT_VERSION,
-      used_fallback: !(aiResult && "data" in aiResult && aiResult.data),
-      token_count: aiResult && "tokenCount" in aiResult ? aiResult.tokenCount : null,
-      cost_cents: aiResult && "costCents" in aiResult ? aiResult.costCents : null,
-      duration_ms: aiResult && "durationMs" in aiResult ? aiResult.durationMs : null,
-      source_file_names: uniqueStrings(sourceLinks.map((entry) => entry.source_file_name)),
-      selected_lots: selectedLots,
-      structure_preview_root_count: structureLots.length,
-      failure_message:
-        aiResult && "error" in aiResult && aiResult.error instanceof Error
-          ? aiResult.error.message
-          : null,
-    },
-  };
-
-  const persistedDraft = await persistGeneratedDraft({
-    supabase,
-    tenantId,
-    userId,
-    projectId: project.id,
-    versionId: input.versionId,
-    briefId: brief.id,
-    selectedLots,
-    generation,
-  });
-
-  await supersedeActiveDrafts({
-    supabase,
-    tenantId,
-    versionId: input.versionId,
-    newDraftId: persistedDraft.id,
-  });
-
-      return fetchVersionZeroReview({
+      const sourceLinks = await loadBriefSourceLinks({ supabase, briefId: brief.id });
+      // V0 uses structure suggestions as input, without replacing a standalone pending preview.
+      const structurePreview = await withEstimateAiGenerationLease({
+        supabase,
         versionId: input.versionId,
-        draftId: persistedDraft.id,
+        operation: "structure_draft",
+        run: () => buildEstimateStructurePreview({ supabase, tenantId, project, version, ai }),
+      }).catch((error: unknown) => {
+        if (ai?.source === "personal_api_key") throw error;
+        return null;
       });
+
+      const structureLots = structurePreview?.nodes
+        .filter((node) => node.parent_id === null)
+        .map((node) => node.label) ?? [];
+      const briefLots = pickStringArray(brief.lots, 20);
+      const availableLots = uniqueStrings([...briefLots, ...structureLots]);
+      const selectedLots = input.selectedLots?.length ? uniqueStrings(input.selectedLots) : availableLots;
+
+      if (selectedLots.length === 0) {
+        throw badRequest(
+          "Aucun lot exploitable n'a été trouvé dans le brief confirmé.",
+          undefined,
+          "EST384_NO_LOTS"
+        );
+      }
+
+      const fallbackLots = buildFallbackLots({ brief, sourceLinks, lotLabels: selectedLots });
+      let aiResult = null;
+      let failure: unknown = null;
+      if (ai) {
+        try {
+          aiResult = await generateModelLots({ ai, projectName: project.name, brief, sourceLinks, lotLabels: selectedLots });
+        } catch (error) {
+          if (ai.source === "personal_api_key") throw error;
+          failure = error;
+        }
+      }
+
+      const lots = assignVersionZeroLotKeys(
+        mergeGeneratedLots({ fallbackLots, aiLots: aiResult?.data?.lots ?? null })
+      );
+      const spentNanoUsd = ai?.spentNanoUsd ?? null;
+      const generation: InternalVersionZeroGeneration = {
+        lots,
+        summaryText: aiResult?.data
+          ? aiResult.data.summary
+          : `V0 générée sur ${lots.length} lot(s), à revoir avant toute application.`,
+        generationMetadata: {
+          model: aiResult?.model ?? null,
+          prompt_version: aiResult?.promptVersion ?? VERSION_ZERO_PROMPT_VERSION,
+          used_fallback: !aiResult?.data,
+          structure_used_fallback: structurePreview?.metadata.used_fallback ?? null,
+          billing_source: ai?.source ?? null,
+          reasoning_effort: ai?.preferences.reasoningEffort ?? null,
+          token_count: aiResult?.tokenCount ?? null,
+          cost_cents: spentNanoUsd === null ? aiResult?.costCents ?? null : Math.round(spentNanoUsd / 10_000_000),
+          cost_nano_usd: spentNanoUsd,
+          duration_ms: aiResult?.durationMs ?? null,
+          source_file_names: uniqueStrings(sourceLinks.map((entry) => entry.source_file_name)),
+          selected_lots: selectedLots,
+          structure_preview_root_count: structureLots.length,
+          failure_message: failure instanceof Error ? failure.message : null,
+        },
+      };
+
+      const persistedDraft = await persistGeneratedDraft({
+        supabase,
+        tenantId,
+        userId,
+        projectId: project.id,
+        versionId: input.versionId,
+        briefId: brief.id,
+        selectedLots,
+        generation,
+      });
+
+      await supersedeActiveDrafts({
+        supabase,
+        tenantId,
+        versionId: input.versionId,
+        newDraftId: persistedDraft.id,
+      });
+
+      return fetchVersionZeroReview({ versionId: input.versionId, draftId: persistedDraft.id });
     },
   });
 }

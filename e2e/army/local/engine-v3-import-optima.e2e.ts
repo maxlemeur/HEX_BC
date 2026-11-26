@@ -849,7 +849,7 @@ armyTest("IO08 an AI structure preview applies to a v3: a section renamed, secti
       const subSectionId = before.items.find((item) => item.item_type === "section" && item.parent_id === sectionId)!.id;
       const [revisionBefore] = await querySql(`SELECT content_revision FROM public.estimate_versions WHERE id = '${versionId}'::uuid;\n`);
       const generated = await apiRequest<Envelope<{ draft_id: string; version_id: string }>>(browser, "POST",
-        `/api/estimates/${versionId}/structure-drafts`, { strategy: "hybrid" });
+        `/api/estimates/${versionId}/structure-drafts`, { strategy: "hybrid", ai: { source: "fallback" } });
       const generation = [generated.status, generated.body.ok, generated.body.error?.code ?? null];
       await recordEvidence(army, "io-p14-generate", { versionId, generation, data: generated.body.data ?? null });
       expect(generation).toEqual([201, true, null]);
@@ -866,7 +866,7 @@ armyTest("IO08 an AI structure preview applies to a v3: a section renamed, secti
 SELECT status FROM public.estimate_structure_drafts WHERE id = '${draftId}'::uuid;
 `);
       const probes = {
-        versionZeroGenerate: await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/version-zero-drafts`, {}),
+        versionZeroGenerate: await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/version-zero-drafts`, { ai: { source: "fallback" } }),
         versionZeroMaterialize: await apiRequest<Envelope<unknown>>(browser, "POST",
           `/api/estimates/${versionId}/version-zero-drafts/${randomUUID()}/materialize`, {}),
       };

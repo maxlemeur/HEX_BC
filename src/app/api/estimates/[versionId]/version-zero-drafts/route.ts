@@ -30,6 +30,7 @@ export async function POST(
       versionId,
       briefId: body.brief_id ?? null,
       selectedLots: body.selected_lots,
+      ai: body.ai,
     });
     return ok(data, 201);
   } catch (error) {

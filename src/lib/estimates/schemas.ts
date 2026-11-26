@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { chatGptReasoningEffortSchema } from "@/lib/ai/chatgpt-model-preferences";
 import { foPriceOriginSchema } from "@/lib/estimates/fo-price-origin";
 import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
 import { ESTIMATE_LINE_NATURES } from "@/lib/estimates/line-nature";
@@ -1167,25 +1168,26 @@ export const versionZeroLineReviewStatusSchema = z.enum([
   "rejected",
 ]);
 
-export const generateEstimateStructureDraftSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null || value === "") {
-      return {};
-    }
+const estimateDraftModelSettings = {
+  model: z.string().trim().min(1).max(200),
+  effort: chatGptReasoningEffortSchema.nullable(),
+};
 
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return value;
-    }
-
-    const record = value as Record<string, unknown>;
-    return {
-      strategy: record.strategy,
-    };
-  },
+export const estimateDraftAiRequestSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("chatgpt_plan"), ...estimateDraftModelSettings }),
   z.object({
-    strategy: estimateStructureDraftStrategySchema.optional().default("hybrid"),
-  })
-);
+    source: z.literal("personal_api_key"),
+    ...estimateDraftModelSettings,
+    expectedConnectionId: z.string().min(1).max(200),
+  }),
+  z.object({ source: z.literal("fallback") }),
+]);
+export type EstimateDraftAiRequest = z.infer<typeof estimateDraftAiRequestSchema>;
+
+export const generateEstimateStructureDraftSchema = z.object({
+  strategy: estimateStructureDraftStrategySchema.optional().default("hybrid"),
+  ai: estimateDraftAiRequestSchema,
+});
 
 const estimateStructureDraftNodeIdsSchema = z
   .array(uuidSchema)
@@ -1287,11 +1289,13 @@ export const generateVersionZeroDraftSchema = z.preprocess(
     return {
       brief_id: record.brief_id ?? record.briefId ?? null,
       selected_lots: record.selected_lots ?? record.selectedLots ?? [],
+      ai: record.ai,
     };
   },
   z.object({
     brief_id: nullableUuidSchema.optional(),
     selected_lots: versionZeroSelectedLotsSchema.optional().default([]),
+    ai: estimateDraftAiRequestSchema,
   })
 );
 

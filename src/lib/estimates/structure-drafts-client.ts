@@ -1,6 +1,7 @@
 import { toNumber, toBooleanValue, getRootPayload, pickRecord, pickArray, parseOptionalNullableStringProperty } from "@/lib/estimates/client-json";
 import { type EstimateVersionToken, parseVersionToken } from "@/lib/estimates/client-version";
 import { requestJson } from "@/lib/estimates/client-requests";
+import type { EstimateDraftAiRequest } from "@/lib/estimates/schemas";
 import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 export type EstimateStructureDraftSourceKind =
@@ -67,10 +68,12 @@ export type EstimateStructureDraft = {
   summary: EstimateStructureDraftSummary;
   nodes: EstimateStructureDraftNode[];
   generatedAt: string;
+  generationKind?: "model" | "fallback" | null;
 };
 
 export type GenerateEstimateStructureDraftPayload = {
   strategy?: EstimateStructureDraftStrategy;
+  ai: EstimateDraftAiRequest;
 };
 
 export type ApplyEstimateStructureDraftPayload = {
@@ -317,6 +320,7 @@ function parseEstimateStructureDraft(
       .map((entry) => parseEstimateStructureDraftNode(entry))
       .filter((entry): entry is EstimateStructureDraftNode => entry !== null),
     generatedAt,
+    generationKind: root.generation_kind === "model" || root.generation_kind === "fallback" ? root.generation_kind : null,
   };
 }
 
@@ -371,7 +375,7 @@ function parseApplyEstimateStructureDraftResult(
 
 export async function generateEstimateStructureDraft(
   targetVersionId: string,
-  input: GenerateEstimateStructureDraftPayload = {}
+  input: GenerateEstimateStructureDraftPayload
 ): Promise<EstimateStructureDraft> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${targetVersionId}/structure-drafts`,
@@ -382,6 +386,7 @@ export async function generateEstimateStructureDraft(
       },
       body: JSON.stringify({
         strategy: input.strategy ?? "hybrid",
+        ai: input.ai,
       }),
     },
     "Impossible de générer la prévisualisation de structure."

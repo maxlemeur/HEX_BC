@@ -18979,7 +18979,7 @@
           }
         ],
         "requestBody": {
-          "description": "Strategie de generation.",
+          "description": "Stratégie et choix IA. Une génération avec la clé personnelle est plafonnée à 1 USD.",
           "required": true,
           "content": {
             "application/json": {
@@ -20414,7 +20414,7 @@
           }
         ],
         "requestBody": {
-          "description": "Brief et lots selectionnes.",
+          "description": "Brief, lots et choix IA. La structure et les lignes partagent le plafond de 1 USD avec la clé personnelle.",
           "required": true,
           "content": {
             "application/json": {
@@ -89390,8 +89390,107 @@
             "enum": [
               "hybrid"
             ]
+          },
+          "ai": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "chatgpt_plan"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "personal_api_key"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expectedConnectionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort",
+                  "expectedConnectionId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "fallback"
+                  }
+                },
+                "required": [
+                  "source"
+                ]
+              }
+            ]
           }
-        }
+        },
+        "required": [
+          "ai"
+        ]
       },
       "GetEstimateStructureDraftVersionIdParameter": {
         "type": "string",
@@ -93016,8 +93115,107 @@
               "minLength": 1,
               "maxLength": 160
             }
+          },
+          "ai": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "chatgpt_plan"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "personal_api_key"
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expectedConnectionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "source",
+                  "model",
+                  "effort",
+                  "expectedConnectionId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "fallback"
+                  }
+                },
+                "required": [
+                  "source"
+                ]
+              }
+            ]
           }
-        }
+        },
+        "required": [
+          "ai"
+        ]
       },
       "GetVersionZeroDraftVersionIdParameter": {
         "type": "string",

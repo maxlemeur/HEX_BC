@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Pagination faults are covered with the real SDK in read-all.test.ts.
 vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
@@ -12,7 +15,19 @@ vi.mock("@/lib/affaires/import-flow-server", () => ({
 vi.mock("@/lib/ai/structured-ai", () => ({
   callStructuredAi: vi.fn(),
 }));
+vi.mock("@/lib/ai/request-settings-server", () => ({
+  resolveAiRequest: vi.fn(),
+}));
+vi.mock(import("@/lib/ai/access/openai-api"), async (original) => ({
+  ...await original(),
+  openAiApiKeyAccess: vi.fn(),
+}));
 
+import { POST as postStructure } from "@/app/api/estimates/[versionId]/structure-drafts/route";
+import { POST as postV0 } from "@/app/api/estimates/[versionId]/version-zero-drafts/route";
+import type { ApiKeySecret } from "@/lib/ai/access/api-key-secret";
+import { createOpenAiApiKeyAccess, openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
+import { resolveAiRequest } from "@/lib/ai/request-settings-server";
 import { fetchMappedRowsForImport } from "@/lib/affaires/import-flow-server";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
 import { generateEstimateStructureDraft } from "@/lib/estimates/structure-drafts";
@@ -124,6 +139,14 @@ function createSupabaseFake(input: {
       }
       if (write.method === "insert" && query.table === "estimate_structure_draft_nodes") {
         draftNodeInserts.push(write.args[0] as Row[]);
+      }
+      if (write.method === "insert" && query.table.startsWith("estimate_version_zero_")) {
+        const values = write.args[0] as Row | Row[];
+        const rows = (Array.isArray(values) ? values : [values]).map((row, index) => ({
+          ...row, id: `${query.table}-${index}`, created_at: "2026-03-06T09:01:00.000Z",
+        }));
+        input.tables[query.table] = rows;
+        return { data: terminal === "single" ? rows[0] : rows, error: null };
       }
       return { data: null, error: null };
     }
@@ -706,14 +729,24 @@ function insertedNodes(rows: Row[]) {
 
 async function generate(fake: ReturnType<typeof createSupabaseFake>) {
   vi.mocked(createSupabaseServerClient).mockResolvedValue(fake.supabase as never);
-  return generateEstimateStructureDraft(VERSION_ID, { strategy: "hybrid" });
+  return generateEstimateStructureDraft(VERSION_ID, { strategy: "hybrid", ai: planChoice });
 }
+
+const owner = { userId: USER_ID, tenantId: TENANT_ID };
+const planChoice = { source: "chatgpt_plan", model: "plan-model", effort: "high" } as const;
+const planSelection = {
+  ok: true,
+  source: planChoice.source,
+  preferences: { model: planChoice.model, reasoningEffort: planChoice.effort },
+  connection: null,
+} as const;
 
 describe("generateEstimateStructureDraft sources", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchMappedRowsForImport).mockResolvedValue([]);
     vi.mocked(callStructuredAi).mockRejectedValue(providerFailure());
+    vi.mocked(resolveAiRequest).mockResolvedValue(planSelection);
   });
 
   it("reports every source as unavailable and skips the provider when the affaire has none", async () => {
@@ -1909,5 +1942,247 @@ describe("generateEstimateStructureDraft sources", () => {
       "estimate_template_items",
     ]);
     expect(fake.draftInserts).toEqual([]);
+  });
+});
+
+describe("structure and V0 generation routes", () => {
+  const routes = { structure: postStructure, v0: postV0 };
+  const lots = ["Peinture", "Menuiserie", "Électricité", "Plomberie", "Isolation", "Sols"];
+  const structureAnswer = { summary: "Structure proposée", roots: lots.map((label) => ({ label, confidence: 0.9 })) };
+  const lotsAnswer = {
+    summary: "Rénovation d'un atelier",
+    lots: lots.map((label) => ({
+      lot_label: label,
+      status: "generated",
+      confidence: 0.9,
+      lines: Array.from({ length: 8 }, (_, i) => ({
+        title: `${label} – poste ${i + 1}`, quantity: i + 1.25, unit: "m²", confidence: 0.8,
+      })),
+    })),
+  };
+  const temporaryDirs: string[] = [];
+
+  function fixture() {
+    const tables = baseTables({ projectNotes: lots.map((label) => `- ${label}`).join("\n") });
+    tables.estimate_versions[0].calc_engine_version = 2;
+    tables.affaire_briefs = [{
+      id: BRIEF_ID,
+      project_id: PROJECT_ID,
+      tenant_id: TENANT_ID,
+      status: "confirme",
+      summary: "Rénover un atelier de plain-pied, en deux phases.",
+      project_object: "Rénovation de l’atelier des Mûriers",
+      scope: ["Réparer les supports existants", "Remettre en service les réseaux intérieurs"],
+      lots,
+      assumptions: ["Gardiennage assuré par le client"],
+      vigilance_points: ["Maintenir un accès pendant les travaux"],
+      missing_elements: ["Relevé de surfaces définitif"],
+    }];
+    const fake = createSupabaseFake({ tables });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(fake.supabase as never);
+    return { ...fake, tables };
+  }
+
+  function post(route: keyof typeof routes, ai?: unknown) {
+    return routes[route](
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ai, ...(route === "v0" ? { briefId: BRIEF_ID, selectedLots: lots } : {}) }),
+      }),
+      { params: Promise.resolve({ versionId: VERSION_ID }) },
+    );
+  }
+
+  const reportPlan = () => vi.mocked(callStructuredAi).mockImplementation(async (options, _owner, preferences) => ({
+    data: options.schema.parse(options.prompt.includes("Lots cibles:") ? lotsAnswer : structureAnswer),
+    model: preferences!.model,
+    promptVersion: options.context!.promptVersion!,
+    durationMs: 1,
+    costCents: 0,
+    tokenCount: 10,
+    tokenUsage: { inputTokens: 5, reasoningTokens: 0, outputTokens: 5, totalTokens: 10 },
+    provider: "chatgpt",
+  }));
+
+  async function paidAdapter({
+    model = "gpt-6.2-astra",
+    inputs = [3_200, 3_600],
+    outputs = [1_800, 5_500],
+    serviceTier = "default",
+  }: { model?: string; inputs?: number[]; outputs?: number[]; serviceTier?: string } = {}) {
+    const dir = await mkdtemp(join(tmpdir(), "estimate-ai-test-"));
+    temporaryDirs.push(dir);
+    let secret: ApiKeySecret | null = null;
+    let counts = 0;
+    let generations = 0;
+    const sent: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const access = createOpenAiApiKeyAccess({
+      directory: () => dir,
+      installationId: async () => "urn:uuid:33333333-3333-4333-8333-333333333333",
+      secretStore: () => ({
+        kind: "macos-keychain",
+        placeLabel: "Trousseau fictif",
+        async read() { return secret; },
+        async write(_item, value) { secret = value; },
+        async remove() { secret = null; },
+      }),
+      fetch: async (url, options) => {
+        const path = new URL(url).pathname;
+        if (path === "/v1/models") return Response.json({ data: [{ id: model }] });
+        const body = JSON.parse(String(options?.body));
+        sent.push({ path, body });
+        if (path === "/v1/responses/input_tokens") return Response.json({ input_tokens: inputs[counts++] });
+        if (path !== "/v1/responses") throw new Error(`Unexpected request ${path}`);
+        const i = generations++;
+        const input = inputs[i];
+        const output = outputs[i];
+        return Response.json({
+          id: `resp_${i}`, model, status: "completed", service_tier: serviceTier,
+          usage: { input_tokens: input, output_tokens: output, total_tokens: input + output },
+          output: [{ type: "message", content: [{
+            type: "output_text", text: JSON.stringify(i === 0 ? structureAnswer : lotsAnswer),
+          }] }],
+        });
+      },
+    });
+    const saved = await access.save(owner, { key: `sk-proj-${"a".repeat(40)}` });
+    if (saved.outcome !== "saved" || saved.state.status !== "saved") {
+      throw new Error("Could not save the fictional key.");
+    }
+    const { version, connectionId } = saved.state.connection;
+    vi.mocked(openAiApiKeyAccess).mockReturnValue(access);
+    const choice = { source: "personal_api_key", model, effort: "high", expectedConnectionId: connectionId } as const;
+    vi.mocked(resolveAiRequest).mockResolvedValue({
+      ok: true,
+      source: choice.source,
+      preferences: { model, reasoningEffort: choice.effort },
+      connection: { version, id: connectionId },
+    });
+
+    return { choice, sent, prepare: vi.spyOn(access, "prepare") };
+  }
+
+  afterEach(async () => {
+    vi.resetAllMocks();
+    await Promise.all(temporaryDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it.each(["structure", "v0"] as const)("passes the authenticated owner's plan choice through %s", async (route) => {
+    const fake = fixture();
+    vi.mocked(resolveAiRequest).mockResolvedValue(planSelection);
+    reportPlan();
+
+    const response = await post(route, planChoice);
+    expect(response.status).toBe(201);
+    expect(resolveAiRequest).toHaveBeenCalledExactlyOnceWith(
+      owner, { allowedSources: ["chatgpt_plan", "personal_api_key"] }, planChoice,
+    );
+    expect(vi.mocked(callStructuredAi).mock.calls).toHaveLength(route === "v0" ? 2 : 1);
+    for (const [, actualOwner, preferences] of vi.mocked(callStructuredAi).mock.calls) {
+      expect(actualOwner).toEqual(owner);
+      expect(preferences).toEqual(planSelection.preferences);
+    }
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
+    if (route === "structure") {
+      expect((await response.json()).data).toMatchObject({ generation_kind: "model" });
+    } else {
+      expect(fake.draftInserts).toHaveLength(0);
+      expect(fake.tables.estimate_version_zero_lines).toHaveLength(48);
+      expect(fake.tables.estimate_version_zero_lines[0]).toMatchObject({
+        proposed_title: "Peinture – poste 1", proposed_quantity: 1.25, proposed_unit: "m²",
+      });
+    }
+  });
+
+  it("prices and dispatches the standalone structure only once, on the selected key", async () => {
+    fixture();
+    const { choice, sent, prepare } = await paidAdapter();
+
+    const response = await post("structure", choice);
+    expect(response.status).toBe(201);
+    expect((await response.json()).data).toMatchObject({ generation_kind: "model" });
+    expect(prepare).toHaveBeenCalledExactlyOnceWith(owner, expect.objectContaining({
+      allotmentNanoUsd: 1_000_000_000, expectedVersion: 1, model: choice.model, reasoningEffort: "high",
+    }));
+    expect(sent.map(({ path }) => path)).toEqual(["/v1/responses/input_tokens", "/v1/responses"]);
+    expect(sent[1].body).toMatchObject({ model: choice.model, reasoning: { effort: "high" } });
+    expect(callStructuredAi).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["gpt-6.1-terra", 43_300_000, 12_200_000],
+    ["gpt-6.2-sol", 86_600_000, 24_400_000],
+    ["gpt-6.2-astra", 346_400_000, 97_600_000],
+  ])("shares the 1 USD V0 budget at %s with six lots and 48 lines", async (model, total, structureCost) => {
+    const fake = fixture();
+    const { choice, sent, prepare } = await paidAdapter({ model });
+
+    const response = await post("v0", choice);
+    expect(response.status).toBe(201);
+    expect(resolveAiRequest).toHaveBeenCalledTimes(1);
+    expect(prepare.mock.calls.map(([actualOwner, input]) => [actualOwner, input.allotmentNanoUsd]))
+      .toEqual([[owner, 1_000_000_000], [owner, 1_000_000_000 - structureCost]]);
+    expect(sent.map(({ path }) => path)).toEqual([
+      "/v1/responses/input_tokens", "/v1/responses", "/v1/responses/input_tokens", "/v1/responses",
+    ]);
+    for (const { body } of sent) expect(body).toMatchObject({ model, reasoning: { effort: "high" } });
+    expect((await response.json()).data.draft.generationMetadata).toMatchObject({
+      cost_nano_usd: total, used_fallback: false, structure_used_fallback: false,
+    });
+    expect(fake.tables.estimate_version_zero_lines).toHaveLength(48);
+    expect(fake.tables.estimate_version_zero_lines[0]).toMatchObject({
+      proposed_title: "Peinture – poste 1", proposed_quantity: 1.25, proposed_unit: "m²",
+    });
+    expect(fake.draftInserts).toHaveLength(0);
+    expect(callStructuredAi).not.toHaveBeenCalled();
+  });
+
+  it("stops V0 before dispatching lots that cannot fit the remaining budget", async () => {
+    const fake = fixture();
+    const { choice, sent, prepare } = await paidAdapter({ inputs: [22_000, 10_000], outputs: [8_000, 5_500] });
+
+    const response = await post("v0", choice);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatchObject({
+      code: "AI_KEY_CEILING", message: expect.stringMatching(/toute la V0.*lots et les lignes.*n’a pas été lancée/),
+    });
+    expect(prepare.mock.calls[1][1].allotmentNanoUsd).toBe(504_000_000);
+    expect(sent.map(({ path }) => path)).toEqual([
+      "/v1/responses/input_tokens", "/v1/responses", "/v1/responses/input_tokens",
+    ]);
+    expect(fake.tables.estimate_version_zero_drafts).toBeUndefined();
+    expect(fake.draftInserts).toHaveLength(0);
+    expect(callStructuredAi).not.toHaveBeenCalled();
+  });
+
+  it("stops V0 after a structure call with unpriceable usage", async () => {
+    const fake = fixture();
+    const { choice, sent } = await paidAdapter({ serviceTier: "other" });
+
+    const response = await post("v0", choice);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("AI_KEY_COST_UNKNOWN");
+    expect(sent.map(({ path }) => path)).toEqual(["/v1/responses/input_tokens", "/v1/responses"]);
+    expect(fake.tables.estimate_version_zero_drafts).toBeUndefined();
+    expect(callStructuredAi).not.toHaveBeenCalled();
+  });
+
+  it.each(["structure", "v0"] as const)("refuses %s with no provider call on a stale connection or absent consent", async (route) => {
+    const fake = fixture();
+    vi.mocked(resolveAiRequest).mockResolvedValue({
+      ok: false, reason: "connection_changed", message: "La clé a changé.",
+    });
+    expect((await post(route)).status).toBe(400);
+    expect(resolveAiRequest).not.toHaveBeenCalled();
+
+    const response = await post(route, {
+      source: "personal_api_key", model: "gpt-6.2-astra", effort: "low", expectedConnectionId: "ancienne-clé",
+    });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("ESTIMATE_DRAFT_AI_CONNECTION_CHANGED");
+    expect(fake.supabase.rpc).not.toHaveBeenCalled();
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
+    expect(callStructuredAi).not.toHaveBeenCalled();
   });
 });

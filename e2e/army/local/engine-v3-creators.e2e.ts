@@ -573,10 +573,15 @@ armyTest("V3C09 the AI structure opens on a v3 without a reason, by its button a
       });
       await captureScreen(ui, army, "v3c09-structure-enabled");
       await browser.keyboard.press("Escape");
-      // Suggestion du hub (cockpit) : l'éditeur ouvert par ?openStructureDraft=1 ouvre l'assistant, qui génère la preview.
+      // Suggestion du hub (cockpit) : l'éditeur ouvert par ?openStructureDraft=1 ouvre l’assistant avant toute génération.
       await app.open(`/dashboard/estimates/${versionId}/edit?openStructureDraft=1`);
       const dialog = screen.getByRole("dialog", "Structure IA", { exact: true });
       await expect(dialog).toBeVisible({ timeout: 30_000 });
+      const generate = dialog.getByRole("button", "Générer sans IA", { exact: true });
+      await expect(generate).toBeVisible();
+      await expect(dialog.getByText("Provenance utilisée", { exact: true })).toHaveCount(0);
+      await generate.tap();
+      await expect(dialog.getByText("Aperçu de secours construit à partir des sources, sans résultat de l’IA.", { exact: true })).toBeVisible({ timeout: 90_000 });
       const proceed = dialog.getByRole("button", "Continuer", { exact: true });
       await expect.poll(() => proceed.isEnabled(), { timeout: 90_000 }).toBe(true);
       const preview = { engineRefusal: (await dialog.getByText(ENGINE_UNAVAILABLE, { exact: false }).count()) > 0 };
