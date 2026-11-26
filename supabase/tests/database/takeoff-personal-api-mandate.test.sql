@@ -123,36 +123,76 @@ begin
     pg_temp.f(token), clock_timestamp() + interval '10 minutes', 'gpt-6.1-terra', 'fixture', observed, 0));
 end;
 $$;
-create function pg_temp.reserve(ordinal integer, token integer, branch text, cost bigint default null, tokens bigint default null)
+create function pg_temp.reserve(ordinal integer, token integer, branch text, cost bigint default null, tokens bigint default null,
+  exhausted boolean default false, tile_key text default null)
 returns table (reason text, remaining_nano_usd bigint, remaining_tokens bigint, call_id uuid) language sql as $$
   select * from public.reserve_takeoff_api_call(pg_temp.unit(20, ordinal), pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
-    pg_temp.f(token), false, branch, cost, tokens)
+    pg_temp.f(token), false, branch, cost, tokens, exhausted, tile_key)
 $$;
 select is(pg_temp.claim(1, 901, 'pending', true), 0::bigint, 'the prior claim RPC cannot start an API job even with its queue ID');
 select is(pg_temp.claim(1, 901), 1::bigint, 'the API worker takes the job lease');
+update private.takeoff_launch_commands set
+  count_mark_schedule = '{"pages":[{"page":2,"width_points":600}],"tile_calls":4,"other_calls":1,"total_calls":5}'::jsonb
+where request_id = pg_temp.request(20) and job_id = pg_temp.unit(20,1);
+select is((select reason from pg_temp.reserve(1, 901, 'count_tile', 1, 1, false, 'tile:2:5')), 'TILE_OUTSIDE_SCOPE',
+  'a tile outside the sealed schedule is refused');
+create temp table tile_a as select call_id from pg_temp.reserve(1, 901, 'count_tile', 10, 2, false, 'tile:2:4');
+select ok((select call_id is not null from tile_a), 'the count tile has a reservation under its confirmed tile key');
+select is(public.settle_takeoff_api_call((select call_id from tile_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
+  pg_temp.f(1), pg_temp.f(901), 0, 0), true, 'a settled tile still counts as attempted');
 create temp table call_a as select call_id from pg_temp.reserve(1, 901, 'pdf', 15000000000, 100000);
 select ok((select call_id is not null from call_a), 'the PDF generation is reserved before dispatch');
 select is((select remaining_nano_usd from pg_temp.reserve(1, 901, 'vector_group')), 10000000000::bigint,
   'vector groups see the PDF reservation');
+select is((select reason from pg_temp.reserve(1, 901, 'vector_group', 11000000000, 1)), 'CAPACITY_HELD',
+  'overlapping calls wait for the balance held by an active lease');
+select is((select reason from pg_temp.reserve(1, 901, 'vector_group', 10000000000, 300000, true)), 'CAPACITY_HELD',
+  'an insufficient preparation cannot freeze the request while another call may free capacity');
 update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second' where id = pg_temp.unit(20, 1);
 select is((select count(*) from public.recover_stale_local_takeoff_jobs(clock_timestamp()) where job_id = pg_temp.unit(20,1)),
   0::bigint, 'the prior recovery cannot stop an expired API job');
 select lives_ok($$select public.recover_personal_api_takeoff_jobs(pg_temp.host())$$, 'the API worker reschedules its expired lease');
 select is(pg_temp.claim(1, 902, 'failed'), 1::bigint, 'the API worker can retry under a new lease');
+select is((select reason from pg_temp.reserve(1, 902, 'count_tile', 1, 1, false, 'tile:2:4')), 'TILE_ALREADY_ATTEMPTED',
+  'a new lease never buys the same tile again');
 select throws_ok($$select * from pg_temp.reserve(1, 901, 'pdf', 1, 1)$$,
   '42501', 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED', 'the expired lease cannot reserve again');
 select is((select remaining_nano_usd from pg_temp.reserve(1, 902, 'pdf')), 10000000000::bigint,
   'the retry still sees the crashed call’s full reservation');
 select is(public.settle_takeoff_api_call((select call_id from call_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
   pg_temp.f(1), pg_temp.f(901), 5000000000, 20000), true, 'a late settlement is matched to the original lease');
+select is((select reason from pg_temp.reserve(1, 902, 'vector_group', 10000000000, 300000, true)), 'REPREPARE',
+  'a settlement that freed capacity after the count requires a fresh preparation');
 update public.takeoff_jobs set status = 'completed', completed_at = clock_timestamp() where id = pg_temp.unit(20, 1);
 select is(pg_temp.claim(2, 903), 1::bigint, 'the next plan takes its own lease');
 select is((select remaining_nano_usd from pg_temp.reserve(2, 903, 'pdf')), 20000000000::bigint,
   'the second plan shares the first plan’s settled cost');
-select is((select reason from pg_temp.reserve(2, 903, 'vector_group', 20000000001, 1)), 'BUDGET_EXHAUSTED',
-  'the next reservation is refused before its generation');
+select is((select reason from pg_temp.reserve(2, 903, 'vector_group', 20000000001, 1)), 'REPREPARE',
+  'a stale bound cannot send a generation');
+select is((select reason from pg_temp.reserve(2, 903, 'vector_group', 20000000000, 380000, true)), 'BUDGET_EXHAUSTED',
+  'an unaffordable call with fresh preparation stops the request');
 select is((select reason from pg_temp.reserve(2, 903, 'pdf', 1, 1)), 'BUDGET_EXHAUSTED',
   'no generation can follow the budget stop');
+
+-- Age both queue states without sleeping. The hosted poll can run with the Mac absent.
+update private.takeoff_completion_activation set active_from = now() - interval '3 days';
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'pending', analysis_outcome = null, completed_at = null,
+  analysis_finished_at = null, analysis_completion_event_id = null,
+  analysis_queued_at = now() - interval '2 days', next_retry_at = null
+where id = pg_temp.unit(20, 1);
+update public.takeoff_jobs set status = 'failed', analysis_outcome = null,
+  processing_lease_token = null, processing_lease_expires_at = null, next_retry_at = now() - interval '2 days'
+where id = pg_temp.unit(20, 2);
+set local session_replication_role = origin;
+select is((select count(*) from public.recover_stale_local_takeoff_jobs(clock_timestamp())
+  where job_id in (pg_temp.unit(20,1), pg_temp.unit(20,2))), 0::bigint, 'legacy recovery cannot close either queued API job');
+select lives_ok($$select public.expire_queued_personal_api_takeoff_jobs(clock_timestamp())$$, 'the hosted API recovery closes overdue work');
+select results_eq($$select status::text, analysis_outcome, next_retry_at, error_code from public.takeoff_jobs
+  where id in (pg_temp.unit(20,1), pg_temp.unit(20,2)) order by id$$,
+  $$values ('failed'::text, 'failure'::text, null::timestamptz, 'TAKEOFF_WORKER_QUEUE_EXPIRED'::text),
+           ('failed'::text, 'failure'::text, null::timestamptz, 'TAKEOFF_WORKER_QUEUE_EXPIRED'::text)$$,
+  'pending and retrying jobs both become terminal and release their request');
 
 select * from finish();
 rollback;

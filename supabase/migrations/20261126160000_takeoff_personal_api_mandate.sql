@@ -13,14 +13,17 @@ create table private.takeoff_api_calls (
   scope_id uuid not null,
   job_id uuid not null,
   lease_token uuid not null,
-  branch text not null check (branch in ('pdf', 'vector_group')),
+  branch text not null check (branch in ('pdf', 'vector_group', 'count_tile')),
+  tile_key text,
   bound_nano_usd bigint not null check (bound_nano_usd > 0),
   bound_tokens bigint not null check (bound_tokens > 0),
   actual_nano_usd bigint check (actual_nano_usd >= 0),
   actual_tokens bigint check (actual_tokens >= 0),
-  settled_at timestamptz
+  settled_at timestamptz,
+  check ((branch = 'count_tile') = (tile_key is not null))
 );
 create index takeoff_api_calls_balance_idx on private.takeoff_api_calls (mandate_id, scope_id);
+create unique index takeoff_api_calls_tile_idx on private.takeoff_api_calls (mandate_id, scope_id, tile_key) where tile_key is not null;
 alter table private.takeoff_api_mandates enable row level security;
 alter table private.takeoff_api_calls enable row level security;
 revoke all on private.takeoff_api_mandates, private.takeoff_api_calls from public, anon, authenticated, service_role;
@@ -131,7 +134,8 @@ begin
     -- The previously deployed recovery can scan every host. Its unleased failures cannot close API work.
     if new.status = 'failed' and (
       old.status <> 'processing' or old.processing_lease_expires_at is null or old.processing_lease_expires_at <= pg_catalog.clock_timestamp()
-    ) and pg_catalog.current_setting('mergeone.takeoff_api_recovery', true) is distinct from old.execution_host_id then
+    ) and pg_catalog.current_setting('mergeone.takeoff_api_recovery', true) is distinct from
+      (case when old.status = 'processing' then old.execution_host_id else 'queue' end) then
       return null;
     end if;
   elsif selection->>'source' = 'personal_api_key' then
@@ -171,7 +175,7 @@ $$;
 create function public.reserve_takeoff_api_call(
   p_job_id uuid, p_tenant_id uuid, p_project_id uuid, p_payer_id uuid, p_lease_token uuid,
   p_module_default boolean, p_branch text, p_bound bigint default null, p_tokens bigint default null,
-  p_exhausted boolean default false
+  p_exhausted boolean default false, p_tile_key text default null
 ) returns table (reason text, remaining_nano_usd bigint, remaining_tokens bigint, call_id uuid)
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -182,6 +186,8 @@ declare
   usd_left bigint;
   tokens_left bigint;
   reserved uuid;
+  schedule jsonb;
+  capacity_held boolean;
 begin
   job := private.lock_takeoff_paying_job(p_job_id, p_lease_token);
   if job.tenant_id is distinct from p_tenant_id or job.project_id is distinct from p_project_id
@@ -201,11 +207,14 @@ begin
   end if;
   billing_scope := coalesce(job.launch_request_id, job.id);
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-api:' || billing_scope::text, 0));
+  if job.processing_lease_expires_at <= pg_catalog.clock_timestamp() or (job.launch_unit_key like 'plan:%'
+    and private.takeoff_count_mark_lease_live(job, p_lease_token) is not true) then
+    raise exception 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED' using errcode = '42501';
+  end if;
   select s.reason into refusal from private.takeoff_api_budget_stops s
   where s.mandate_id = mandate.id and s.scope_id = billing_scope;
   if not found then
     refusal := private.takeoff_job_payment_refusal(job, p_module_default);
-    if p_exhausted and refusal is null then refusal := 'BUDGET_EXHAUSTED'; end if;
     if refusal is not null then
       insert into private.takeoff_api_budget_stops (mandate_id, scope_id, reason) values (mandate.id, billing_scope, refusal);
     end if;
@@ -213,6 +222,22 @@ begin
   if refusal is not null then
     return query select refusal, 0::bigint, 0::bigint, null::uuid;
     return;
+  end if;
+  if p_branch = 'count_tile' then
+    schedule := private.takeoff_confirmed_count_mark_schedule(job);
+    if not exists (
+      select 1 from jsonb_array_elements(schedule -> 'pages') s
+      cross join lateral generate_series(1, case when (s->>'width_points')::numeric > 700 then 6 else 4 end) t(i)
+      where p_tile_key = 'tile:' || ((s->>'page')::numeric::integer)::text || ':' || t.i::text
+    ) then
+      return query select 'TILE_OUTSIDE_SCOPE'::text, 0::bigint, 0::bigint, null::uuid;
+      return;
+    end if;
+    if exists (select 1 from private.takeoff_api_calls c where c.mandate_id = mandate.id and c.scope_id = billing_scope
+      and c.tile_key = p_tile_key) then
+      return query select 'TILE_ALREADY_ATTEMPTED'::text, 0::bigint, 0::bigint, null::uuid;
+      return;
+    end if;
   end if;
   if exists (select 1 from private.takeoff_api_calls c where c.mandate_id = mandate.id and c.scope_id = billing_scope
     and c.settled_at is not null and (c.actual_nano_usd is null or c.actual_tokens is null)) then
@@ -222,14 +247,27 @@ begin
   select (mandate.settings->>'maxNanoUsd')::bigint - coalesce(sum(coalesce(c.actual_nano_usd, c.bound_nano_usd)), 0),
     (mandate.settings->>'maxTokens')::bigint - coalesce(sum(coalesce(c.actual_tokens, c.bound_tokens)), 0)
   into usd_left, tokens_left from private.takeoff_api_calls c where c.mandate_id = mandate.id and c.scope_id = billing_scope;
-  if usd_left <= 0 or tokens_left <= 0 or p_bound > usd_left or p_tokens > tokens_left then
+  if p_exhausted or usd_left <= 0 or tokens_left <= 0 or p_bound > usd_left or p_tokens > tokens_left then
+    -- A preparation that cannot fit first waits for live reservations. An abandoned lease keeps its full bound.
+    select exists (select 1 from private.takeoff_api_calls c join public.takeoff_jobs j on j.id = c.job_id
+      where c.mandate_id = mandate.id and c.scope_id = billing_scope and c.settled_at is null
+        and j.status = 'processing' and j.processing_lease_token = c.lease_token
+        and j.processing_lease_expires_at > pg_catalog.clock_timestamp()) into capacity_held;
+    if capacity_held then
+      return query select 'CAPACITY_HELD'::text, greatest(0, usd_left), greatest(0, tokens_left), null::uuid;
+      return;
+    end if;
+    if usd_left > 0 and tokens_left > 0 and (not p_exhausted or usd_left > p_bound or tokens_left > p_tokens) then
+      return query select 'REPREPARE'::text, usd_left, tokens_left, null::uuid;
+      return;
+    end if;
     insert into private.takeoff_api_budget_stops (mandate_id, scope_id, reason) values (mandate.id, billing_scope, 'BUDGET_EXHAUSTED');
     return query select 'BUDGET_EXHAUSTED'::text, greatest(0, usd_left), greatest(0, tokens_left), null::uuid;
     return;
   end if;
   if p_bound is not null or p_tokens is not null then
-    insert into private.takeoff_api_calls (mandate_id, scope_id, job_id, lease_token, branch, bound_nano_usd, bound_tokens)
-    values (mandate.id, billing_scope, job.id, p_lease_token, p_branch, p_bound, p_tokens) returning id into reserved;
+    insert into private.takeoff_api_calls (mandate_id, scope_id, job_id, lease_token, branch, tile_key, bound_nano_usd, bound_tokens)
+    values (mandate.id, billing_scope, job.id, p_lease_token, p_branch, p_tile_key, p_bound, p_tokens) returning id into reserved;
   end if;
   return query select null::text, usd_left, tokens_left, reserved;
 end;
@@ -238,16 +276,26 @@ $$;
 create function public.settle_takeoff_api_call(
   p_call_id uuid, p_job_id uuid, p_tenant_id uuid, p_project_id uuid, p_payer_id uuid, p_lease_token uuid,
   p_cost bigint default null, p_tokens bigint default null
-) returns boolean language sql security definer set search_path = '' as $$
+) returns boolean language plpgsql security definer set search_path = '' as $$
+declare
+  billing_scope uuid;
+  settled private.takeoff_api_calls;
+begin
   -- A delayed response belongs to the reservation's original lease, even after a crash and a new attempt.
-  with settled as (
-    update private.takeoff_api_calls c set actual_nano_usd = p_cost, actual_tokens = p_tokens, settled_at = pg_catalog.clock_timestamp()
-    from private.takeoff_api_mandates m
-    where c.id = p_call_id and c.job_id = p_job_id and c.lease_token = p_lease_token and c.settled_at is null
-      and c.mandate_id = m.id and m.tenant_id = p_tenant_id and m.project_id = p_project_id and m.payer_id = p_payer_id
-    returning c.id
-  )
-  select exists(select 1 from settled)
+  select c.scope_id into billing_scope from private.takeoff_api_calls c join private.takeoff_api_mandates m on m.id = c.mandate_id
+  where c.id = p_call_id and c.job_id = p_job_id and c.lease_token = p_lease_token and c.settled_at is null
+    and m.tenant_id = p_tenant_id and m.project_id = p_project_id and m.payer_id = p_payer_id;
+  if not found then return false; end if;
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-api:' || billing_scope::text, 0));
+  update private.takeoff_api_calls c set actual_nano_usd = p_cost, actual_tokens = p_tokens, settled_at = pg_catalog.clock_timestamp()
+  where c.id = p_call_id and c.settled_at is null returning c.* into settled;
+  if not found then return false; end if;
+  if p_cost > settled.bound_nano_usd or p_tokens > settled.bound_tokens then
+    insert into private.takeoff_api_budget_stops (mandate_id, scope_id, reason)
+    values (settled.mandate_id, billing_scope, 'BUDGET_EXHAUSTED') on conflict do nothing;
+  end if;
+  return true;
+end;
 $$;
 
 -- Only this Mac's current runtime can reschedule an expired API lease. Its prior reservations still debit the request.
@@ -274,22 +322,48 @@ begin
 end;
 $$;
 
+-- The hosted recovery can close a waiting API job after its deadline even if its Mac never comes back.
+create function public.expire_queued_personal_api_takeoff_jobs(p_now timestamptz)
+returns void language plpgsql security definer set search_path = '' as $$
+declare
+  recovery_at timestamptz := least(p_now, pg_catalog.clock_timestamp());
+  activation private.takeoff_completion_activation;
+begin
+  if p_now is null then raise exception 'TAKEOFF_RECOVERY_ARGUMENT_INVALID' using errcode = '22023'; end if;
+  select * into activation from private.takeoff_completion_activation;
+  perform pg_catalog.set_config('mergeone.takeoff_api_recovery', 'queue', true);
+  with expired as (
+    select j.id from public.takeoff_jobs j
+    where j.analysis_outcome is null and j.preparation_snapshot->'execution_selection'->>'source' = 'personal_api_key'
+      and (j.status = 'pending' or (j.status = 'failed' and j.next_retry_at is not null))
+      and greatest(activation.active_from, case when j.status = 'pending' then coalesce(j.analysis_queued_at, j.created_at)
+        else j.next_retry_at end) <= recovery_at - coalesce(activation.wait_ceiling, interval '24 hours')
+    order by j.id limit 20 for update skip locked
+  )
+  update public.takeoff_jobs j set status = 'failed', completed_at = recovery_at, last_error_at = recovery_at,
+    next_retry_at = null, analysis_outcome = 'failure', error_code = 'TAKEOFF_WORKER_QUEUE_EXPIRED',
+    error_message = 'Le métré n’a pas repris avant la fin du délai d’attente du poste autorisé. Les résultats déjà enregistrés sont conservés.'
+  from expired where j.id = expired.id;
+  perform pg_catalog.set_config('mergeone.takeoff_api_recovery', '', true);
+end;
+$$;
+
 revoke all on function private.assert_takeoff_api_scope(jsonb, uuid, uuid, uuid, text),
   private.guard_takeoff_api_request(), private.guard_takeoff_api_job() from public, anon, authenticated, service_role;
 
 revoke all on function public.seal_takeoff_api_mandate(uuid,uuid,uuid,uuid,jsonb),
   public.read_takeoff_api_mandate(uuid,uuid,uuid,uuid),
   public.claim_personal_api_takeoff_job(uuid,uuid,text,timestamptz,uuid,timestamptz,text,text,text,integer),
-  public.reserve_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,boolean,text,bigint,bigint,boolean),
+  public.reserve_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,boolean,text,bigint,bigint,boolean,text),
   public.settle_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,uuid,bigint,bigint),
-  public.recover_personal_api_takeoff_jobs(text) from public, anon, authenticated;
+  public.recover_personal_api_takeoff_jobs(text), public.expire_queued_personal_api_takeoff_jobs(timestamptz) from public, anon, authenticated;
 
 grant execute on function public.seal_takeoff_api_mandate(uuid,uuid,uuid,uuid,jsonb),
   public.read_takeoff_api_mandate(uuid,uuid,uuid,uuid),
   public.claim_personal_api_takeoff_job(uuid,uuid,text,timestamptz,uuid,timestamptz,text,text,text,integer),
-  public.reserve_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,boolean,text,bigint,bigint,boolean),
+  public.reserve_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,boolean,text,bigint,bigint,boolean,text),
   public.settle_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,uuid,bigint,bigint),
-  public.recover_personal_api_takeoff_jobs(text) to service_role;
+  public.recover_personal_api_takeoff_jobs(text), public.expire_queued_personal_api_takeoff_jobs(timestamptz) to service_role;
 
 -- A recovered API job may retry because its prior paid calls still hold their full reservations.
 create or replace function private.set_takeoff_analysis_outcome()

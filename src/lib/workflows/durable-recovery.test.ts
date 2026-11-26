@@ -84,6 +84,7 @@ describe("durable workflow recovery", () => {
     const result = await recoverDurableWorkflows({
       client,
       processIntake,
+      now: () => new Date("2026-11-26T12:00:00Z"),
       drainStorageCleanup,
       drainEmailOutbox: async () => EMAIL_OUTBOX_RESULT,
       maxIntakePerRun: 0,
@@ -94,6 +95,7 @@ describe("durable workflow recovery", () => {
     expect(result.failedCount).toBe(0);
     expect(result.skippedCount).toBe(2);
     expect(result.deadCount).toBe(0);
+    expect(client.rpc).toHaveBeenCalledWith("expire_queued_personal_api_takeoff_jobs", { p_now: "2026-11-26T12:00:00.000Z" });
     // A launch request whose units all ended is closed from what was recorded, without any AI call.
     expect(client.rpc).toHaveBeenCalledWith("reconcile_takeoff_launch_requests", { p_limit: 20 });
   });

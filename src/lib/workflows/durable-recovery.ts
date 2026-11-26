@@ -296,6 +296,11 @@ export async function recoverDurableWorkflows(
     });
   }
 
+  const { error: apiQueueError } = await client.rpc("expire_queued_personal_api_takeoff_jobs", { p_now: now().toISOString() });
+  if (apiQueueError && (apiQueueError as { code?: string }).code !== "PGRST202") {
+    console.error("takeoff.api_queue.recovery_failed");
+  }
+
   // A launch request whose units have all ended but which is still open is closed, with its one notice, from what was
   // recorded, without any AI call (migration 20261121231238_takeoff_plan_dispatcher.sql). Best effort: its failure never
   // stops the recovery of the rest.
