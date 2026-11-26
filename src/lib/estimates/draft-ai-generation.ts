@@ -63,7 +63,12 @@ export async function resolveEstimateDraftAi(owner: Owner, request: EstimateDraf
 
   const { source, preferences, connection } = selection;
   let spentNanoUsd = 0;
-  async function generate<T>(step: Step, options: StructuredCallOptions<T>) {
+  async function generate<T>(
+    step: Step,
+    options: StructuredCallOptions<T>,
+    requireExecution: () => Promise<void>,
+  ) {
+    await requireExecution();
     if (source === "chatgpt_plan") {
       return callStructuredAi({ ...options, context: { ...options.context, tenantId: owner.tenantId } }, owner, preferences);
     }
@@ -84,6 +89,7 @@ export async function resolveEstimateDraftAi(owner: Owner, request: EstimateDraf
         minOutputTokens: outputTokens[step].min,
         outputCap: outputTokens[step].cap,
       });
+      await requireExecution();
       const result = await adapter.execute<T>(owner, prepared, { timeoutMs: 120_000 });
       if (result.costNanoUsd === null) throw new ApiKeyError("AI_KEY_COST_UNKNOWN");
       spentNanoUsd += result.costNanoUsd;

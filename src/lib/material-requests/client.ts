@@ -55,6 +55,7 @@ import {
 import type { MaterialRequestQuoteComparison, QuoteComparisonSettings } from "./quote-comparison";
 import type { AffaireSupplyCost } from "./supply-cost-contracts";
 import type { ConsultationTemplateRecord, ConsultationTemplates } from "./consultation-template-contracts";
+import type { MaterialRequestWorkbookPreview } from "./workbook-preview-contract";
 
 /**
  * Browser-side calls of the material request screens (TI-690). Each function is one HTTP request and
@@ -300,6 +301,17 @@ export async function deleteMaterialRequestFile(projectId: string, requestId: st
     undefined,
     "La photo n’a pas pu être retirée.",
   );
+}
+
+export function fetchMaterialRequestWorkbookPreview(
+  projectId: string,
+  requestId: string,
+  fileId: string,
+  sheet: string | undefined,
+  signal: AbortSignal,
+): Promise<MaterialRequestWorkbookPreview> {
+  const path = requestsPath(projectId, requestId, "files", fileId, "workbook-preview");
+  return read(sheet === undefined ? path : `${path}?${new URLSearchParams({ sheet })}`, "L’aperçu du classeur n’a pas pu être affiché.", signal);
 }
 
 /**
