@@ -478,6 +478,8 @@ create function pg_temp.tried(p_sql text) returns text language sql as $$
 $$;
 grant execute on function pg_temp.tried(text) to authenticated;
 
+\ir ../fixtures/takeoff-retain-measure.sql
+
 -- 2. The first send of a plan: a first draft created, its section by its identity, one line for the lavabo (2 on page 2
 --    and 1 on page 7: 3 u), the target, its parts, its pages, the receipt; the job linked and applied.
 select pg_temp.sign_in(1);
@@ -1704,6 +1706,9 @@ select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.refusal($$select pg_temp.send(781, 'wc_planner_choice')$$), '22023 TAKEOFF_ITEM_SEND_INVALID',
   'closing 5: a choice of line spelled otherwise than the writer reads it is a malformed plan');
+reset role;
+\ir ../fixtures/takeoff-retain-destination.sql
+set local role authenticated;
 -- The same choice as the planner writes it now (estimate_item_id): confirmed.
 select is((pg_temp.send(781, 'wc_page_7') -> 'lines' -> 0 ->> 'quantity_after'), '6',
   'page 2 left out, page 7 sent: the DPGF line holds max(4, 1 + 5) = 6, its legacy part kept');
