@@ -401,6 +401,7 @@
     "20261125110250_takeoff_command_current_plan_copies.sql": "f0b790b77312dac106d2e6bff72aae68a64c9856074fc62c61f42fc97ebe5288",
     "20261125185936_estimate_creation_payload_passes.sql": "44c6f41c59dd81513d95a11ae5f2761eb8a2d44e821fbb2e18a5c081e91c590a",
     "20261125210441_workbook_import_batches_aliases_bulk_review.sql": "c7c66a2937f1dc0d39b779fe3fc65e8448f2bfa0579e2939758dbb09b7dd6060",
-    "20261126011254_workbook_undo_release_kept_article_locks.sql": "68ec924ebf3c3ceff205e3669cd7125ea3aca64feb3857048ac26d127c7ea77a"
+    "20261126011254_workbook_undo_release_kept_article_locks.sql": "68ec924ebf3c3ceff205e3669cd7125ea3aca64feb3857048ac26d127c7ea77a",
+    "20261126100842_workbook_undo_authorization_and_batch_indexes.sql": "eaf3165602bb2c6bcb164917718be45eb629baa742e8cda1d95c2b71fd7295d7"
   }
 }

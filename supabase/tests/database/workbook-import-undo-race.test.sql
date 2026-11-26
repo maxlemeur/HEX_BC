@@ -20,16 +20,31 @@ select is(extensions.dblink_exec('workbook_writer', $setup$
 begin;
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data,
   raw_user_meta_data, created_at, updated_at, confirmation_token, email_change, email_change_token_new, recovery_token)
-values ('00000000-0000-0000-0000-000000000000', 'a711ace0-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
-  'workbook-undo-race@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', '');
+select '00000000-0000-0000-0000-000000000000', fixture.id, 'authenticated', 'authenticated',
+  fixture.email, '', now(), '{}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', ''
+from (values
+  ('a711ace0-0000-4000-8000-000000000001'::uuid, 'workbook-undo-race@example.test'),
+  ('a711ace0-0000-4000-8000-000000000002'::uuid, 'workbook-undo-engineer@example.test'),
+  ('a711ace0-0000-4000-8000-000000000003'::uuid, 'workbook-undo-viewer@example.test')
+) as fixture(id, email);
 select set_config('workbook_race.tenant_id', tenant_id::text, false)
 from public.tenant_memberships where user_id = 'a711ace0-0000-4000-8000-000000000001' and is_default;
+delete from public.tenant_memberships
+where user_id in ('a711ace0-0000-4000-8000-000000000002', 'a711ace0-0000-4000-8000-000000000003');
+insert into public.tenant_memberships (tenant_id, user_id, role, is_default)
+values
+  (current_setting('workbook_race.tenant_id')::uuid, 'a711ace0-0000-4000-8000-000000000002', 'engineer', true),
+  (current_setting('workbook_race.tenant_id')::uuid, 'a711ace0-0000-4000-8000-000000000003', 'viewer', true);
 insert into public.catalogue_import_batches (id, tenant_id, kind, created_by)
 select batch.id, current_setting('workbook_race.tenant_id')::uuid, batch.kind, 'a711ace0-0000-4000-8000-000000000001'
 from (values ('a711ace0-0000-4000-8000-000000000010'::uuid, 'workbook_articles'),
   ('a711ace0-0000-4000-8000-000000000011'::uuid, 'workbook_supplier_references'),
   ('a711ace0-0000-4000-8000-000000000012'::uuid, 'workbook_supplier_references'),
-  ('a711ace0-0000-4000-8000-000000000013'::uuid, 'workbook_articles')) as batch(id, kind);
+  ('a711ace0-0000-4000-8000-000000000013'::uuid, 'workbook_articles'),
+  ('a711ace0-0000-4000-8000-000000000014'::uuid, 'workbook_articles')) as batch(id, kind);
+insert into public.catalogue_import_batches (id, tenant_id, kind, created_by)
+values ('a711ace0-0000-4000-8000-000000000015', current_setting('workbook_race.tenant_id')::uuid,
+  'workbook_articles', 'a711ace0-0000-4000-8000-000000000002');
 insert into public.suppliers (id, tenant_id, name)
 values ('a711ace0-0000-4000-8000-000000000020', current_setting('workbook_race.tenant_id')::uuid, 'Fournisseur fictif');
 set local role authenticated;
@@ -108,6 +123,66 @@ begin
   return false;
 end;
 $$;
+
+-- Rejected calls must finish while a writer still holds the batch row.
+select is(extensions.dblink_exec('workbook_writer', $lock$
+begin;
+reset role;
+do $row$ begin
+  perform 1 from public.catalogue_import_batches where id = 'a711ace0-0000-4000-8000-000000000014' for update;
+end; $row$;
+$lock$), 'DO', 'the writer holds the batch row');
+select is(extensions.dblink_exec('workbook_undo', $settings$
+set lock_timeout = '250ms';
+set request.jwt.claim.sub = 'a711ace0-0000-4000-8000-000000000003';
+$settings$), 'SET', 'undo session acts as a viewer with a short lock timeout');
+select throws_ok(
+  $$select * from extensions.dblink('workbook_undo',
+    'select public.undo_catalogue_import_batch(''a711ace0-0000-4000-8000-000000000014'')') as response(result jsonb)$$,
+  '42501', 'CATALOGUE_IMPORT_UNDO_FORBIDDEN', 'a viewer is refused while the batch is locked'
+);
+select is(extensions.dblink_exec('workbook_undo',
+  $$set request.jwt.claim.sub = 'a711ace0-0000-4000-8000-000000000002'$$), 'SET', 'undo session acts as a different engineer');
+select throws_ok(
+  $$select * from extensions.dblink('workbook_undo',
+    'select public.undo_catalogue_import_batch(''a711ace0-0000-4000-8000-000000000014'')') as response(result jsonb)$$,
+  '42501', 'CATALOGUE_IMPORT_UNDO_FORBIDDEN', 'a non-author engineer is refused while the batch is locked'
+);
+select is(extensions.dblink_exec('workbook_undo',
+  $$set request.jwt.claim.sub = 'a711ace0-0000-4000-8000-000000000001'$$), 'SET', 'undo session acts as the administrator');
+select throws_ok(
+  $$select * from extensions.dblink('workbook_undo',
+    'select public.undo_catalogue_import_batch(''a711ace0-0000-4000-8000-000000000014'', 0)') as response(result jsonb)$$,
+  '22023', 'CATALOGUE_IMPORT_UNDO_INVALID', 'an invalid page size is refused while the batch is locked'
+);
+select is(extensions.dblink_exec('workbook_undo', 'reset lock_timeout'), 'RESET', 'restore the authorized caller lock timeout');
+select is(extensions.dblink_send_query('workbook_undo',
+  $$select public.undo_catalogue_import_batch('a711ace0-0000-4000-8000-000000000014')$$), 1, 'authorized undo starts');
+select ok(pg_temp.workbook_undo_waits_for(), 'authorized undo waits for the batch row');
+select is(extensions.dblink_exec('workbook_writer', 'commit'), 'COMMIT', 'the writer releases the batch row');
+select is((select result from extensions.dblink_get_result('workbook_undo') as response(result jsonb)),
+  '{"deleted": 0, "kept": 0, "done": true}'::jsonb, 'authorized undo proceeds after the batch row is released');
+select count(*) from extensions.dblink_get_result('workbook_undo') as response(result jsonb);
+
+-- Model the ON DELETE SET NULL on the author foreign key while the author can still see the old row.
+select is(extensions.dblink_exec('workbook_writer', $clear_author$
+begin;
+update public.catalogue_import_batches set created_by = null where id = 'a711ace0-0000-4000-8000-000000000015';
+$clear_author$), 'UPDATE 1', 'the writer clears the author without committing yet');
+select is(extensions.dblink_exec('workbook_undo',
+  $$set request.jwt.claim.sub = 'a711ace0-0000-4000-8000-000000000002'$$), 'SET', 'undo session acts as the batch author');
+select is(extensions.dblink_send_query('workbook_undo',
+  $$select public.undo_catalogue_import_batch('a711ace0-0000-4000-8000-000000000015')$$), 1, 'the apparent author starts undo');
+select ok(pg_temp.workbook_undo_waits_for(), 'the apparent author reaches the batch lock');
+select is(extensions.dblink_exec('workbook_writer', 'commit'), 'COMMIT', 'the author change commits');
+select throws_ok(
+  $$select * from extensions.dblink_get_result('workbook_undo') as response(result jsonb)$$,
+  '42501', 'CATALOGUE_IMPORT_UNDO_FORBIDDEN', 'the locked row no longer authorizes the engineer'
+);
+select count(*) from extensions.dblink_get_result('workbook_undo', false) as response(result jsonb);
+select is(extensions.dblink_exec('workbook_undo',
+  $$set request.jwt.claim.sub = 'a711ace0-0000-4000-8000-000000000001'$$), 'SET', 'restore the undo session administrator');
+select is(extensions.dblink_exec('workbook_writer', 'set role authenticated'), 'SET', 'restore the writer session role');
 
 select is(extensions.dblink_exec('workbook_writer', $alias$
 begin;
@@ -283,7 +358,11 @@ drop function private.forbid_workbook_undo_race_product_delete();
 set local session_replication_role = replica;
 do $clean$
 declare
-  target uuid := current_setting('workbook_race.tenant_id')::uuid;
+  targets uuid[] := array(
+    select id from public.tenants
+    where created_by in (
+      'a711ace0-0000-4000-8000-000000000001', 'a711ace0-0000-4000-8000-000000000002', 'a711ace0-0000-4000-8000-000000000003')
+  );
   entry record;
 begin
   for entry in
@@ -293,14 +372,16 @@ begin
     where column_name = 'tenant_id' and table_schema in ('public', 'private')
       and table_type = 'BASE TABLE' and not (table_schema = 'public' and table_name in ('tenants', 'audit_logs'))
   loop
-    execute format('delete from %I.%I where tenant_id = $1', entry.table_schema, entry.table_name) using target;
+    execute format('delete from %I.%I where tenant_id = any($1)', entry.table_schema, entry.table_name) using targets;
   end loop;
-  delete from public.audit_logs where tenant_id = target;
-  delete from public.tenants where id = target;
+  delete from public.audit_logs where tenant_id = any(targets);
+  delete from public.tenants where id = any(targets);
 end;
 $clean$;
-delete from public.profiles where id = 'a711ace0-0000-4000-8000-000000000001';
-delete from auth.users where id = 'a711ace0-0000-4000-8000-000000000001';
+delete from public.profiles where id in (
+  'a711ace0-0000-4000-8000-000000000001', 'a711ace0-0000-4000-8000-000000000002', 'a711ace0-0000-4000-8000-000000000003');
+delete from auth.users where id in (
+  'a711ace0-0000-4000-8000-000000000001', 'a711ace0-0000-4000-8000-000000000002', 'a711ace0-0000-4000-8000-000000000003');
 commit;
 $cleanup$), 'COMMIT', 'committed fixtures and the test trigger are removed');
 select is(extensions.dblink_disconnect(session.name), 'OK', format('%s disconnected', session.name))

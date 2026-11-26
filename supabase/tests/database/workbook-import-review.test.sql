@@ -382,8 +382,8 @@ select is(
 
 with expected(index_name, definition_fragment) as (
   values
-    ('products_import_batch_idx', '(import_batch_id, id) WHERE (import_batch_id IS NOT NULL)'),
-    ('supplier_catalog_items_import_batch_idx', '(import_batch_id, id) WHERE (import_batch_id IS NOT NULL)'),
+    ('products_import_batch_idx', '(tenant_id, import_batch_id, id) WHERE (import_batch_id IS NOT NULL)'),
+    ('supplier_catalog_items_import_batch_idx', '(tenant_id, import_batch_id, id) WHERE (import_batch_id IS NOT NULL)'),
     ('supplier_catalog_items_review_queue_idx', '(tenant_id, created_at DESC) WHERE reference_needs_review'),
     ('catalogue_import_batches_tenant_created_idx', '(tenant_id, created_at DESC)'),
     ('estimate_items_product_id_idx', '(product_id) WHERE (product_id IS NOT NULL)'),
@@ -428,6 +428,19 @@ select is(
   '',
   'U every foreign key to an article, a reference or a batch, and every one of the new tables, is indexed'
 );
+-- Splinter lint 0001 compares the full foreign key with the leading columns of a valid index.
+select ok(
+  exists (
+    select 1 from pg_index idx
+    where idx.indrelid = con.conrelid and idx.indisvalid
+      and (string_to_array(idx.indkey::text, ' ')::smallint[])[1:cardinality(con.conkey)] = con.conkey
+  ),
+  format('U %s has a covering index for both foreign key columns', con.conname)
+)
+from pg_constraint con
+where con.contype = 'f' and con.confrelid = 'public.catalogue_import_batches'::regclass
+  and con.conrelid in ('public.products'::regclass, 'public.supplier_catalog_items'::regclass)
+order by con.conname;
 select is(
   (select string_agg(trigger_definition.tgname::text, ', ' order by trigger_definition.tgname)
    from pg_trigger trigger_definition
