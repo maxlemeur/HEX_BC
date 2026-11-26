@@ -7,6 +7,9 @@ import {
 } from "@/lib/estimates/version-zero-drafts";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
+// The database execution lock outlives this request.
+export const maxDuration = 300;
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ versionId: string }> }

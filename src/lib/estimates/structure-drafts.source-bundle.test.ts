@@ -58,6 +58,7 @@ const TEMPLATE_FULL_ID = "b1000000-0000-4000-8000-000000000001";
 const TEMPLATE_EMPTY_ID = "b2000000-0000-4000-8000-000000000002";
 const LATEST_IMPORT_ID = "c2000000-0000-4000-8000-000000000002";
 const OLDER_IMPORT_ID = "c1000000-0000-4000-8000-000000000001";
+const PAGE_ID = "bc000000-0000-4000-8000-000000000001";
 const BRIEF_ID = "d1000000-0000-4000-8000-000000000001";
 
 type Row = Record<string, unknown>;
@@ -197,11 +198,11 @@ function createSupabaseFake(input: {
     return builder;
   });
 
-  const rpc = vi.fn(async (functionName: string) => {
-    if (functionName === "acquire_estimate_ai_generation_lease") {
-      return { data: [{ claimed: true, retry_after_seconds: 0 }], error: null };
+  const rpc = vi.fn(async (...[functionName]: [string, Record<string, unknown>]) => {
+    if (functionName === "acquire_estimate_generation_execution") {
+      return { data: [{ status: "acquired", retry_after_seconds: 0 }], error: null };
     }
-    if (functionName === "complete_estimate_ai_generation_lease") {
+    if (functionName === "release_estimate_generation_execution") {
       return { data: true, error: null };
     }
     throw new Error(`Unexpected RPC ${functionName}`);
@@ -327,6 +328,7 @@ function baseTables(options: { projectNotes?: string | null } = {}): Record<stri
         tenant_id: TENANT_ID,
         version_id: VERSION_ID,
         user_id: USER_ID,
+        session_id: PAGE_ID,
         locked_at: "2026-03-06T09:00:00.000Z",
         expires_at: "2099-03-06T09:30:00.000Z",
       },
@@ -750,6 +752,7 @@ const planSelection = {
 describe("generateEstimateStructureDraft sources", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(headers).mockResolvedValue(new Headers({ [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: PAGE_ID }));
     vi.mocked(fetchMappedRowsForImport).mockResolvedValue([]);
     vi.mocked(callStructuredAi).mockRejectedValue(providerFailure());
     vi.mocked(resolveAiRequest).mockResolvedValue(planSelection);
@@ -1969,6 +1972,7 @@ describe("structure and V0 generation routes", () => {
   const temporaryDirs: string[] = [];
 
   function fixture() {
+    vi.mocked(headers).mockResolvedValue(new Headers({ [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: PAGE_ID }));
     const tables = baseTables({ projectNotes: lots.map((label) => `- ${label}`).join("\n") });
     tables.estimate_versions[0].calc_engine_version = 2;
     tables.affaire_briefs = [{
@@ -2225,16 +2229,57 @@ describe("structure and V0 generation routes", () => {
     expect(callStructuredAi).not.toHaveBeenCalled();
   });
 
-  it("stops V0 after a structure call with unpriceable usage", async () => {
+  it.each(["structure", "v0"] as const)("releases %s after unknown paid usage and immediately allows fallback", async (route) => {
     const fake = fixture();
     const { choice, sent } = await paidAdapter({ serviceTier: "other" });
+    const operations = route === "v0" ? ["version_zero_draft", "structure_draft"] : ["structure_draft"];
 
-    const response = await post("v0", choice);
-    expect(response.status).toBe(409);
-    expect((await response.json()).error.code).toBe("AI_KEY_COST_UNKNOWN");
+    const paidResponse = await post(route, choice);
+    expect(paidResponse.status).toBe(409);
+    expect((await paidResponse.json()).error.code).toBe("AI_KEY_COST_UNKNOWN");
     expect(sent.map(({ path }) => path)).toEqual(["/v1/responses/input_tokens", "/v1/responses"]);
+    expect(fake.draftInserts).toHaveLength(0);
     expect(fake.tables.estimate_version_zero_drafts).toBeUndefined();
+
+    const fallbackResponse = await post(route, { source: "fallback" });
+    expect(fallbackResponse.status).toBe(201);
+    expect(sent).toHaveLength(2);
     expect(callStructuredAi).not.toHaveBeenCalled();
+    if (route === "structure") {
+      expect((await fallbackResponse.json()).data).toMatchObject({ generation_kind: "fallback" });
+    } else {
+      expect((await fallbackResponse.json()).data.lots[0].lines[0].generationOrigin).toBe("brief");
+    }
+
+    for (const [useAi, offset] of [[true, 0], [false, operations.length * 2]] as const) {
+      const calls = fake.supabase.rpc.mock.calls.slice(offset, offset + operations.length * 2);
+      const tokens = calls.slice(0, operations.length).map(([name, args], index) => {
+        expect(name).toBe("acquire_estimate_generation_execution");
+        expect(args).toEqual({
+          p_version_id: VERSION_ID, p_operation: operations[index], p_use_ai: useAi,
+          p_draft_lock_session_id: PAGE_ID, p_token: expect.any(String),
+        });
+        return { p_version_id: args.p_version_id, p_operation: args.p_operation, p_token: args.p_token };
+      });
+      expect(calls.slice(operations.length)).toEqual(tokens.reverse().map((args) =>
+        ["release_estimate_generation_execution", args]));
+    }
+  });
+
+  it("refuses concurrent V0 fallback with a mode-neutral message", async () => {
+    const fake = fixture();
+    fake.supabase.rpc.mockResolvedValueOnce({
+      data: [{ status: "busy", retry_after_seconds: 180 }], error: null,
+    });
+    const response = await post("v0", { source: "fallback" });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatchObject({
+      code: "ESTIMATE_GENERATION_IN_PROGRESS",
+      message: "Une génération est déjà en cours pour cette version.",
+      details: { retry_after_seconds: 180 },
+    });
+    expect(fake.supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(fake.tables.estimate_version_zero_drafts).toBeUndefined();
   });
 
   it.each(["structure", "v0"] as const)("refuses %s with no provider call on a stale connection or absent consent", async (route) => {

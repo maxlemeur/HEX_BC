@@ -322,6 +322,9 @@ const portalAndProcurementContracts: RouteContract[] = [
 const estimateDraftAiChoiceErrorDescription =
   `Une requête autrement valide sans le champ ai reçoit un HTTP 400 avec le code ${ESTIMATE_DRAFT_AI_CHOICE_REQUIRED.code} et le message « ${ESTIMATE_DRAFT_AI_CHOICE_REQUIRED.message} ».`;
 
+const estimateGenerationConflictDescription =
+  "Un HTTP 409 ESTIMATE_GENERATION_IN_PROGRESS signale une génération de la même opération en cours. Le code ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED et la fenêtre de dix minutes s’appliquent aux demandes avec IA. Ces deux refus indiquent le délai en secondes dans details.retry_after_seconds.";
+
 const estimateWorkflowContracts: RouteContract[] = [
   {
     id: "get-estimate-approval-journal",
@@ -471,7 +474,7 @@ const estimateWorkflowContracts: RouteContract[] = [
     method: "post",
     path: "/api/estimates/{versionId}/structure-drafts",
     summary: "Generer un brouillon de structure",
-    description: "Produit un brouillon de structure hybride depuis les sources disponibles.",
+    description: `Produit un brouillon de structure hybride depuis les sources disponibles. ${estimateGenerationConflictDescription}`,
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
     body: { schema: generateEstimateStructureDraftSchema, description: `Stratégie et choix IA. Une génération avec la clé personnelle est plafonnée à 1 USD. ${estimateDraftAiChoiceErrorDescription}` },
@@ -517,7 +520,7 @@ const estimateWorkflowContracts: RouteContract[] = [
     method: "post",
     path: "/api/estimates/{versionId}/version-zero-drafts",
     summary: "Generer une version zero",
-    description: "Genere un brouillon IA a revoir pour les lots selectionnes.",
+    description: `Génère un brouillon à revoir pour les lots sélectionnés, avec ou sans IA. ${estimateGenerationConflictDescription}`,
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
     body: { schema: generateVersionZeroDraftSchema, description: `Brief, lots et choix IA. La structure et les lignes partagent le plafond de 1 USD avec la clé personnelle. ${estimateDraftAiChoiceErrorDescription}` },

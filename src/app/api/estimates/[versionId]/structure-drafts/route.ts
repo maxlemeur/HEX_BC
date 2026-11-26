@@ -4,6 +4,9 @@ import { generateEstimateStructureDraftSchema } from "@/lib/estimates/schemas";
 import { generateEstimateStructureDraft } from "@/lib/estimates/structure-drafts";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
+// The database execution lock outlives this request.
+export const maxDuration = 300;
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ versionId: string }> }

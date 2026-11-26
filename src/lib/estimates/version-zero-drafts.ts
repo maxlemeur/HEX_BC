@@ -30,10 +30,8 @@ import {
   readVersionZeroLineOrigin,
   type VersionZeroLineOrigin,
 } from "@/lib/estimates/version-zero-utils";
-import {
-  buildEstimateStructurePreview,
-  withEstimateAiGenerationLease,
-} from "@/lib/estimates/structure-drafts";
+import { buildEstimateStructurePreview } from "@/lib/estimates/structure-drafts";
+import { withEstimateGenerationExecution } from "@/lib/estimates/generation-execution";
 import { resolveEstimateDraftAi, type EstimateDraftAiGeneration } from "@/lib/estimates/draft-ai-generation";
 import type { Database, Json } from "@/types/database";
 
@@ -1230,7 +1228,7 @@ export async function generateVersionZeroDraft(input: {
 
   assertDraftStatus(version.status);
   const draftLock = { supabase, tenantId, versionId: input.versionId, userId };
-  await assertDraftLockOwnedByCurrentUser(draftLock);
+  const pageLock = await assertDraftLockOwnedByCurrentUser(draftLock);
   await assertVersionIsEmpty({
     supabase,
     tenantId,
@@ -1253,18 +1251,22 @@ export async function generateVersionZeroDraft(input: {
 
   const ai = await resolveEstimateDraftAi({ tenantId, userId }, input.ai);
 
-  return withEstimateAiGenerationLease({
+  return withEstimateGenerationExecution({
     supabase,
     versionId: input.versionId,
     operation: "version_zero_draft",
+    pageSessionId: pageLock.session_id,
+    useAi: ai !== null,
     run: async () => {
       const sourceLinks = await loadBriefSourceLinks({ supabase, briefId: brief.id });
-      await assertDraftLockOwnedByCurrentUser(draftLock);
+      const currentPageLock = await assertDraftLockOwnedByCurrentUser(draftLock);
       // V0 uses structure suggestions as input, without replacing a standalone pending preview.
-      const structurePreview = await withEstimateAiGenerationLease({
+      const structurePreview = await withEstimateGenerationExecution({
         supabase,
         versionId: input.versionId,
         operation: "structure_draft",
+        pageSessionId: currentPageLock.session_id,
+        useAi: ai !== null,
         run: () => buildEstimateStructurePreview({ supabase, tenantId, project, version, ai }),
       }).catch((error: unknown) => {
         if (ai?.source === "personal_api_key") throw error;

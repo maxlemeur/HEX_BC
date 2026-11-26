@@ -14,13 +14,19 @@ vi.mock("@/lib/ai/structured-ai", () => ({
   callStructuredAi: vi.fn(),
 }));
 
+vi.mock(import("next/headers"), async (original) => ({
+  ...await original(),
+  headers: vi.fn(),
+}));
+
+import { headers } from "next/headers";
+import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import { fetchMappedRowsForImport } from "@/lib/affaires/import-flow-server";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
 import {
   applyEstimateStructureDraft,
   generateEstimateStructureDraft,
   inferDpgfPath,
-  withEstimateAiGenerationLease,
 } from "@/lib/estimates/structure-drafts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -29,6 +35,7 @@ const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const VERSION_ID = "33333333-3333-4333-8333-333333333333";
 const PROJECT_ID = "44444444-4444-4444-8444-444444444444";
 const DRAFT_ID = "55555555-5555-4555-8555-555555555555";
+const PAGE_ID = "bc000000-0000-4000-8000-000000000001";
 const ROOT_NODE_ID = "66666666-6666-4666-8666-666666666666";
 const CHILD_NODE_ID = "77777777-7777-4777-8777-777777777777";
 const EXISTING_SECTION_ID = "88888888-8888-4888-8888-888888888888";
@@ -100,7 +107,7 @@ function createVersionAccessBuilder(calcEngineVersion?: number) {
   return builder;
 }
 
-function createDraftLockBuilder() {
+function createDraftLockBuilder(pageId?: string) {
   const builder = {
     eq: vi.fn(),
     gt: vi.fn(),
@@ -109,6 +116,7 @@ function createDraftLockBuilder() {
         id: "lock-1",
         version_id: VERSION_ID,
         user_id: USER_ID,
+        session_id: pageId,
         locked_at: "2026-03-06T09:00:00.000Z",
         expires_at: "2099-03-06T09:30:00.000Z",
       },
@@ -543,7 +551,7 @@ function createGenerateStructureSupabaseMock(options?: {
   }>;
   projectNotes?: string | null;
   existingItems?: ReturnType<typeof buildEstimateSectionRow>[];
-  leaseClaimed?: boolean;
+  generationBusy?: boolean;
   calcEngineVersion?: number;
 }) {
   const membershipBuilder = createMembershipBuilder();
@@ -577,7 +585,7 @@ function createGenerateStructureSupabaseMock(options?: {
   const historyVersionsBuilder = createListBuilder<
     { id: string; version_number: number; title: string | null }
   >([]);
-  const draftLockBuilder = createDraftLockBuilder();
+  const draftLockBuilder = createDraftLockBuilder(PAGE_ID);
   const estimateItemsBuilder = createGenerateEstimateItemsBuilder(
     options?.existingItems ?? []
   );
@@ -641,18 +649,18 @@ function createGenerateStructureSupabaseMock(options?: {
     .mockReturnValueOnce(versionAccessBuilder)
     .mockReturnValueOnce(historyVersionsBuilder);
   const rpc = vi.fn(async (functionName: string) => {
-    if (functionName === "acquire_estimate_ai_generation_lease") {
+    if (functionName === "acquire_estimate_generation_execution") {
       return {
         data: [
           {
-            claimed: options?.leaseClaimed ?? true,
-            retry_after_seconds: options?.leaseClaimed === false ? 600 : 0,
+            status: options?.generationBusy ? "busy" : "acquired",
+            retry_after_seconds: options?.generationBusy ? 300 : 0,
           },
         ],
         error: null,
       };
     }
-    if (functionName === "complete_estimate_ai_generation_lease") {
+    if (functionName === "release_estimate_generation_execution") {
       return { data: true, error: null };
     }
     throw new Error(`Unexpected RPC ${functionName}`);
@@ -764,9 +772,10 @@ describe("generateEstimateStructureDraft", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchMappedRowsForImport).mockResolvedValue([]);
+    vi.mocked(headers).mockResolvedValue(new Headers({ [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: PAGE_ID }));
   });
 
-  it("rejects a replayed generation before the AI provider", async () => {
+  it("rejects concurrent fallback generation before writing a preview", async () => {
     const { supabase, draftNodesInsert, rpc } = createGenerateStructureSupabaseMock({
       assemblies: [
         {
@@ -775,7 +784,7 @@ describe("generateEstimateStructureDraft", () => {
           description: "Bloc standard",
         },
       ],
-      leaseClaimed: false,
+      generationBusy: true,
     });
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
@@ -783,82 +792,16 @@ describe("generateEstimateStructureDraft", () => {
     await expect(
       generateEstimateStructureDraft(VERSION_ID, { strategy: "hybrid", ai: { source: "fallback" } })
     ).rejects.toMatchObject({
-      code: "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED",
+      code: "ESTIMATE_GENERATION_IN_PROGRESS",
       status: 409,
+      message: "Une génération est déjà en cours pour cette version.",
     });
 
     expect(vi.mocked(callStructuredAi)).not.toHaveBeenCalled();
     expect(draftNodesInsert).not.toHaveBeenCalled();
-    expect(rpc).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("withEstimateAiGenerationLease", () => {
-  it("allows one legitimate operation and closes concurrent requests and replays", async () => {
-    let consumed = false;
-    let releaseRun: () => void = () => {
-      throw new Error("Generation gate was not initialized.");
-    };
-    const providerSink = vi.fn(async () => "generated");
-    const rpc = vi.fn(async (functionName: string) => {
-      if (functionName === "acquire_estimate_ai_generation_lease") {
-        if (consumed) {
-          return {
-            data: [{ claimed: false, retry_after_seconds: 600 }],
-            error: null,
-          };
-        }
-        consumed = true;
-        return {
-          data: [{ claimed: true, retry_after_seconds: 0 }],
-          error: null,
-        };
-      }
-      if (functionName === "complete_estimate_ai_generation_lease") {
-        return { data: true, error: null };
-      }
-      throw new Error(`Unexpected RPC ${functionName}`);
-    });
-    const supabase = { rpc };
-    const gate = new Promise<void>((resolve) => {
-      releaseRun = resolve;
-    });
-
-    const first = withEstimateAiGenerationLease({
-      supabase: supabase as never,
-      versionId: VERSION_ID,
-      operation: "structure_draft",
-      run: async () => {
-        await gate;
-        return providerSink();
-      },
-    });
-
-    await expect(
-      withEstimateAiGenerationLease({
-        supabase: supabase as never,
-        versionId: VERSION_ID,
-        operation: "structure_draft",
-        run: providerSink,
-      })
-    ).rejects.toMatchObject({
-      code: "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED",
-    });
-
-    releaseRun();
-    await expect(first).resolves.toBe("generated");
-
-    await expect(
-      withEstimateAiGenerationLease({
-        supabase: supabase as never,
-        versionId: VERSION_ID,
-        operation: "structure_draft",
-        run: providerSink,
-      })
-    ).rejects.toMatchObject({
-      code: "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED",
-    });
-    expect(providerSink).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledExactlyOnceWith("acquire_estimate_generation_execution", expect.objectContaining({
+      p_version_id: VERSION_ID, p_operation: "structure_draft", p_draft_lock_session_id: PAGE_ID, p_use_ai: false,
+    }));
   });
 });
 
