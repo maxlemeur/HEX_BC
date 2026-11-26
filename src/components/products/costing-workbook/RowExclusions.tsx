@@ -96,7 +96,7 @@ export function RowExclusions({ rows, originalRows, inspection, disabled, visibl
   const resultTrigger = useRef<HTMLButtonElement>(null);
   const headerRow = inspection.missingRequired.length === 0 ? inspection.headerRow : null;
   const batches = useMemo(() => batchesOf(rows, headerRow), [rows, headerRow]);
-  const snapshot = useMemo(() => Symbol(), [rows, originalRows]);
+  const snapshot = useMemo(() => ({ rows, originalRows }), [rows, originalRows]);
   const activeScope = scope === "all" || batches[Number(scope)] ? scope : "0";
   const scopedBatch = batches[Number(activeScope)];
   const requests = activeScope === "all" ? batches : scopedBatch ? [scopedBatch] : [];

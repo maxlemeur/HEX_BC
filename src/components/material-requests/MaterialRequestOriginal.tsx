@@ -337,7 +337,8 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
       ? "Analyser le PDF avec l’IA"
       : "Analyser la photo avec l’IA";
   const sources = settings ? { [settings.billingSource]: {
-    available: true, models: settings.models, preferences: settings.preferences, message: "Source d’analyse",
+    available: true, models: settings.models, preferences: settings.preferences,
+    message: settings.billingSource === "chatgpt_plan" ? "Abonnement ChatGPT" : "Clé API OpenAI",
   } } : {};
   const aiSelection = settings ? effectiveAiChoice(common?.choice,
     { source: settings.billingSource, preferences: settings.preferences }, sources, true) : undefined;

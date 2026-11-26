@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useUserContext } from "@/lib/auth/user-context";
 import type { AssistantScreen } from "@/lib/assistant/prompt";
-import { assistantContextForPath, ASSISTANT_CONTEXT_LABELS, type AssistantSessionContext } from "@/lib/assistant/session-context";
+import { assistantContextForPath, ASSISTANT_CONTEXT_LABELS, type AssistantSessionContext, type WorkbookSnapshot } from "@/lib/assistant/session-context";
 
 export type AssistantScope = { projectId: string; screen: AssistantScreen };
 type Registration = { pathname: string; scope: AssistantScope };
@@ -20,7 +20,7 @@ type WorkbookStatus = {
   running: boolean;
   result: boolean;
   label: string;
-  snapshot: symbol;
+  snapshot: WorkbookSnapshot;
   prepare(criterion: string): void;
   previewReliabilityZero(): boolean;
 };
@@ -128,13 +128,13 @@ function DashboardAssistant({ userId, tenantId, children }: { userId: string; te
     if (!onWorkbook) router.push(lastWorkbookUrl.current);
   }
 
-  function prepareWorkbookExclusion(snapshot: symbol, criterion: string) {
+  function prepareWorkbookExclusion(snapshot: WorkbookSnapshot, criterion: string) {
     if (!onWorkbook || !workbookStatus || workbookStatus.snapshot !== snapshot || workbookStatus.running) return;
     workbookStatus.prepare(criterion);
     openPanel("workbook");
   }
 
-  function previewWorkbookReliabilityZero(snapshot: symbol) {
+  function previewWorkbookReliabilityZero(snapshot: WorkbookSnapshot) {
     if (!onWorkbook || !workbookStatus || workbookStatus.snapshot !== snapshot || workbookStatus.running) return false;
     if (!workbookStatus.previewReliabilityZero()) return false;
     chooseMode("workbook");

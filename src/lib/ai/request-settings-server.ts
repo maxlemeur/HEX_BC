@@ -168,6 +168,9 @@ export async function resolveAiRequest(owner: Owner, policy: RequestPolicy, requ
     ? undefined : await readProfile(owner, access);
   const source = resolveAiRequestSource(profile?.defaultSource ?? null, policy, requested.source);
   if (typeof source !== "string") return source;
+  if (source === "personal_api_key" && profile?.key.status === "saved" && !profile.key.analysisPreferences && !requested.model) {
+    return refusal("no_model", AI_REQUEST_KEY_MISSING);
+  }
   const options = await sourceOptions(owner, access, source, policy.usage, profile);
   if (!options.ok) return options;
   if (requested.expectedConnectionId !== undefined && options.connection?.id !== requested.expectedConnectionId) {

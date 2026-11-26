@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { CostingWorkbookRows } from "@/lib/catalogue/costing-workbook-file";
+
 import { assistantScreenSchema } from "./prompt";
 
 export const ASSISTANT_HISTORY_LIMIT = 8;
@@ -15,6 +17,7 @@ export const assistantSessionContextSchema = z.discriminatedUnion("kind", [
 
 export type AssistantSessionContext = z.infer<typeof assistantSessionContextSchema>;
 export type AssistantSourceLink = { href: string; label: string };
+export type WorkbookSnapshot = Readonly<{ rows: CostingWorkbookRows; originalRows: CostingWorkbookRows }>;
 
 export const ASSISTANT_CONTEXT_LABELS: Record<AssistantSessionContext["kind"], string> = {
   help: "Aide générale", affaires: "Affaires", estimates: "Devis", catalogue: "Catalogue",

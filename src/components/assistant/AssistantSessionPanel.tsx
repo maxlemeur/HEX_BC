@@ -13,7 +13,7 @@ import { defaultAiRequestSettings, AI_REQUEST_SOURCE_LABELS } from "@/lib/ai/req
 import { readAssistantStream } from "@/lib/assistant/client-stream";
 import { ASSISTANT_CEILING_MESSAGE, ASSISTANT_KEY_CEILING } from "@/lib/assistant/request-settings";
 import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
-import { ASSISTANT_HISTORY_LIMIT, ASSISTANT_HISTORY_MESSAGE_LIMIT, type AssistantSessionContext, type AssistantSourceLink } from "@/lib/assistant/session-context";
+import { ASSISTANT_HISTORY_LIMIT, ASSISTANT_HISTORY_MESSAGE_LIMIT, type AssistantSessionContext, type AssistantSourceLink, type WorkbookSnapshot } from "@/lib/assistant/session-context";
 import { isZeroReliabilityCriterion } from "@/lib/catalogue/workbook-reliability-filter";
 import {
   ASSISTANT_FILE_ACCEPT, ASSISTANT_FILE_FORMAT_MESSAGE, ASSISTANT_FILE_LIMIT_MESSAGE, ASSISTANT_MAX_FILE_BYTES, ASSISTANT_MAX_FILES,
@@ -55,9 +55,9 @@ function readMessages(key: string): Message[] {
 
 export default function AssistantSessionPanel({ context, userId, tenantId, visible, contextOptions, workbookSnapshot, onWorkbookExclusion, onWorkbookReliabilityZero }: {
   context: AssistantSessionContext; userId: string; tenantId: string; visible: boolean; contextOptions: readonly AssistantContextOption[];
-  workbookSnapshot?: symbol;
-  onWorkbookExclusion(snapshot: symbol, criterion: string): void;
-  onWorkbookReliabilityZero(snapshot: symbol): boolean;
+  workbookSnapshot?: WorkbookSnapshot;
+  onWorkbookExclusion(snapshot: WorkbookSnapshot, criterion: string): void;
+  onWorkbookReliabilityZero(snapshot: WorkbookSnapshot): boolean;
 }) {
   const storageKey = "mergeone:assistant:v1:" + userId + ":" + tenantId;
   const shared = useAssistantAiSettings();
@@ -70,7 +70,7 @@ export default function AssistantSessionPanel({ context, userId, tenantId, visib
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [pending, setPending] = useState<{ text: string; activity?: string } | null>(null);
-  const [workbookAction, setWorkbookAction] = useState<{ messageId: string; snapshot: symbol; criterion: string } | null>(null);
+  const [workbookAction, setWorkbookAction] = useState<{ messageId: string; snapshot: WorkbookSnapshot; criterion: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
