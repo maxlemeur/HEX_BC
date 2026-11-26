@@ -136,6 +136,7 @@ function createSupabaseMock(options?: {
   activeExplanationRows?: Array<Record<string, unknown> | null>;
   insertSingleResponses?: Array<{ data: Record<string, unknown> | null; error: unknown }>;
   sourceRowsByExplanationId?: Record<string, Array<Record<string, unknown>>>;
+  evidenceRows?: Array<Record<string, unknown>>;
   riskAlertRows?: Array<Record<string, unknown>>;
   insertedId?: string;
 }) {
@@ -296,7 +297,9 @@ function createSupabaseMock(options?: {
             eq: vi.fn().mockReturnThis(),
             is: vi.fn().mockReturnThis(),
             order: vi.fn().mockReturnThis(),
-            range: vi.fn().mockResolvedValue({ data: [], count: 0, error: null }),
+            range: vi.fn().mockImplementation(async () => ({
+              data: options?.evidenceRows ?? [], count: options?.evidenceRows?.length ?? 0, error: null,
+            })),
           })),
         };
       }
@@ -429,6 +432,11 @@ function storedPriceRow(overrides: Record<string, unknown> = {}) {
 
 const PRICE_LINE = { versionId: VERSION_ID, lineId: LINE_ID };
 const PLAN = { source: "chatgpt_plan", model: "gpt-6.2-sol", reasoningEffort: "low" } as const;
+const PLAN_ANSWER = {
+  data: { summary_short: "Résumé simulé.", summary_detail: "Détail simulé." },
+  provider: "chatgpt" as const, model: PLAN.model, tokenCount: 0, costCents: 0, durationMs: 0, promptVersion: "price",
+  tokenUsage: { inputTokens: 0, reasoningTokens: 0, outputTokens: 0, totalTokens: 0 },
+};
 const KEY = { source: "personal_api_key", model: "gpt-5-mini", reasoningEffort: "medium",
   connectionId: "99999999-9999-4999-8999-999999999999" } as const;
 const APP = "http://localhost:3155";
@@ -458,11 +466,7 @@ describe("estimate explanations service", () => {
       ok: true, source: "chatgpt_plan", connection: null,
       preferences: { model: PLAN.model, reasoningEffort: PLAN.reasoningEffort },
     });
-    vi.mocked(callStructuredAi).mockResolvedValue({
-      data: { summary_short: "Résumé simulé.", summary_detail: "Détail simulé." },
-      provider: "chatgpt", model: PLAN.model, tokenCount: 0, costCents: 0, durationMs: 0, promptVersion: "price",
-      tokenUsage: { inputTokens: 0, reasoningTokens: 0, outputTokens: 0, totalTokens: 0 },
-    });
+    vi.mocked(callStructuredAi).mockResolvedValue(PLAN_ANSWER);
   });
 
   it("rejects delta explanations across different projects", async () => {
@@ -836,6 +840,55 @@ describe("estimate explanations service", () => {
     expect(answers.map((response) => response.status).sort()).toEqual([200, 409]);
     expect(callStructuredAi).toHaveBeenCalledTimes(1);
     expect(supabase.__spies.explanationInsert).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["unit price", "evidence"])("discards the answer when the %s changes during inference", async (change) => {
+    const evidenceRows: Array<Record<string, unknown>> = [];
+    const supabase = createSupabaseMock({ activeExplanationRows: [storedPriceRow()], evidenceRows });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const item = {
+      ...buildVersionDetails().items[0],
+      source_job_id: "99999999-9999-4999-8999-999999999999",
+    };
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails({ items: [item] }));
+    const started = Promise.withResolvers<void>();
+    const answer = Promise.withResolvers<typeof PLAN_ANSWER>();
+    vi.mocked(callStructuredAi).mockImplementationOnce(() => {
+      started.resolve();
+      return answer.promise;
+    });
+    const { data: { revision } } = await (await read()).json();
+    const responsePending = post({ ...PLAN, revision });
+    await started.promise;
+
+    if (change === "unit price") {
+      vi.mocked(getEstimateVersionDetails).mockResolvedValue(
+        buildVersionDetails({ items: [{ ...item, pu_ht_cents: 4600 }] }),
+      );
+    } else {
+      evidenceRows.push({
+        id: ACTIVE_SOURCE_ID,
+        evidence_type: "plan",
+        evidence_kind: "fact",
+        label: "Plan révisé",
+        source_label: "Plan fictif",
+        source_file_name: "plan-b.pdf",
+        source_page: 2,
+        confidence_score: 1,
+        note: null,
+        source_record_table: null,
+        source_record_id: null,
+      });
+    }
+    answer.resolve(PLAN_ANSWER);
+
+    const response = await responsePending;
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("PRICE_EXPLANATION_STALE");
+    expect(callStructuredAi).toHaveBeenCalledTimes(1);
+    expect(supabase.__spies.explanationUpdate).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationInsert).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationSourcesInsert).not.toHaveBeenCalled();
   });
 
   it("reports a database insert race instead of returning another request's answer", async () => {

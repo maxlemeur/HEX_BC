@@ -1630,6 +1630,10 @@ export async function refreshEstimateLineExplanationSettings(input: PriceLine) {
 // Both billing sources are local to this installation. Refuse double submissions in this process before inference.
 const generatingPriceExplanations = new Set<string>();
 
+function stalePriceExplanation() {
+  return conflict("Les données de l’explication ont changé. Actualisez le panneau.", undefined, "PRICE_EXPLANATION_STALE");
+}
+
 export async function generateEstimateLineExplanation(input: PriceLine & {
   includeDetail: boolean;
   settings: PriceExplanationGeneration;
@@ -1637,9 +1641,7 @@ export async function generateEstimateLineExplanation(input: PriceLine & {
 }) {
   const scope = { versionId: input.versionId, lineId: input.lineId };
   const { context, current, existingActiveRow, payload, fingerprint, revision } = await loadPriceSnapshot(scope);
-  if (input.settings.revision !== revision) {
-    throw conflict("Les données de l’explication ont changé. Actualisez le panneau.", undefined, "PRICE_EXPLANATION_STALE");
-  }
+  if (input.settings.revision !== revision) throw stalePriceExplanation();
 
   const { supabase, tenantId, userId } = context;
   const key = `${tenantId}:${input.versionId}:${input.lineId}`;
@@ -1650,9 +1652,7 @@ export async function generateEstimateLineExplanation(input: PriceLine & {
   try {
     // A previous request may have finished while this request was reading the line.
     const active = await getActiveEstimateExplanationRow({ supabase, ...scope, compareVersionId: null, kind: "price" });
-    if (active?.id !== existingActiveRow?.id) {
-      throw conflict("L’explication a changé. Actualisez le panneau.", undefined, "PRICE_EXPLANATION_STALE");
-    }
+    if (active?.id !== existingActiveRow?.id) throw stalePriceExplanation();
     const generated = await generatePriceExplanationNarrative({
       owner: { tenantId, userId },
       settings: input.settings,
@@ -1661,6 +1661,9 @@ export async function generateEstimateLineExplanation(input: PriceLine & {
       schema: explanationNarrativeSchema,
       signal: input.signal,
     });
+    const latest = await loadPriceSnapshot(scope);
+    if (latest.revision !== revision) throw stalePriceExplanation();
+
     const persisted = await persistExplanationSnapshot({
       supabase, userId, projectId: current.version.project_id, payload, fingerprint,
       ...generated, usedFallback: false, existingActiveRow,

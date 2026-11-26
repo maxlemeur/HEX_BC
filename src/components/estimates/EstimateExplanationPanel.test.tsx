@@ -10,7 +10,11 @@ vi.mock("@/lib/estimates/explanations-client", () => ({
 }));
 
 import { EstimateExplanationPanel } from "@/components/estimates/EstimateExplanationPanel";
-import { fetchEstimateLineExplanation, generateEstimateLineExplanation } from "@/lib/estimates/explanations-client";
+import {
+  fetchEstimateLineExplanation,
+  generateEstimateLineExplanation,
+  refreshEstimateLineExplanationSettings,
+} from "@/lib/estimates/explanations-client";
 import type { PriceExplanationSettings } from "@/lib/estimates/explanation-schemas";
 
 const summaryFixture = {
@@ -53,6 +57,13 @@ const settings: PriceExplanationSettings = {
   },
 };
 
+const planOption = {
+  available: true,
+  message: "Forfait configuré.",
+  models: [{ id: "gpt-6.2-sol", name: "GPT-6.2 Sol", reasoningEfforts: ["high"], defaultReasoningEffort: "high" }],
+  preferences: { model: "gpt-6.2-sol", reasoningEffort: "high" },
+} satisfies PriceExplanationSettings["sources"]["chatgpt_plan"];
+
 const cached = (explanation = summaryFixture, revision = explanation.explanation_id) =>
   ({ status: "ready" as const, explanation, revision, settings });
 
@@ -90,6 +101,64 @@ describe("EstimateExplanationPanel", () => {
 
     expect(await screen.findByText("Résumé actualisé.")).toBeInTheDocument();
     expect(fetchEstimateLineExplanation).toHaveBeenCalledTimes(3);
+    expect(generateEstimateLineExplanation).not.toHaveBeenCalled();
+  });
+
+  it("waits for the opening's GET and uses the new profile payer at the same revision", async () => {
+    const initial = cached();
+    const nextRead = Promise.withResolvers<Awaited<ReturnType<typeof fetchEstimateLineExplanation>>>();
+    vi.mocked(fetchEstimateLineExplanation).mockResolvedValueOnce(initial).mockReturnValueOnce(nextRead.promise);
+    vi.mocked(generateEstimateLineExplanation).mockResolvedValue({
+      explanation: { ...summaryFixture, summary_short: "Résumé du forfait." },
+      revision: "generated",
+    });
+    const { rerender } = render(<EstimateExplanationPanel {...panel} />);
+    expect(await screen.findByLabelText("Source d’IA")).toHaveValue("personal_api_key");
+
+    rerender(<EstimateExplanationPanel {...panel} open={false} />);
+    rerender(<EstimateExplanationPanel {...panel} />);
+
+    expect(screen.getByText("Chargement de l’explication…")).toBeInTheDocument();
+    expect(screen.queryByText(summaryFixture.summary_short)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Régénérer l’explication" })).not.toBeInTheDocument();
+    nextRead.resolve({
+      ...initial,
+      settings: {
+        ...settings,
+        defaultSource: "chatgpt_plan",
+        sources: { ...settings.sources, chatgpt_plan: planOption },
+      },
+    });
+
+    expect(await screen.findByLabelText("Source d’IA")).toHaveValue("chatgpt_plan");
+    expect(screen.getByLabelText("Modèle")).toHaveValue(planOption.preferences.model);
+    expect(screen.getByLabelText("Effort de raisonnement")).toHaveValue("high");
+    expect(generateEstimateLineExplanation).not.toHaveBeenCalled();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Régénérer l’explication" }));
+    expect(generateEstimateLineExplanation).toHaveBeenCalledExactlyOnceWith(panel.versionId, panel.lineId, {
+      source: "chatgpt_plan", revision: initial.revision, ...planOption.preferences,
+    });
+  });
+
+  it("loads plan models on request while keeping the selected key and its effort", async () => {
+    vi.mocked(fetchEstimateLineExplanation).mockResolvedValue({
+      status: "missing", explanation: null, revision: "initial", settings: { ...settings, canRefreshPlanModels: true },
+    });
+    vi.mocked(refreshEstimateLineExplanationSettings).mockResolvedValue({
+      ...settings, canRefreshPlanModels: true, sources: { ...settings.sources, chatgpt_plan: planOption },
+    });
+    render(<EstimateExplanationPanel {...panel} />);
+    expect(await screen.findByLabelText("Source d’IA")).toHaveValue("personal_api_key");
+    expect(screen.getByRole("option", { name: "Forfait ChatGPT (indisponible)" })).toBeDisabled();
+
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Effort de raisonnement"), "medium");
+    await user.click(screen.getByRole("button", { name: "Actualiser les modèles du forfait" }));
+
+    expect(refreshEstimateLineExplanationSettings).toHaveBeenCalledExactlyOnceWith(panel.versionId, panel.lineId);
+    expect(await screen.findByRole("option", { name: "Forfait ChatGPT" })).toBeEnabled();
+    expect(screen.getByLabelText("Source d’IA")).toHaveValue("personal_api_key");
+    expect(screen.getByLabelText("Effort de raisonnement")).toHaveValue("medium");
     expect(generateEstimateLineExplanation).not.toHaveBeenCalled();
   });
 

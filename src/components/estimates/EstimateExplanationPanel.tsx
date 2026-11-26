@@ -324,7 +324,7 @@ function PriceExplanationRequest({ price, versionId, lineId, disabled, onBusyCha
         <Button type="button" onClick={() => void generate()} disabled={!canGenerate || pending !== null || disabled} loading={pending === "generate"}>
           {price.explanation ? "Régénérer l’explication" : "Générer l’explication"}
         </Button>
-        {settings.canRefreshPlanModels && source !== "personal_api_key" ? (
+        {settings.canRefreshPlanModels ? (
           <Button type="button" variant="secondary" onClick={() => void refreshModels()} disabled={pending !== null || disabled} loading={pending === "models"}>
             Actualiser les modèles du forfait
           </Button>
@@ -335,9 +335,33 @@ function PriceExplanationRequest({ price, versionId, lineId, disabled, onBusyCha
   );
 }
 
-export function EstimateExplanationPanel({
+export function EstimateExplanationPanel(props: EstimateExplanationPanelProps) {
+  const { open, onOpenChange, kind, versionId, lineId, compareVersionId, cacheToken } = props;
+  const requestKey =
+    kind === "price"
+      ? `${kind}:${versionId}:${lineId ?? "missing"}:${cacheToken ?? "default"}`
+      : `${kind}:${versionId}:${compareVersionId ?? "missing"}:${cacheToken ?? "default"}`;
+  const [opening, setOpening] = useState({ open, number: 0 });
+  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
+  if (opening.open !== open) {
+    setOpening({ open, number: opening.number + (open ? 1 : 0) });
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <EstimateExplanationPanelContent
+        key={kind === "price" ? `${requestKey}:${opening.number}` : kind}
+        {...props}
+        requestKey={requestKey}
+        generating={generatingKey === requestKey}
+        onBusyChange={(busy) => setGeneratingKey((key) => busy ? requestKey : key === requestKey ? null : key)}
+      />
+    </Sheet>
+  );
+}
+
+function EstimateExplanationPanelContent({
   open,
-  onOpenChange,
   kind,
   versionId,
   lineId,
@@ -346,12 +370,14 @@ export function EstimateExplanationPanel({
   currentVersionLabel,
   compareVersionLabel,
   surfaceLabel,
-  cacheToken,
-}: EstimateExplanationPanelProps) {
-  const requestKey =
-    kind === "price"
-      ? `${kind}:${versionId}:${lineId ?? "missing"}:${cacheToken ?? "default"}`
-      : `${kind}:${versionId}:${compareVersionId ?? "missing"}:${cacheToken ?? "default"}`;
+  requestKey,
+  generating,
+  onBusyChange,
+}: EstimateExplanationPanelProps & {
+  requestKey: string;
+  generating: boolean;
+  onBusyChange: (busy: boolean) => void;
+}) {
   const [state, setState] = useState<PanelState>(() => ({
     requestKey,
     kind: "loading",
@@ -361,8 +387,6 @@ export function EstimateExplanationPanel({
     status: "idle",
   }));
   const cacheRef = useRef<Record<string, EstimateExplanationSnapshot>>({});
-  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
-  const generating = generatingKey === requestKey;
   const currentState: PanelState =
     state.requestKey === requestKey
       ? state
@@ -474,7 +498,7 @@ export function EstimateExplanationPanel({
       versionId={versionId}
       lineId={lineId}
       disabled={generating || detailState.status === "loading"}
-      onBusyChange={(busy) => setGeneratingKey((key) => busy ? requestKey : key === requestKey ? null : key)}
+      onBusyChange={onBusyChange}
       onGenerated={(generated, settings) => setState((state) => {
         if (state.requestKey !== requestKey || state.kind !== "ready" || state.price?.revision !== price.revision) return state;
         return { ...state, explanation: generated.explanation, price: { ...price, ...generated, settings, status: "ready" } };
@@ -483,250 +507,248 @@ export function EstimateExplanationPanel({
   ) : null;
 
   return (
-    <Sheet open={open} onOpenChange={(nextOpen) => onOpenChange(nextOpen)}>
-      <SheetContent
-        side="right"
-        showCloseButton={false}
-        className="gap-0 bg-surface p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-3xl"
-        data-testid="estimate-explanation-panel"
-      >
-        <div className="shrink-0 border-b border-border bg-surface-subtle px-5 py-5 sm:px-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
-                {surfaceLabel}
-              </p>
-              <SheetTitle className="mt-2 text-xl font-semibold text-foreground">
-                {title}
-              </SheetTitle>
-              <SheetDescription className="mt-1 text-foreground-secondary">
-                {kind === "price"
-                  ? "Consultez l’explication de cette ligne ou générez-en une avec l’IA. Le prix du devis reste inchangé."
-                  : "Lecture seule. Le delta reste purement explicatif."}
-              </SheetDescription>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={generating}
-                onClick={() => void loadExplanation(false, { force: true })}
-              >
-                Actualiser
-              </Button>
-              <SheetClose
-                render={<Button type="button" variant="ghost" size="icon-sm" />}
-              >
-                <XIcon aria-hidden="true" />
-                <span className="sr-only">Fermer</span>
-              </SheetClose>
-            </div>
+    <SheetContent
+      side="right"
+      showCloseButton={false}
+      className="gap-0 bg-surface p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-3xl"
+      data-testid="estimate-explanation-panel"
+    >
+      <div className="shrink-0 border-b border-border bg-surface-subtle px-5 py-5 sm:px-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+              {surfaceLabel}
+            </p>
+            <SheetTitle className="mt-2 text-xl font-semibold text-foreground">
+              {title}
+            </SheetTitle>
+            <SheetDescription className="mt-1 text-foreground-secondary">
+              {kind === "price"
+                ? "Consultez l’explication de cette ligne ou générez-en une avec l’IA. Le prix du devis reste inchangé."
+                : "Lecture seule. Le delta reste purement explicatif."}
+            </SheetDescription>
           </div>
-
-          {explanation ? (
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-lg border border-border bg-surface p-3">
-                <p className="text-xs text-muted-foreground">Confiance</p>
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <Badge
-                    variant={CONFIDENCE_VARIANTS[explanation.confidence_label]}
-                    size="sm"
-                  >
-                    {CONFIDENCE_LABELS[explanation.confidence_label]}
-                  </Badge>
-                  <span className="text-sm font-semibold text-foreground">
-                    {formatConfidenceScore(explanation.confidence_score)}
-                  </span>
-                </div>
-              </div>
-              <div className="rounded-lg border border-border bg-surface p-3">
-                <p className="text-xs text-muted-foreground">Provenance</p>
-                <p className="mt-1 text-sm font-semibold text-foreground">
-                  {explanation.provenance.length} source(s)
-                </p>
-              </div>
-              <div className="rounded-lg border border-border bg-surface p-3">
-                <p className="text-xs text-muted-foreground">Moteur</p>
-                <p className="mt-1 text-sm font-semibold text-foreground">
-                  {usedSettings ? AI_REQUEST_SOURCE_LABELS[usedSettings.source]
-                    : explanation.used_fallback ? "Repli automatique" : explanation.provider}
-                </p>
-                {usedSettings ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {usedSettings.model} · {usedSettings.reasoningEffort === null
-                      ? "Raisonnement automatique" : CHATGPT_REASONING_EFFORT_LABELS[usedSettings.reasoningEffort]}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={generating}
+              onClick={() => void loadExplanation(false, { force: true })}
+            >
+              Actualiser
+            </Button>
+            <SheetClose
+              render={<Button type="button" variant="ghost" size="icon-sm" />}
+            >
+              <XIcon aria-hidden="true" />
+              <span className="sr-only">Fermer</span>
+            </SheetClose>
+          </div>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
-          {currentState.kind === "loading" ? (
-            <div
-              className="rounded-lg border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground"
-              role="status"
-            >
-              Chargement de l’explication…
+        {explanation ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-border bg-surface p-3">
+              <p className="text-xs text-muted-foreground">Confiance</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <Badge
+                  variant={CONFIDENCE_VARIANTS[explanation.confidence_label]}
+                  size="sm"
+                >
+                  {CONFIDENCE_LABELS[explanation.confidence_label]}
+                </Badge>
+                <span className="text-sm font-semibold text-foreground">
+                  {formatConfidenceScore(explanation.confidence_score)}
+                </span>
+              </div>
             </div>
-          ) : null}
+            <div className="rounded-lg border border-border bg-surface p-3">
+              <p className="text-xs text-muted-foreground">Provenance</p>
+              <p className="mt-1 text-sm font-semibold text-foreground">
+                {explanation.provenance.length} source(s)
+              </p>
+            </div>
+            <div className="rounded-lg border border-border bg-surface p-3">
+              <p className="text-xs text-muted-foreground">Moteur</p>
+              <p className="mt-1 text-sm font-semibold text-foreground">
+                {usedSettings ? AI_REQUEST_SOURCE_LABELS[usedSettings.source]
+                  : explanation.used_fallback ? "Repli automatique" : explanation.provider}
+              </p>
+              {usedSettings ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {usedSettings.model} · {usedSettings.reasoningEffort === null
+                    ? "Raisonnement automatique" : CHATGPT_REASONING_EFFORT_LABELS[usedSettings.reasoningEffort]}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
 
-          {currentState.kind === "error" ? (
-            <Alert variant="danger">{currentState.message}</Alert>
-          ) : null}
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
+        {currentState.kind === "loading" ? (
+          <div
+            className="rounded-lg border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground"
+            role="status"
+          >
+            Chargement de l’explication…
+          </div>
+        ) : null}
 
-          {!explanation ? priceRequest : null}
+        {currentState.kind === "error" ? (
+          <Alert variant="danger">{currentState.message}</Alert>
+        ) : null}
 
-          {explanation ? (
-            <>
-              <section className="rounded-lg border border-border bg-surface p-5">
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-base font-semibold text-foreground">
-                        Résumé court
-                      </h3>
-                      <p className="mt-1 text-sm leading-6 text-foreground-secondary">
-                        {explanation.summary_short}
-                      </p>
-                    </div>
-                  </div>
+        {!explanation ? priceRequest : null}
 
+        {explanation ? (
+          <>
+            <section className="rounded-lg border border-border bg-surface p-5">
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      Synthèse de l’impact
+                    <h3 className="text-base font-semibold text-foreground">
+                      Résumé court
+                    </h3>
+                    <p className="mt-1 text-sm leading-6 text-foreground-secondary">
+                      {explanation.summary_short}
                     </p>
-                    <div
-                      className={`mt-3 grid gap-3 ${
-                        kind === "delta" &&
-                        hasMarginImpact({
-                          currentMarginBp: explanation.impact_summary.current_margin_bp,
-                          compareMarginBp: explanation.impact_summary.compare_margin_bp,
-                          marginBpDelta: explanation.impact_summary.margin_bp_delta,
-                        })
-                          ? "sm:grid-cols-2"
-                          : "sm:grid-cols-1"
-                      }`}
-                    >
-                      <SummaryMetricCard
-                        label="Impact montant"
-                        value={formatImpactLabel({
-                          currentAmountHt: explanation.impact_summary.current_amount_ht_cents,
-                          currentAmountTtc: explanation.impact_summary.current_amount_ttc_cents,
-                          deltaHt: explanation.impact_summary.delta_ht_cents,
-                          deltaTtc: explanation.impact_summary.delta_ttc_cents,
-                        })}
-                      />
-                      {kind === "delta" &&
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    Synthèse de l’impact
+                  </p>
+                  <div
+                    className={`mt-3 grid gap-3 ${
+                      kind === "delta" &&
                       hasMarginImpact({
                         currentMarginBp: explanation.impact_summary.current_margin_bp,
                         compareMarginBp: explanation.impact_summary.compare_margin_bp,
                         marginBpDelta: explanation.impact_summary.margin_bp_delta,
-                      }) ? (
-                        <SummaryMetricCard
-                          label="Impact marge"
-                          value={formatMarginLabel({
-                            currentMarginBp: explanation.impact_summary.current_margin_bp,
-                            compareMarginBp: explanation.impact_summary.compare_margin_bp,
-                            marginBpDelta: explanation.impact_summary.margin_bp_delta,
-                          })}
-                        />
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    disabled={generating}
-                    onClick={() => void loadExplanation(true)}
-                    loading={detailState.status === "loading"}
+                      })
+                        ? "sm:grid-cols-2"
+                        : "sm:grid-cols-1"
+                    }`}
                   >
-                    {explanation.summary_detail
-                      ? "Détail chargé"
-                      : "Charger le détail"}
-                  </Button>
-                  {detailState.status === "error" ? (
-                    <p className="mt-2 text-sm text-danger" role="alert">
-                      {detailState.message}
-                    </p>
-                  ) : null}
-                  {explanation.summary_detail ? (
-                    <p className="mt-3 text-sm leading-7 text-foreground-secondary">
-                      {explanation.summary_detail}
-                    </p>
-                  ) : null}
+                    <SummaryMetricCard
+                      label="Impact montant"
+                      value={formatImpactLabel({
+                        currentAmountHt: explanation.impact_summary.current_amount_ht_cents,
+                        currentAmountTtc: explanation.impact_summary.current_amount_ttc_cents,
+                        deltaHt: explanation.impact_summary.delta_ht_cents,
+                        deltaTtc: explanation.impact_summary.delta_ttc_cents,
+                      })}
+                    />
+                    {kind === "delta" &&
+                    hasMarginImpact({
+                      currentMarginBp: explanation.impact_summary.current_margin_bp,
+                      compareMarginBp: explanation.impact_summary.compare_margin_bp,
+                      marginBpDelta: explanation.impact_summary.margin_bp_delta,
+                    }) ? (
+                      <SummaryMetricCard
+                        label="Impact marge"
+                        value={formatMarginLabel({
+                          currentMarginBp: explanation.impact_summary.current_margin_bp,
+                          compareMarginBp: explanation.impact_summary.compare_margin_bp,
+                          marginBpDelta: explanation.impact_summary.margin_bp_delta,
+                        })}
+                      />
+                    ) : null}
+                  </div>
                 </div>
-              </section>
+              </div>
 
-              {priceRequest}
+              <div className="mt-4">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={generating}
+                  onClick={() => void loadExplanation(true)}
+                  loading={detailState.status === "loading"}
+                >
+                  {explanation.summary_detail
+                    ? "Détail chargé"
+                    : "Charger le détail"}
+                </Button>
+                {detailState.status === "error" ? (
+                  <p className="mt-2 text-sm text-danger" role="alert">
+                    {detailState.message}
+                  </p>
+                ) : null}
+                {explanation.summary_detail ? (
+                  <p className="mt-3 text-sm leading-7 text-foreground-secondary">
+                    {explanation.summary_detail}
+                  </p>
+                ) : null}
+              </div>
+            </section>
 
-              {explanation.risk_signals.length > 0 ? (
-                <section className="rounded-lg border border-border bg-surface p-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-base font-semibold text-foreground">
-                      Signaux de risque
-                    </h3>
-                    <Badge variant="neutral" size="sm">
-                      {explanation.risk_signals.length}
-                    </Badge>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {explanation.risk_signals.map((signal) => (
-                      <Badge
-                        key={`${signal.label}-${signal.severity}`}
-                        variant={RISK_VARIANTS[signal.severity]}
-                        size="sm"
-                      >
-                        {signal.label}
-                      </Badge>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
+            {priceRequest}
 
-              <StatementSection title="Faits" entries={explanation.facts} />
-              <StatementSection title="Hypothèses" entries={explanation.hypotheses} />
-              <StatementSection title="Inférences" entries={explanation.inferences} />
-
+            {explanation.risk_signals.length > 0 ? (
               <section className="rounded-lg border border-border bg-surface p-5">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-base font-semibold text-foreground">
-                    Provenance
+                    Signaux de risque
                   </h3>
                   <Badge variant="neutral" size="sm">
-                    {explanation.provenance.length}
+                    {explanation.risk_signals.length}
                   </Badge>
                 </div>
-                <div className="mt-3 space-y-2">
-                  {explanation.provenance.map((source) => (
-                    <article
-                      key={`${source.source_kind}-${source.label}-${source.source_ref ?? "none"}`}
-                      className="rounded-lg border border-border bg-surface-subtle p-3"
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {explanation.risk_signals.map((signal) => (
+                    <Badge
+                      key={`${signal.label}-${signal.severity}`}
+                      variant={RISK_VARIANTS[signal.severity]}
+                      size="sm"
                     >
-                      <p className="text-sm font-medium text-foreground">
-                        {source.label}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {source.source_kind}
-                        {source.source_ref ? ` · ${source.source_ref}` : ""}
-                        {typeof source.confidence_score === "number"
-                          ? ` · ${Math.round(source.confidence_score * 100)}%`
-                          : ""}
-                      </p>
-                    </article>
+                      {signal.label}
+                    </Badge>
                   ))}
                 </div>
               </section>
-            </>
-          ) : null}
-        </div>
-      </SheetContent>
-    </Sheet>
+            ) : null}
+
+            <StatementSection title="Faits" entries={explanation.facts} />
+            <StatementSection title="Hypothèses" entries={explanation.hypotheses} />
+            <StatementSection title="Inférences" entries={explanation.inferences} />
+
+            <section className="rounded-lg border border-border bg-surface p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-base font-semibold text-foreground">
+                  Provenance
+                </h3>
+                <Badge variant="neutral" size="sm">
+                  {explanation.provenance.length}
+                </Badge>
+              </div>
+              <div className="mt-3 space-y-2">
+                {explanation.provenance.map((source) => (
+                  <article
+                    key={`${source.source_kind}-${source.label}-${source.source_ref ?? "none"}`}
+                    className="rounded-lg border border-border bg-surface-subtle p-3"
+                  >
+                    <p className="text-sm font-medium text-foreground">
+                      {source.label}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {source.source_kind}
+                      {source.source_ref ? ` · ${source.source_ref}` : ""}
+                      {typeof source.confidence_score === "number"
+                        ? ` · ${Math.round(source.confidence_score * 100)}%`
+                        : ""}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </>
+        ) : null}
+      </div>
+    </SheetContent>
   );
 }
