@@ -4,6 +4,7 @@ import type { MaterialRequestLineAlertCode } from "@/lib/material-requests/alert
 import { affaireSupplyCostSchema } from "@/lib/material-requests/supply-cost-contracts";
 import {
   MATERIAL_REQUEST_DELIVERY_PLACES,
+  MATERIAL_REQUEST_FILE_MIME_TYPES,
   MATERIAL_REQUEST_FILE_REJECTION_REASONS,
   MATERIAL_REQUEST_IMPUTATIONS,
   MATERIAL_REQUEST_LINE_STATUSES,
@@ -127,12 +128,13 @@ const summaryShape = {
 const listItem: z.ZodType<MaterialRequestListItem> = z.object({
   ...summaryShape, to_order_line_count: z.number().int().min(0).nullable(), has_orders: z.boolean(),
 });
-// An original or a quote's file (quote_id, TI-691) may be an image or a PDF.
-const file: z.ZodType<MaterialRequestFile> = z.object({
-  id: uuid, request_id: uuid, quote_id: uuid.nullable(), file_name: z.string(), mime_type: z.enum(MATERIAL_REQUEST_QUOTE_FILE_MIME_TYPES),
+// Images and PDFs can also belong to a supplier quote.
+const file = z.object({
+  id: uuid, request_id: uuid, quote_id: uuid.nullable(), file_name: z.string(), mime_type: z.enum(MATERIAL_REQUEST_FILE_MIME_TYPES),
   byte_size: z.number().int().positive(), rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]),
   created_at: timestamp,
 });
+const quoteFile: z.ZodType<MaterialRequestFile> = file.extend({ mime_type: z.enum(MATERIAL_REQUEST_QUOTE_FILE_MIME_TYPES) });
 const line: z.ZodType<MaterialRequestLine> = z.object({
   id: uuid, request_id: uuid, position: z.number().int().positive(), original_text: z.string().nullable(),
   quantity: z.number().positive().nullable(), quantity_doubtful: z.boolean(), unit: z.string().nullable(),
@@ -161,7 +163,7 @@ const articleResult: z.ZodType<MaterialRequestLineArticleResult> = z.object({
 });
 const uploads: z.ZodType<MaterialRequestFileUploads> = z.object({
   uploads: z.array(z.object({
-    file: z.object({ id: uuid, file_name: z.string(), mime_type: z.enum(MATERIAL_REQUEST_QUOTE_FILE_MIME_TYPES), byte_size: z.number().int().positive() }),
+    file: z.object({ id: uuid, file_name: z.string(), mime_type: z.enum(MATERIAL_REQUEST_FILE_MIME_TYPES), byte_size: z.number().int().positive() }),
     path: z.string(),
     token: z.string(),
   })),
@@ -198,7 +200,7 @@ const quote: z.ZodType<MaterialRequestQuote> = z.object({
   discount_ht_cents: z.number().int().min(0).nullable(), notes: z.string().nullable(), retained_at: timestamp.nullable(),
   closed_at: timestamp.nullable(),
   lines: z.array(z.object({ line_id: uuid, unit_price_ht_cents: z.number().int().min(0).nullable(), price_per: pricePer })),
-  files: z.array(file),
+  files: z.array(quoteFile),
 });
 const quoteRetained: z.ZodType<MaterialRequestQuoteRetained> = z.object({
   item: quote, lines: z.array(line), closed_quote_ids: z.array(uuid),
@@ -450,60 +452,60 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "post", path: `${one}/files`, summary: "Préparer le dépôt d'originaux",
-    description: `Les originaux ne passent pas par l'application : le navigateur les envoie au stockage. Cet appel vérifie ce qui est annoncé (de 1 à ${MATERIAL_REQUEST_MAX_FILES} fichiers PDF ou images JPEG, PNG ou WebP de 20 Mo au plus, nom et type concordants, ${MATERIAL_REQUEST_MAX_FILES} originaux conservés par demande), enregistre une ligne invisible par fichier et signe un envoi par fichier avec la session de l'appelant, sans écrasement possible. Le navigateur envoie ensuite chaque fichier avec uploadToSignedUrl(path, token, fichier) sur le bucket material-requests, puis appelle files/complete. Un seul fichier refusé refuse le lot. Avec quote_id (TI-691), le lot répond à un devis de cette demande encore demandé ou reçu : PDF ou images, ${MATERIAL_REQUEST_QUOTE_MAX_FILES} fichiers conservés par devis, à part des originaux, listés avec le devis et jamais parmi les originaux ; même chemin de stockage (tenant/affaire/demande/fichier/nom).`,
+    description: `Les originaux ne passent pas par l'application : le navigateur les envoie au stockage. Cet appel vérifie ce qui est annoncé (de 1 à ${MATERIAL_REQUEST_MAX_FILES} fichiers Excel (.xlsx), PDF ou images JPEG, PNG ou WebP de 20 Mo au plus, nom et type concordants, ${MATERIAL_REQUEST_MAX_FILES} originaux conservés par demande), enregistre une ligne invisible par fichier et signe un envoi par fichier avec la session de l'appelant, sans écrasement possible. Le navigateur envoie ensuite chaque fichier avec uploadToSignedUrl(path, token, fichier) sur le bucket material-requests, puis appelle files/complete. Un seul fichier refusé refuse le lot. Avec quote_id (TI-691), le lot répond à un devis de cette demande encore demandé ou reçu : PDF ou images, ${MATERIAL_REQUEST_QUOTE_MAX_FILES} fichiers conservés par devis, à part des originaux, listés avec le devis et jamais parmi les originaux ; même chemin de stockage (tenant/affaire/demande/fichier/nom).`,
     parameters: [project, requestId],
     requestBody: jsonBody({ name: "MaterialRequestFilesPrepare", description: "Nom, type déclaré et taille de chaque fichier ; quote_id pour la réponse d'un devis.", schema: prepareMaterialRequestFilesSchema }),
     responses: {
-      "201": success("ApiMaterialRequestFilesPrepared", "Un envoi signé par photo, valable deux heures.", uploads),
+      "201": success("ApiMaterialRequestFilesPrepared", "Un envoi signé par fichier, valable deux heures.", uploads),
       ...writeRefusals,
       "404": refusal("NOT_FOUND : affaire, demande ou devis d'ailleurs."),
       "409": quoteReadOnly,
-      "413": refusal("PAYLOAD_TOO_LARGE : une photo annoncée dépasse 20 Mo."),
+      "413": refusal("PAYLOAD_TOO_LARGE : un fichier annoncé dépasse 20 Mo."),
       "422": refusal(`MATERIAL_REQUEST_HEIC_UNSUPPORTED : photo HEIC, à convertir en JPEG avant l'envoi (l'écran le fait). MATERIAL_REQUEST_FILE_LIMIT : la demande garderait plus de 12 originaux. MATERIAL_REQUEST_QUOTE_FILE_LIMIT : le devis garderait plus de ${MATERIAL_REQUEST_QUOTE_MAX_FILES} fichiers. MATERIAL_REQUEST_UPLOADS_PENDING : plus de 24 fichiers attendraient leurs octets sur cette demande.`),
     },
   },
   {
     tags, method: "post", path: `${one}/files/complete`, summary: "Terminer le dépôt d'originaux",
-    description: "Vérifie dans le stockage chaque fichier préparé : présent, de la taille annoncée, et dont les premiers octets sont ceux du type annoncé (un PDF commence par %PDF-). Tout ou rien : si une photo échoue, aucune du lot n'est conservée (lignes et octets retirés) ; sinon le lot devient visible en une seule écriture. Un original n'est listé, compté et servi qu'après cet appel. Une photo déjà conservée, nommée à nouveau, est retournée sans être relue.",
+    description: "Vérifie dans le stockage chaque fichier préparé : présent, de la taille annoncée, et conforme au format annoncé. Les images et PDF sont vérifiés par leur signature et un .xlsx par les entrées de classeur dans son archive. Tout ou rien : si un fichier échoue, aucun du lot n'est conservé (lignes et octets retirés) ; sinon le lot devient visible en une seule écriture. Un original n'est listé, compté et servi qu'après cet appel. Un fichier déjà conservé, nommé à nouveau, est retourné sans être relu.",
     parameters: [project, requestId],
     requestBody: jsonBody({ name: "MaterialRequestFilesComplete", description: "Identifiants reçus à la préparation.", schema: completeMaterialRequestFilesSchema }),
     responses: {
       "200": success("ApiMaterialRequestFilesCompleted", "Originaux conservés, dans l'ordre demandé.", z.object({ files: z.array(file) })),
       ...writeRefusals,
-      "409": refusal("MATERIAL_REQUEST_UPLOAD_CHANGED : une photo du lot a été annulée entre-temps ; celles déjà visibles le restent, recharger la demande. MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis du lot a été retenu ou clos pendant l'envoi ; le lot est retiré."),
-      "422": jsonResponse("MATERIAL_REQUEST_FILE_REJECTED : chaque photo refusée et sa raison (missing, size, type) ; aucune du lot n'est conservée. Même statut, code MATERIAL_REQUEST_FILE_LIMIT, sans details.rejected, quand le lot ferait dépasser 12 originaux (MATERIAL_REQUEST_QUOTE_FILE_LIMIT : les fichiers de son devis) : il est alors écarté en entier.", fileRejected),
+      "409": refusal("MATERIAL_REQUEST_UPLOAD_CHANGED : un fichier du lot a été annulé entre-temps ; ceux déjà visibles le restent, recharger la demande. MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis du lot a été retenu ou clos pendant l'envoi ; le lot est retiré."),
+      "422": jsonResponse("MATERIAL_REQUEST_FILE_REJECTED : chaque fichier refusé et sa raison (missing, size, type) ; aucun du lot n'est conservé. Même statut, code MATERIAL_REQUEST_FILE_LIMIT, sans details.rejected, quand le lot ferait dépasser 12 originaux (MATERIAL_REQUEST_QUOTE_FILE_LIMIT : les fichiers de son devis) : il est alors écarté en entier.", fileRejected),
     },
   },
   {
     tags, method: "get", path: `${one}/files/{fileId}`, summary: "Lire un original ou le fichier d'un devis",
-    description: "Octets d'un original (image ou PDF) ou d'un fichier de devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; un PDF l'est en pièce jointe (Content-Disposition: attachment), jamais affiché directement dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
+    description: "Octets d'un original (image, PDF ou Excel) ou d'un fichier de devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; un PDF ou un Excel l'est en pièce jointe (Content-Disposition: attachment), jamais affiché directement dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
     parameters: [project, requestId, fileId],
     responses: {
-      "200": { description: "Fichier d'origine, jamais réécrit.", contents: MATERIAL_REQUEST_QUOTE_FILE_MIME_TYPES.map((contentType) => ({ contentType })) },
+      "200": { description: "Fichier d'origine, jamais réécrit.", contents: MATERIAL_REQUEST_FILE_MIME_TYPES.map((contentType) => ({ contentType })) },
       ...readRefusals,
     },
   },
   {
     tags, method: "patch", path: `${one}/files/{fileId}`, summary: "Tourner un original",
-    description: "Rotation d'affichage par quarts de tour pour une image ; les octets conservés ne changent pas. Un PDF ne se tourne pas (400). Le fichier d'un devis retenu ou clos ne tourne plus.",
+    description: "Rotation d'affichage par quarts de tour pour une image ; les octets conservés ne changent pas. La rotation d’un PDF ou d’un fichier Excel répond 400. Le fichier d'un devis retenu ou clos ne tourne plus.",
     parameters: [project, requestId, fileId],
     requestBody: jsonBody({ name: "MaterialRequestFileUpdate", description: "Rotation en degrés.", schema: updateMaterialRequestFileSchema }),
     responses: {
       "200": success("ApiMaterialRequestFileUpdated", "Rotation enregistrée.", z.object({ file })),
       ...writeRefusals,
-      "400": refusal("BAD_REQUEST : un PDF ne se tourne pas."),
+      "400": refusal("BAD_REQUEST : la rotation est réservée aux images."),
       "409": quoteReadOnly,
     },
   },
   {
     tags, method: "delete", path: `${one}/files/{fileId}`, summary: "Supprimer un original",
-    description: "Retire l'original de toute lecture, puis supprime ses octets et sa ligne. Vaut aussi pour une photo préparée mais pas encore conservée : c'est ainsi qu'un dépôt s'annule, et un envoi encore en cours n'aboutit plus. Le fichier d'un devis se supprime de même tant que le devis est demandé ou reçu ; il reste une fois le devis retenu ou clos.",
+    description: "Retire l'original de toute lecture, puis supprime ses octets et sa ligne. Vaut aussi pour un fichier préparé mais pas encore conservé : c'est ainsi qu'un dépôt s'annule, et un envoi encore en cours n'aboutit plus. Le fichier d'un devis se supprime de même tant que le devis est demandé ou reçu ; il reste une fois le devis retenu ou clos.",
     parameters: [project, requestId, fileId],
     responses: { "200": success("ApiMaterialRequestFileDeleted", "Original supprimé.", deleted), ...writeRefusals, "409": quoteReadOnly },
   },
   {
     tags, method: "post", path: `${one}/files/{fileId}/analysis`, summary: "Lire un original avec l'IA",
-    description: `Fait lire un original de la demande (photo ou PDF) par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à l'original. Un champ qui n'est pas écrit reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Un original par appel, de ${MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES / (1024 * 1024)} Mo au plus ; la rotation d'affichage d'une photo est indiquée au modèle, ses octets partent tels quels. L'annulation de la requête HTTP interrompt l'appel fournisseur. Seuls les originaux de la demande se lisent : le fichier d'un devis, un original dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Un original sans article répond lines vide.`,
+    description: `Fait lire un original de la demande (photo ou PDF) par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à l'original. Un champ qui n'est pas écrit reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Un original par appel, de ${MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES / (1024 * 1024)} Mo au plus ; la rotation d'affichage d'une photo est indiquée au modèle, ses octets partent tels quels. L'annulation de la requête HTTP interrompt l'appel fournisseur. Seules les photos et les PDF originaux de la demande sont analysés. Après validation des réglages de lecture, un fichier Excel, le fichier d'un devis et un original en cours de dépôt ou de suppression répondent 404. Un original sans article répond lines vide.`,
     parameters: [project, requestId, fileId],
     requestBody: jsonBody({ name: "MaterialRequestPhotoAnalysisInput", schema: materialRequestPhotoAnalysisInputSchema, required: false,
       description: "Source, modèle et effort pour une lecture. Avec la clé API, envoyer son identifiant de connexion et les préférences de lecture. Un effort null utilise celui du modèle. Une requête sans source utilise le forfait ChatGPT si le profil désigne le forfait ChatGPT, y compris par défaut en l’absence de réglage enregistré. Si le modèle et l’effort sont omis, la lecture suit les préférences photo valides pour le forfait, puis les réglages du forfait." }),

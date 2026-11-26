@@ -864,12 +864,12 @@ describe("MaterialRequestEditor", () => {
 
       const type = screen.getByLabelText("Type, ligne 1");
       await openOriginal(user);
-      await user.upload(screen.getByLabelText("Photos à ajouter"), chosen);
+      await user.upload(screen.getByLabelText("Fichiers à ajouter"), chosen);
 
       // While the first photo travels: the operator reads where it is, nothing is listed, nothing can be sent twice.
-      expect(await screen.findByText("Envoi de la photo 1 sur 2 : photo-essai-1.jpg…")).toBeVisible();
-      expect(screen.getByRole("button", { name: "Ajouter des photos ou PDF" })).toBeDisabled();
-      expect(screen.getByLabelText("Photos à ajouter")).toBeDisabled();
+      expect(await screen.findByText("Envoi de la pièce 1 sur 2 : photo-essai-1.jpg…")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Joindre des fichiers" })).toBeDisabled();
+      expect(screen.getByLabelText("Fichiers à ajouter")).toBeDisabled();
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
       expect(type).toBeEnabled();
       releaseFirst();
@@ -894,7 +894,7 @@ describe("MaterialRequestEditor", () => {
       ]);
       expect(writes()[1].body).toEqual({ ids: [FILE_ID, FILE_2] });
       expect(screen.getByText("Photo 1 sur 2")).toBeVisible();
-      expect(screen.getByRole("button", { name: "Ajouter des photos ou PDF" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Joindre des fichiers" })).toBeEnabled();
     });
 
     it("shows the server's sentence and sends nothing to storage when the preparation is refused (15)", async () => {
@@ -907,13 +907,13 @@ describe("MaterialRequestEditor", () => {
       });
 
       await openOriginal(user);
-      await user.upload(screen.getByLabelText("Photos à ajouter"), photos());
+      await user.upload(screen.getByLabelText("Fichiers à ajouter"), photos());
 
       expect(await screen.findByRole("alert")).toHaveTextContent("Format HEIC refusé : envoyez la photo en JPEG.");
       expect(uploadToSignedUrlMock).not.toHaveBeenCalled();
       expect(events).toEqual([`POST ${BASE}/files`]);
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
-      expect(screen.getByText("Pas de photo de l’original.")).toBeVisible();
+      expect(screen.getByText("Aucune pièce jointe.")).toBeVisible();
     });
 
     it("drops what was prepared and lists nothing when a photo does not reach storage (15)", async () => {
@@ -931,10 +931,10 @@ describe("MaterialRequestEditor", () => {
       });
 
       await openOriginal(user);
-      await user.upload(screen.getByLabelText("Photos à ajouter"), photos());
+      await user.upload(screen.getByLabelText("Fichiers à ajouter"), photos());
 
       expect(await screen.findByRole("alert")).toHaveTextContent(
-        "L’envoi de « photo-essai-2.jpg » a échoué. Aucune photo n’a été gardée : vous pouvez réessayer.",
+        "L’envoi de « photo-essai-2.jpg » a échoué. Aucune pièce n’a été gardée : vous pouvez réessayer.",
       );
       expect(events.slice(0, 3)).toEqual([
         `POST ${BASE}/files`,
@@ -943,8 +943,8 @@ describe("MaterialRequestEditor", () => {
       ]);
       expect(events.slice(3).sort()).toEqual([`DELETE ${BASE}/files/${FILE_ID}`, `DELETE ${BASE}/files/${FILE_2}`].sort());
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
-      expect(screen.getByText("Pas de photo de l’original.")).toBeVisible();
-      expect(screen.getByRole("button", { name: "Ajouter des photos ou PDF" })).toBeEnabled();
+      expect(screen.getByText("Aucune pièce jointe.")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Joindre des fichiers" })).toBeEnabled();
     });
 
     it("waits for the photo in flight, then drops what was prepared, when the operator leaves the request (15)", async () => {
@@ -963,8 +963,8 @@ describe("MaterialRequestEditor", () => {
         [`DELETE ${BASE}/files/${FILE_2}`]: { data: { deleted: true } },
       });
       await openOriginal(user);
-      await user.upload(screen.getByLabelText("Photos à ajouter"), photos());
-      await screen.findByText("Envoi de la photo 1 sur 2 : photo-essai-1.jpg…");
+      await user.upload(screen.getByLabelText("Fichiers à ajouter"), photos());
+      await screen.findByText("Envoi de la pièce 1 sur 2 : photo-essai-1.jpg…");
 
       cleanup();
 
@@ -1000,8 +1000,8 @@ describe("MaterialRequestEditor", () => {
         [`DELETE ${BASE}/files/${FILE_ID}`]: { data: { deleted: true } },
       });
       await openOriginal(user);
-      await user.upload(screen.getByLabelText("Photos à ajouter"), photos().slice(0, 1));
-      await screen.findByText("Envoi de la photo 1 sur 1 : photo-essai-1.jpg…");
+      await user.upload(screen.getByLabelText("Fichiers à ajouter"), photos().slice(0, 1));
+      await screen.findByText("Envoi de la pièce 1 sur 1 : photo-essai-1.jpg…");
 
       cleanup();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1034,7 +1034,7 @@ describe("MaterialRequestEditor", () => {
       const untyped = new File(["octets"], "photo-essai-3.jpg", { type: "" });
 
       await openOriginal(user);
-      fireEvent.change(screen.getByLabelText("Photos à ajouter"), { target: { files: [untyped] } });
+      fireEvent.change(screen.getByLabelText("Fichiers à ajouter"), { target: { files: [untyped] } });
 
       expect(await screen.findByRole("img", { name: /photo-essai-3\.jpg/ })).toBeVisible();
       expect(writes()[0].body).toEqual({ files: [{ name: "photo-essai-3.jpg", mime_type: "", byte_size: 6 }] });
@@ -1062,15 +1062,15 @@ describe("MaterialRequestEditor", () => {
       });
 
       await openOriginal(user);
-      await user.upload(screen.getByLabelText("Photos à ajouter"), photos());
+      await user.upload(screen.getByLabelText("Fichiers à ajouter"), photos());
 
       expect(await screen.findByRole("alert")).toHaveTextContent(
-        "L’envoi a été refusé : « photo-essai-2.jpg » est arrivée incomplète. Aucune photo n’a été gardée : vous pouvez réessayer.",
+        "L’envoi a été refusé : « photo-essai-2.jpg » est arrivée incomplète. Aucune pièce n’a été gardée : vous pouvez réessayer.",
       );
       expect(events.at(-1)).toBe(`POST ${BASE}/files/complete`);
       expect(events.filter((event) => event.startsWith("DELETE"))).toEqual([]);
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
-      expect(screen.getByText("Pas de photo de l’original.")).toBeVisible();
+      expect(screen.getByText("Aucune pièce jointe.")).toBeVisible();
     });
   });
 

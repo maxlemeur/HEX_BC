@@ -10,7 +10,7 @@ import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { ApiError, internalError, mapSupabaseError, notFound, payloadTooLarge, unprocessableEntity } from "@/lib/http/api-response";
 
 import {
-  MATERIAL_REQUEST_FILE_MIME_TYPES,
+  MATERIAL_REQUEST_ANALYZABLE_MIME_TYPES,
   MATERIAL_REQUESTS_BUCKET,
   type MaterialRequestFileRotation,
 } from "./contracts";
@@ -134,7 +134,7 @@ export async function analyzeMaterialRequestPhoto(
   if (!file || (file.quote_id ?? null) !== null || file.stored_at === null || (file.removed_at ?? null) !== null) {
     throw notFound(FILE_NOT_FOUND_MESSAGE);
   }
-  const mimeType = MATERIAL_REQUEST_FILE_MIME_TYPES.find((type) => type === file.mime_type);
+  const mimeType = MATERIAL_REQUEST_ANALYZABLE_MIME_TYPES.find((type) => type === file.mime_type);
   if (!mimeType) throw notFound(FILE_NOT_FOUND_MESSAGE);
   const isPdf = mimeType === "application/pdf";
   const tooLargeMessage = isPdf

@@ -830,7 +830,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
         run(
           () => deleteMaterialRequestFile(projectId, requestId, fileId),
           (current) => ({ ...current, files: current.files.filter((file) => file.id !== fileId) }),
-          "La photo n’a pas pu être retirée.",
+          "La pièce jointe n’a pas pu être retirée.",
         ),
       linkArticle: (lineId: string, input: LinkMaterialRequestLineArticleInput) => {
         // The line as shown when the office chose: the server refuses the link if it changed since.

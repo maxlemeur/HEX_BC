@@ -30,9 +30,9 @@ export function materialRequestHref(projectId: string, requestId: string): strin
 }
 
 /** Refuses on the spot what the server would refuse after a long upload. */
-export function checkPhotoSelection(files: readonly File[], alreadyThere: number): string | null {
+export function checkOriginalSelection(files: readonly File[], alreadyThere: number): string | null {
   if (alreadyThere + files.length > MATERIAL_REQUEST_MAX_FILES) {
-    return `${MATERIAL_REQUEST_MAX_FILES} photos au plus par demande.`;
+    return `${MATERIAL_REQUEST_MAX_FILES} pièces jointes au plus par demande.`;
   }
   const tooBig = files.find((file) => file.size > MATERIAL_REQUEST_FILE_MAX_BYTES);
   return tooBig ? `« ${tooBig.name} » dépasse 20 Mo.` : null;

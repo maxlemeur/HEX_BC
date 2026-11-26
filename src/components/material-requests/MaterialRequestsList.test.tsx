@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { MaterialRequestSummary, MaterialRequestTechnician } from "@/lib/material-requests/contracts";
+import { MATERIAL_REQUEST_WORKBOOK_MIME_TYPE, type MaterialRequestSummary, type MaterialRequestTechnician } from "@/lib/material-requests/contracts";
 
 /**
  * Failure modes, written before the screen (TI-690):
@@ -263,19 +263,19 @@ describe("MaterialRequestsList", () => {
     new File(["bb"], "photo-essai-2.jpg", { type: "image/jpeg" }),
   ];
 
-  async function createWithPhotos(routes: Record<string, Route>) {
+  async function createWithFiles(routes: Record<string, Route>, files = photos()) {
     mockApi({ [`GET ${BASE}`]: list({}), [`POST ${BASE}`]: CREATED, ...routes });
     const user = userEvent.setup();
     render(<MaterialRequestsList projectId={PROJECT_ID} />);
     await user.click((await screen.findAllByRole("button", { name: "Nouvelle demande" }))[0]);
     const dialog = await screen.findByRole("dialog", { name: "Nouvelle demande" });
     await user.selectOptions(within(dialog).getByLabelText("Technicien"), "Alpha");
-    await user.upload(within(dialog).getByLabelText(/Photos de l’original/), photos());
+    await user.upload(within(dialog).getByLabelText(/Fichiers d’origine/), files);
     await user.click(within(dialog).getByRole("button", { name: "Créer la demande" }));
     return dialog;
   }
 
-  it("creates the request, sends its photos to storage, has them checked, and only then opens it (4)", async () => {
+  it("creates the request, sends a photo and an Excel file, and opens it after both are checked (4)", async () => {
     let releaseFirst!: () => void;
     uploadToSignedUrlMock.mockImplementationOnce(
       (path: string) =>
@@ -284,20 +284,21 @@ describe("MaterialRequestsList", () => {
           releaseFirst = () => resolve({ data: { path }, error: null });
         }),
     );
-    const dialog = await createWithPhotos({
+    const workbook = new File(["bb"], "liste.xlsx", { type: MATERIAL_REQUEST_WORKBOOK_MIME_TYPE });
+    const dialog = await createWithFiles({
       [`POST ${FILES}`]: {
         status: 201,
         data: {
           uploads: [
             { file: { id: FILE_1, file_name: "photo-essai-1.jpg", mime_type: "image/jpeg", byte_size: 1 }, path: "t/d/1.jpg", token: "jeton-1" },
-            { file: { id: FILE_2, file_name: "photo-essai-2.jpg", mime_type: "image/jpeg", byte_size: 2 }, path: "t/d/2.jpg", token: "jeton-2" },
+            { file: { id: FILE_2, file_name: workbook.name, mime_type: workbook.type, byte_size: 2 }, path: "t/d/2.xlsx", token: "jeton-2" },
           ],
         },
       },
       [`POST ${FILES}/complete`]: { data: { files: [] } },
-    });
+    }, [photos()[0], workbook]);
 
-    expect(await within(dialog).findByText("Envoi de la photo 1 sur 2 : photo-essai-1.jpg…")).toBeVisible();
+    expect(await within(dialog).findByText("Envoi de la pièce 1 sur 2 : photo-essai-1.jpg…")).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "Créer la demande" })).toBeDisabled();
     expect(pushMock).not.toHaveBeenCalled();
     releaseFirst();
@@ -307,26 +308,26 @@ describe("MaterialRequestsList", () => {
       `POST ${BASE}`,
       `POST ${FILES}`,
       "storage t/d/1.jpg",
-      "storage t/d/2.jpg",
+      "storage t/d/2.xlsx",
       `POST ${FILES}/complete`,
       `open ${REQUEST_HREF}`,
     ]);
     expect(writes()[1].body).toEqual({
       files: [
         { name: "photo-essai-1.jpg", mime_type: "image/jpeg", byte_size: 1 },
-        { name: "photo-essai-2.jpg", mime_type: "image/jpeg", byte_size: 2 },
+        { name: workbook.name, mime_type: workbook.type, byte_size: 2 },
       ],
     });
     expect(storageFromMock).toHaveBeenCalledWith("material-requests");
     expect(uploadToSignedUrlMock.mock.calls.map(([path, token]) => [path, token])).toEqual([
       ["t/d/1.jpg", "jeton-1"],
-      ["t/d/2.jpg", "jeton-2"],
+      ["t/d/2.xlsx", "jeton-2"],
     ]);
     expect(writes()[2].body).toEqual({ ids: [FILE_1, FILE_2] });
   });
 
   it("says the request exists when only its photos were refused, and does not create it twice (4)", async () => {
-    const dialog = await createWithPhotos({
+    const dialog = await createWithFiles({
       [`POST ${FILES}`]: {
         status: 422,
         error: { code: "UNSUPPORTED_FILE", message: "Format HEIC refusé : envoyez la photo en JPEG." },
@@ -334,7 +335,7 @@ describe("MaterialRequestsList", () => {
     });
 
     const failure = await within(dialog).findByRole("alert");
-    expect(failure).toHaveTextContent("La demande est créée, mais sans ses photos.");
+    expect(failure).toHaveTextContent("La demande est créée, mais sans ses pièces jointes.");
     expect(failure).toHaveTextContent("Format HEIC refusé : envoyez la photo en JPEG.");
     expect(uploadToSignedUrlMock).not.toHaveBeenCalled();
     expect(events).toEqual([`POST ${BASE}`, `POST ${FILES}`]);
@@ -346,7 +347,7 @@ describe("MaterialRequestsList", () => {
   it("opens a blank form again after a request was created without its photos, and creates a distinct one (6)", async () => {
     const SECOND_ID = "44444444-4444-4444-8444-444444444444";
     let created = 0;
-    const dialog = await createWithPhotos({
+    const dialog = await createWithFiles({
       [`POST ${BASE}`]: () => {
         created += 1;
         return {
@@ -364,7 +365,7 @@ describe("MaterialRequestsList", () => {
         error: { code: "UNSUPPORTED_FILE", message: "Format HEIC refusé : envoyez la photo en JPEG." },
       },
     });
-    await within(dialog).findByText("La demande est créée, mais sans ses photos.");
+    await within(dialog).findByText("La demande est créée, mais sans ses pièces jointes.");
     const user = userEvent.setup();
 
     await user.click(within(dialog).getByRole("button", { name: "Fermer" }));
@@ -372,10 +373,10 @@ describe("MaterialRequestsList", () => {
     await user.click(screen.getAllByRole("button", { name: "Nouvelle demande" })[0]);
 
     const reopened = await screen.findByRole("dialog", { name: "Nouvelle demande" });
-    expect(within(reopened).queryByText("La demande est créée, mais sans ses photos.")).not.toBeInTheDocument();
+    expect(within(reopened).queryByText("La demande est créée, mais sans ses pièces jointes.")).not.toBeInTheDocument();
     expect(within(reopened).getByLabelText("Technicien")).toHaveValue("");
     expect(within(reopened).getByLabelText(/Message reçu/)).toHaveValue("");
-    expect(within(reopened).queryByRole("list", { name: "Photos choisies" })).not.toBeInTheDocument();
+    expect(within(reopened).queryByRole("list", { name: "Fichiers sélectionnés" })).not.toBeInTheDocument();
     expect(within(reopened).getByRole("button", { name: "Créer la demande" })).toBeDisabled();
 
     await user.selectOptions(within(reopened).getByLabelText("Technicien"), "Bravo");

@@ -419,7 +419,7 @@ function QuoteFiles({
             <p className="text-xs text-muted-foreground">{`${MATERIAL_REQUEST_QUOTE_MAX_FILES} pièces au plus par devis.`}</p>
           ) : null}
           <p role="status" className="text-sm text-muted-foreground empty:hidden">
-            {progress ? photoUploadStepLabel(progress, "quote") : ""}
+            {progress ? photoUploadStepLabel(progress) : ""}
           </p>
           {error ? (
             <p role="alert" className="text-sm font-medium text-danger">

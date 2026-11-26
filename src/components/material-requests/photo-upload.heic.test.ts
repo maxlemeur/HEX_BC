@@ -108,7 +108,7 @@ describe("HEIC photos in an upload", () => {
     expect(await result).toEqual({
       ok: false,
       message:
-        "« abime.heic » n’a pas pu être convertie en JPEG. Aucune photo n’a été gardée : enregistrez-la en JPEG sur le téléphone, puis déposez-la à nouveau.",
+        "« abime.heic » n’a pas pu être convertie en JPEG. Aucune pièce n’a été gardée : enregistrez-la en JPEG sur le téléphone, puis déposez-la à nouveau.",
     });
     expect(prepareMock).not.toHaveBeenCalled();
     expect(uploadMock).not.toHaveBeenCalled();
@@ -132,7 +132,7 @@ describe("HEIC photos in an upload", () => {
     });
     const { result } = upload([new File(["x"], "IMG_1.heic", { type: "image/heic" })], leaving.signal);
 
-    expect(await result).toEqual({ ok: false, abandoned: true, message: "Envoi interrompu. Aucune photo n’a été gardée." });
+    expect(await result).toEqual({ ok: false, abandoned: true, message: "Envoi interrompu. Aucune pièce n’a été gardée." });
     expect(prepareMock).not.toHaveBeenCalled();
     expect(uploadMock).not.toHaveBeenCalled();
   });
