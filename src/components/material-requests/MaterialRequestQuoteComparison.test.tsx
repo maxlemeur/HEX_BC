@@ -1,21 +1,18 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 
+import { loadPhotoAnalysisModelOptions } from "@/app/dashboard/_actions/chatgpt";
 import type { MaterialRequestFile } from "@/lib/material-requests/contracts";
 import { compareMaterialRequestQuoteFile } from "@/lib/material-requests/client";
 
 import { MaterialRequestQuoteComparison } from "./MaterialRequestQuoteComparison";
 
-const preferences = { model: "demo", reasoningEffort: null };
-
-vi.mock("@/app/dashboard/_actions/chatgpt", () => ({
-  loadPhotoAnalysisModelOptions: vi.fn(async () => ({
-    billingSource: "personal_api_key", connectionId: "fixture-connection", preferences,
-  })),
-}));
+vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadPhotoAnalysisModelOptions: vi.fn() }));
 
 vi.mock("@/lib/material-requests/client", () => ({ compareMaterialRequestQuoteFile: vi.fn() }));
+
+beforeEach(() => vi.resetAllMocks());
 
 function file(id: string, name: string): MaterialRequestFile {
   return {
@@ -24,8 +21,13 @@ function file(id: string, name: string): MaterialRequestFile {
   };
 }
 
-it("compares the selected revision, shows its source and keeps the earlier result when switching", async () => {
+it("prefills the API key's photo preferences, compares the selected revision and keeps the result when switching", async () => {
   const user = userEvent.setup();
+  const preferences = { model: "demo", reasoningEffort: "medium" } as const;
+  vi.mocked(loadPhotoAnalysisModelOptions).mockResolvedValue({
+    billingSource: "personal_api_key", connectionId: "fixture-connection", preferences,
+    models: [{ id: "demo", name: "Démo API", reasoningEfforts: ["medium"], defaultReasoningEffort: "medium", verified: true }],
+  });
   const compared = {
     complete: true,
     model: "demo",
@@ -53,6 +55,8 @@ it("compares the selected revision, shows its source and keeps the earlier resul
     availability={{ status: "available", message: "" }} visible />);
 
   await screen.findByText(/Clé API OpenAI/);
+  expect(screen.getByRole("combobox", { name: "Modèle d’analyse" })).toHaveValue("demo");
+  expect(screen.getByRole("combobox", { name: "Effort de raisonnement" })).toHaveValue("medium");
   const select = screen.getByRole("combobox", { name: "Pièce à comparer" });
   await user.selectOptions(select, "revision");
   await user.click(screen.getByRole("button", { name: "Comparer le devis à la demande" }));
@@ -70,4 +74,44 @@ it("compares the selected revision, shows its source and keeps the earlier resul
   await user.selectOptions(select, "revision");
   expect(screen.getByRole("table")).toBeInTheDocument();
   expect(compareMaterialRequestQuoteFile).toHaveBeenCalledTimes(1);
+});
+
+it("prefills the plan's photo preferences and sends new choices when comparing and relaunching", async () => {
+  const user = userEvent.setup();
+  const preferences = { model: "demo-plan", reasoningEffort: "high" } as const;
+  vi.mocked(loadPhotoAnalysisModelOptions).mockResolvedValue({
+    billingSource: "chatgpt_plan", connectionId: null, preferences,
+    models: [
+      { id: "demo-plan", name: "Démo Forfait", reasoningEfforts: ["high"], defaultReasoningEffort: "high" },
+      { id: "demo-compact", name: "Démo Compact", reasoningEfforts: ["low"], defaultReasoningEffort: "low" },
+    ],
+  });
+  vi.mocked(compareMaterialRequestQuoteFile).mockResolvedValue({
+    complete: true, file_id: "initial", model: "demo-compact", reference: null, revision: null, date: null,
+    total_ht: null, commercial_notes: null, unmatched_request: [], unmatched_offers: [], lines: [],
+  });
+  render(<MaterialRequestQuoteComparison projectId="project" requestId="request" quoteId="quote"
+    files={[file("initial", "Devis.pdf")]} availability={{ status: "available", message: "" }} visible />);
+
+  await screen.findByText("Abonnement ChatGPT");
+  const model = screen.getByRole("combobox", { name: "Modèle d’analyse" });
+  const effort = screen.getByRole("combobox", { name: "Effort de raisonnement" });
+  expect(model).toHaveValue("demo-plan");
+  expect(effort).toHaveValue("high");
+
+  await user.selectOptions(model, "demo-compact");
+  expect(effort).toHaveValue("auto");
+  expect(within(effort).queryByRole("option", { name: "Élevé" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Comparer le devis à la demande" }));
+  expect(compareMaterialRequestQuoteFile).toHaveBeenNthCalledWith(1, "project", "request", "quote", "initial", {
+    billingSource: "chatgpt_plan", connectionId: undefined, preferences: { model: "demo-compact", reasoningEffort: null },
+  }, expect.any(AbortSignal));
+
+  const relaunch = await screen.findByRole("button", { name: "Relancer la comparaison" });
+  await user.selectOptions(effort, "low");
+  await user.click(relaunch);
+  expect(compareMaterialRequestQuoteFile).toHaveBeenNthCalledWith(2, "project", "request", "quote", "initial", {
+    billingSource: "chatgpt_plan", connectionId: undefined, preferences: { model: "demo-compact", reasoningEffort: "low" },
+  }, expect.any(AbortSignal));
+  expect(preferences).toEqual({ model: "demo-plan", reasoningEffort: "high" });
 });

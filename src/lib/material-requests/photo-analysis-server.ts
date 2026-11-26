@@ -31,7 +31,7 @@ import {
 import {
   getMaterialRequestPhotoAnalysisAvailability,
   MATERIAL_REQUEST_ANALYSIS_DISABLED,
-  materialRequestAnalysisSettingsUnavailable,
+  materialRequestAnalysisModelUnavailable,
   materialRequestAnalysisUnavailable,
   prepareMaterialRequestDocumentAnalysis,
 } from "./document-analysis-server";
@@ -192,7 +192,7 @@ export async function analyzeMaterialRequestPhoto(
   } catch (cause) {
     if (signal?.aborted) throw cause;
     if (cause instanceof LocalChatGptOverrideUnavailableError) {
-      throw materialRequestAnalysisSettingsUnavailable(cause.message);
+      throw materialRequestAnalysisModelUnavailable(cause.message);
     }
     const failure = readingFailure(cause, isPdf);
     console.error("Material request photo analysis failed", {

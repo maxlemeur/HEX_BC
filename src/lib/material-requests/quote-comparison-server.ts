@@ -3,10 +3,11 @@ import "server-only";
 import { PDFDocument } from "pdf-lib";
 
 import { isApiKeyError } from "@/lib/ai/access/api-key-errors";
+import { LocalChatGptOverrideUnavailableError } from "@/lib/ai/chatgpt-local-inference";
 import { ApiError, badRequest, payloadTooLarge } from "@/lib/http/api-response";
 
 import { readMaterialRequestQuoteFile } from "./files-server";
-import { prepareMaterialRequestDocumentAnalysis } from "./document-analysis-server";
+import { materialRequestAnalysisModelUnavailable, prepareMaterialRequestDocumentAnalysis } from "./document-analysis-server";
 import {
   buildQuoteComparisonPrompt,
   compareMaterialRequestQuote,
@@ -60,6 +61,9 @@ export async function analyzeMaterialRequestQuote(
     });
     return { ...compareMaterialRequestQuote(answer.data, quote.message, pages), file_id: fileId, model: answer.model };
   } catch (error) {
+    if (error instanceof LocalChatGptOverrideUnavailableError) {
+      throw materialRequestAnalysisModelUnavailable(error.message);
+    }
     throw new ApiError({
       code: "MATERIAL_REQUEST_QUOTE_COMPARISON_FAILED",
       status: 503,

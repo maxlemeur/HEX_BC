@@ -5,15 +5,12 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, Download, ImagePlus, Maximize2, RotateCcw, RotateCw, Scissors, Sparkles, Trash2 } from "lucide-react";
 
 import { loadPhotoAnalysisModelOptions } from "@/app/dashboard/_actions/chatgpt";
-import { ReasoningEffortSelect } from "@/components/ai/ReasoningEffortSelect";
 import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
 import type { ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { useToast } from "@/components/feedback/toast-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { FieldLabel } from "@/components/ui/field";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   analyzeMaterialRequestPhoto,
@@ -42,6 +39,7 @@ import { splitSourceText } from "@/lib/material-requests/source-text";
 
 import { ConfirmButton } from "./cells";
 import { checkPhotoSelection } from "./format";
+import { MaterialRequestAnalysisPreferences } from "./MaterialRequestAnalysisPreferences";
 import { MaterialRequestPdfViewer } from "./MaterialRequestPdfViewer";
 import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
 import type { MaterialRequestEditorApi } from "./useMaterialRequestEditor";
@@ -332,7 +330,6 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
       ? "Analyser le PDF avec l’IA"
       : "Analyser la photo avec l’IA";
   const preferences = settings?.preferences ?? null;
-  const selectedModel = settings?.models.find((model) => model.id === preferences?.model);
 
   const changePreferences = (next: ChatGptPreferences) => {
     if (!settings || run || choosing) return;
@@ -525,26 +522,8 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
           <p role="status" className="text-sm text-muted-foreground">Chargement des modèles…</p>
         ) : preferences ? (
           <>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="min-w-0 space-y-1.5">
-                <FieldLabel htmlFor={`${hintId}-model`}>Modèle d’analyse</FieldLabel>
-                <NativeSelect id={`${hintId}-model`} value={preferences.model} disabled={run !== null || choosing}
-                  onChange={(event) => {
-                    const next = settings.models.find((model) => model.id === event.target.value);
-                    if (!next) return;
-                    const effort = preferences.reasoningEffort;
-                    changePreferences({
-                      model: next.id,
-                      reasoningEffort: effort !== null && next.reasoningEfforts.includes(effort) ? effort : null,
-                    });
-                  }}>
-                  {settings.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
-                </NativeSelect>
-              </div>
-              <ReasoningEffortSelect id={`${hintId}-effort`} efforts={selectedModel?.reasoningEfforts ?? []}
-                value={preferences.reasoningEffort} disabled={run !== null || choosing}
-                onChange={(reasoningEffort) => changePreferences({ ...preferences, reasoningEffort })} />
-            </div>
+            <MaterialRequestAnalysisPreferences id={hintId} models={settings.models} preferences={preferences}
+              disabled={run !== null || choosing} onChange={changePreferences} />
             <p className="text-xs text-muted-foreground">
               {settings.billingSource === "personal_api_key"
                 ? `Clé API OpenAI · jusqu’à ${formatUsdCeiling(MATERIAL_REQUEST_PHOTO_API_CEILING_NANO_USD * Math.max(readableCount, 1))} pour cette lecture (${formatUsdCeiling(MATERIAL_REQUEST_PHOTO_API_CEILING_NANO_USD)} par original).`
