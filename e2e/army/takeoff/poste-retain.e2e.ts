@@ -43,8 +43,9 @@ async function retainAndSend(ui: NativeUi, scenario: "rule" | "gap" | "both") {
     await dialog.getByLabel("Référence du système").fill("Système fictif documenté dans la notice sanitaire.");
     await dialog.getByRole("button", "Confirmer l’acceptation").click();
     await expect(screen.getByText(/poste reste à retenir/)).toBeVisible();
+    await expect(screen.getByText("1 poste à retenir", { exact: true })).toBeVisible();
     await screen.getByRole("link", /Revenir au poste/).click();
-    expect(new URL(await ui.browser.url()).searchParams.get("poste")).toBe(item);
+    await expect(ui.browser).toHaveURL(new RegExp(`[?&]poste=${item}(?:&|$)`));
   }
   if (scenario !== "gap") await justify();
   if (scenario === "both") {
@@ -104,8 +105,11 @@ async function seedRetainDestination(project: string, item: string, tenant: stri
     select set_config('miaouffrage.estimate_v3_writer','${version}',true);
     insert into public.estimate_items(id,tenant_id,version_id,item_type,position,title)
       values ('${section}','${tenant}','${version}','section',1,'Appareils sanitaires');
-    insert into public.estimate_items(id,tenant_id,version_id,parent_id,item_type,position,title,quantity,unit_code,source_provider,source_metadata)
-      select '${line}','${tenant}','${version}','${section}','line',1,'Lavabo',${reference},'u','dpgf',
+    insert into public.estimate_items(id,tenant_id,version_id,parent_id,item_type,position,title,quantity,unit_code,
+      unit_price_ht_cents,tax_rate_bp,k_fo,h_mo,k_mo,pu_ht_cents,line_total_ht_cents,line_tax_cents,line_total_ttc_cents,
+      fo_provision,source_provider,source_metadata)
+      select '${line}','${tenant}','${version}','${section}','line',1,'Lavabo',${reference},'u',
+        1000,2000,1,0,1,1000,${reference * 1000},${reference * 200},${reference * 1200},1,'dpgf',
         jsonb_build_object('import_id',origin->>'importId','mapped_row_id',origin->>'mappedRowId','dpgf_source_quantity',${reference})
       from public.takeoff_list_revision_entries where item_id='${item}';
     select public.estimate_v3_complete_entry_for_writer('${version}',array['${line}'::uuid]);
@@ -115,7 +119,7 @@ async function seedRetainDestination(project: string, item: string, tenant: stri
 
 test("POSTE-RETENIR04 refuse un échec bloquant et une justification absente, puis rouvre une mesure modifiée", options, async ({ ui }) => {
   const { app, screen, army } = ui;
-  const owner = await signUpDedicatedOwner(ui.browser, app.baseUrl!, army.runPrefix, { tag: "PREFUS" });
+  const owner = await signUpDedicatedOwner(ui.browser, app.baseUrl!, army.runPrefix, { tag: "PREFUS", calcPolicy: "absent" });
   const labels = ["Réseau bloqué", "Réseau à justifier", "Compteur"];
   const seeded = await seedItemSendAffaire(owner, { name: `${army.runPrefix}-RETENIR-REFUS`, labels,
     referenceQuantities: { Compteur: 1 }, plans: [{ name: "refus.pdf", pdf: await fictionalSendPlanPdf("Plan des réseaux"),
