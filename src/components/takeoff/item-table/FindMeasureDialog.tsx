@@ -48,5 +48,5 @@ export function FindMeasureDialog({ projectId, selection, onClose, onSent }: {
   return <RemeasureDialog scopeLabel={selection.name} busy={sending} preview={data?.preview ?? null}
     loadError={failure || error?.message || null} onClose={onClose} onConfirm={() => void confirm()}
     payment={payment} paymentStale={paymentStale || (isTakeoffApiError(error) && error.code === TAKEOFF_PAYMENT_SETTINGS_CHANGED)}
-    onReloadPayment={() => { setFailure(""); setPaymentStale(false); void mutate(undefined, { revalidate: false }); payment.reload(); }} />;
+    onReloadPayment={() => { setFailure(""); setPaymentStale(false); void mutate(undefined, { revalidate: false }); payment.reload({ live: true }); }} />;
 }

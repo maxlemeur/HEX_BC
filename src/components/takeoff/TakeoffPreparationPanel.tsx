@@ -74,10 +74,10 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [paymentStale, setPaymentStale] = useState(false);
-  const payment = useTakeoffPaymentSettings(projectId, launchDisabled ? null : "preparation");
+  const payment = useTakeoffPaymentSettings(projectId, launchDisabled ? null : "preparation", explicitPaymentRequired);
   const stale = paymentStale || paymentSettingsStale;
   const keyPayment = payment.value.source === "personal_api_key";
-  const paymentReady = payment.ready && (!explicitPaymentRequired || Boolean(payment.explicitChoice));
+  const paymentReady = payment.ready;
   const availableSources = useMemo(() => record?.availableSources ?? [], [record?.availableSources]);
   const isRelaunch = relaunchPlans !== undefined;
   const effective = useMemo(() => {
@@ -141,7 +141,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
           return;
         }
       }
-      const choice = payment.choice ?? (explicitPaymentRequired || !support?.chatGpt ? payment.explicitChoice : undefined);
+      const choice = payment.choice ?? (!support?.chatGpt ? payment.explicitChoice : undefined);
       const confirmed = await confirm(choosePlans ? chosen : undefined, choice);
       if (confirmed === null) {
         setShowOptions(true);
@@ -259,7 +259,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       setPaymentStale(false);
       setLaunchError(null);
       onReloadPaymentSettings?.();
-      payment.reload();
+      payment.reload({ live: true });
     }} />}
     {isRelaunch && emptyChoice && <p role="status" className="text-sm text-muted-foreground">
       {availablePlans.length ? "Cochez au moins un plan à relancer." : "Aucun plan actif dans ce jeu de plans."}

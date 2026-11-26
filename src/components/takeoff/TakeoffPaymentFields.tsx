@@ -20,7 +20,8 @@ export function TakeoffPaymentFields({ settings, disabled, stale, onReload, onCh
       <AiRequestSettings
         sources={settings.sources}
         defaultSource={settings.data.defaultSource}
-        value={settings.value}
+        value={settings.shown}
+        keepUnofferedEffort={settings.pinned}
         onChange={(value: AiRequestSettingsValue) => { settings.setValue(value); onChange?.(); }}
         sourcePicker={{ label: "Source IA" }}
         fieldsClassName="grid grid-cols-1 gap-3 sm:grid-cols-2"
@@ -30,8 +31,9 @@ export function TakeoffPaymentFields({ settings, disabled, stale, onReload, onCh
       />
     )}
     {settings.error && <p role="alert" className="text-sm text-danger">{settings.error}</p>}
-    {(stale || settings.error) && (
-      <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={onReload ?? settings.reload}>
+    {settings.notice && <p role="status" className="text-sm text-muted-foreground">{settings.notice}</p>}
+    {(stale || settings.error || settings.notice) && (
+      <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={onReload ?? (() => settings.reload({ live: true }))}>
         Recharger les réglages
       </Button>
     )}

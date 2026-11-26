@@ -5,6 +5,7 @@ import { DashboardShell } from "@/components/DashboardShell";
 import { NavigationFeedbackProvider } from "@/components/navigation/NavigationFeedback";
 import { CommandPaletteLoader } from "@/components/navigation/CommandPaletteLoader";
 import { UserProvider } from "@/lib/auth/user-context";
+import { readAiRequestDefaultSource } from "@/lib/ai/request-settings-server";
 import { WebVitalsReporter } from "@/components/performance/WebVitalsReporter";
 import { isAssistantEnabled } from "@/lib/assistant/model";
 import { getSupabase, getUserContext } from "@/lib/auth/server";
@@ -32,12 +33,15 @@ export default async function DashboardLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const { userEmail, profile } = await getUserContext();
   const tenantName = profile?.tenant_id ? await readActiveTenantName(profile.id) : null;
+  // The payer of Mon profil, known to request screens before their own options are read (null: unreadable).
+  const aiDefaultSource = profile?.tenant_id
+    ? await readAiRequestDefaultSource({ userId: profile.id, tenantId: profile.tenant_id }).catch(() => null) : null;
   const displayName = profile?.full_name || userEmail || "Compte";
   const appBuildId =
     process.env.VERCEL_GIT_COMMIT_SHA?.trim().slice(0, 7) || null;
 
   return (
-    <UserProvider initialUserEmail={userEmail} initialProfile={profile} tenantName={tenantName}>
+    <UserProvider initialUserEmail={userEmail} initialProfile={profile} tenantName={tenantName} aiDefaultSource={aiDefaultSource}>
       <NavigationFeedbackProvider>
         <AssistantDock enabled={isAssistantEnabled()}>
           <DashboardShell

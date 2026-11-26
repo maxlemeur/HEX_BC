@@ -12,6 +12,7 @@ import { createEmptyTakeoffPreparation, evaluateTakeoffPreparation, takeoffPrepa
 import { buildDeducedTakeoffPreparation, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
 import type { RelaunchPlanChoice } from "@/lib/takeoff/relaunch-plan-choice-server";
 import { FIXTURE_KEY_CONNECTION, fixtureTakeoffPaymentOptions, NO_PAYMENT_OPTIONS } from "@/lib/takeoff/payment-settings.test-fixtures";
+import type { AiBillingSource } from "@/lib/ai/access/contracts";
 
 const readRelaunchPlans = vi.hoisted(() => vi.fn());
 const relaunch = vi.hoisted(() => vi.fn());
@@ -142,6 +143,78 @@ describe("TakeoffPreparationPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
     await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(6, 1));
     expect(actions.confirm).toHaveBeenCalledWith({ projectId: PROJECT_ID, expectedRevision: 5, expectedExecutionFingerprint: "d".repeat(64) });
+  });
+
+  // The dashboard renders with the payer of Mon profil: a launch on the plan never depends on reading the options.
+  const UNREADABLE = { ok: false, error: { status: 500, code: "INTERNAL_ERROR", message: "Les réglages IA du métré n’ont pas pu être lus.", retryable: false } } as const;
+  const PLAN_SUMMARY = { model: "modele-forfait", reasoningEffort: "medium", fingerprint: "d".repeat(64) };
+  function renderInDashboard(page: AiBillingSource | null, onLaunch = vi.fn()) {
+    const member = { id: "44444444-4444-4444-8444-444444444444", full_name: "Camille Fictive", phone: null, job_title: null, work_email: null,
+      role: "buyer" as const, ui_mode: "expert" as const, tenant_id: "55555555-5555-4555-8555-555555555555", tenant_role: "engineer" as const };
+    render(<UserProvider initialUserEmail="camille@example.test" initialProfile={member} aiDefaultSource={page}>
+      <TakeoffPreparationPanel {...props} onLaunch={onLaunch} />
+    </UserProvider>);
+    return onLaunch;
+  }
+
+  it.each([
+    ["cannot be read", () => Promise.resolve(UNREADABLE)],
+    ["are still being read", () => new Promise<never>(() => {})],
+  ] as const)("launches on the plan exactly as before when the payment options %s", async (label, read) => {
+    readPayment.mockImplementation(read);
+    actions.chatGpt.mockResolvedValue(PLAN_SUMMARY);
+    const onLaunch = renderInDashboard("chatgpt_plan");
+    const launch = await screen.findByRole("button", { name: "Confirmer et lancer le métré" });
+    await waitFor(() => expect(launch).toBeEnabled());
+    expect(screen.getByText(/modele-forfait · Effort moyen\./)).toBeVisible();
+    if (label === "cannot be read") {
+      expect(await screen.findByText(/n’ont pas pu être lus\. Vous pouvez lancer avec votre forfait ChatGPT/)).toBeVisible();
+      expect(screen.getByRole("button", { name: "Recharger les réglages" })).toBeEnabled();
+    }
+    fireEvent.click(launch);
+    // The calls a launch made before the settings existed: no payment choice anywhere.
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(6, 1));
+    expect(actions.confirm).toHaveBeenCalledWith({ projectId: PROJECT_ID, expectedRevision: 5, expectedExecutionFingerprint: "d".repeat(64) });
+    expect(actions.chatGpt).not.toHaveBeenCalledWith(expect.objectContaining({ paymentChoice: expect.anything() }));
+  });
+
+  it.each([["personal_api_key", "Analyse détaillée avec votre clé API OpenAI", /Votre source IA par défaut est votre clé API OpenAI/],
+    [null, "Analyse détaillée avec votre forfait ChatGPT", /Rechargez les réglages avant de lancer\./],
+  ] as const)("does not launch on the plan in place of a profile on %s whose options cannot be read", async (page, title, message) => {
+    readPayment.mockResolvedValue(UNREADABLE);
+    actions.chatGpt.mockResolvedValue(PLAN_SUMMARY);
+    const onLaunch = renderInDashboard(page);
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.getByText(title)).toBeVisible();
+    const launch = screen.getByRole("button", { name: "Confirmer et lancer le métré" });
+    expect(launch).toBeDisabled();
+    fireEvent.click(launch);
+    expect(actions.confirm).not.toHaveBeenCalled();
+    expect(onLaunch).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Recharger les réglages" })).toBeEnabled();
+  });
+
+  it("shows the same effort in the summary and in the selector for an untouched plan: the one the launch sends", async () => {
+    const shown = fixtureTakeoffPaymentOptions("chatgpt_plan");
+    if (!shown.ok || !shown.data.options.chatgpt_plan?.ok) throw new Error("fixture");
+    const plan = shown.data.options.chatgpt_plan;
+    // Mon profil keeps « medium », which this model no longer offers: the validated setting is automatic.
+    plan.models = plan.models.map((model) => ({ ...model, reasoningEfforts: ["low", "high"], defaultReasoningEffort: null })) as typeof plan.models;
+    plan.preferences = { model: "modele-forfait", reasoningEffort: null };
+    shown.data.planSetting = { model: "modele-forfait", reasoningEffort: "medium" };
+    readPayment.mockResolvedValue(shown);
+    actions.chatGpt.mockResolvedValue(PLAN_SUMMARY);
+    const onLaunch = renderInDashboard("chatgpt_plan");
+    const effort = await screen.findByLabelText("Effort de raisonnement");
+    expect(effort).toHaveValue("medium");
+    expect(screen.getByText(/modele-forfait · Effort moyen\./)).toBeVisible();
+    // Another effort is a choice of its own: the profile's summary leaves, the selector says what is sent.
+    fireEvent.change(effort, { target: { value: "high" } });
+    expect(screen.queryByText(/Effort moyen/)).toBeNull();
+    fireEvent.change(effort, { target: { value: "auto" } });
+    actions.chatGpt.mockImplementation(async (input) => input ? success({ fingerprint: "e".repeat(64) }) : PLAN_SUMMARY);
+    fireEvent.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(6, 1, undefined, expect.objectContaining({ source: "chatgpt_plan", effort: null })));
   });
 
   it("relaunches only the reread plan with the newly shown profile choice and ceiling", async () => {

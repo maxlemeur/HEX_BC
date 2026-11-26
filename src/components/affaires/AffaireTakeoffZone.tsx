@@ -183,7 +183,8 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
           {model.gesture ? (
             <TakeoffAssumeControls key={`${model.gesture.requestId}:${model.gesture.revision}`} projectId={projectId}
               requestId={model.gesture.requestId} revision={model.gesture.revision} action={model.gesture.kind}
-              label={model.gesture.label} busyLabel="Prise en charge…" className={ACTION_CLASS} onChanged={(result, viaKey) => {
+              label={model.gesture.label} busyLabel="Prise en charge…" size="md" className={ACTION_CLASS} wrapperClassName="max-sm:w-full"
+              onChanged={(result, viaKey) => {
                 if (!result) { void mutate(); return; }
                 const verb = model.gesture?.kind === "resume" ? "Métré repris" : "Métré pris en charge";
                 toast.success({ title: `${verb} avec ${viaKey ? "votre clé API" : "votre forfait"}`,

@@ -933,7 +933,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
           payment={payment} paymentStale={paymentStale} onReloadPayment={() => {
             setPreview({ value: null, error: null });
             setPaymentStale(false);
-            payment.reload();
+            payment.reload({ live: true });
           }}
           onClose={() => setDialog(null)} onConfirm={() => void confirmRemeasure()} />
       ) : null}

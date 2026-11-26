@@ -72,6 +72,8 @@ describe("BriefDraftCard confirmation dialog", () => {
     await user.selectOptions(dialog.getByLabelText("Modèle"), "gpt-6.2-sol");
     await user.selectOptions(dialog.getByLabelText("Effort de raisonnement"), "high");
     expect(await dialog.findByText(keyNotice.message)).toBeVisible();
+    // The key's notice reads at the size of the plan's, in the same list.
+    expect(dialog.getByText(keyNotice.message)).toHaveClass("text-sm");
     await user.click(dialog.getByRole("button", { name: "Confirmer et analyser 1 plan" }));
     expect(confirmBrief).toHaveBeenLastCalledWith(expect.objectContaining({ payerNotice: keyNotice.digest,
       paymentChoice: { source: "personal_api_key", model: "gpt-6.2-sol", effort: "high", expectedConnectionId: FIXTURE_KEY_CONNECTION, expectedMaxCostCents: 2500 } }));

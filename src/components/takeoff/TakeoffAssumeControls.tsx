@@ -6,28 +6,32 @@ import { assumeTakeoffLaunchRequestAction } from "@/app/dashboard/affaires/_acti
 import { Button } from "@/components/ui/button";
 import type { TakeoffLaunchGestureResult } from "@/lib/takeoff/launch-payer-server";
 import { TAKEOFF_PAYMENT_CHOICE_REQUIRED } from "@/lib/takeoff/payment-choice";
+import { cn } from "@/lib/utils";
 import { TakeoffPaymentFields } from "./TakeoffPaymentFields";
 import { useTakeoffPaymentSettings } from "./useTakeoffPaymentSettings";
 
-export function TakeoffAssumeControls({ projectId, requestId, revision, action, label, busyLabel, className, onChanged }: {
+export function TakeoffAssumeControls({ projectId, requestId, revision, action, label, busyLabel, size = "sm", className, wrapperClassName, onChanged }: {
   projectId: string;
   requestId: string;
   revision: number;
   action: "take_on" | "resume";
   label: string;
   busyLabel: string;
+  size?: "sm" | "md";
   className?: string;
+  /** The button sizes itself against this wrapper: give it the width the button must fill. */
+  wrapperClassName?: string;
   onChanged: (result: TakeoffLaunchGestureResult | null, viaKey: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; reloadSettings?: true } | null>(null);
   const [explicitRequired, setExplicitRequired] = useState(false);
-  const settings = useTakeoffPaymentSettings(projectId, requestId);
+  const settings = useTakeoffPaymentSettings(projectId, requestId, explicitRequired);
   const viaKey = settings.value.source === "personal_api_key";
-  const choice = explicitRequired ? settings.explicitChoice : settings.choice;
+  const choice = settings.choice;
 
   async function confirm() {
-    if (busy || !settings.ready || error?.reloadSettings || (explicitRequired && !choice)) return;
+    if (busy || !settings.ready || error?.reloadSettings) return;
     setBusy(true);
     setError(null);
     try {
@@ -45,12 +49,12 @@ export function TakeoffAssumeControls({ projectId, requestId, revision, action, 
     }
   }
 
-  return <div className="min-w-0 space-y-2">
+  return <div className={cn("min-w-0 space-y-2", wrapperClassName)}>
     <TakeoffPaymentFields settings={settings} disabled={busy} stale={error?.reloadSettings}
       ceilingScope={action === "resume" ? "les lectures reprises" : "les lectures que vous prenez en charge"}
-      onReload={() => { setError(null); settings.reload(); }} />
-    <Button type="button" variant="primary" size="sm" className={className}
-      disabled={busy || !settings.ready || Boolean(error?.reloadSettings) || (explicitRequired && !choice)}
+      onReload={() => { setError(null); settings.reload({ live: true }); }} />
+    <Button type="button" variant="primary" size={size} className={className}
+      disabled={busy || !settings.ready || Boolean(error?.reloadSettings)}
       onClick={() => void confirm()}>
       {busy ? busyLabel : viaKey ? action === "resume" ? "Reprendre avec ma clé API" : "Prendre en charge avec ma clé API" : label}
     </Button>

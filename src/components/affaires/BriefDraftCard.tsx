@@ -734,15 +734,15 @@ export function BriefDraftCard({
             ))}
             {checked.length > 1 && <p className="text-sm">Si deux plans ont le même contenu, choisissez une seule copie.</p>}
             {checked.length > 0 && (paymentChoice
-              ? paymentPreview?.error ? <p role="alert">{paymentPreview.error}</p>
-                : paymentNotice ? <p>{paymentNotice.message}</p> : <p role="status">Lecture de la mention de paiement…</p>
+              ? paymentPreview?.error ? <p role="alert" className="text-sm">{paymentPreview.error}</p>
+                : paymentNotice ? <p className="text-sm">{paymentNotice.message}</p> : <p role="status" className="text-sm">Lecture de la mention de paiement…</p>
               : <p className="text-sm">{paymentNotice?.message ?? "Une personne habilitée pourra lancer les plans cochés avec son forfait."}</p>)}
           </fieldset>
         )}
         {showPayment && <TakeoffPaymentFields settings={payment} disabled={isPending} stale={paymentStale || Boolean(paymentPreview?.error)} onReload={() => {
           setError(null);
           setPaymentStale(false);
-          payment.reload();
+          payment.reload({ live: true });
           loadChoices(true);
         }} />}
         {choices.state === "pending" && <p role="status">Lecture des plans du dossier…</p>}

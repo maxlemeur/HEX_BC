@@ -222,7 +222,7 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
       <DialogContent><DialogHeader><DialogTitle>Mesurer ce poste</DialogTitle>
         <DialogDescription>{line.label} · {line.expectedUnit ?? "Unité non renseignée"} · {plan.name}</DialogDescription></DialogHeader>
         <TakeoffPaymentFields settings={payment} disabled={busy || unsure} stale={paymentStale} onReload={() => {
-          payment.reload();
+          payment.reload({ live: true });
           show(singlePage, true);
         }} />
         <label className="grid gap-1 text-sm">Portée <NativeSelect size="sm" value={singlePage ? "page" : "plan"} disabled={busy || unsure} onChange={(e) => void show(e.target.value === "page", true)}>

@@ -24,6 +24,8 @@ type Props = Readonly<{
   fieldsClassName?: string;
   locked?: boolean;
   effortFallback?: "automatic" | "model_default";
+  /** Show the value's effort even when its model no longer offers it: the request is sent with it as it is. */
+  keepUnofferedEffort?: boolean;
   keyCeiling?: { nanoUsd: number; message?: (ceiling: string) => string };
   messageId?: string;
 }>;
@@ -32,7 +34,7 @@ type Props = Readonly<{
 export function AiRequestSettings({
   id, sources, defaultSource, value = defaultAiRequestSettings(defaultSource, sources), onChange, sourcePicker,
   modelLabel = "Modèle", fieldsClassName = "flex flex-wrap items-end gap-3", locked = false,
-  effortFallback = "model_default", keyCeiling, messageId,
+  effortFallback = "model_default", keepUnofferedEffort = false, keyCeiling, messageId,
 }: Props) {
   const generatedId = useId();
   const selectId = id ?? generatedId;
@@ -49,7 +51,7 @@ export function AiRequestSettings({
   const message = ceiling
     ? (keyCeiling?.message ?? aiRequestKeyCeilingMessage)(ceiling)
     : option?.message ?? defaultMessage;
-  const effort = selectedModel && preferences && supportsReasoningEffort(selectedModel, preferences.reasoningEffort)
+  const effort = selectedModel && preferences && (keepUnofferedEffort || supportsReasoningEffort(selectedModel, preferences.reasoningEffort))
     ? preferences.reasoningEffort : effortFallback === "automatic" ? null : selectedModel?.defaultReasoningEffort ?? null;
 
   return (
