@@ -531,7 +531,12 @@ export async function checkpoint(ui: Ui, army: ArmyState, label: string, version
   const apiTarget = { version: expected.api.version, lines: expected.api.lines ?? {} };
   const persisted = await waitPersisted(ui, versionId, expected.api);
   const before = await waitScreen(ui, expected.screen);
+  const opensSettings = new URL(await ui.browser.url()).searchParams.has("openSettings");
   await ui.browser.reload();
+  if (opensSettings) {
+    // The deep link opens the modal again after reload. Dismiss it before looking for the grid.
+    await settingsDialog(ui).getByRole("button", "Fermer", { exact: true }).tap();
+  }
   await expect(grid(ui)).toBeVisible({ timeout: 60_000 });
   const after = await waitScreen(ui, expected.screen);
   const reread = apiProjection(await readConsistent(ui, versionId), expected.api);
