@@ -583,7 +583,7 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     await openOriginal();
     const original = screen.getByRole("dialog", "Original de la demande", { exact: true });
     // No photo, no reading to offer.
-    await expect(original.getByText("Pas de photo de l’original.", { exact: true })).toBeVisible();
+    await expect(original.getByText("Aucune pièce jointe.", { exact: true })).toBeVisible();
     await expect(original.getByRole("button", "Analyser la photo avec l’IA", { exact: true })).toHaveCount(0);
 
     // A 1x1 PNG, generated here: no real photograph in a public repository.
@@ -591,7 +591,7 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     await mkdir(directory, { recursive: true });
     const photo = path.join(directory, "demande-papier.png");
     await writeFile(photo, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));
-    await browser.locator('input[type="file"][aria-label="Photos à ajouter"]').first().setInputFiles([photo]);
+    await browser.locator('input[type="file"][aria-label="Fichiers à ajouter"]').first().setInputFiles([photo]);
     await expect.poll(async () => (await read()).files.length, DEV_SERVER_WORK).toBe(1);
     // The office turns the photo: the bytes stay as stored, and the model is told how to read them upright.
     await original.getByRole("button", "Tourner à droite", { exact: true }).click();
@@ -638,7 +638,7 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     const pdfDoc = await PDFDocument.create();
     pdfDoc.addPage().drawText("4 brides inox DN 50 - Local technique");
     await writeFile(pdfOriginal, await pdfDoc.save());
-    await browser.locator('input[type="file"][aria-label="Photos à ajouter"]').first().setInputFiles([pdfOriginal]);
+    await browser.locator('input[type="file"][aria-label="Fichiers à ajouter"]').first().setInputFiles([pdfOriginal]);
     await expect.poll(async () => (await read()).files.length, DEV_SERVER_WORK).toBe(2);
     await expect(original.getByText("Original 2 sur 2", { exact: true })).toBeVisible();
     await expect(original.getByRole("button", "Tourner à droite", { exact: true })).toHaveCount(0);

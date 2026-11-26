@@ -20,7 +20,7 @@ import {
   resolveEstimateDraftAi,
   type EstimateDraftAiGeneration,
 } from "@/lib/estimates/draft-ai-generation";
-import { withEstimateGenerationExecution } from "@/lib/estimates/generation-execution";
+import { isEstimateGenerationExecutionLost, mapEstimateGenerationWriteError, withEstimateGenerationExecution } from "@/lib/estimates/generation-execution";
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import {
@@ -64,8 +64,6 @@ type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
 };
 type EstimateStructureDraftRow =
   Database["public"]["Tables"]["estimate_structure_drafts"]["Row"];
-type EstimateStructureDraftInsert =
-  Database["public"]["Tables"]["estimate_structure_drafts"]["Insert"];
 type EstimateStructureDraftNodeRow =
   Database["public"]["Tables"]["estimate_structure_draft_nodes"]["Row"];
 type EstimateStructureDraftNodeInsert =
@@ -2012,6 +2010,7 @@ async function buildDraftNodesFromSources(input: {
   project: EmbeddedProjectAccess;
   existingSections?: MutableExistingSection[];
   ai: EstimateDraftAiGeneration;
+  requireExecution: () => Promise<void>;
 }) {
   const { ai, project, sourceBundle } = input;
   const { source_entries, source_summaries, prompt_sources } = sourceBundle;
@@ -2026,10 +2025,10 @@ async function buildDraftNodesFromSources(input: {
         }),
         schema: EstimateStructureGeminiExchangeSchema,
         context: { promptVersion: ESTIMATE_STRUCTURE_PROMPT_VERSION },
-      });
+      }, input.requireExecution);
     } catch (error) {
       // The key path must stop on a refusal, spend limit, or unknown usage.
-      if (ai.source === "personal_api_key") throw error;
+      if (ai.source === "personal_api_key" || isEstimateGenerationExecutionLost(error)) throw error;
       failure = error;
     }
   }
@@ -2078,31 +2077,11 @@ export async function buildEstimateStructurePreview(input: {
   project: EmbeddedProjectAccess;
   version: VersionAccessRow;
   ai: EstimateDraftAiGeneration;
+  requireExecution: () => Promise<void>;
   existingSections?: MutableExistingSection[];
 }) {
   const sourceBundle = await loadStructureDraftSourceBundle(input);
   return buildDraftNodesFromSources({ ...input, sourceBundle });
-}
-
-async function discardPendingDrafts(input: {
-  supabase: Supabase;
-  tenantId: string;
-  versionId: string;
-  userId: string;
-}) {
-  const { error } = await input.supabase
-    .from("estimate_structure_drafts")
-    .update({
-      status: "discarded",
-    })
-    .eq("tenant_id", input.tenantId)
-    .eq("target_version_id", input.versionId)
-    .eq("created_by", input.userId)
-    .eq("status", "pending");
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible d'archiver les previews precedentes.");
-  }
 }
 
 async function loadEstimateStructureDraftOrThrow(input: {
@@ -2230,57 +2209,20 @@ export async function generateEstimateStructureDraft(
     operation: "structure_draft",
     pageSessionId: draftLock.session_id,
     useAi: ai !== null,
-    run: async () => {
-      const generation = await buildDraftNodesFromSources({ project, existingSections, sourceBundle, ai });
-      const summary = buildDraftSummary(generation.nodes);
-
-      await discardPendingDrafts({
-        supabase,
-        tenantId,
-        versionId,
-        userId,
+    run: async ({ token, requireActive }) => {
+      const generation = await buildDraftNodesFromSources({
+        project, existingSections, sourceBundle, ai, requireExecution: requireActive,
       });
-
-      const draftInsert: EstimateStructureDraftInsert = {
-        tenant_id: tenantId,
-        project_id: project.id,
-        target_version_id: versionId,
-        created_by: userId,
-        status: "pending",
-        strategy: input.strategy ?? "hybrid",
-        summary: toJson(summary),
-        source_overview: toJson(generation.sources),
-        generation_metadata: toJson(generation.metadata),
-        applied_at: null,
-      };
-
-      const { data: draftData, error: draftError } = await supabase
-        .from("estimate_structure_drafts")
-        .insert(draftInsert)
-        .select("*")
-        .single();
-
-      if (draftError || !draftData) {
-        if (draftError) {
-          throw mapSupabaseError(
-            draftError,
-            "Impossible de créer la preview de structure."
-          );
-        }
-
-        throw badRequest("Impossible de créer la preview de structure.");
-      }
+      const summary = buildDraftSummary(generation.nodes);
 
       const flattenedNodes = flattenDraftNodes(generation.nodes);
       const nodeIdMap = new Map(
         flattenedNodes.map((node) => [node.id, randomUUID()] as const)
       );
 
-      const nodesInsert: EstimateStructureDraftNodeInsert[] = flattenedNodes.map(
+      const nodesInsert: Omit<EstimateStructureDraftNodeInsert, "tenant_id" | "draft_id">[] = flattenedNodes.map(
         (node) => ({
           id: nodeIdMap.get(node.id) ?? randomUUID(),
-          tenant_id: tenantId,
-          draft_id: draftData.id,
           parent_node_id: node.parent_id
             ? nodeIdMap.get(node.parent_id) ?? null
             : null,
@@ -2299,23 +2241,17 @@ export async function generateEstimateStructureDraft(
         })
       );
 
-      if (nodesInsert.length > 0) {
-        const { error: insertNodesError } = await supabase
-          .from("estimate_structure_draft_nodes")
-          .insert(nodesInsert);
-
-        if (insertNodesError) {
-          await supabase
-            .from("estimate_structure_drafts")
-            .delete()
-            .eq("tenant_id", tenantId)
-            .eq("id", draftData.id);
-          throw mapSupabaseError(
-            insertNodesError,
-            "Impossible d'enregistrer les noeuds de structure."
-          );
-        }
-      }
+      const { data, error } = await supabase.rpc("persist_estimate_structure_generation", {
+        p_version_id: versionId,
+        p_token: token,
+        p_summary: toJson(summary),
+        p_sources: toJson(generation.sources),
+        p_metadata: toJson(generation.metadata),
+        p_nodes: toJson(nodesInsert),
+      });
+      if (error) throw mapEstimateGenerationWriteError(error, "Impossible d’enregistrer la preview de structure.");
+      const draftData = data?.[0];
+      if (!draftData) throw badRequest("Impossible de créer la preview de structure.");
 
       const persistedNodes = rebuildDraftNodes(
         flattenedNodes.map((node) => ({

@@ -137,25 +137,7 @@ function createSupabaseFake(input: {
   const resolve = (query: RecordedQuery, terminal: "many" | "single" | "maybeSingle") => {
     const write = query.calls.find((call) => ["insert", "update", "delete"].includes(call.method));
     if (write) {
-      if (write.method === "insert" && query.table === "estimate_structure_drafts") {
-        draftInserts.push(write.args[0] as Row);
-        return {
-          data: { id: DRAFT_ID, created_at: "2026-03-06T09:01:00.000Z" },
-          error: null,
-        };
-      }
-      if (write.method === "insert" && query.table === "estimate_structure_draft_nodes") {
-        draftNodeInserts.push(write.args[0] as Row[]);
-      }
-      if (write.method === "insert" && query.table.startsWith("estimate_version_zero_")) {
-        const values = write.args[0] as Row | Row[];
-        const rows = (Array.isArray(values) ? values : [values]).map((row, index) => ({
-          ...row, id: `${query.table}-${index}`, created_at: "2026-03-06T09:01:00.000Z",
-        }));
-        input.tables[query.table] = rows;
-        return { data: terminal === "single" ? rows[0] : rows, error: null };
-      }
-      return { data: null, error: null };
+      throw new Error(`Unexpected direct write to ${query.table}`);
     }
 
     const error = input.failRead?.(query) ?? null;
@@ -198,15 +180,37 @@ function createSupabaseFake(input: {
     return builder;
   });
 
-  const rpc = vi.fn(async (...[functionName]: [string, Record<string, unknown>]) => {
-    if (functionName === "acquire_estimate_generation_execution") {
-      return { data: [{ status: "acquired", retry_after_seconds: 0 }], error: null };
+  const rpc = vi.fn<(name: string, args: Row) => Promise<{ data: unknown; error: QueryError | null }>>(
+    async (functionName, args) => {
+      if (functionName === "acquire_estimate_generation_execution") {
+        return { data: [{ status: "acquired", retry_after_seconds: 0 }], error: null };
+      }
+      if (functionName === "require_estimate_generation_execution" || functionName === "release_estimate_generation_execution") {
+        return { data: true, error: null };
+      }
+      const createdAt = "2026-03-06T09:01:00.000Z";
+      if (functionName === "persist_estimate_structure_generation") {
+        draftInserts.push({ summary: args.p_summary, source_overview: args.p_sources, generation_metadata: args.p_metadata });
+        const nodes = args.p_nodes as Row[];
+        if (nodes.length > 0) draftNodeInserts.push(nodes);
+        return { data: [{ id: DRAFT_ID, created_at: createdAt }], error: null };
+      }
+      if (functionName === "persist_estimate_v0_generation") {
+        const scope = { tenant_id: TENANT_ID, project_id: PROJECT_ID, version_id: VERSION_ID };
+        input.tables.estimate_version_zero_drafts = [{
+          ...args.p_draft as Row, ...scope, id: DRAFT_ID, created_at: createdAt, status: "ia_a_revoir",
+        }];
+        input.tables.estimate_version_zero_lots = (args.p_lots as Row[]).map((row) => ({
+          ...row, ...scope, draft_id: DRAFT_ID, created_at: createdAt,
+        }));
+        input.tables.estimate_version_zero_lines = (args.p_lines as Row[]).map((row, index) => ({
+          ...row, ...scope, id: `estimate_version_zero_lines-${index}`, draft_id: DRAFT_ID, created_at: createdAt,
+        }));
+        return { data: DRAFT_ID, error: null };
+      }
+      throw new Error(`Unexpected RPC ${functionName}`);
     }
-    if (functionName === "release_estimate_generation_execution") {
-      return { data: true, error: null };
-    }
-    throw new Error(`Unexpected RPC ${functionName}`);
-  });
+  );
 
   const supabase = {
     auth: {
@@ -2251,19 +2255,102 @@ describe("structure and V0 generation routes", () => {
       expect((await fallbackResponse.json()).data.lots[0].lines[0].generationOrigin).toBe("brief");
     }
 
-    for (const [useAi, offset] of [[true, 0], [false, operations.length * 2]] as const) {
-      const calls = fake.supabase.rpc.mock.calls.slice(offset, offset + operations.length * 2);
-      const tokens = calls.slice(0, operations.length).map(([name, args], index) => {
-        expect(name).toBe("acquire_estimate_generation_execution");
-        expect(args).toEqual({
-          p_version_id: VERSION_ID, p_operation: operations[index], p_use_ai: useAi,
-          p_draft_lock_session_id: PAGE_ID, p_token: expect.any(String),
-        });
-        return { p_version_id: args.p_version_id, p_operation: args.p_operation, p_token: args.p_token };
-      });
-      expect(calls.slice(operations.length)).toEqual(tokens.reverse().map((args) =>
-        ["release_estimate_generation_execution", args]));
+    const calls = fake.supabase.rpc.mock.calls;
+    const admissions = calls.filter(([name]) => name === "acquire_estimate_generation_execution");
+    expect(admissions.map(([, args]) => [args.p_operation, args.p_use_ai])).toEqual(
+      [true, false].flatMap((useAi) => operations.map((operation) => [operation, useAi]))
+    );
+    for (const [, args] of admissions) {
+      expect(args).toMatchObject({ p_version_id: VERSION_ID, p_draft_lock_session_id: PAGE_ID, p_token: expect.any(String) });
+      expect(calls).toContainEqual(["release_estimate_generation_execution", {
+        p_version_id: VERSION_ID, p_operation: args.p_operation, p_token: args.p_token,
+      }]);
     }
+  });
+
+  it("refuses a paid replay with the SQL quota code and delay before calling the provider or writing", async () => {
+    const fake = fixture();
+    const { choice, sent } = await paidAdapter();
+    fake.supabase.rpc.mockResolvedValueOnce({
+      data: [{ status: "quota_exceeded", retry_after_seconds: 413 }], error: null,
+    });
+
+    const response = await post("structure", choice);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatchObject({
+      code: "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED",
+      details: { retry_after_seconds: 413 },
+    });
+    expect(sent).toEqual([]);
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(fake.draftInserts).toEqual([]);
+    expect(fake.draftNodeInserts).toEqual([]);
+    expect(fake.supabase.rpc).toHaveBeenCalledExactlyOnceWith("acquire_estimate_generation_execution",
+      expect.objectContaining({ p_use_ai: true, p_operation: "structure_draft" }));
+  });
+
+  const lostExecution = { code: "23505", message: "estimate_generation_execution_lost", details: null, hint: null };
+
+  it("checks the token again after counting and before executing the paid call", async () => {
+    const fake = fixture();
+    const { choice, sent } = await paidAdapter();
+    const rpc = fake.supabase.rpc.getMockImplementation()!;
+    let checkpoints = 0;
+    fake.supabase.rpc.mockImplementation((name, args) =>
+      name === "require_estimate_generation_execution" && ++checkpoints === 2
+        ? Promise.resolve({ data: null, error: lostExecution })
+        : rpc(name, args)
+    );
+
+    const response = await post("structure", choice);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("ESTIMATE_GENERATION_EXECUTION_LOST");
+    expect(sent.map(({ path }) => path)).toEqual(["/v1/responses/input_tokens"]);
+    expect(fake.draftInserts).toEqual([]);
+  });
+
+  it("refuses a late V0 after a fallback has replaced its expired execution", async () => {
+    const fake = fixture();
+    vi.mocked(resolveAiRequest).mockResolvedValue(planSelection);
+    reportPlan();
+    const provider = vi.mocked(callStructuredAi).getMockImplementation()!;
+    const lotsStarted = Promise.withResolvers<void>();
+    const finishLots = Promise.withResolvers<void>();
+    vi.mocked(callStructuredAi).mockImplementation(async (options, actor, preferences) => {
+      if (options.prompt.includes("Lots cibles:")) {
+        lotsStarted.resolve();
+        await finishLots.promise;
+      }
+      return provider(options, actor, preferences);
+    });
+    const rpc = fake.supabase.rpc.getMockImplementation()!;
+    let currentToken: unknown;
+    fake.supabase.rpc.mockImplementation((name, args) => {
+      if (name === "acquire_estimate_generation_execution" && args.p_operation === "version_zero_draft") {
+        currentToken = args.p_token;
+      }
+      if (name === "persist_estimate_v0_generation" && args.p_token !== currentToken) {
+        return Promise.resolve({ data: null, error: lostExecution });
+      }
+      return rpc(name, args);
+    });
+
+    const first = post("v0", planChoice);
+    await Promise.race([lotsStarted.promise, first.then(() => { throw new Error("The first run did not reach lots."); })]);
+    const replacement = await post("v0", { source: "fallback" });
+    finishLots.resolve();
+
+    expect(replacement.status).toBe(201);
+    const expired = await first;
+    expect(expired.status).toBe(409);
+    expect((await expired.json()).error).toMatchObject({
+      code: "ESTIMATE_GENERATION_EXECUTION_LOST",
+      message: "Le verrou de génération a expiré. Relancez la génération.",
+    });
+    expect(fake.tables.estimate_version_zero_drafts).toEqual([
+      expect.objectContaining({ generation_metadata: expect.objectContaining({ billing_source: null }) }),
+    ]);
   });
 
   it("refuses concurrent V0 fallback with a mode-neutral message", async () => {

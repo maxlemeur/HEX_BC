@@ -1,9 +1,26 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { conflict, internalError, mapSupabaseError } from "@/lib/http/api-response";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import { ApiError, conflict, internalError, mapSupabaseError } from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
+
+const EXECUTION_LOST = "ESTIMATE_GENERATION_EXECUTION_LOST";
+
+type GenerationExecution = {
+  token: string;
+  requireActive: () => Promise<void>;
+};
+
+export function isEstimateGenerationExecutionLost(error: unknown) {
+  return error instanceof ApiError && error.code === EXECUTION_LOST;
+}
+
+export function mapEstimateGenerationWriteError(error: PostgrestError, message: string) {
+  return error.message === "estimate_generation_execution_lost"
+    ? conflict("Le verrou de génération a expiré. Relancez la génération.", undefined, EXECUTION_LOST)
+    : mapSupabaseError(error, message);
+}
 
 export async function withEstimateGenerationExecution<T>(input: {
   supabase: SupabaseClient<Database>;
@@ -11,7 +28,7 @@ export async function withEstimateGenerationExecution<T>(input: {
   operation: "structure_draft" | "version_zero_draft";
   pageSessionId: string | null | undefined;
   useAi: boolean;
-  run: () => Promise<T>;
+  run: (execution: GenerationExecution) => Promise<T>;
 }) {
   const pageLockRequired = () =>
     conflict("Le verrou de cette page n’est plus actif. Réessayez depuis cette page.", undefined, "LOCK_REQUIRED");
@@ -53,7 +70,13 @@ export async function withEstimateGenerationExecution<T>(input: {
   }
 
   try {
-    return await input.run();
+    return await input.run({
+      token: tokenArgs.p_token,
+      requireActive: async () => {
+        const { error } = await input.supabase.rpc("require_estimate_generation_execution", tokenArgs);
+        if (error) throw mapEstimateGenerationWriteError(error, "Impossible de vérifier le verrou de génération.");
+      },
+    });
   } finally {
     try {
       const { error: releaseError } = await input.supabase.rpc("release_estimate_generation_execution", tokenArgs);

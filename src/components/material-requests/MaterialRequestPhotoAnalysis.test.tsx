@@ -612,7 +612,7 @@ describe("AI reading of the photos of a material request", () => {
     await within(original).findByText(/Lecture de la photo/);
 
     const pdfFile = new File(["%PDF-1.4\n%"], "ajout.pdf", { type: "application/pdf" });
-    await user.upload(within(original).getByLabelText("Photos à ajouter"), pdfFile);
+    await user.upload(within(original).getByLabelText("Fichiers à ajouter"), pdfFile);
     await within(original).findByTestId("pdf-viewer");
 
     releaseFirst(read(FILE_1, SHEET_1));

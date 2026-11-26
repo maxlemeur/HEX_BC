@@ -323,7 +323,7 @@ const estimateDraftAiChoiceErrorDescription =
   `Une requête autrement valide sans le champ ai reçoit un HTTP 400 avec le code ${ESTIMATE_DRAFT_AI_CHOICE_REQUIRED.code} et le message « ${ESTIMATE_DRAFT_AI_CHOICE_REQUIRED.message} ».`;
 
 const estimateGenerationConflictDescription =
-  "Un HTTP 409 ESTIMATE_GENERATION_IN_PROGRESS signale une génération de la même opération en cours. Le code ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED et la fenêtre de dix minutes s’appliquent aux demandes avec IA. Ces deux refus indiquent le délai en secondes dans details.retry_after_seconds.";
+  "Un HTTP 409 ESTIMATE_GENERATION_IN_PROGRESS signale une génération de la même opération en cours. Le code ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED et la fenêtre de dix minutes s’appliquent aux demandes avec IA. Ces deux refus indiquent le délai en secondes dans details.retry_after_seconds. ESTIMATE_GENERATION_EXECUTION_LOST indique que la génération a perdu son verrou et doit être relancée.";
 
 const estimateWorkflowContracts: RouteContract[] = [
   {

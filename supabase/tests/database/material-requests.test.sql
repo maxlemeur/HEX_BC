@@ -52,10 +52,11 @@ where relation.oid in ('public.material_request_technicians'::regclass, 'public.
   'public.material_request_files'::regclass, 'public.material_request_lines'::regclass);
 select is(has_table_privilege('authenticated', 'public.material_request_technicians', 'DELETE'), false,
   'a client cannot delete a technician');
--- TI-690/TI-691: both request originals and quote attachments accept JPEG, PNG, WebP and PDF.
+-- Originals also accept XLSX through the private bucket shared with quotes.
 select ok((select not public and file_size_limit = 20971520
-    and allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
-  from storage.buckets where id = 'material-requests'), 'the originals bucket is private, 20 MiB, images and PDFs');
+    and allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp', 'application/pdf',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+  from storage.buckets where id = 'material-requests'), 'the originals bucket is private, 20 MiB, images, PDF and XLSX');
 
 -- Members of tenant 101: 1 engineer who owns the affaire, 2 admin, 3 director, 4 viewer, 5 another
 -- engineer, 7 a second admin. Member 6 belongs to tenant 102 only.
@@ -330,7 +331,7 @@ select throws_ok($$insert into public.material_request_files (id, request_id, st
   values ('a9000000-0000-4000-8000-000000000703', 'a9000000-0000-4000-8000-000000000501',
     'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000703/photo.heic',
     'photo.heic', 'image/heic', 2048, 'a9000000-0000-4000-8000-000000000001')$$,
-  '23514', null, 'only JPEG, PNG, WebP and PDF originals are recorded');
+  '23514', null, 'HEIC is converted before an original is recorded');
 select throws_ok($$insert into public.material_request_files (id, request_id, storage_path, file_name, mime_type, byte_size, created_by)
   values ('a9000000-0000-4000-8000-000000000703', 'a9000000-0000-4000-8000-000000000501',
     'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000703/grand.jpg',
@@ -489,6 +490,22 @@ update public.material_request_files set removed_at = now() where id = 'a9000000
 delete from storage.objects where bucket_id = 'material-requests'
   and name = 'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000709/liste.pdf';
 delete from public.material_request_files where id = 'a9000000-0000-4000-8000-000000000709';
+select lives_ok($$insert into public.material_request_files (id, request_id, storage_path, file_name, mime_type, byte_size, created_by)
+  values ('a9000000-0000-4000-8000-000000000710', 'a9000000-0000-4000-8000-000000000501',
+    'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000710/liste.xlsx',
+    'liste.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 4096, 'a9000000-0000-4000-8000-000000000001')$$,
+  'the owner records a Excel original on the request');
+select lives_ok($$insert into storage.objects (bucket_id, name, metadata) values ('material-requests',
+  'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000710/liste.xlsx',
+  '{"size":4096}')$$, 'the owner stores the Excel original bytes');
+select lives_ok($$update public.material_request_files set stored_at = now() where id = 'a9000000-0000-4000-8000-000000000710'$$,
+  'the Excel original is marked stored');
+select throws_ok($$update public.material_request_files set rotation = 90 where id = 'a9000000-0000-4000-8000-000000000710'$$,
+  '23514', null, 'a stored Excel original cannot be rotated');
+update public.material_request_files set removed_at = now() where id = 'a9000000-0000-4000-8000-000000000710';
+delete from storage.objects where bucket_id = 'material-requests'
+  and name = 'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000710/liste.xlsx';
+delete from public.material_request_files where id = 'a9000000-0000-4000-8000-000000000710';
 select is((select count(*) from storage.objects where bucket_id = 'material-requests'), 1::bigint,
   'the stored original of the request is still there');
 reset role;
