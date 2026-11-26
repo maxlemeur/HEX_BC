@@ -1,0 +1,38 @@
+name: Generate catalogue migration types
+on:
+  push:
+    branches:
+      - codex/catalogue-reference-naming-types-refresh
+    paths:
+      - .github/workflows/generate-catalogue-migration-types.yml
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CI: "1"
+      DO_NOT_TRACK: "1"
+      SUPABASE_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate types from the migrated schema
+        run: npm run supabase:types
+      - name: Upload the generated public schema types
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: catalogue-reference-naming-database-types
+          path: src/types/database.generated.ts
+          if-no-files-found: error
+          retention-days: 1
