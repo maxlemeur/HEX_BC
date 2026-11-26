@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiKeyError } from "@/lib/ai/access/api-key-errors";
 import { formatEUR } from "@/lib/money";
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -16,8 +17,19 @@ vi.mock("@/lib/ai/structured-ai", () => ({
   callStructuredAi: vi.fn(),
 }));
 
+vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn() }));
+vi.mock("@/lib/ai/request-settings-server", () => ({
+  readAiRequestOptions: vi.fn(),
+  resolveAiRequest: vi.fn(),
+}));
+vi.mock("@/lib/ai/access/openai-api", () => ({ openAiApiKeyAccess: vi.fn() }));
+
+import { GET, POST } from "@/app/api/estimates/[versionId]/lines/[lineId]/explanation/route";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
+import { readAiRequestOptions, resolveAiRequest } from "@/lib/ai/request-settings-server";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
-import { getEstimateDeltaExplanation, getEstimateLineExplanation } from "@/lib/estimates/explanations";
+import { generateEstimateLineExplanation, getEstimateDeltaExplanation, getEstimateLineExplanation } from "@/lib/estimates/explanations";
 import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -124,9 +136,10 @@ function createSupabaseMock(options?: {
   activeExplanationRows?: Array<Record<string, unknown> | null>;
   insertSingleResponses?: Array<{ data: Record<string, unknown> | null; error: unknown }>;
   sourceRowsByExplanationId?: Record<string, Array<Record<string, unknown>>>;
+  evidenceRows?: Array<Record<string, unknown>>;
   riskAlertRows?: Array<Record<string, unknown>>;
+  insertedId?: string;
 }) {
-  let lastInsertedFingerprint: string | null = null;
   const sourceRowsByExplanationId = {
     ...(options?.sourceRowsByExplanationId ?? {}),
   };
@@ -152,13 +165,7 @@ function createSupabaseMock(options?: {
     }
 
     return {
-      data:
-        nextRow.snapshot_fingerprint === "__LAST_INSERTED_FINGERPRINT__"
-          ? {
-              ...nextRow,
-              snapshot_fingerprint: lastInsertedFingerprint,
-            }
-          : nextRow,
+      data: nextRow,
       error: null,
     };
   });
@@ -190,10 +197,6 @@ function createSupabaseMock(options?: {
     insert: vi.fn((payload: Record<string, unknown>) => ({
       select: vi.fn(() => ({
         single: vi.fn().mockImplementation(async () => {
-          lastInsertedFingerprint =
-            typeof payload.snapshot_fingerprint === "string"
-              ? payload.snapshot_fingerprint
-              : null;
           const nextResponse = options?.insertSingleResponses?.length
             ? options.insertSingleResponses.shift()
             : null;
@@ -203,7 +206,7 @@ function createSupabaseMock(options?: {
 
           return {
             data: {
-              id: ACTIVE_EXPLANATION_ID,
+              id: options?.insertedId ?? ACTIVE_EXPLANATION_ID,
               created_at: "2026-03-07T10:00:00.000Z",
               updated_at: "2026-03-07T10:00:00.000Z",
               tenant_id: TENANT_ID,
@@ -235,7 +238,11 @@ function createSupabaseMock(options?: {
       })),
     })),
     update: vi.fn(() => ({
-      eq: vi.fn().mockResolvedValue({ error: null }),
+      eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: ACTIVE_EXPLANATION_ID }, error: null }),
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve({ error: null }).then(resolve),
     })),
   };
 
@@ -290,7 +297,9 @@ function createSupabaseMock(options?: {
             eq: vi.fn().mockReturnThis(),
             is: vi.fn().mockReturnThis(),
             order: vi.fn().mockReturnThis(),
-            range: vi.fn().mockResolvedValue({ data: [], count: 0, error: null }),
+            range: vi.fn().mockImplementation(async () => ({
+              data: options?.evidenceRows ?? [], count: options?.evidenceRows?.length ?? 0, error: null,
+            })),
           })),
         };
       }
@@ -309,6 +318,7 @@ function createSupabaseMock(options?: {
     }),
     __spies: {
       explanationInsert: explanationTable.insert,
+      explanationUpdate: explanationTable.update,
       explanationSourcesInsert: explanationSourcesTable.insert,
     },
   };
@@ -381,9 +391,82 @@ function buildLegacyPriceFingerprint() {
     .digest("hex");
 }
 
+function storedPriceRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: ACTIVE_EXPLANATION_ID,
+    created_at: "2026-03-07T10:00:01.000Z",
+    updated_at: "2026-03-07T10:00:01.000Z",
+    tenant_id: TENANT_ID,
+    project_id: PROJECT_ID,
+    version_id: VERSION_ID,
+    line_id: LINE_ID,
+    compare_version_id: null,
+    requested_by: USER_ID,
+    explanation_kind: "price",
+    snapshot_fingerprint: buildLegacyPriceFingerprint(),
+    summary_short: "Resume historique.",
+    summary_detail: "Detail historique.",
+    confidence_label: "high",
+    confidence_score: 0.88,
+    used_fallback: true,
+    provider: "fallback",
+    model: null,
+    statements_json: {
+      facts: [],
+      hypotheses: [],
+      inferences: [],
+    },
+    risk_signals_json: [],
+    impact_summary_json: {
+      current_amount_ht_cents: 9000,
+      current_amount_ttc_cents: 10800,
+      top_drivers: [],
+    },
+    metadata_json: {},
+    generated_at: "2026-03-07T10:00:01.000Z",
+    superseded_at: null,
+    superseded_by_explanation_id: null,
+    ...overrides,
+  };
+}
+
+const PRICE_LINE = { versionId: VERSION_ID, lineId: LINE_ID };
+const PLAN = { source: "chatgpt_plan", model: "gpt-6.2-sol", reasoningEffort: "low" } as const;
+const PLAN_ANSWER = {
+  data: { summary_short: "Résumé simulé.", summary_detail: "Détail simulé." },
+  provider: "chatgpt" as const, model: PLAN.model, tokenCount: 0, costCents: 0, durationMs: 0, promptVersion: "price",
+  tokenUsage: { inputTokens: 0, reasoningTokens: 0, outputTokens: 0, totalTokens: 0 },
+};
+const KEY = { source: "personal_api_key", model: "gpt-5-mini", reasoningEffort: "medium",
+  connectionId: "99999999-9999-4999-8999-999999999999" } as const;
+const APP = "http://localhost:3155";
+const URL = `${APP}/api/estimates/${VERSION_ID}/lines/${LINE_ID}/explanation`;
+const params = () => ({ params: Promise.resolve(PRICE_LINE) });
+const post = (body: unknown, origin = APP) => POST(new Request(URL, {
+  method: "POST", headers: { origin, host: "localhost:3155", "content-type": "application/json" },
+  body: JSON.stringify(body),
+}), params());
+const read = () => GET(new Request(URL), params());
+const owner = { userId: USER_ID, tenantId: TENANT_ID };
+
+async function generatePriceForLine() {
+  const { revision } = await getEstimateLineExplanation({ ...PRICE_LINE, includeDetail: false });
+  return generateEstimateLineExplanation({ ...PRICE_LINE, includeDetail: true, settings: { ...PLAN, revision } });
+}
+
 describe("estimate explanations service", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    vi.mocked(getAuthenticatedContext).mockImplementation(async () => ({
+      ...owner, supabase: await createSupabaseServerClient(),
+    }) as Awaited<ReturnType<typeof getAuthenticatedContext>>);
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails());
+    vi.mocked(readAiRequestOptions).mockResolvedValue({ defaultSource: "chatgpt_plan", options: {} });
+    vi.mocked(resolveAiRequest).mockResolvedValue({
+      ok: true, source: "chatgpt_plan", connection: null,
+      preferences: { model: PLAN.model, reasoningEffort: PLAN.reasoningEffort },
+    });
+    vi.mocked(callStructuredAi).mockResolvedValue(PLAN_ANSWER);
   });
 
   it("rejects delta explanations across different projects", async () => {
@@ -650,85 +733,193 @@ describe("estimate explanations service", () => {
     expect(explanation.summary_short).toContain(`TTC en baisse de ${formatEUR(10)}`);
   });
 
-  it("reuses the winning active snapshot after a duplicate insert race", async () => {
-    const concurrentRow = {
-      id: ACTIVE_EXPLANATION_ID,
-      created_at: "2026-03-07T10:00:01.000Z",
-      updated_at: "2026-03-07T10:00:01.000Z",
-      tenant_id: TENANT_ID,
-      project_id: PROJECT_ID,
-      version_id: VERSION_ID,
-      line_id: LINE_ID,
-      compare_version_id: null,
-      requested_by: USER_ID,
-      explanation_kind: "price",
-      snapshot_fingerprint: "__LAST_INSERTED_FINGERPRINT__",
-      summary_short: "Resume concurrent.",
-      summary_detail: "Detail concurrent.",
-      confidence_label: "high",
-      confidence_score: 0.91,
-      used_fallback: true,
-      provider: "fallback",
-      model: null,
-      statements_json: {
-        facts: [],
-        hypotheses: [],
-        inferences: [],
-      },
-      risk_signals_json: [],
-      impact_summary_json: {
-        current_amount_ht_cents: 9000,
-        current_amount_ttc_cents: 10800,
-        top_drivers: [],
-      },
-      metadata_json: {},
-      generated_at: "2026-03-07T10:00:01.000Z",
-      superseded_at: null,
-      superseded_by_explanation_id: null,
-    };
+  it.each([
+    ["missing", null],
+    ["stale", storedPriceRow({ snapshot_fingerprint: "outdated" })],
+    ["ready", storedPriceRow()],
+  ])("GET reports %s without contacting an AI provider or writing", async (status, row) => {
+    const supabase = createSupabaseMock({ activeExplanationRows: [row] });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const responses = await Promise.all([read(), read()]);
+    for (const response of responses) {
+      expect(response.status).toBe(200);
+      const { data } = await response.json();
+      expect(data.status).toBe(status);
+      expect(data.explanation?.summary_short ?? null).toBe(status === "ready" ? "Resume historique." : null);
+    }
+    expect(readAiRequestOptions).toHaveBeenCalledWith(expect.objectContaining(owner), expect.anything(), "cached");
+    expect(resolveAiRequest).not.toHaveBeenCalled();
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationInsert).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationSourcesInsert).not.toHaveBeenCalled();
+  });
 
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(
-      createSupabaseMock({
-        activeExplanationRows: [null, concurrentRow],
-        insertSingleResponses: [
-          {
-            data: null,
-            error: {
-              code: "23505",
-              message: "duplicate key value violates unique constraint",
-            },
-          },
-        ],
-        sourceRowsByExplanationId: {
-          [ACTIVE_EXPLANATION_ID]: [
-            {
-              id: ACTIVE_SOURCE_ID,
-              explanation_id: ACTIVE_EXPLANATION_ID,
-              source_kind: "estimate_item",
-              label: "Ligne",
-              source_ref: "V2",
-              confidence_score: 1,
-              rank: 0,
-              source_record_table: "estimate_items",
-              source_record_id: LINE_ID,
-              metadata_json: {},
-            },
-          ],
-        },
-      }) as never
-    );
-    vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails() as never);
-    vi.mocked(callStructuredAi).mockRejectedValue(new Error("AI provider down"));
-
-    const explanation = await getEstimateLineExplanation({
-      versionId: VERSION_ID,
-      lineId: LINE_ID,
-      includeDetail: true,
+  it("explicitly regenerates a valid explanation with the selected plan model and effort", async () => {
+    const supabase = createSupabaseMock({
+      activeExplanationRows: [storedPriceRow({ provider: "gemini", model: "ancien-modèle" })],
+      insertedId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const { data: { revision } } = await (await read()).json();
+    const response = await post({ ...PLAN, revision });
 
-    expect(explanation.explanation_id).toBe(ACTIVE_EXPLANATION_ID);
-    expect(explanation.summary_short).toBe("Resume concurrent.");
-    expect(explanation.provenance).toHaveLength(1);
+    expect(response.status).toBe(200);
+    expect(resolveAiRequest).toHaveBeenCalledWith(owner, expect.anything(), {
+      source: PLAN.source, model: PLAN.model, effort: PLAN.reasoningEffort,
+    });
+    expect(callStructuredAi).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.stringContaining("Mur beton") }), owner,
+      { model: PLAN.model, reasoningEffort: PLAN.reasoningEffort },
+    );
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationInsert).toHaveBeenCalledWith(expect.objectContaining({
+      requested_by: USER_ID, provider: "chatgpt", model: PLAN.model,
+      metadata_json: expect.objectContaining({ ai_request: PLAN }),
+    }));
+    expect((await response.json()).data).toMatchObject({
+      explanation: { ai_request: PLAN }, revision: expect.stringContaining("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+    });
+  });
+
+  it("counts and generates a key request with the selected connection, effort and $0.10 allotment", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(resolveAiRequest).mockResolvedValue({
+      ok: true, source: KEY.source, connection: { id: KEY.connectionId, version: 12 },
+      preferences: { model: KEY.model, reasoningEffort: KEY.reasoningEffort },
+    });
+    const prepared = { reasoningEffort: KEY.reasoningEffort };
+    const prepare = vi.fn().mockResolvedValue(prepared);
+    const execute = vi.fn().mockResolvedValue({
+      model: "gpt-5-mini-2025-08-07", costNanoUsd: 10_000_000,
+      data: { summary_short: "Résumé API.", summary_detail: "Détail API." },
+    });
+    vi.mocked(openAiApiKeyAccess).mockReturnValue({ prepare, execute } as never);
+    const { data: { revision } } = await (await read()).json();
+    const response = await post({ ...KEY, revision });
+
+    expect(response.status).toBe(200);
+    expect(resolveAiRequest).toHaveBeenCalledWith(owner, expect.anything(), {
+      source: KEY.source, model: KEY.model, effort: KEY.reasoningEffort, expectedConnectionId: KEY.connectionId,
+    });
+    expect(prepare).toHaveBeenCalledWith(owner, expect.objectContaining({
+      expectedVersion: 12, model: KEY.model, reasoningEffort: KEY.reasoningEffort, allotmentNanoUsd: 100_000_000, files: [],
+    }));
+    expect(execute).toHaveBeenCalledWith(owner, prepared, expect.objectContaining({ timeoutMs: 60_000 }));
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    const used = { source: KEY.source, model: "gpt-5-mini-2025-08-07", reasoningEffort: KEY.reasoningEffort };
+    expect(supabase.__spies.explanationInsert).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "openai", model: used.model, metadata_json: expect.objectContaining({ ai_request: used }),
+    }));
+    expect((await response.json()).data.explanation.ai_request).toEqual(used);
+  });
+
+  it("refuses stale or cross-origin submissions and unavailable choices before generation", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const { data: { revision } } = await (await read()).json();
+    expect((await post({ ...KEY, revision }, "https://ailleurs.example")).status).toBe(403);
+    expect((await post({ ...KEY, revision: "outdated" })).status).toBe(409);
+    expect((await post({ ...KEY, revision, connectionId: null })).status).toBe(400);
+    expect(resolveAiRequest).not.toHaveBeenCalled();
+
+    vi.mocked(resolveAiRequest).mockResolvedValue({ ok: false, reason: "connection_changed", message: "Clé modifiée." });
+    expect((await post({ ...KEY, revision })).status).toBe(409);
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationInsert).not.toHaveBeenCalled();
+  });
+
+  it("refuses a competing post before a second adapter call", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const { data: { revision } } = await (await read()).json();
+    const command = { ...PLAN, revision };
+    const answers = await Promise.all([post(command), post(command)]);
+    expect(answers.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(callStructuredAi).toHaveBeenCalledTimes(1);
+    expect(supabase.__spies.explanationInsert).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["unit price", "evidence"])("discards the answer when the %s changes during inference", async (change) => {
+    const evidenceRows: Array<Record<string, unknown>> = [];
+    const supabase = createSupabaseMock({ activeExplanationRows: [storedPriceRow()], evidenceRows });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const item = {
+      ...buildVersionDetails().items[0],
+      source_job_id: "99999999-9999-4999-8999-999999999999",
+    };
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails({ items: [item] }));
+    const started = Promise.withResolvers<void>();
+    const answer = Promise.withResolvers<typeof PLAN_ANSWER>();
+    vi.mocked(callStructuredAi).mockImplementationOnce(() => {
+      started.resolve();
+      return answer.promise;
+    });
+    const { data: { revision } } = await (await read()).json();
+    const responsePending = post({ ...PLAN, revision });
+    await started.promise;
+
+    if (change === "unit price") {
+      vi.mocked(getEstimateVersionDetails).mockResolvedValue(
+        buildVersionDetails({ items: [{ ...item, pu_ht_cents: 4600 }] }),
+      );
+    } else {
+      evidenceRows.push({
+        id: ACTIVE_SOURCE_ID,
+        evidence_type: "plan",
+        evidence_kind: "fact",
+        label: "Plan révisé",
+        source_label: "Plan fictif",
+        source_file_name: "plan-b.pdf",
+        source_page: 2,
+        confidence_score: 1,
+        note: null,
+        source_record_table: null,
+        source_record_id: null,
+      });
+    }
+    answer.resolve(PLAN_ANSWER);
+
+    const response = await responsePending;
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("PRICE_EXPLANATION_STALE");
+    expect(callStructuredAi).toHaveBeenCalledTimes(1);
+    expect(supabase.__spies.explanationUpdate).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationInsert).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationSourcesInsert).not.toHaveBeenCalled();
+  });
+
+  it("reports a database insert race instead of returning another request's answer", async () => {
+    const supabase = createSupabaseMock({
+      insertSingleResponses: [{ data: null, error: { code: "23505", message: "duplicate key value" } }],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const { data: { revision } } = await (await read()).json();
+    expect((await post({ ...PLAN, revision })).status).toBe(409);
+    expect(supabase.__spies.explanationSourcesInsert).not.toHaveBeenCalled();
+  });
+
+  it("keeps the existing explanation when preparation refuses the ceiling", async () => {
+    const supabase = createSupabaseMock({ activeExplanationRows: [storedPriceRow()] });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(resolveAiRequest).mockResolvedValue({
+      ok: true, source: KEY.source, connection: { id: KEY.connectionId, version: 12 },
+      preferences: { model: KEY.model, reasoningEffort: KEY.reasoningEffort },
+    });
+    const execute = vi.fn();
+    vi.mocked(openAiApiKeyAccess).mockReturnValue({
+      prepare: vi.fn().mockRejectedValue(new ApiKeyError("AI_KEY_CEILING")), execute,
+    } as never);
+    const { data: { revision } } = await (await read()).json();
+    const response = await post({ ...KEY, revision });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("AI_KEY_CEILING");
+    expect(execute).not.toHaveBeenCalled();
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationUpdate).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationInsert).not.toHaveBeenCalled();
   });
 
   it("explains a takeoff line carrying radar alerts with the severities the database stores", async () => {
@@ -745,9 +936,7 @@ describe("estimate explanations service", () => {
     vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails({
       items: details.items.map((item) => ({ ...item, source_job_id: "99999999-9999-4999-8999-999999999999" })),
     }) as never);
-    vi.mocked(callStructuredAi).mockRejectedValue(new Error("AI provider down"));
-
-    const explanation = await getEstimateLineExplanation({ versionId: VERSION_ID, lineId: LINE_ID, includeDetail: true });
+    const { explanation } = await generatePriceForLine();
 
     // The explanation's signals keep their own low/medium/high scale.
     expect(explanation.risk_signals.map((signal) => [signal.severity, signal.source_label])).toEqual([
@@ -781,90 +970,29 @@ describe("estimate explanations service", () => {
         takeoff_provision: { version: 1, job_id: "c3000000-0000-4000-8000-000000000201", sources: [source] },
       } })),
     }) as never);
-    vi.mocked(callStructuredAi).mockRejectedValue(new Error("AI provider down"));
-
-    const explanation = await getEstimateLineExplanation({ versionId: VERSION_ID, lineId: LINE_ID, includeDetail: true });
+    const { explanation } = await generatePriceForLine();
 
     expect(explanation.hypotheses.map((statement) => statement.label)).toEqual([sentence]);
   });
 
-  it("rehydrates missing provenance on an active snapshot reuse", async () => {
-    const fingerprintProbeSupabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(
-      fingerprintProbeSupabase as never
-    );
-    vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails() as never);
-    vi.mocked(callStructuredAi).mockRejectedValue(new Error("AI provider down"));
-
-    await getEstimateLineExplanation({
-      versionId: VERSION_ID,
-      lineId: LINE_ID,
-      includeDetail: true,
-    });
-
-    const fingerprint =
-      fingerprintProbeSupabase.__spies.explanationInsert.mock.calls[0]?.[0]
-        ?.snapshot_fingerprint;
-
-    expect(typeof fingerprint).toBe("string");
-
-    const activeRow = {
-      id: ACTIVE_EXPLANATION_ID,
-      created_at: "2026-03-07T10:00:01.000Z",
-      updated_at: "2026-03-07T10:00:01.000Z",
-      tenant_id: TENANT_ID,
-      project_id: PROJECT_ID,
-      version_id: VERSION_ID,
-      line_id: LINE_ID,
-      compare_version_id: null,
-      requested_by: USER_ID,
-      explanation_kind: "price",
-      snapshot_fingerprint: fingerprint,
-      summary_short: "Resume actif.",
-      summary_detail: "Detail actif.",
-      confidence_label: "high",
-      confidence_score: 0.91,
-      used_fallback: true,
-      provider: "fallback",
-      model: null,
-      statements_json: {
-        facts: [],
-        hypotheses: [],
-        inferences: [],
-      },
-      risk_signals_json: [],
-      impact_summary_json: {
-        current_amount_ht_cents: 9000,
-        current_amount_ttc_cents: 10800,
-        top_drivers: [],
-      },
-      metadata_json: {},
-      generated_at: "2026-03-07T10:00:01.000Z",
-      superseded_at: null,
-      superseded_by_explanation_id: null,
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(
-      createSupabaseMock({
-        activeExplanationRows: [activeRow],
-        sourceRowsByExplanationId: {
-          [ACTIVE_EXPLANATION_ID]: [],
-        },
-      }) as never
-    );
+  it("reconstructs missing provenance without writing on an active snapshot read", async () => {
+    const activeRow = storedPriceRow();
+    const supabase = createSupabaseMock({ activeExplanationRows: [activeRow] });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
     vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails() as never);
     vi.mocked(callStructuredAi).mockClear();
 
-    const explanation = await getEstimateLineExplanation({
+    const { explanation } = await getEstimateLineExplanation({
       versionId: VERSION_ID,
       lineId: LINE_ID,
       includeDetail: true,
     });
 
     expect(vi.mocked(callStructuredAi)).not.toHaveBeenCalled();
-    expect(explanation.explanation_id).toBe(ACTIVE_EXPLANATION_ID);
-    expect(explanation.provenance).toHaveLength(1);
-    expect(explanation.provenance[0]).toMatchObject({
+    expect(explanation?.explanation_id).toBe(ACTIVE_EXPLANATION_ID);
+    expect(supabase.__spies.explanationSourcesInsert).not.toHaveBeenCalled();
+    expect(explanation?.provenance).toHaveLength(1);
+    expect(explanation?.provenance[0]).toMatchObject({
       source_kind: "estimate_item",
       label: "Mur beton",
       source_ref: "V2 - Variante",
@@ -872,41 +1000,7 @@ describe("estimate explanations service", () => {
   });
 
   it("reuses legacy price fingerprints without regenerating the snapshot", async () => {
-    const activeRow = {
-      id: ACTIVE_EXPLANATION_ID,
-      created_at: "2026-03-07T10:00:01.000Z",
-      updated_at: "2026-03-07T10:00:01.000Z",
-      tenant_id: TENANT_ID,
-      project_id: PROJECT_ID,
-      version_id: VERSION_ID,
-      line_id: LINE_ID,
-      compare_version_id: null,
-      requested_by: USER_ID,
-      explanation_kind: "price",
-      snapshot_fingerprint: buildLegacyPriceFingerprint(),
-      summary_short: "Resume historique.",
-      summary_detail: "Detail historique.",
-      confidence_label: "high",
-      confidence_score: 0.88,
-      used_fallback: true,
-      provider: "fallback",
-      model: null,
-      statements_json: {
-        facts: [],
-        hypotheses: [],
-        inferences: [],
-      },
-      risk_signals_json: [],
-      impact_summary_json: {
-        current_amount_ht_cents: 9000,
-        current_amount_ttc_cents: 10800,
-        top_drivers: [],
-      },
-      metadata_json: {},
-      generated_at: "2026-03-07T10:00:01.000Z",
-      superseded_at: null,
-      superseded_by_explanation_id: null,
-    };
+    const activeRow = storedPriceRow();
 
     const supabase = createSupabaseMock({
       activeExplanationRows: [activeRow],
@@ -931,7 +1025,7 @@ describe("estimate explanations service", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
     vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails() as never);
 
-    const explanation = await getEstimateLineExplanation({
+    const { explanation } = await getEstimateLineExplanation({
       versionId: VERSION_ID,
       lineId: LINE_ID,
       includeDetail: true,
@@ -939,7 +1033,7 @@ describe("estimate explanations service", () => {
 
     expect(vi.mocked(callStructuredAi)).not.toHaveBeenCalled();
     expect(supabase.__spies.explanationInsert).not.toHaveBeenCalled();
-    expect(explanation.explanation_id).toBe(ACTIVE_EXPLANATION_ID);
-    expect(explanation.summary_short).toBe("Resume historique.");
+    expect(explanation?.explanation_id).toBe(ACTIVE_EXPLANATION_ID);
+    expect(explanation?.summary_short).toBe("Resume historique.");
   });
 });

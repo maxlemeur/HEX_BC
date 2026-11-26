@@ -8,11 +8,12 @@ import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-e
 export { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
-import { readChatGptStore, saveChatGptStore, withChatGptLock, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
+import { ownerKey, readChatGptStore, saveChatGptStore, withChatGptLock, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { StructuredCallOptions, StructuredCallResult, TokenUsage } from "@/lib/ai/structured-call";
 import { isRecord } from "@/lib/value-guards";
 import {
-  chatGptDefaultPreferences, chatGptModelReasoningCapabilities, chatGptPreferencesSchema, supportsReasoningEffort, RETIRED_OPENAI_MODEL,
+  chatGptDefaultPreferences, chatGptModelReasoningCapabilities, chatGptPreferencesSchema, DEFAULT_CHATGPT_MODEL,
+  DEFAULT_CHATGPT_MODEL_NAME, supportsReasoningEffort, RETIRED_OPENAI_MODEL,
   type ChatGptAvailableModel, type ChatGptPreferences, type ChatGptReasoningEffort,
 } from "@/lib/ai/chatgpt-model-preferences";
 
@@ -64,18 +65,45 @@ export async function fetchSelectableLocalChatGptModels(credential: { accessToke
   return (await fetchLocalChatGptModels(credential)).filter(({ id }) => id !== RETIRED_OPENAI_MODEL);
 }
 
-/** The account catalog and starting settings for a single analysis. User preferences are not saved here. */
-export async function readLocalChatGptModelOptions(owner: ChatGptOwner) {
-  const credential = await getLocalChatGptCredential(owner);
-  if (!credential) throw new Error("Connectez d’abord votre compte ChatGPT.");
-  const models = await fetchSelectableLocalChatGptModels(credential);
-  const saved = models.find((model) => model.id === credential.model);
-  const reasoningEffort = credential.reasoningEffort;
+const modelCatalogues = new Map<string, { authorizationId: string | null; models: ChatGptAvailableModel[] }>();
+
+function modelOptions(models: ChatGptAvailableModel[], model: string | null, reasoningEffort: ChatGptReasoningEffort | null) {
+  const saved = models.find((entry) => entry.id === model);
   const preferences = saved ? {
     model: saved.id,
     reasoningEffort: reasoningEffort !== null && saved.reasoningEfforts.includes(reasoningEffort) ? reasoningEffort : null,
   } : chatGptDefaultPreferences(models) ?? (models[0] ? { model: models[0].id, reasoningEffort: null } : null);
   return { models, preferences };
+}
+
+/** Model options for read-only screens. On a cold process, start with the model saved in Mon profil. */
+export async function readCachedLocalChatGptModelOptions(owner: ChatGptOwner) {
+  const store = await readChatGptStore(owner);
+  const profile = store.profiles.find((entry) => entry.id === store.selectedId);
+  if (!profile) return modelOptions([], null, null);
+  const cached = modelCatalogues.get(ownerKey(owner));
+  if (cached && cached.authorizationId === (profile.authorizationId ?? null)) {
+    return modelOptions(cached.models, profile.model, profile.reasoningEffort);
+  }
+  const model = profile.model;
+  if (!model || model === RETIRED_OPENAI_MODEL) return modelOptions([], null, null);
+  const capabilities = chatGptModelReasoningCapabilities({ slug: model });
+  const effort = profile.reasoningEffort;
+  if (effort !== null && !capabilities.reasoningEfforts.includes(effort)) {
+    capabilities.reasoningEfforts.push(effort);
+  }
+  return modelOptions([{
+    id: model, name: model === DEFAULT_CHATGPT_MODEL ? DEFAULT_CHATGPT_MODEL_NAME : model, ...capabilities,
+  }], model, effort);
+}
+
+/** The account catalog and starting settings for a single analysis. User preferences are not saved here. */
+export async function readLocalChatGptModelOptions(owner: ChatGptOwner) {
+  const credential = await getLocalChatGptCredential(owner);
+  if (!credential) throw new Error("Connectez d’abord votre compte ChatGPT.");
+  const models = await fetchSelectableLocalChatGptModels(credential);
+  modelCatalogues.set(ownerKey(owner), { authorizationId: credential.authorizationId, models });
+  return modelOptions(models, credential.model, credential.reasoningEffort);
 }
 
 export async function listLocalChatGptModels(owner: ChatGptOwner): Promise<ChatGptAvailableModel[]> {

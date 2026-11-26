@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+import { AI_BILLING_SOURCES } from "@/lib/ai/access/contracts";
+import { chatGptPreferencesSchema, chatGptReasoningEffortSchema } from "@/lib/ai/chatgpt-model-preferences";
+
+const priceExplanationAiRequestSchema = chatGptPreferencesSchema.extend({
+  source: z.enum(AI_BILLING_SOURCES),
+});
+
 export const estimateExplanationKindSchema = z.enum(["price", "delta"]);
 export type EstimateExplanationKind = z.infer<
   typeof estimateExplanationKindSchema
@@ -77,12 +84,65 @@ export const estimateExplanationSnapshotSchema = z.object({
   risk_signals: z.array(estimateExplanationRiskSignalSchema),
   impact_summary: estimateExplanationImpactSummarySchema,
 });
-export type EstimateExplanationSnapshot = z.infer<
-  typeof estimateExplanationSnapshotSchema
->;
+export const priceExplanationSnapshotSchema = estimateExplanationSnapshotSchema.extend({
+  ai_request: priceExplanationAiRequestSchema.optional(),
+});
+export type EstimateExplanationSnapshot = z.infer<typeof priceExplanationSnapshotSchema>;
 
 export const estimateExplanationResponseSchema = z.object({
   explanation: estimateExplanationSnapshotSchema,
+});
+
+const priceExplanationRevisionSchema = z.string().min(1).max(110);
+
+export const priceExplanationGenerationSchema = z.discriminatedUnion("source", [
+  chatGptPreferencesSchema.extend({
+    source: z.literal("chatgpt_plan"),
+    revision: priceExplanationRevisionSchema,
+  }),
+  chatGptPreferencesSchema.extend({
+    source: z.literal("personal_api_key"),
+    revision: priceExplanationRevisionSchema,
+    connectionId: z.uuid(),
+  }),
+]);
+export type PriceExplanationGeneration = z.infer<typeof priceExplanationGenerationSchema>;
+
+const priceExplanationModelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  reasoningEfforts: z.array(chatGptReasoningEffortSchema),
+  defaultReasoningEffort: chatGptReasoningEffortSchema.nullable(),
+});
+const priceExplanationSourceOptionSchema = z.discriminatedUnion("available", [
+  z.object({
+    available: z.literal(true),
+    message: z.string(),
+    models: z.array(priceExplanationModelSchema),
+    preferences: chatGptPreferencesSchema,
+  }),
+  z.object({ available: z.literal(false), message: z.string() }),
+]);
+export const priceExplanationSettingsSchema = z.object({
+  defaultSource: z.enum(AI_BILLING_SOURCES).nullable(),
+  sources: z.object({
+    chatgpt_plan: priceExplanationSourceOptionSchema,
+    personal_api_key: priceExplanationSourceOptionSchema,
+  }),
+  connectionId: z.uuid().nullable(),
+  canRefreshPlanModels: z.boolean(),
+});
+export type PriceExplanationSettings = z.infer<typeof priceExplanationSettingsSchema>;
+
+export const priceExplanationReadResponseSchema = z.object({
+  status: z.enum(["ready", "missing", "stale"]),
+  explanation: priceExplanationSnapshotSchema.nullable(),
+  revision: priceExplanationRevisionSchema,
+  settings: priceExplanationSettingsSchema,
+});
+export const priceExplanationGeneratedResponseSchema = estimateExplanationResponseSchema.extend({
+  explanation: priceExplanationSnapshotSchema,
+  revision: priceExplanationRevisionSchema,
 });
 
 export const estimateExplanationDetailQueryParamSchema = z

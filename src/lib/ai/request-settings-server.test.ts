@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AiAnalysisPreferences, ApiKeyAccessState } from "@/lib/ai/access/contracts";
-import { readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
+import { readCachedLocalChatGptModelOptions, readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
 import type { ChatGptAvailableModel } from "@/lib/ai/chatgpt-model-preferences";
 import { readAiRequestOptions, resolveAiRequest } from "@/lib/ai/request-settings-server";
 import { getStructuredAiAvailability } from "@/lib/ai/structured-ai";
@@ -13,7 +13,10 @@ vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
   isLocalChatGptEnabled: () => access.local,
   assertLocalChatGptHost: (host: string) => { if (host !== "localhost:3149") throw new Error(); },
 }));
-vi.mock("@/lib/ai/chatgpt-local-inference", () => ({ readLocalChatGptModelOptions: vi.fn() }));
+vi.mock("@/lib/ai/chatgpt-local-inference", () => ({
+  readCachedLocalChatGptModelOptions: vi.fn(),
+  readLocalChatGptModelOptions: vi.fn(),
+}));
 vi.mock("@/lib/ai/structured-ai", () => ({ getStructuredAiAvailability: vi.fn() }));
 
 const OWNER = { userId: "membre-fictif", tenantId: "equipe-fictive" };
@@ -49,6 +52,16 @@ beforeEach(() => {
 });
 
 describe("AI request resolver", () => {
+  it("loads only cached plan options and keeps the saved default payer for a read-only screen", async () => {
+    access.state.mockResolvedValue(savedKey({ apiReasoningEffort: "medium" }));
+    vi.mocked(readCachedLocalChatGptModelOptions).mockResolvedValue({ models: [MODEL], preferences: PLAN_DEFAULT });
+    const { defaultSource, options } = await readAiRequestOptions(OWNER, POLICY, "cached");
+    expect(defaultSource).toBe("personal_api_key");
+    expect(options.personal_api_key).toMatchObject({ preferences: { model: MODEL.id, reasoningEffort: "medium" } });
+    expect(options.chatgpt_plan).toMatchObject({ preferences: PLAN_DEFAULT });
+    expect(readLocalChatGptModelOptions).not.toHaveBeenCalled();
+  });
+
   it("takes the same plan default for options and dispatch when there is no profile yet", async () => {
     const { defaultSource, options } = await readAiRequestOptions(OWNER, POLICY);
     expect(defaultSource).toBe("chatgpt_plan");

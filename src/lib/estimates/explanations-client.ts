@@ -2,20 +2,20 @@ import { z } from "zod";
 
 import {
   estimateExplanationResponseSchema,
-  type EstimateExplanationSnapshot,
+  priceExplanationGeneratedResponseSchema,
+  priceExplanationReadResponseSchema,
+  priceExplanationSettingsSchema,
+  type PriceExplanationGeneration,
 } from "@/lib/estimates/explanation-schemas";
 import { EstimateApiError } from "@/lib/estimates/client-errors";
 import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
-const successEnvelopeSchema = z.object({
-  ok: z.literal(true),
-  data: estimateExplanationResponseSchema,
-});
-async function requestExplanation(
+async function requestExplanation<T>(
   url: string,
   init: RequestInit,
+  schema: z.ZodType<T>,
   fallbackMessage: string
-): Promise<EstimateExplanationSnapshot> {
+): Promise<T> {
   const response = await fetch(url, init);
   const payload = (await response.json().catch(() => null)) as unknown;
 
@@ -39,12 +39,16 @@ async function requestExplanation(
     throw new EstimateApiError(message, response.status, details, code);
   }
 
-  const parsed = successEnvelopeSchema.safeParse(payload);
+  const parsed = z.object({ ok: z.literal(true), data: schema }).safeParse(payload);
   if (!parsed.success) {
     throw new Error("Réponse explication invalide.");
   }
 
-  return parsed.data.data.explanation;
+  return parsed.data.data;
+}
+
+function priceExplanationUrl(versionId: string, lineId: string) {
+  return `/api/estimates/${versionId}/lines/${lineId}/explanation`;
 }
 
 export async function fetchEstimateLineExplanation(
@@ -55,19 +59,33 @@ export async function fetchEstimateLineExplanation(
     signal?: AbortSignal;
   }
 ) {
-  const query = new URLSearchParams();
-  if (options?.detail) {
-    query.set("detail", "1");
-  }
-
-  const suffix = query.toString();
   return requestExplanation(
-    `/api/estimates/${versionId}/lines/${lineId}/explanation${suffix ? `?${suffix}` : ""}`,
+    `${priceExplanationUrl(versionId, lineId)}${options?.detail ? "?detail=1" : ""}`,
     {
       method: "GET",
+      cache: "no-store",
       signal: options?.signal,
     },
+    priceExplanationReadResponseSchema,
     "Impossible de charger l'explication de prix."
+  );
+}
+
+export function refreshEstimateLineExplanationSettings(versionId: string, lineId: string) {
+  return requestExplanation(
+    `${priceExplanationUrl(versionId, lineId)}/options`,
+    { method: "POST" },
+    priceExplanationSettingsSchema,
+    "Impossible d’actualiser les modèles du forfait ChatGPT."
+  );
+}
+
+export function generateEstimateLineExplanation(versionId: string, lineId: string, settings: PriceExplanationGeneration) {
+  return requestExplanation(
+    priceExplanationUrl(versionId, lineId),
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) },
+    priceExplanationGeneratedResponseSchema,
+    "Impossible de générer l’explication de prix."
   );
 }
 
@@ -86,12 +104,14 @@ export async function fetchEstimateDeltaExplanation(
     query.set("detail", "1");
   }
 
-  return requestExplanation(
+  const { explanation } = await requestExplanation(
     `/api/estimates/${versionId}/delta-explanation?${query.toString()}`,
     {
       method: "GET",
       signal: options?.signal,
     },
+    estimateExplanationResponseSchema,
     "Impossible de charger l'explication de delta."
   );
+  return explanation;
 }
