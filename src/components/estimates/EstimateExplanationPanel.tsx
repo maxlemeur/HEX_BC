@@ -4,6 +4,7 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 
 import { XIcon } from "lucide-react";
 
+import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,13 +19,20 @@ import { EstimateApiError, isEstimateApiError } from "@/lib/estimates/client-err
 import {
   fetchEstimateDeltaExplanation,
   fetchEstimateLineExplanation,
+  generateEstimateLineExplanation,
+  refreshEstimateLineExplanationSettings,
 } from "@/lib/estimates/explanations-client";
+import { CHATGPT_REASONING_EFFORT_LABELS, supportsReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
+import { AI_REQUEST_SOURCE_LABELS, defaultAiRequestSettings } from "@/lib/ai/request-settings";
 import { formatEUR } from "@/lib/money";
 import type {
   EstimateExplanationKind,
   EstimateExplanationRiskSignal,
   EstimateExplanationSnapshot,
   EstimateExplanationStatement,
+  PriceExplanationGeneration,
+  PriceExplanationSettings,
 } from "@/lib/estimates/explanation-schemas";
 
 type EstimateExplanationPanelProps = {
@@ -47,8 +55,14 @@ type PanelState =
   | {
       requestKey: string;
       kind: "ready";
-      explanation: EstimateExplanationSnapshot;
-    };
+    } & LoadedExplanation;
+
+type PriceExplanationRead = Awaited<ReturnType<typeof fetchEstimateLineExplanation>>;
+type GeneratedExplanation = Awaited<ReturnType<typeof generateEstimateLineExplanation>>;
+type LoadedExplanation = {
+  explanation: EstimateExplanationSnapshot | null;
+  price?: PriceExplanationRead;
+};
 
 type DetailState = {
   requestKey: string;
@@ -230,6 +244,97 @@ function StatementSection({
   );
 }
 
+function PriceExplanationRequest({ price, versionId, lineId, disabled, onBusyChange, onGenerated }: {
+  price: PriceExplanationRead;
+  versionId: string;
+  lineId: string;
+  disabled: boolean;
+  onBusyChange: (busy: boolean) => void;
+  onGenerated: (generated: GeneratedExplanation, settings: PriceExplanationSettings) => void;
+}) {
+  const [settings, setSettings] = useState(price.settings);
+  const [selection, setSelection] = useState(() => defaultAiRequestSettings(settings.defaultSource, settings.sources));
+  const [pending, setPending] = useState<"generate" | "models" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const { source, preferences } = selection;
+  const canGenerate = Boolean(preferences && (source === "chatgpt_plan" || (source === "personal_api_key" && settings.connectionId)));
+
+  async function generate() {
+    if (!preferences || !canGenerate || pending || disabled) return;
+    const input = { ...preferences, revision: price.revision };
+    const request: PriceExplanationGeneration | null = source === "chatgpt_plan"
+      ? { ...input, source }
+      : source === "personal_api_key" && settings.connectionId
+        ? { ...input, source, connectionId: settings.connectionId }
+        : null;
+    if (!request) return;
+    setError(null);
+    setPending("generate");
+    onBusyChange(true);
+    try {
+      onGenerated(await generateEstimateLineExplanation(versionId, lineId, request), settings);
+    } catch (error) {
+      setError(isEstimateApiError(error) ? error.message : "Impossible de générer l’explication de prix.");
+    } finally {
+      setPending(null);
+      onBusyChange(false);
+    }
+  }
+
+  async function refreshModels() {
+    setPending("models");
+    setError(null);
+    try {
+      const next = await refreshEstimateLineExplanationSettings(versionId, lineId);
+      setSettings(next);
+      if (source === "chatgpt_plan" || source === "personal_api_key") {
+        const option = next.sources[source];
+        const model = option.available && option.models.find((entry) => entry.id === preferences?.model);
+        setSelection(option.available ? {
+          source,
+          preferences: preferences && model && supportsReasoningEffort(model, preferences.reasoningEffort)
+            ? preferences : option.preferences,
+        } : { source: null, preferences: null });
+      } else {
+        setSelection(defaultAiRequestSettings(next.defaultSource, next.sources));
+      }
+    } catch (error) {
+      setError(isEstimateApiError(error) ? error.message : "Impossible d’actualiser les modèles du forfait ChatGPT.");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  return (
+    <section className="space-y-3 rounded-lg border border-border bg-surface p-5">
+      {price.status === "stale" ? <p className="text-sm text-muted-foreground">Les données de cette ligne ont changé.</p> : null}
+      <AiRequestSettings
+        sources={settings.sources}
+        defaultSource={settings.defaultSource}
+        value={selection}
+        onChange={setSelection}
+        sourcePicker={{ label: "Source d’IA" }}
+        locked={pending !== null || disabled}
+        keyCeiling={{
+          nanoUsd: AI_REQUEST_CEILINGS_NANO_USD.shortQuestion,
+          message: (ceiling) => `${ceiling} au plus par explication, facturés sur votre compte OpenAI.`,
+        }}
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" onClick={() => void generate()} disabled={!canGenerate || pending !== null || disabled} loading={pending === "generate"}>
+          {price.explanation ? "Régénérer l’explication" : "Générer l’explication"}
+        </Button>
+        {settings.canRefreshPlanModels && source !== "personal_api_key" ? (
+          <Button type="button" variant="secondary" onClick={() => void refreshModels()} disabled={pending !== null || disabled} loading={pending === "models"}>
+            Actualiser les modèles du forfait
+          </Button>
+        ) : null}
+      </div>
+      {error ? <Alert variant="danger" role="alert">{error}</Alert> : null}
+    </section>
+  );
+}
+
 export function EstimateExplanationPanel({
   open,
   onOpenChange,
@@ -256,6 +361,8 @@ export function EstimateExplanationPanel({
     status: "idle",
   }));
   const cacheRef = useRef<Record<string, EstimateExplanationSnapshot>>({});
+  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
+  const generating = generatingKey === requestKey;
   const currentState: PanelState =
     state.requestKey === requestKey
       ? state
@@ -266,7 +373,11 @@ export function EstimateExplanationPanel({
       : { requestKey, status: "idle" };
 
   const requestExplanation = useCallback(
-    async (detail: boolean, options?: { force?: boolean }) => {
+    async (detail: boolean, options?: { force?: boolean }): Promise<LoadedExplanation> => {
+      if (kind === "price") {
+        const price = await fetchEstimateLineExplanation(versionId, lineId ?? "", { detail });
+        return { explanation: price.explanation, price };
+      }
       const cacheKey = `${requestKey}:${detail ? "detail" : "summary"}`;
       if (options?.force) {
         delete cacheRef.current[`${requestKey}:summary`];
@@ -275,17 +386,12 @@ export function EstimateExplanationPanel({
 
       const cached = options?.force ? null : cacheRef.current[cacheKey];
       if (cached) {
-        return cached;
+        return { explanation: cached };
       }
 
-      const explanation =
-        kind === "price"
-          ? await fetchEstimateLineExplanation(versionId, lineId ?? "", { detail })
-          : await fetchEstimateDeltaExplanation(versionId, compareVersionId ?? "", {
-              detail,
-            });
+      const explanation = await fetchEstimateDeltaExplanation(versionId, compareVersionId ?? "", { detail });
       cacheRef.current[cacheKey] = explanation;
-      return explanation;
+      return { explanation };
     },
     [compareVersionId, kind, lineId, requestKey, versionId]
   );
@@ -304,9 +410,9 @@ export function EstimateExplanationPanel({
       }
 
       try {
-        const explanation = await requestExplanation(detail, options);
+        const loaded = await requestExplanation(detail, options);
         startTransition(() => {
-          setState({ requestKey, kind: "ready", explanation });
+          setState({ requestKey, kind: "ready", ...loaded });
           if (detail) {
             setDetailState({ requestKey, status: "ready" });
           }
@@ -331,10 +437,10 @@ export function EstimateExplanationPanel({
 
     let active = true;
     void requestExplanation(false).then(
-      (explanation) => {
+      (loaded) => {
         if (!active) return;
         startTransition(() => {
-          setState({ requestKey, kind: "ready", explanation });
+          setState({ requestKey, kind: "ready", ...loaded });
         });
       },
       (error: unknown) => {
@@ -354,10 +460,27 @@ export function EstimateExplanationPanel({
 
   const explanation =
     currentState.kind === "ready" ? currentState.explanation : null;
+  const price = currentState.kind === "ready" ? currentState.price : undefined;
+  const usedSettings = explanation?.ai_request;
   const title =
     kind === "price"
       ? lineLabel?.trim() || "Explication de prix"
       : `${currentVersionLabel?.trim() || "Version courante"} vs ${compareVersionLabel?.trim() || "Version comparée"}`;
+
+  const priceRequest = price && lineId ? (
+    <PriceExplanationRequest
+      key={`${requestKey}:${price.revision}`}
+      price={price}
+      versionId={versionId}
+      lineId={lineId}
+      disabled={generating || detailState.status === "loading"}
+      onBusyChange={(busy) => setGeneratingKey((key) => busy ? requestKey : key === requestKey ? null : key)}
+      onGenerated={(generated, settings) => setState((state) => {
+        if (state.requestKey !== requestKey || state.kind !== "ready" || state.price?.revision !== price.revision) return state;
+        return { ...state, explanation: generated.explanation, price: { ...price, ...generated, settings, status: "ready" } };
+      })}
+    />
+  ) : null;
 
   return (
     <Sheet open={open} onOpenChange={(nextOpen) => onOpenChange(nextOpen)}>
@@ -378,7 +501,7 @@ export function EstimateExplanationPanel({
               </SheetTitle>
               <SheetDescription className="mt-1 text-foreground-secondary">
                 {kind === "price"
-                  ? "Lecture seule. Aucun prix ne sera appliqué automatiquement."
+                  ? "Consultez l’explication de cette ligne ou générez-en une avec l’IA. Le prix du devis reste inchangé."
                   : "Lecture seule. Le delta reste purement explicatif."}
               </SheetDescription>
             </div>
@@ -387,6 +510,7 @@ export function EstimateExplanationPanel({
                 type="button"
                 size="sm"
                 variant="secondary"
+                disabled={generating}
                 onClick={() => void loadExplanation(false, { force: true })}
               >
                 Actualiser
@@ -425,8 +549,15 @@ export function EstimateExplanationPanel({
               <div className="rounded-lg border border-border bg-surface p-3">
                 <p className="text-xs text-muted-foreground">Moteur</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">
-                  {explanation.used_fallback ? "Repli automatique" : explanation.provider}
+                  {usedSettings ? AI_REQUEST_SOURCE_LABELS[usedSettings.source]
+                    : explanation.used_fallback ? "Repli automatique" : explanation.provider}
                 </p>
+                {usedSettings ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {usedSettings.model} · {usedSettings.reasoningEffort === null
+                      ? "Raisonnement automatique" : CHATGPT_REASONING_EFFORT_LABELS[usedSettings.reasoningEffort]}
+                  </p>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -445,6 +576,8 @@ export function EstimateExplanationPanel({
           {currentState.kind === "error" ? (
             <Alert variant="danger">{currentState.message}</Alert>
           ) : null}
+
+          {!explanation ? priceRequest : null}
 
           {explanation ? (
             <>
@@ -510,6 +643,7 @@ export function EstimateExplanationPanel({
                     type="button"
                     size="sm"
                     variant="secondary"
+                    disabled={generating}
                     onClick={() => void loadExplanation(true)}
                     loading={detailState.status === "loading"}
                   >
@@ -529,6 +663,8 @@ export function EstimateExplanationPanel({
                   ) : null}
                 </div>
               </section>
+
+              {priceRequest}
 
               {explanation.risk_signals.length > 0 ? (
                 <section className="rounded-lg border border-border bg-surface p-5">

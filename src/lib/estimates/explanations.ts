@@ -4,14 +4,15 @@ import { z } from "zod";
 
 import { formatEUR } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { generatePriceExplanationNarrative, readPriceExplanationSettings } from "@/lib/estimates/price-explanation-ai";
 import {
   estimateExplanationConfidenceLabelSchema,
   estimateExplanationImpactSummarySchema,
   estimateExplanationKindSchema,
   estimateExplanationProvenanceSchema,
   estimateExplanationRiskSignalSchema,
-  estimateExplanationSnapshotSchema,
+  priceExplanationSnapshotSchema,
   estimateExplanationStatementSchema,
   type EstimateExplanationConfidenceLabel,
   type EstimateExplanationImpactSummary,
@@ -19,6 +20,7 @@ import {
   type EstimateExplanationRiskSignal,
   type EstimateExplanationSnapshot,
   type EstimateExplanationStatement,
+  type PriceExplanationGeneration,
 } from "@/lib/estimates/explanation-schemas";
 import {
   badRequest,
@@ -137,7 +139,6 @@ const ESTIMATE_RISK_ALERTS_SELECT = [
 ].join(", ");
 
 const ESTIMATE_EXPLANATION_PROMPT_VERSION = "estimate-explanation-v1";
-const ESTIMATE_EXPLANATION_MODEL = "gemini-3-pro-preview";
 const ESTIMATE_DELTA_NARRATIVE_STRATEGY_VERSION = "delta-fallback-v1";
 const MAX_STATEMENTS_PER_BUCKET = 6;
 const MAX_PROVENANCE_ITEMS = 8;
@@ -435,13 +436,6 @@ function extractTopDrivers(diffEntries: EstimateDiffEntry[]) {
     });
 }
 
-function normalizeSearchText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
-
 function getDeltaDirection(deltaHtCents: number | null | undefined) {
   if (typeof deltaHtCents !== "number" || deltaHtCents === 0) {
     return "stable" as const;
@@ -503,28 +497,6 @@ function buildDeltaSummaryShort(input: {
   const primaryDriver = input.impactSummary.top_drivers[0] ?? null;
   const driverFragment = primaryDriver ? ` Driver principal: ${primaryDriver}.` : "";
   return `${input.currentVersion} vs ${input.compareVersion}: ${amountFragment}.${driverFragment}`;
-}
-
-function hasConflictingDeltaNarrative(input: {
-  narrative: string;
-  impactSummary: EstimateExplanationImpactSummary;
-}) {
-  const direction = getDeltaDirection(input.impactSummary.delta_ht_cents);
-  if (direction === "stable") {
-    return false;
-  }
-
-  const narrative = normalizeSearchText(input.narrative);
-  const increasePattern =
-    /\b(hausse|augmentation|augmente|augmentee|augmenter|en hausse|progression)\b/;
-  const decreasePattern =
-    /\b(baisse|diminution|reduction|reduit|reduite|baisser|en baisse)\b/;
-
-  if (direction === "decrease") {
-    return increasePattern.test(narrative);
-  }
-
-  return decreasePattern.test(narrative);
 }
 
 /** TI-686 D12, TI-682 lot C: what a hypothesis provision of the takeoff rests on (src/lib/estimates/line-truth.ts). */
@@ -889,7 +861,7 @@ function mapExplanationSnapshot(input: {
     })
   );
 
-  const snapshot = estimateExplanationSnapshotSchema.parse({
+  const snapshot = priceExplanationSnapshotSchema.parse({
     explanation_id: input.row.id,
     kind: input.row.explanation_kind,
     version_id: input.row.version_id,
@@ -902,6 +874,7 @@ function mapExplanationSnapshot(input: {
     used_fallback: input.row.used_fallback,
     provider: input.row.provider,
     model: input.row.model,
+    ai_request: isRecord(input.row.metadata_json) ? input.row.metadata_json.ai_request : undefined,
     generated_at: input.row.generated_at,
     facts: statements.facts,
     hypotheses: statements.hypotheses,
@@ -914,46 +887,11 @@ function mapExplanationSnapshot(input: {
   return snapshot;
 }
 
-function buildFallbackNarrative(input: {
-  kind: EstimateExplanationKind;
+function buildDeltaNarrative(input: {
   summaryContext: Record<string, unknown>;
   statements: StatementBuckets;
   impactSummary: EstimateExplanationImpactSummary;
 }) {
-  if (input.kind === "price") {
-    const lineLabel = toNonEmptyString(input.summaryContext.line_label) ?? "cette ligne";
-    const currentPrice = input.impactSummary.current_amount_ht_cents;
-    const amountFragment =
-      typeof currentPrice === "number"
-        ? `Montant actuel ${formatEUR(currentPrice)} HT`
-        : "Montant actuel non renseigné";
-    const factFragment =
-      input.statements.facts[0]?.label ?? "Aucune preuve factuelle détaillée disponible";
-    const detail = [
-      `${lineLabel}: ${amountFragment}.`,
-      `Faits: ${
-        input.statements.facts.length > 0
-          ? input.statements.facts.map((entry) => entry.label).join(" · ")
-          : "aucun"
-      }.`,
-      `Hypothèses: ${
-        input.statements.hypotheses.length > 0
-          ? input.statements.hypotheses.map((entry) => entry.label).join(" · ")
-          : "aucune"
-      }.`,
-      `Inferences: ${
-        input.statements.inferences.length > 0
-          ? input.statements.inferences.map((entry) => entry.label).join(" · ")
-          : "aucune"
-      }.`,
-    ].join(" ");
-
-    return {
-      summary_short: `${lineLabel}: ${amountFragment}. ${factFragment}.`,
-      summary_detail: detail,
-    };
-  }
-
   const currentVersion =
     toNonEmptyString(input.summaryContext.current_version_label) ?? "version courante";
   const compareVersion =
@@ -999,7 +937,7 @@ function buildFallbackNarrative(input: {
 function buildNarrativePrompt(input: NormalizedExplanationPayload) {
   return [
     "RÔLE",
-    "Tu rediges une explication de prix/de delta pour un devis BTP.",
+    "Tu rédiges une explication de prix pour une ligne de devis BTP.",
     "",
     "CONTRAINTES",
     "1. Ne jamais inventer de preuve ou de source.",
@@ -1013,103 +951,6 @@ function buildNarrativePrompt(input: NormalizedExplanationPayload) {
   ].join("\n");
 }
 
-async function generateNarrative(input: NormalizedExplanationPayload) {
-  if (input.kind === "delta") {
-    const fallback = buildFallbackNarrative({
-      kind: input.kind,
-      summaryContext: input.summary_context,
-      statements: input.statements,
-      impactSummary: input.impact_summary,
-    });
-
-    return {
-      narrative: fallback,
-      usedFallback: true,
-      provider: "fallback",
-      model: null,
-    };
-  }
-
-  try {
-    const result = await callStructuredAi<z.infer<typeof explanationNarrativeSchema>>({
-      prompt: buildNarrativePrompt(input),
-      schema: explanationNarrativeSchema,
-      context: {
-        model: ESTIMATE_EXPLANATION_MODEL,
-        promptVersion: ESTIMATE_EXPLANATION_PROMPT_VERSION,
-      },
-    });
-
-    const summaryContext =
-      input.compare_version_id !== null
-        ? {
-            currentVersion:
-              toNonEmptyString(input.summary_context.current_version_label) ??
-              "version courante",
-            compareVersion:
-              toNonEmptyString(input.summary_context.compare_version_label) ??
-              "version comparee",
-          }
-        : null;
-
-    if (
-      summaryContext &&
-      hasConflictingDeltaNarrative({
-        narrative: `${result.data.summary_short} ${result.data.summary_detail}`,
-        impactSummary: input.impact_summary,
-      })
-    ) {
-      const fallback = buildFallbackNarrative({
-        kind: input.kind,
-        summaryContext: input.summary_context,
-        statements: input.statements,
-        impactSummary: input.impact_summary,
-      });
-
-      return {
-        narrative: fallback,
-        usedFallback: true,
-        provider: "fallback",
-        model: null,
-        failureMessage:
-          "Narration delta ignoree car contradictoire avec les montants du diff.",
-      };
-    }
-
-    return {
-      narrative:
-        summaryContext
-          ? {
-              ...result.data,
-              summary_short: buildDeltaSummaryShort({
-                currentVersion: summaryContext.currentVersion,
-                compareVersion: summaryContext.compareVersion,
-                impactSummary: input.impact_summary,
-              }),
-            }
-          : result.data,
-      usedFallback: false,
-      provider: result.provider,
-      model: result.model,
-    };
-  } catch (error) {
-    const fallback = buildFallbackNarrative({
-      kind: input.kind,
-      summaryContext: input.summary_context,
-      statements: input.statements,
-      impactSummary: input.impact_summary,
-    });
-
-    return {
-      narrative: fallback,
-      usedFallback: true,
-      provider: "fallback",
-      model: null,
-      failureMessage: error instanceof Error ? error.message : "Generation indisponible.",
-    };
-  }
-}
-
 async function persistExplanationSnapshot(input: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   userId: string;
@@ -1121,22 +962,21 @@ async function persistExplanationSnapshot(input: {
   provider: string;
   model: string | null;
   existingActiveRow: EstimateExplanationRow | null;
-  failureMessage?: string;
+  aiRequest?: EstimateExplanationSnapshot["ai_request"];
 }) {
   const supersedeTimestamp = new Date().toISOString();
   if (input.existingActiveRow) {
-    const { error: supersedeError } = await input.supabase
+    const supersede = input.supabase
       .from("estimate_explanations" as never)
-      .update({
-        superseded_at: supersedeTimestamp,
-      } as never)
+      .update({ superseded_at: supersedeTimestamp } as never)
       .eq("id" as never, input.existingActiveRow.id as never);
-
-    if (supersedeError) {
-      throw mapSupabaseError(
-        supersedeError,
-        "Impossible de superseder l'explication précédente."
-      );
+    if (input.aiRequest) {
+      const { data, error } = await supersede.is("superseded_at" as never, null).select("id").maybeSingle();
+      if (error) throw mapSupabaseError(error, "Impossible de remplacer l’explication précédente.");
+      if (!data) throw conflict("L’explication a changé. Actualisez le panneau.");
+    } else {
+      const { error } = await supersede;
+      if (error) throw mapSupabaseError(error, "Impossible de superseder l'explication précédente.");
     }
   }
 
@@ -1162,7 +1002,8 @@ async function persistExplanationSnapshot(input: {
     metadata_json: {
       prompt_version: ESTIMATE_EXPLANATION_PROMPT_VERSION,
       summary_context: input.payload.summary_context,
-      failure_message: input.failureMessage ?? null,
+      failure_message: null,
+      ...(input.aiRequest && { ai_request: input.aiRequest }),
     },
     generated_at: new Date().toISOString(),
     superseded_at: null,
@@ -1178,7 +1019,17 @@ async function persistExplanationSnapshot(input: {
   const insertError = insertResult.error as unknown;
 
   if (insertError) {
+    if (input.aiRequest && input.existingActiveRow && !isDuplicateKeyError(insertError)) {
+      // Only undo our own supersession. The unique active-row index protects a concurrent winner.
+      const { error: restoreError } = await input.supabase
+        .from("estimate_explanations" as never)
+        .update({ superseded_at: null } as never)
+        .eq("id" as never, input.existingActiveRow.id as never)
+        .eq("superseded_at" as never, supersedeTimestamp as never);
+      if (restoreError) throw mapSupabaseError(restoreError, "Impossible de restaurer l’explication précédente.");
+    }
     if (isDuplicateKeyError(insertError)) {
+      if (input.aiRequest) throw conflict("Une autre explication existe déjà pour cette ligne. Actualisez le panneau.");
       return resolveConcurrentExplanationInsert({
         supabase: input.supabase,
         versionId: input.payload.version_id,
@@ -1725,131 +1576,134 @@ function normalizeDeltaExplanationPayload(input: {
   } satisfies NormalizedExplanationPayload;
 }
 
-async function resolveExplanationSnapshot(input: {
-  kind: EstimateExplanationKind;
-  versionId: string;
-  lineId: string | null;
-  compareVersionId: string | null;
-  includeDetail: boolean;
-  current: EstimateExplanationVersionDetails;
-  previous?: EstimateExplanationVersionDetails;
-}) {
-  const { supabase, userId } = await getAuthenticatedExplanationContext();
-  const projectId = input.current.version.project_id;
-  const existingActiveRow = await getActiveEstimateExplanationRow({
-    supabase,
-    versionId: input.versionId,
-    lineId: input.lineId,
-    compareVersionId: input.compareVersionId,
-    kind: input.kind,
-  });
+type PriceLine = { versionId: string; lineId: string };
 
-  let normalizedPayload: NormalizedExplanationPayload;
-
-  if (input.kind === "price") {
-    const line = input.current.items.find((item) => item.id === input.lineId);
-    if (!line) {
-      throw notFound("Ligne de devis introuvable.");
-    }
-    if (line.item_type !== "line") {
-      throw badRequest("L'explication de prix ne s'applique qu'aux lignes.");
-    }
-
-    const takeoffArtifacts = await fetchTakeoffArtifacts({
-      supabase,
-      versionId: input.versionId,
-      lineId: line.id,
-      sourceJobId: toNonEmptyString(line.source_job_id),
-    });
-
-    normalizedPayload = normalizePriceExplanationPayload({
-      line,
-      version: input.current.version,
-      versionLabel: formatVersionLabel(input.current.version),
-      suggestion: takeoffArtifacts.suggestion,
-      suggestionSources: takeoffArtifacts.suggestionSources,
-      evidences: takeoffArtifacts.evidences,
-      riskAlerts: takeoffArtifacts.riskAlerts,
-    });
-  } else {
-    if (!input.previous || !input.compareVersionId) {
-      throw badRequest("Version de comparaison requise.");
-    }
-    normalizedPayload = normalizeDeltaExplanationPayload({
-      current: input.current,
-      previous: input.previous,
-    });
-  }
-
-  const fingerprint = buildFingerprint(normalizedPayload);
-
-  if (
-    existingActiveRow &&
-    existingActiveRow.snapshot_fingerprint === fingerprint
-  ) {
-    let sourceRows = await listEstimateExplanationSourceRows({
-      supabase,
-      explanationId: existingActiveRow.id,
-    });
-
-    if (sourceRows.length === 0 && normalizedPayload.provenance.length > 0) {
-      await insertEstimateExplanationSourceRows({
-        supabase,
-        explanationId: existingActiveRow.id,
-        provenance: normalizedPayload.provenance,
-      });
-      sourceRows = await listEstimateExplanationSourceRows({
-        supabase,
-        explanationId: existingActiveRow.id,
-      });
-    }
-
-    return mapExplanationSnapshot({
-      row: existingActiveRow,
-      sourceRows,
-      includeDetail: input.includeDetail,
-    });
-  }
-
-  const generated = await generateNarrative(normalizedPayload);
-
-  const persisted = await persistExplanationSnapshot({
-    supabase,
-    userId,
-    projectId,
-    payload: normalizedPayload,
-    fingerprint,
-    narrative: generated.narrative,
-    usedFallback: generated.usedFallback,
-    provider: generated.provider,
-    model: generated.model,
-    existingActiveRow,
-    failureMessage:
-      "failureMessage" in generated ? generated.failureMessage : undefined,
-  });
-
-  return mapExplanationSnapshot({
-    row: persisted.row,
-    sourceRows: persisted.sourceRows,
-    includeDetail: input.includeDetail,
-  });
+async function loadPriceLine({ versionId, lineId }: PriceLine) {
+  const context = await getAuthenticatedContext();
+  const current = await getEstimateVersionDetails(versionId);
+  const line = current.items.find((item) => item.id === lineId);
+  if (!line) throw notFound("Ligne de devis introuvable.");
+  if (line.item_type !== "line") throw badRequest("L'explication de prix ne s'applique qu'aux lignes.");
+  return { context, current, line };
 }
 
-export async function getEstimateLineExplanation(input: {
-  versionId: string;
-  lineId: string;
-  includeDetail: boolean;
-}): Promise<EstimateExplanationSnapshot> {
-  const current = await getEstimateVersionDetails(input.versionId);
-
-  return resolveExplanationSnapshot({
-    kind: "price",
-    versionId: input.versionId,
-    lineId: input.lineId,
-    compareVersionId: null,
-    includeDetail: input.includeDetail,
-    current,
+async function loadPriceSnapshot(input: PriceLine) {
+  const { context, current, line } = await loadPriceLine(input);
+  const { supabase } = context;
+  const [existingActiveRow, artifacts] = await Promise.all([
+    getActiveEstimateExplanationRow({ supabase, ...input, compareVersionId: null, kind: "price" }),
+    fetchTakeoffArtifacts({ supabase, ...input, sourceJobId: toNonEmptyString(line.source_job_id) }),
+  ]);
+  const payload = normalizePriceExplanationPayload({
+    line, version: current.version, versionLabel: formatVersionLabel(current.version),
+    suggestion: artifacts.suggestion, suggestionSources: artifacts.suggestionSources,
+    evidences: artifacts.evidences, riskAlerts: artifacts.riskAlerts,
   });
+  const fingerprint = buildFingerprint(payload);
+  const revision = `${fingerprint}:${existingActiveRow?.id ?? "none"}`;
+  return { context, current, existingActiveRow, payload, fingerprint, revision };
+}
+
+/** A read never runs inference or repairs rows. Legacy provenance can be reconstructed from the matching inputs. */
+export async function getEstimateLineExplanation(input: PriceLine & { includeDetail: boolean }) {
+  const { context, existingActiveRow, payload, fingerprint, revision } = await loadPriceSnapshot(input);
+  const settings = await readPriceExplanationSettings(context, "cached");
+  if (!existingActiveRow || existingActiveRow.snapshot_fingerprint !== fingerprint) {
+    return { status: existingActiveRow ? "stale" as const : "missing" as const, explanation: null, revision, settings };
+  }
+
+  const sourceRows = await listEstimateExplanationSourceRows({
+    supabase: context.supabase, explanationId: existingActiveRow.id,
+  });
+  const explanation = mapExplanationSnapshot({ row: existingActiveRow, sourceRows, includeDetail: input.includeDetail });
+  if (sourceRows.length === 0) {
+    explanation.provenance = payload.provenance.map((source) => estimateExplanationProvenanceSchema.parse(source));
+  }
+  return { status: "ready" as const, explanation, revision, settings };
+}
+
+export async function refreshEstimateLineExplanationSettings(input: PriceLine) {
+  const { context } = await loadPriceLine(input);
+  return readPriceExplanationSettings(context, "live");
+}
+
+// Both billing sources are local to this installation. Refuse double submissions in this process before inference.
+const generatingPriceExplanations = new Set<string>();
+
+export async function generateEstimateLineExplanation(input: PriceLine & {
+  includeDetail: boolean;
+  settings: PriceExplanationGeneration;
+  signal?: AbortSignal;
+}) {
+  const scope = { versionId: input.versionId, lineId: input.lineId };
+  const { context, current, existingActiveRow, payload, fingerprint, revision } = await loadPriceSnapshot(scope);
+  if (input.settings.revision !== revision) {
+    throw conflict("Les données de l’explication ont changé. Actualisez le panneau.", undefined, "PRICE_EXPLANATION_STALE");
+  }
+
+  const { supabase, tenantId, userId } = context;
+  const key = `${tenantId}:${input.versionId}:${input.lineId}`;
+  if (generatingPriceExplanations.has(key)) {
+    throw conflict("Une explication est déjà en cours pour cette ligne.", undefined, "PRICE_EXPLANATION_BUSY");
+  }
+  generatingPriceExplanations.add(key);
+  try {
+    // A previous request may have finished while this request was reading the line.
+    const active = await getActiveEstimateExplanationRow({ supabase, ...scope, compareVersionId: null, kind: "price" });
+    if (active?.id !== existingActiveRow?.id) {
+      throw conflict("L’explication a changé. Actualisez le panneau.", undefined, "PRICE_EXPLANATION_STALE");
+    }
+    const generated = await generatePriceExplanationNarrative({
+      owner: { tenantId, userId },
+      settings: input.settings,
+      prompt: buildNarrativePrompt(payload),
+      promptVersion: ESTIMATE_EXPLANATION_PROMPT_VERSION,
+      schema: explanationNarrativeSchema,
+      signal: input.signal,
+    });
+    const persisted = await persistExplanationSnapshot({
+      supabase, userId, projectId: current.version.project_id, payload, fingerprint,
+      ...generated, usedFallback: false, existingActiveRow,
+    });
+    return {
+      explanation: mapExplanationSnapshot({ ...persisted, includeDetail: input.includeDetail }),
+      revision: `${fingerprint}:${persisted.row.id}`,
+    };
+  } finally {
+    generatingPriceExplanations.delete(key);
+  }
+}
+
+async function resolveDeltaExplanationSnapshot(input: {
+  versionId: string;
+  compareVersionId: string;
+  includeDetail: boolean;
+  current: EstimateExplanationVersionDetails;
+  previous: EstimateExplanationVersionDetails;
+}) {
+  const { supabase, userId } = await getAuthenticatedExplanationContext();
+  const existingActiveRow = await getActiveEstimateExplanationRow({
+    supabase, versionId: input.versionId, lineId: null, compareVersionId: input.compareVersionId, kind: "delta",
+  });
+  const payload = normalizeDeltaExplanationPayload({ current: input.current, previous: input.previous });
+  const fingerprint = buildFingerprint(payload);
+  if (existingActiveRow?.snapshot_fingerprint === fingerprint) {
+    const explanationId = existingActiveRow.id;
+    let sourceRows = await listEstimateExplanationSourceRows({ supabase, explanationId });
+    if (sourceRows.length === 0 && payload.provenance.length > 0) {
+      await insertEstimateExplanationSourceRows({ supabase, explanationId, provenance: payload.provenance });
+      sourceRows = await listEstimateExplanationSourceRows({ supabase, explanationId });
+    }
+    return mapExplanationSnapshot({ row: existingActiveRow, sourceRows, includeDetail: input.includeDetail });
+  }
+  const persisted = await persistExplanationSnapshot({
+    supabase, userId, projectId: input.current.version.project_id, payload, fingerprint,
+    narrative: buildDeltaNarrative({
+      summaryContext: payload.summary_context, statements: payload.statements, impactSummary: payload.impact_summary,
+    }),
+    usedFallback: true, provider: "fallback", model: null, existingActiveRow,
+  });
+  return mapExplanationSnapshot({ ...persisted, includeDetail: input.includeDetail });
 }
 
 export async function getEstimateDeltaExplanation(input: {
@@ -1873,13 +1727,5 @@ export async function getEstimateDeltaExplanation(input: {
     throw notFound("Version de comparaison introuvable.");
   }
 
-  return resolveExplanationSnapshot({
-    kind: "delta",
-    versionId: input.versionId,
-    lineId: null,
-    compareVersionId: input.compareVersionId,
-    includeDetail: input.includeDetail,
-    current,
-    previous,
-  });
+  return resolveDeltaExplanationSnapshot({ ...input, current, previous });
 }
