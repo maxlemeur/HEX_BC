@@ -20,11 +20,18 @@ const localEnv: NodeJS.ProcessEnv = {
   E2E_ARMY: "",
 };
 
-async function launchWithNextOutput(output: string, waitForSignal: boolean) {
+const hostedSettings = [
+  "NEXT_PUBLIC_SUPABASE_URL=https://project-fixture.supabase.co",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY=fixture-public-production",
+  "SUPABASE_SERVICE_ROLE_KEY=fixture-service-production",
+].join("\n");
+
+async function launchWithNextOutput(output: string, waitForSignal: boolean, args: string[] = []) {
   const cwd = await mkdtemp(join(tmpdir(), "mergeone-dev-chatgpt-"));
   try {
     const nextDir = join(cwd, "node_modules/next/dist/bin");
     await mkdir(nextDir, { recursive: true });
+    await writeFile(join(cwd, ".env.local"), hostedSettings);
     await writeFile(join(nextDir, "next"), `
       process.on("SIGTERM", () => {
         console.log("Next received SIGTERM");
@@ -38,7 +45,7 @@ async function launchWithNextOutput(output: string, waitForSignal: boolean) {
       setTimeout(() => process.stdout.write(output.slice(boundary)), 30);
     `);
     try {
-      const result = await launch(process.execPath, [launcher], { cwd, env: localEnv, timeout: 3000 });
+      const result = await launch(process.execPath, [launcher, ...args], { cwd, env: localEnv, timeout: 3000 });
       return { ...result, code: 0 };
     } catch (error) {
       const result = error as { stdout: string; stderr: string; code: number | null };
@@ -116,6 +123,13 @@ describe("dev:chatgpt reload-loop guard", () => {
     expect(observe(request("/dashboard/affaires"), 19 * 160)).toEqual({
       pathname: "/dashboard/affaires", count: 20, windowMs: 15_000,
     });
+  });
+
+  it("stops the full production launcher after twenty hosted renders without a compile", async () => {
+    const result = await launchWithNextOutput(request("/dashboard/affaires").repeat(20), true, ["--supabase=production-full"]);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("Next received SIGTERM");
+    expect(result.stderr).toContain("Possible reload loop. Next rendered /dashboard/affaires 20 times");
   });
 
   it("catches six paired renders thirty seconds apart, even with slow responses", () => {
@@ -237,6 +251,22 @@ describe("dev:chatgpt Turbopack cache reuse", () => {
       expect((await start(undefined, args, hosted)).stdout).toContain("cold cache");
       expect((await readFile(join(cacheDir, stampName), "utf8"))).not.toContain(hosted.NEXT_PUBLIC_SUPABASE_ANON_KEY);
       expect((await start(undefined, args, hosted)).stdout).toContain("warm cache");
+      expect((await start()).stdout).toContain("cold cache");
+    });
+  });
+
+  it("keeps a separate Turbopack cache stamp for each of the three targets", async () => {
+    await withCacheFixture(async ({ cwd, cacheDir, start }) => {
+      await writeFile(join(cwd, ".env.local"), hostedSettings);
+      const stamps = new Set();
+      for (const args of [[], ["--supabase=production"], ["--supabase=production-full"]]) {
+        expect((await start(undefined, args)).stdout).toContain("cold cache");
+        const stamp = await readFile(join(cacheDir, stampName), "utf8");
+        expect(stamp).not.toContain("fixture-service-production");
+        stamps.add(stamp);
+        expect((await start(undefined, args)).stdout).toContain("warm cache");
+      }
+      expect(stamps.size).toBe(3);
       expect((await start()).stdout).toContain("cold cache");
     });
   });

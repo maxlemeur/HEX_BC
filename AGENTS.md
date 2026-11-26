@@ -21,6 +21,8 @@ Shared Supabase serves production. Run writing campaigns on owned stacks.
 A shared test requires an explicit request and the designated account and
 tenant « ARMY TesterArmy QA ». Shared ad hoc SQL writes require approval for
 the specific statement.
+Start the full production mode (`dev:prod:full` or `--supabase=production-full`)
+only when the owner explicitly asks for it in the current request.
 
 ## UI components and web standards
 

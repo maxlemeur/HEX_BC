@@ -3,6 +3,8 @@ import { parseEnv } from "node:util";
 
 const localConfigFile = ".env.supabase.local";
 const developmentFiles = [".env.development.local", ".env.local", ".env.development", ".env"];
+const productionFiles = [".env.local", ".env"];
+const modes = ["local", "production", "production-full"];
 
 function readConfig(file) {
   try {
@@ -24,8 +26,8 @@ export function isLoopback(host) {
 export function parseDevArguments(args) {
   const modeArgs = args.filter((arg) => arg === "--supabase" || arg.startsWith("--supabase="));
   const mode = modeArgs[0]?.slice("--supabase=".length) ?? "local";
-  if (modeArgs.length > 1 || (mode !== "local" && mode !== "production")) {
-    throw new Error("Select one Supabase target with --supabase=local or --supabase=production.");
+  if (modeArgs.length > 1 || !modes.includes(mode)) {
+    throw new Error("Select one Supabase target with --supabase=local, --supabase=production or --supabase=production-full.");
   }
   const forwarded = args.filter((arg) => !modeArgs.includes(arg));
   const hostnames = forwarded.flatMap((arg, index) => {
@@ -38,20 +40,20 @@ export function parseDevArguments(args) {
 }
 
 function readSupabaseSettings(mode, environment) {
-  if (environment.E2E_ARMY === "1") return environment;
   if (mode === "local") {
+    if (environment.E2E_ARMY === "1") return { config: environment };
     const dedicated = readConfig(localConfigFile);
-    if (dedicated) return dedicated;
+    if (dedicated) return { config: dedicated };
+    if (hasPublicSettings(environment)) return { config: environment };
   }
-  if (mode === "local" && hasPublicSettings(environment)) return environment;
   // Keep the project URL and key from the same source. Production uses the
   // existing shared .env.local independently of a .env.development.local override.
-  const files = mode === "production" ? [".env.local", ".env"] : developmentFiles;
+  const files = mode === "local" ? developmentFiles : productionFiles;
   for (const file of files) {
     const config = readConfig(file);
-    if (hasPublicSettings(config)) return config;
+    if (hasPublicSettings(config)) return { config, file };
   }
-  return environment;
+  return { config: mode === "production-full" ? {} : environment };
 }
 
 function isPrivilegedKey(key) {
@@ -66,10 +68,11 @@ function isPrivilegedKey(key) {
 }
 
 export function supabaseDevEnvironment(mode, hostnames, environment) {
-  if (mode === "production" && (environment.E2E_ARMY === "1" || hostnames.some((host) => !isLoopback(host)))) {
+  const hosted = mode !== "local";
+  if (hosted && (environment.E2E_ARMY === "1" || hostnames.some((host) => !isLoopback(host)))) {
     throw new Error("Production Supabase is available only in a loopback development server outside TesterArmy.");
   }
-  const config = readSupabaseSettings(mode, environment);
+  const { config, file } = readSupabaseSettings(mode, environment);
   const url = config.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = config.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   const service = config.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
@@ -89,18 +92,22 @@ export function supabaseDevEnvironment(mode, hostnames, environment) {
   if (mode === "local" && !isLoopback(backend.hostname)) {
     throw new Error(`Local Supabase requires a loopback URL. Set ${localConfigFile} or explicitly select --supabase=production.`);
   }
-  if (mode === "production" && (isLoopback(backend.hostname) || backend.protocol !== "https:")) {
+  if (hosted && (isLoopback(backend.hostname) || backend.protocol !== "https:")) {
     throw new Error("Production Supabase requires a hosted HTTPS URL.");
   }
   if (isPrivilegedKey(key) || key === service) {
     throw new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY must be a public Supabase key.");
+  }
+  if (mode === "production-full" && !service) {
+    throw new Error(`Set SUPABASE_SERVICE_ROLE_KEY in ${file}.`);
   }
   return {
     MERGEONE_DEV_SUPABASE_TARGET: mode,
     NEXT_PUBLIC_SUPABASE_URL: backend.origin,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: key,
     // An empty value prevents Next from filling in a service key from the other target.
-    SUPABASE_SERVICE_ROLE_KEY: mode === "local" ? service : "",
+    SUPABASE_SERVICE_ROLE_KEY: mode === "production" ? "" : service,
     ...(mode === "production" ? { MERGEONE_CHATGPT_LOCAL: "0" } : {}),
+    ...(mode === "production-full" ? { MERGEONE_CHATGPT_LOCAL: "1" } : {}),
   };
 }

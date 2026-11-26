@@ -205,6 +205,7 @@ export async function startDevServer({ chatgpt = false } = {}) {
     }
   }
   if (!informational) console.log(`Supabase target: ${mode}`);
+  if (mode === "production-full" && !informational) console.log("This server holds production's service rights.");
   const child = spawn(process.execPath, [
     "node_modules/next/dist/bin/next", "dev",
     ...(hostnames.length ? [] : ["--hostname", "127.0.0.1"]),
@@ -226,7 +227,7 @@ export async function startDevServer({ chatgpt = false } = {}) {
   }
 
   child.stdout.pipe(process.stdout, { end: false });
-  const observeLine = createReloadLoopMonitor({ hosted: mode === "production" });
+  const observeLine = createReloadLoopMonitor({ hosted: mode !== "local" });
   const lines = createInterface({ input: child.stdout });
   lines.on("line", (line) => {
     if (stopReason) return;
