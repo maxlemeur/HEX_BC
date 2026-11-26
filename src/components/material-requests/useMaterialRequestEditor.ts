@@ -8,6 +8,7 @@ import {
   type MaterialRequestLineAlert,
 } from "@/lib/material-requests/alerts";
 import {
+  bulkDeleteMaterialRequestLines,
   bulkUpdateMaterialRequestLines,
   createMaterialRequestLineArticle,
   createMaterialRequestLines,
@@ -202,6 +203,7 @@ export type MaterialRequestEditorApi = {
    */
   replaceLines: (lines: MaterialRequestLineInput[], seen?: { ids: readonly string[]; content: string }) => Promise<SaveResult>;
   removeLine: (lineId: string) => Promise<SaveResult>;
+  removeLines: (ids: string[]) => Promise<SaveResult>;
   applyToLines: (ids: string[], patch: BulkUpdateMaterialRequestLinesInput["patch"]) => Promise<SaveResult>;
   validateLines: (ids: string[]) => Promise<SaveResult>;
   reopenLines: (ids: string[]) => Promise<SaveResult>;
@@ -726,6 +728,29 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
           void resync();
         }
         return result;
+      },
+      removeLines: async (ids: string[]): Promise<SaveResult> => {
+        try {
+          const deletedIds = await enqueue(async () => {
+            if (ids.some((id) => lineWrites.current.get(id)?.failed.size)) return null;
+            return bulkDeleteMaterialRequestLines(projectId, requestId, ids);
+          });
+          if (deletedIds === null) {
+            return { ok: false, message: "Enregistrez ou abandonnez les modifications des lignes sélectionnées avant de les supprimer." };
+          }
+          const deleted = new Set(deletedIds);
+          setData((current) => (current ? { ...current, lines: current.lines.filter((line) => !deleted.has(line.id)) } : current));
+          for (const id of deleted) lineWrites.current.delete(id);
+          publishLineChanges();
+          void resync();
+          return { ok: true };
+        } catch (error) {
+          void resync();
+          return {
+            ok: false,
+            message: materialRequestErrorMessage(error, "Les lignes sélectionnées n’ont pas pu être supprimées."),
+          };
+        }
       },
       applyToLines: async (ids: string[], patch: BulkUpdateMaterialRequestLinesInput["patch"]): Promise<SaveResult> => {
         setWithheld(null);
