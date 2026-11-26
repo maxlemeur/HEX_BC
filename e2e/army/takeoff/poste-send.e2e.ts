@@ -393,6 +393,63 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
     await recordEvidence(army, "POSTE-ENVOI02", { projectId: seeded.projectId, lines, combined, handover, screenshots: [shot, afterReload] });
   });
 
+  test("POSTE-ENVOI04 une mesure retenue de cinq rejoint deux sans référence et écrit les sept annoncés", options,
+    async ({ ui }) => {
+      const { app, screen, army } = ui;
+      const owner = await signUpDedicatedOwner(ui.browser, app.baseUrl!, army.runPrefix, { tag: "PRETEN", calcPolicy: "absent" });
+      const seeded = await seedItemSendAffaire(owner, { name: `${army.runPrefix}-RETENUE`, labels: ["Lavabo"], plans: [
+        { name: "plan-a.pdf", measures: { Lavabo: { quantity: 2, page: 2 } } },
+        { name: "plan-b.pdf", measures: { Lavabo: { quantity: 5, page: 7 } } },
+      ] });
+      const [first, second] = seeded.plans;
+      await acceptOnPlan(owner, seeded.projectId, first, [seeded.items.Lavabo]);
+      // 0.9.0 can send this decision but has no retention button. Prepare it with
+      // the member's public RPCs, then use the released screens for both sends.
+      const retention = await querySql(`begin;
+        insert into public.feature_flags(tenant_id,flag_key,enabled,value)
+          values ('${owner.tenantId}','TAKEOFF_LOW_CONFIDENCE_THRESHOLD',true,'0.95')
+          on conflict(tenant_id,flag_key) do update set enabled=true,value=excluded.value;
+        select set_config('request.jwt.claim.sub','${owner.userId}',true);
+        select set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub','${owner.userId}')::text,true);
+        set local role authenticated;
+        with answer as (select id from public.takeoff_item_answers where job_id='${second.jobId}' and item_id='${seeded.items.Lavabo}'),
+          review as materialized (select id,public.read_takeoff_measure_review('${owner.tenantId}','${seeded.projectId}',id) facts from answer)
+        select public.retain_takeoff_measure('${owner.tenantId}','${seeded.projectId}',id,'${crypto.randomUUID()}',
+          jsonb_build_object('revision',facts->'revision','proof_checked',true,'rules_checked',false,'gap_checked',false))->>'outcome'
+        from review where (facts->>'proof_required')::boolean and facts->>'reference' is null;
+        commit;`);
+      expect(retention).toContain("applied");
+      const hub = `/dashboard/affaires/${seeded.projectId}/takeoff`;
+      const openPreview = async (name: string, previousVersionId?: string) => {
+        await app.open(hub);
+        await waitForHydration(ui.browser);
+        if (previousVersionId) {
+          await expect.poll(async () => Number((await querySql(
+            `select count(*) from public.draft_locks where version_id='${previousVersionId}'`
+          )).at(-1)), { timeout: 30_000 }).toBe(0);
+        }
+        await screen.getByRole("button", `Envoyer ce plan au devis : « ${name} »`, { exact: true }).click();
+        return screen.getByRole("dialog");
+      };
+      const firstDialog = await openPreview(first.name);
+      await firstDialog.getByRole("button", `Créer le devis et y envoyer « ${first.name} »`, { exact: true }).click();
+      await expect(ui.browser).toHaveURL(/\/dashboard\/estimates\/.+\/edit\?focusItemId=/, { timeout: 60_000 });
+      const [line] = (await readOwnedLines(seeded.projectId)).filter((item) => item.item_type === "line");
+      expect(line.quantity).toBe(2);
+      const [draft] = await readOwnedVersions(seeded.projectId);
+      const secondDialog = await openPreview(second.name, draft.id);
+      const row = secondDialog.getByTestId(`item-send-line-${seeded.items.Lavabo}-together`);
+      const cells = row.getByRole("cell");
+      await expect(cells.nth(2)).toHaveText("2 u"); // Avant
+      await expect(cells.nth(5)).toHaveText("5 u"); // Apport
+      await expect(cells.nth(6)).toHaveText("7 u"); // Après
+      await secondDialog.getByRole("button", `Envoyer « ${second.name} » dans V1 · brouillon`, { exact: true }).click();
+      await expect(ui.browser).toHaveURL(new RegExp(`focusItemId=${line.id}$`), { timeout: 60_000 });
+      expect((await readOwnedLines(seeded.projectId)).find((item) => item.id === line.id)?.quantity).toBe(7);
+      expect(await countOwnedReceipts(seeded.projectId)).toBe(2);
+      await recordEvidence(army, "POSTE-ENVOI04", { projectId: seeded.projectId, line: line.id, before: 2, added: 5, after: 7 });
+    });
+
   test("POSTE-ENVOI03 une liste tirée du DPGF sans ligne du DPGF au devis renvoie à l’import confirmé et n’importe rien", options,
     async ({ ui }) => {
       const { app, screen, army } = ui;
