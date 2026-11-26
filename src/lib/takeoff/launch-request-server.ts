@@ -160,8 +160,7 @@ export async function confirmAffaireBriefWithTakeoff(input: {
     const { data: expected, error } = await payerNoticeDigest(service, { ...context, projectId: input.projectId }, subscription.selection);
     if (error) databaseError(error, "Impossible de vérifier le mandat de paiement du métré.");
     if (!input.notice || expected !== input.notice) return { outcome: "choice_refused" as const, takeoff: null,
-      code: "TAKEOFF_PAYER_NOTICE_CHANGED", reloadSettings: true as const,
-      message: "Le payeur, les réglages ou le budget du métré ont changé. Rechargez la mention de paiement." };
+      code: "TAKEOFF_PAYER_NOTICE_CHANGED", message: "Le payeur, les réglages ou le budget du métré ont changé. Rechargez la mention de paiement." };
   }
   const { data, error } = await service.rpc("confirm_affaire_brief_plan_choice", {
     p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId,
