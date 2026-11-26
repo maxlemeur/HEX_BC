@@ -405,6 +405,7 @@
     "20261126100842_workbook_undo_authorization_and_batch_indexes.sql": "eaf3165602bb2c6bcb164917718be45eb629baa742e8cda1d95c2b71fd7295d7",
     "20261126145712_material_request_original_workbooks.sql": "520a0893d22ee3f223225260e39ac9082ca21b8f6130a8a88eaf0eb0cdf056ea",
     "20261126154030_takeoff_retain_measure.sql": "9571b43647a5ea0b87f712500732890a14a0661aca513b21253fe4a733e571bf",
-    "20261126161733_delete_draft_material_request_lines.sql": "ec832d688237b5373d9da5a2f5b9183ee9c70e05221af57a51c59cf1c246c198"
+    "20261126161733_delete_draft_material_request_lines.sql": "ec832d688237b5373d9da5a2f5b9183ee9c70e05221af57a51c59cf1c246c198",
+    "20261126162814_catalogue_product_reference_naming.sql": "5948a722fd5f2551f7f4969817610e6ff5fbbbf934580fc612d0e6a2aa5400eb"
   }
 }
