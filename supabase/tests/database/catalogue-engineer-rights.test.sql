@@ -627,5 +627,50 @@ select matches(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenan
   "enabled":true,"patterns":{"tube":"TUY-{prix}","coude":"COU-{dimension}","reduction":"RED-{dimension}","vanne":"VAN-{dimension}"}
 }'::jsonb)), '^22023 ', 'an unknown token is rejected by the database');
 
+-- 20261126230300_catalogue_reference_naming_abbreviations.sql: the company's short codes, and a prefix that
+-- starts with a letter.
+create function pg_temp.reference_naming_with(p_tube text, p_extra jsonb)
+returns jsonb language sql as $$
+  select jsonb_build_object('enabled', true, 'patterns', jsonb_build_object(
+    'tube', p_tube, 'coude', 'COU-{dimension}', 'reduction', 'RED-{dimension}', 'vanne', 'VAN-{dimension}')) || p_extra
+$$;
+
+select is(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a',
+  pg_temp.reference_naming_with('TUB-{matiere}-{dimension}', '{"abbreviations":{"multicouche":"MEC","sans_soudure":"SS"}}'::jsonb))),
+  'ok 1', 'an admin saves the abbreviations of the company with its formats');
+select is((select product_reference_naming->'abbreviations'->>'multicouche' from public.tenant_catalogue_policies
+  where tenant_id = pg_temp.fx('tenant_a')), 'MEC', 'the company abbreviation is stored');
+select is(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a',
+  pg_temp.reference_naming_with('TUB-{dimension}', '{}'::jsonb))),
+  'ok 1', 'a naming without abbreviations is still accepted');
+select is((select product_reference_naming ? 'abbreviations' from public.tenant_catalogue_policies
+  where tenant_id = pg_temp.fx('tenant_a')), false, 'a save without abbreviations replaces the former ones');
+select matches(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a',
+  pg_temp.reference_naming_with('TUB-{dimension}', '{"abbreviations":{"multicouche":"mec"}}'::jsonb))),
+  '^22023 ', 'an abbreviation in lower case is rejected');
+select matches(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a',
+  pg_temp.reference_naming_with('TUB-{dimension}', '{"abbreviations":{"multicouche":"MEC-1"}}'::jsonb))),
+  '^22023 ', 'an abbreviation holding the separator is rejected');
+select matches(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a',
+  pg_temp.reference_naming_with('TUB-{dimension}', '{"abbreviations":{"multicouche":12}}'::jsonb))),
+  '^22023 ', 'an abbreviation that is not a text is rejected');
+select matches(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a',
+  pg_temp.reference_naming_with('TUB-{dimension}', '{"abbreviations":{"Multi Couche":"MEC"}}'::jsonb))),
+  '^22023 ', 'a term that is not a plain key is rejected');
+select matches(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a',
+  pg_temp.reference_naming_with('TUB-{dimension}', '{"abbreviations":["MEC"]}'::jsonb))),
+  '^22023 ', 'abbreviations that are not an object are rejected');
+select matches(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a',
+  pg_temp.reference_naming_with('TUB-{dimension}', '{"prefixes":{"tube":"TUB"}}'::jsonb))),
+  '^22023 ', 'an unknown setting is rejected');
+select matches(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a',
+  pg_temp.reference_naming_with('{dimension}-TUB', '{}'::jsonb))),
+  '^22023 ', 'a format that does not start with its prefix is rejected');
+select matches(pg_temp.ce_run('admin_a', pg_temp.reference_naming_command('tenant_a',
+  pg_temp.reference_naming_with('001-{dimension}', '{}'::jsonb))),
+  '^22023 ', 'a prefix that starts with a digit is rejected');
+select is((select product_reference_naming->'patterns'->>'tube' from public.tenant_catalogue_policies
+  where tenant_id = pg_temp.fx('tenant_a')), 'TUB-{dimension}', 'a rejected naming leaves the stored one');
+
 select * from finish();
 rollback;
