@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
 import { LoadingState } from "@/components/layout/loading-state";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +18,8 @@ import {
 } from "@/components/ui/dialog";
 import { FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
+import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
+import { defaultAiRequestSettings, type AiRequestSettingsValue } from "@/lib/ai/request-settings";
 import {
   arbitrateEstimatePriceReuse,
   previewEstimatePriceReuse,
@@ -25,6 +28,7 @@ import { fetchEstimateImportSources } from "@/lib/estimates/section-copy-client"
 import type { EstimateImportSourceVersion } from "@/lib/estimates/section-copy-contracts";
 import {
   PRICE_REUSE_ARBITRATION_MAX_LINES,
+  PRICE_REUSE_KEY_MAX_LINES,
   type PriceReusePreview,
   type PriceReusePreviewLine,
   type PriceReuseProvider,
@@ -41,7 +45,7 @@ type Origin = "identical" | "pending" | "manual" | PriceReuseProvider;
 type RowState = { referenceId: string | null; checked: boolean; origin: Origin | null; confidence: number | null };
 type Filter = "all" | PriceReusePreviewLine["status"];
 
-const PROVIDER_LABELS: Record<PriceReuseProvider, string> = { decisions: "Decisions", chatgpt: "ChatGPT" };
+const PROVIDER_LABELS: Record<PriceReuseProvider, string> = { decisions: "Decisions", chatgpt: "ChatGPT", personal_api_key: "Clé API OpenAI" };
 const FILTER_LABELS: Record<Filter, string> = {
   all: "Toutes les lignes", identical: "Identiques", to_review: "À vérifier", new: "Sans correspondance",
 };
@@ -86,7 +90,9 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
   const [compareError, setCompareError] = useState<string | null>(null);
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [filter, setFilter] = useState<Filter>("all");
-  const [arbitrating, setArbitrating] = useState<PriceReuseProvider | null>(null);
+  const [aiSelection, setAiSelection] = useState<AiRequestSettingsValue>();
+  const [keyAnswered, setKeyAnswered] = useState<ReadonlySet<string>>();
+  const [arbitrating, setArbitrating] = useState(false);
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -130,11 +136,21 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
   );
   const aiProposals = useMemo(
     () => Object.entries(rows).filter(([, row]) =>
-      (row.origin === "decisions" || row.origin === "chatgpt") && row.referenceId && !row.checked).map(([lineId]) => lineId),
+      (row.origin === "decisions" || row.origin === "chatgpt" || row.origin === "personal_api_key") && row.referenceId && !row.checked)
+      .map(([lineId]) => lineId),
     [rows]
   );
   const visibleLines = (preview?.lines ?? []).filter((line) => filter === "all" || line.status === filter);
-  const isBusy = isComparing || isSubmitting || arbitrating !== null;
+  const aiSources = preview ? {
+    chatgpt_plan: preview.arbiters.chatgpt, personal_api_key: preview.arbiters.personal_api_key, decisions: preview.arbiters.decisions,
+  } : {};
+  const aiSettings = aiSelection ?? defaultAiRequestSettings(preview?.default_billing_source ?? null, aiSources);
+  const isBusy = isComparing || isSubmitting || arbitrating;
+  // A row already retained or chosen by hand stays the user's choice.
+  const eligibleLines = toArbitrate.filter((line) => !rows[line.line_id]?.checked && rows[line.line_id]?.origin !== "manual");
+  const unansweredOnKey = keyAnswered ? eligibleLines.filter((line) => !keyAnswered.has(line.line_id)) : eligibleLines;
+  const canContinueOnKey = aiSettings.source === "personal_api_key" && unansweredOnKey.length > 0
+    && unansweredOnKey.length < eligibleLines.length;
 
   const updateRow = (lineId: string, patch: Partial<RowState>) =>
     setRows((current) => ({ ...current, [lineId]: { ...current[lineId], ...patch } }));
@@ -145,6 +161,8 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
     setCompareError(null);
     setSubmitError(null);
     setAiStatus(null);
+    setAiSelection(undefined);
+    setKeyAnswered(undefined);
     // A new comparison replaces the previous one: its rows are no longer shown nor selectable meanwhile.
     setPreview(null);
     setRows({});
@@ -166,49 +184,62 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
     }
   }
 
-  async function arbitrate(provider: PriceReuseProvider) {
-    if (!preview || toArbitrate.length === 0) return;
+  async function arbitrate(restart = false) {
+    const { source, preferences } = aiSettings;
+    if (!preview || !source || !aiSources[source]?.available || isBusy || toArbitrate.length === 0 || (source !== "decisions" && !preferences)) return;
+    const provider = source === "chatgpt_plan" ? "chatgpt" : source;
     const label = PROVIDER_LABELS[provider];
-    // A row the user already retained or chose stays theirs: it is not sent, and no answer can change it.
-    const lines = toArbitrate.filter((line) => !rows[line.line_id]?.checked && rows[line.line_id]?.origin !== "manual");
+    const continueOnKey = canContinueOnKey && !restart;
+    const lines = continueOnKey ? unansweredOnKey : eligibleLines;
     if (lines.length === 0) {
       setAiStatus(`${label} : les lignes à vérifier sont déjà choisies.`);
       return;
     }
-    setArbitrating(provider);
+    const onKey = provider === "personal_api_key";
+    const batchSize = onKey ? PRICE_REUSE_KEY_MAX_LINES : PRICE_REUSE_ARBITRATION_MAX_LINES;
+    // On the key, one command sends one HTTP request so its server batches share a single ceiling.
+    const requested = onKey ? lines.slice(0, batchSize) : lines;
+    setArbitrating(true);
     setAiStatus(null);
     let proposals = 0;
     let answered = 0;
+    let partialMessage: string | null = null;
     try {
-      // Bounded requests, one after the other: a refusal stops the following ones (no further billed call).
-      for (let start = 0; start < lines.length; start += PRICE_REUSE_ARBITRATION_MAX_LINES) {
-        const chunk = lines.slice(start, start + PRICE_REUSE_ARBITRATION_MAX_LINES);
+      for (let start = 0; start < requested.length; start += batchSize) {
+        const chunk = requested.slice(start, start + batchSize);
         const result = await arbitrateEstimatePriceReuse(targetVersionId, {
           reference_version_id: preview.reference.version_id, reference_updated_at: preview.reference.updated_at,
           provider, line_ids: chunk.map((line) => line.line_id),
+          ...(preferences && { model: preferences.model, reasoning_effort: preferences.reasoningEffort }),
         });
-        if (result.status === "unavailable" || result.status === "failed") {
-          setAiStatus(`${label} : ${result.message}`);
-          return;
+        const replies = result.answers.filter((answer) => answer.reference_line_id !== null || answer.no_match || answer.confidence !== null);
+        if (onKey) {
+          const answeredIds = new Set(continueOnKey ? keyAnswered : undefined);
+          for (const reply of replies) answeredIds.add(reply.line_id);
+          setKeyAnswered(answeredIds);
         }
         setRows((current) => {
           const next = { ...current };
-          for (const answer of result.answers) {
+          for (const answer of replies) {
             const row = next[answer.line_id];
-            if (!row || row.checked || row.origin === "manual" ||
-              (answer.reference_line_id === null && answer.confidence === null)) continue;
+            if (!row || row.checked || row.origin === "manual") continue;
             next[answer.line_id] = { ...row, referenceId: answer.reference_line_id, origin: provider, confidence: answer.confidence };
           }
           return next;
         });
-        answered += chunk.length;
-        proposals += result.answers.filter((answer) => answer.reference_line_id !== null).length;
+        answered += replies.length;
+        proposals += replies.filter((answer) => answer.reference_line_id !== null).length;
+        if (result.status !== "available") partialMessage = result.message;
+        if (result.status === "unavailable" || result.status === "failed") break;
       }
-      setAiStatus(`${label} : ${plural(proposals, "proposition")} pour ${plural(answered, "ligne")} à vérifier.`);
+      const summary = `${plural(proposals, "proposition")} pour ${plural(answered, "ligne")} à vérifier.`;
+      const messages = [answered || !partialMessage ? summary : null, partialMessage];
+      if (requested.length < lines.length) messages.push(`La demande est limitée aux ${PRICE_REUSE_KEY_MAX_LINES} premières lignes.`);
+      setAiStatus(`${label} : ${messages.filter(Boolean).join(" ")}`);
     } catch (error) {
       setAiStatus(`${label} : ${error instanceof Error ? error.message : "l’arbitrage n’a pas abouti."}`);
     } finally {
-      setArbitrating(null);
+      setArbitrating(false);
     }
   }
 
@@ -284,16 +315,26 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
                   <p className="mt-1 text-xs text-foreground-secondary">
                     L’IA ne reçoit que ces lignes et leurs articles candidats ; sa réponse reste une proposition à retenir.
                   </p>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    {(["decisions", "chatgpt"] as const).map((provider) => (
-                      <div key={provider} className="grid gap-1">
-                        <Button type="button" variant="outline" size="md" onClick={() => void arbitrate(provider)}
-                          disabled={!preview.arbiters[provider].available || isBusy || toArbitrate.length === 0}>
-                          {arbitrating === provider ? "Arbitrage en cours…" : `Départager avec ${PROVIDER_LABELS[provider]}`}
+                  <div className="mt-2 flex flex-wrap items-start gap-3">
+                    <AiRequestSettings sources={aiSources} defaultSource={preview.default_billing_source}
+                      value={aiSettings} sourcePicker={{ label: "Source d’IA" }} locked={isBusy}
+                      onChange={(settings) => {
+                        setAiSelection(settings);
+                        setKeyAnswered(undefined);
+                        setAiStatus(null);
+                      }}
+                      keyCeiling={{ nanoUsd: AI_REQUEST_CEILINGS_NANO_USD.shortQuestion }} />
+                    <div className="mt-6 flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="md" onClick={() => void arbitrate()}
+                        disabled={!aiSettings.source || isBusy || toArbitrate.length === 0}>
+                        {arbitrating ? "Arbitrage en cours…" : canContinueOnKey ? "Poursuivre le départage" : "Départager"}
+                      </Button>
+                      {canContinueOnKey ? (
+                        <Button type="button" variant="ghost" size="md" disabled={isBusy} onClick={() => void arbitrate(true)}>
+                          Recommencer le départage
                         </Button>
-                        <p className="text-xs text-foreground-secondary">{preview.arbiters[provider].message}</p>
-                      </div>
-                    ))}
+                      ) : null}
+                    </div>
                   </div>
                   {aiStatus ? <p role="status" data-testid="price-reuse-ai-status" className="mt-2 text-sm text-foreground">{aiStatus}</p> : null}
                   {aiProposals.length > 0 ? (

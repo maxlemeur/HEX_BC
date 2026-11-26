@@ -11,7 +11,7 @@ export async function previewEstimatePriceReuse(targetVersionId: string, referen
   );
 }
 
-/** Reprise des prix : proposition de Decisions ou du forfait ChatGPT pour des lignes à vérifier, sans écriture. */
+/** Reprise des prix : propositions de la source IA choisie pour des lignes à vérifier, sans écriture. */
 export async function arbitrateEstimatePriceReuse(targetVersionId: string, input: PriceReuseArbitrationInput): Promise<PriceReuseArbitration> {
   return requestJson(
     `/api/estimates/${targetVersionId}/price-reuse/arbitration`,

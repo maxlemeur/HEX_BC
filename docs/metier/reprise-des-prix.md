@@ -71,18 +71,25 @@ enregistrées avant la comparaison, pour qu'elle porte sur ce qui est affiché.
 
 ## Arbitrage par l'IA
 
-Pour les lignes à vérifier, l'utilisateur peut demander une proposition à
-Decisions (API facturée à part, activée par le serveur, voir
-[Decisions](../testing/decisions.md)) ou au forfait ChatGPT de MergeOne local
-(voir [ChatGPT local](../testing/chatgpt-local.md)). L'arbitre reçoit seulement
-ces lignes, leurs candidats et leurs écarts relevés, jamais les autres lignes ni
-les documents de l'affaire. Il choisit un candidat ou « aucun », avec une
-confiance. La réponse reste une proposition : elle ne coche aucune ligne,
-« Retenir les propositions de l'IA » le fait sur demande. Une ligne déjà cochée ou
-choisie à la main n'est pas envoyée et aucune réponse ne la modifie. Une indisponibilité,
-un refus ou une réponse invalide laisse le choix manuel ; aucun fournisseur ne
-remplace l'autre. Les demandes comptent 100 lignes au plus, envoyées l'une après
-l'autre ; la première erreur arrête les suivantes.
+Après « Comparer », le départage propose la source définie dans Mon profil, le
+forfait ChatGPT ou la clé API OpenAI de [MergeOne local](../testing/chatgpt-local.md).
+L'utilisateur peut changer la source, le modèle et l'effort de raisonnement pour
+la demande. [Decisions](../testing/decisions.md) se choisit manuellement et
+utilise son modèle fixe sur l'API facturée séparément.
+
+L'arbitre reçoit les lignes à vérifier qui ont des candidats, leurs candidats et
+les écarts relevés. Il choisit un candidat ou « aucun ». « Retenir les propositions
+de l'IA » coche les propositions sur demande. Une ligne déjà cochée ou choisie à
+la main reste exclue du départage. L'utilisateur garde le choix manuel si la source
+est indisponible ou si sa réponse est inutilisable.
+
+La commande sur clé API est plafonnée à 0,10 USD pour l'ensemble de ses lots. Si
+le prochain lot dépasse le budget restant, le serveur garde les réponses reçues
+et signale l'arrêt. « Poursuivre le départage » envoie les lignes restées sans
+réponse dans une nouvelle commande, au même plafond. « Recommencer le départage »
+permet de redemander une proposition sur les lignes à vérifier. Une requête
+accepte jusqu'à 1 000 lignes sur clé API et 100 lignes sur le forfait ChatGPT ou
+Decisions.
 
 ## Application
 
