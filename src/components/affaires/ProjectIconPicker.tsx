@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 export type ProjectIconKey = "building" | "house" | "factory" | "office" | "renovation";
 
@@ -37,65 +44,57 @@ type ProjectIconPickerProps = {
 
 export function ProjectIconPicker({ value, onChange, size = 44 }: ProjectIconPickerProps) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
 
   return (
-    <div className="relative self-stretch" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="group relative flex h-full w-24 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border px-3 py-2 transition-colors hover:border-primary hover:bg-primary/5"
-        title="Changer l'icone du projet"
-      >
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-subtle-foreground transition-colors group-hover:text-primary"
+    <div className="relative self-stretch">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          className="group relative flex h-full w-24 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border px-3 py-2 transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          title="Changer l'icone du projet"
+          aria-label={`Changer l'icone du projet (${PROJECT_ICONS[value].label})`}
         >
-          <path d={PROJECT_ICONS[value].path} />
-        </svg>
-        <span className="text-micro font-medium text-muted-foreground transition-colors group-hover:text-primary">
-          {PROJECT_ICONS[value].label}
-        </span>
-        <span className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-border text-muted-foreground transition-colors group-hover:bg-primary group-hover:text-white">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+          <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className="text-subtle-foreground transition-colors group-hover:text-primary"
+          >
+            <path d={PROJECT_ICONS[value].path} />
           </svg>
-        </span>
-      </button>
+          <span className="text-micro font-medium text-muted-foreground transition-colors group-hover:text-primary">
+            {PROJECT_ICONS[value].label}
+          </span>
+          <span
+            aria-hidden="true"
+            className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-border text-muted-foreground transition-colors group-hover:bg-primary group-hover:text-white"
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+            </svg>
+          </span>
+        </PopoverTrigger>
 
-      {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 animate-fade-in rounded-xl border border-border bg-surface p-2 shadow-lg">
-          <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-subtle-foreground">
+        <PopoverContent align="start" className="w-auto gap-2 p-2">
+          <PopoverTitle className="px-1 text-micro font-semibold uppercase tracking-wider text-subtle-foreground">
             Type de projet
-          </p>
+          </PopoverTitle>
           <div className="flex gap-1">
             {PROJECT_ICON_KEYS.map((key) => (
               <button
                 key={key}
                 type="button"
+                aria-pressed={key === value}
                 onClick={() => {
                   onChange(key);
                   setOpen(false);
                 }}
-                className={`flex flex-col items-center gap-1 rounded-lg p-2 transition-colors ${
+                className={`flex flex-col items-center gap-1 rounded-lg p-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   key === value
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:bg-surface-subtle hover:text-foreground-secondary"
@@ -111,6 +110,7 @@ export function ProjectIconPicker({ value, onChange, size = 44 }: ProjectIconPic
                   strokeWidth="1.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  aria-hidden="true"
                 >
                   <path d={PROJECT_ICONS[key].path} />
                 </svg>
@@ -118,8 +118,8 @@ export function ProjectIconPicker({ value, onChange, size = 44 }: ProjectIconPic
               </button>
             ))}
           </div>
-        </div>
-      )}
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

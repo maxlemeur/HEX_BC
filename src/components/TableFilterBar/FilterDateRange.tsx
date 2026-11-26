@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { DateRangeFilterConfig, DateRangeValue } from "./types";
+import { useId, useState } from "react";
 import { ArrowRightIcon, CalendarIcon, ChevronDownIcon, XIcon } from "lucide-react";
+
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import type { DateRangeFilterConfig, DateRangeValue } from "./types";
 
 type FilterDateRangeProps = {
   config: DateRangeFilterConfig;
@@ -35,7 +37,9 @@ function getPresetDates(preset: "week" | "month" | "30days"): DateRangeValue {
 
 export function FilterDateRange({ config, value, onChange, onClear }: FilterDateRangeProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const baseId = useId();
+  const fromId = `${baseId}-from`;
+  const toId = `${baseId}-to`;
 
   const hasValue = value.from || value.to;
 
@@ -55,97 +59,86 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
     return config.label;
   };
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsOpen(false);
-    };
-
-    if (isOpen) {
-      document.addEventListener("keydown", handleKeyDown);
-      return () => document.removeEventListener("keydown", handleKeyDown);
-    }
-  }, [isOpen]);
-
   const handlePreset = (preset: "week" | "month" | "30days") => {
     onChange(getPresetDates(preset));
   };
 
-  return (
-    <div className="filter-pill-container" ref={containerRef}>
-      <button
-        type="button"
-        className={`filter-pill ${hasValue ? "filter-pill--active" : ""}`}
-        onClick={() => setIsOpen(!isOpen)}
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        aria-label={`Filtrer par ${config.label}${hasValue ? ", filtre actif" : ""}`}
-      >
-        <CalendarIcon aria-hidden="true" className="filter-pill__icon" size={14} />
-        <span className="filter-pill__label">{getDisplayLabel()}</span>
-        <ChevronDownIcon aria-hidden="true" className="filter-pill__chevron" size={14} />
-      </button>
+  const presetButtonClass =
+    "flex-1 whitespace-nowrap rounded-lg border border-border bg-surface px-2.5 py-2 text-xs font-medium text-foreground-secondary transition-colors hover:border-primary hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const dateInputClass =
+    "h-10 w-full rounded-lg border border-border bg-surface px-2.5 text-[13px] text-foreground transition-colors focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-      {isOpen && (
-        <div className="filter-dropdown filter-dropdown--date" role="dialog" aria-label={config.label}>
-          <div className="filter-dropdown__presets">
+  return (
+    <div className="filter-pill-container">
+      <Popover open={isOpen} onOpenChange={setIsOpen}>
+        <PopoverTrigger
+          className={`filter-pill ${hasValue ? "filter-pill--active" : ""}`}
+          aria-label={`Filtrer par ${config.label}${hasValue ? ", filtre actif" : ""}`}
+        >
+          <CalendarIcon aria-hidden="true" className="filter-pill__icon" size={14} />
+          <span className="filter-pill__label">{getDisplayLabel()}</span>
+          <ChevronDownIcon aria-hidden="true" className="filter-pill__chevron" size={14} />
+        </PopoverTrigger>
+
+        <PopoverContent
+          align="start"
+          aria-label={config.label}
+          className="w-80 max-w-[calc(100vw-2rem)] gap-3 p-3"
+        >
+          <div className="flex gap-2">
             <button
               type="button"
-              className="filter-dropdown__preset"
+              className={presetButtonClass}
               onClick={() => handlePreset("week")}
             >
               Cette semaine
             </button>
             <button
               type="button"
-              className="filter-dropdown__preset"
+              className={presetButtonClass}
               onClick={() => handlePreset("month")}
             >
               Ce mois
             </button>
             <button
               type="button"
-              className="filter-dropdown__preset"
+              className={presetButtonClass}
               onClick={() => handlePreset("30days")}
             >
               30 derniers jours
             </button>
           </div>
 
-          <div className="filter-dropdown__dates">
-            <div className="filter-dropdown__date-field">
-              <label className="filter-dropdown__date-label">
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <label
+                htmlFor={fromId}
+                className="mb-1.5 block text-[11px] font-semibold tracking-wider text-muted-foreground uppercase"
+              >
                 {config.placeholderFrom ?? "Du"}
               </label>
               <input
+                id={fromId}
                 type="date"
-                className="filter-dropdown__date-input"
+                className={dateInputClass}
                 value={value.from}
                 onChange={(e) => onChange({ ...value, from: e.target.value })}
               />
             </div>
-            <div className="filter-dropdown__date-separator">
+            <div className="pb-2.5 text-subtle-foreground">
               <ArrowRightIcon aria-hidden="true" size={16} />
             </div>
-            <div className="filter-dropdown__date-field">
-              <label className="filter-dropdown__date-label">
+            <div className="flex-1">
+              <label
+                htmlFor={toId}
+                className="mb-1.5 block text-[11px] font-semibold tracking-wider text-muted-foreground uppercase"
+              >
                 {config.placeholderTo ?? "Au"}
               </label>
               <input
+                id={toId}
                 type="date"
-                className="filter-dropdown__date-input"
+                className={dateInputClass}
                 value={value.to}
                 onChange={(e) => onChange({ ...value, to: e.target.value })}
               />
@@ -155,7 +148,7 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
           {hasValue && (
             <button
               type="button"
-              className="filter-dropdown__clear"
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-medium text-primary transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => {
                 onClear();
                 setIsOpen(false);
@@ -165,8 +158,8 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
               Effacer les dates
             </button>
           )}
-        </div>
-      )}
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

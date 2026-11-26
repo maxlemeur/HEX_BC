@@ -125,8 +125,6 @@ const eslintConfig = defineConfig([
               group: [
                 "@/components/ui-legacy/*",
                 "!@/components/ui-legacy/NumberInput",
-                "!@/components/ui-legacy/KeyboardShortcutsModal",
-                "!@/components/ui-legacy/CommandPaletteLoader",
               ],
               message:
                 "Use the primitives of @/components/ui (Button, Dialog, Input, Combobox, Skeleton…) instead of ui-legacy.",

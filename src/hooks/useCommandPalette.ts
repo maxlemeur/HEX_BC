@@ -311,6 +311,7 @@ export function useCommandPalette() {
 
   const handlePaletteKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setSelectedIndex((prev) =>

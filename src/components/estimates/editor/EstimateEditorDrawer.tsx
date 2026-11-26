@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { IconButton } from "@/components/ui/icon-button";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { XIcon } from "lucide-react";
 import type { EstimateEditorDrawerProps } from "@/hooks/estimate-editor-view-props";
 
@@ -103,71 +104,58 @@ export function EstimateEditorDrawer({
       setSavingBeforeClose(false);
     }
   };
-  if (!isOpen) return null;
-
   return (
-    <>
-      <Dialog
-        open={confirmClose}
-        onOpenChange={(open) => {
-          if (!savingBeforeClose) setConfirmClose(open);
-        }}
-        disablePointerDismissal={savingBeforeClose}
-      >
-        <DialogContent size="md" showCloseButton={false} initialFocus={continueEditingRef}>
-          <DialogHeader>
-            <DialogTitle>Enregistrer les modifications du paramétrage ?</DialogTitle>
-            <DialogDescription>
-              Vos modifications ne sont pas encore enregistrées. Vous pouvez les enregistrer, les abandonner ou continuer à modifier le paramétrage.
-            </DialogDescription>
-          </DialogHeader>
-          {saveError && (
-            <Alert variant="danger">
-              L’enregistrement n’a pas abouti. Le paramétrage reste ouvert ; vérifiez les erreurs avant de réessayer.
-            </Alert>
-          )}
-          <DialogFooter>
-            <Button ref={continueEditingRef} type="button" variant="outline" size="md" disabled={savingBeforeClose} onClick={() => setConfirmClose(false)}>
-              Continuer à modifier
-            </Button>
-            <Button type="button" variant="outline" size="md" disabled={savingBeforeClose} onClick={() => {
-              onDiscardSettings();
-              setConfirmClose(false);
-              onClose();
-            }}>
-              Abandonner les modifications
-            </Button>
-            <Button type="button" variant="primary" size="md" disabled={savingBeforeClose || isSaveBlocked || isSavingSettings} onClick={() => void saveAndClose()}>
-              {savingBeforeClose ? "Enregistrement…" : "Enregistrer"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <div
-        className="fixed inset-0 z-40 bg-[rgb(2_6_23/0.2)]"
-        onClick={requestClose}
-        aria-hidden="true"
-        data-testid="estimate-editor-drawer-backdrop"
-      />
-      <div
-        role="dialog"
+    <Sheet
+      open={isOpen}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !confirmClose) requestClose();
+      }}
+    >
+      <SheetContent
+        side="right"
+        showCloseButton={false}
         aria-modal="true"
         aria-label="Paramétrage du devis"
-        className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full lg:max-w-7xl flex-col border-l border-border bg-surface shadow-xl"
-        onKeyDown={(event) => {
-          if (event.key !== "Escape" || confirmClose) return;
-          // Escape pressed in a dialog opened from the drawer (portalled, but
-          // bubbling through the React tree) closes that dialog only.
-          const nearestDialog =
-            event.target instanceof Element
-              ? event.target.closest('[role="dialog"], [role="alertdialog"]')
-              : null;
-          if (nearestDialog && nearestDialog !== event.currentTarget) return;
-          requestClose();
-        }}
-        tabIndex={-1}
         data-testid="estimate-editor-drawer"
+        overlayProps={{ "data-testid": "estimate-editor-drawer-backdrop" }}
+        className="gap-0 bg-surface p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-none data-[side=right]:lg:max-w-7xl"
       >
+        <Dialog
+          open={confirmClose}
+          onOpenChange={(open) => {
+            if (!savingBeforeClose) setConfirmClose(open);
+          }}
+          disablePointerDismissal={savingBeforeClose}
+        >
+          <DialogContent size="md" showCloseButton={false} initialFocus={continueEditingRef}>
+            <DialogHeader>
+              <DialogTitle>Enregistrer les modifications du paramétrage ?</DialogTitle>
+              <DialogDescription>
+                Vos modifications ne sont pas encore enregistrées. Vous pouvez les enregistrer, les abandonner ou continuer à modifier le paramétrage.
+              </DialogDescription>
+            </DialogHeader>
+            {saveError && (
+              <Alert variant="danger">
+                L’enregistrement n’a pas abouti. Le paramétrage reste ouvert ; vérifiez les erreurs avant de réessayer.
+              </Alert>
+            )}
+            <DialogFooter>
+              <Button ref={continueEditingRef} type="button" variant="outline" size="md" disabled={savingBeforeClose} onClick={() => setConfirmClose(false)}>
+                Continuer à modifier
+              </Button>
+              <Button type="button" variant="outline" size="md" disabled={savingBeforeClose} onClick={() => {
+                onDiscardSettings();
+                setConfirmClose(false);
+                onClose();
+              }}>
+                Abandonner les modifications
+              </Button>
+              <Button type="button" variant="primary" size="md" disabled={savingBeforeClose || isSaveBlocked || isSavingSettings} onClick={() => void saveAndClose()}>
+                {savingBeforeClose ? "Enregistrement…" : "Enregistrer"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         <div className="flex items-center justify-between border-b border-border px-4 py-3 lg:px-6 lg:py-4">
           <h2 className="text-sm font-semibold text-foreground">Paramétrage</h2>
           <IconButton
@@ -318,7 +306,7 @@ export function EstimateEditorDrawer({
             </>
           ) : null}
         </div>
-      </div>
-    </>
+      </SheetContent>
+    </Sheet>
   );
 }

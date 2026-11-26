@@ -89,6 +89,7 @@ export function CommandPalette() {
         finalFocus={() => !executedRef.current}
         className="top-[15vh] max-h-[min(480px,70dvh)] translate-y-0 gap-0 overflow-hidden p-0 sm:top-[20vh] sm:p-0"
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Enter") {
             const item = flatItems[selectedIndex];
             if (item) executedRef.current = true;
