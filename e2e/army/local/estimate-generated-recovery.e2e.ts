@@ -439,12 +439,16 @@ armyTest("GO06 two real local fallback generations discard the previous pending 
       }
       await ui.screen.getByLabel("Texte source", { exact: true }).fill(sourceText);
       await ui.screen.getByLabel("Lot cible (optionnel)", { exact: true }).selectOption({ value: index === 0 ? g.sectionA : g.sectionB });
+      await expect(ui.screen.getByLabel("Source d’IA", { exact: true })).toBeVisible();
+      await expect(ui.screen.getByTestId("generated-ouvrage-generate-button")).toBeDisabled();
       const response = await clickActionReply(ui, probe, "generateOuvragesFromText",
-        () => ui.screen.getByTestId("generated-ouvrage-generate-button").click());
+        () => ui.screen.getByRole("button", "Générer sans IA", { exact: true }).click());
       const results = response.records;
       const observed = await observe(`GO06-first-get-after-generation-${index + 1}`);
       await recordEvidence(ui.army, `GO06-real-generation-response-${index + 1}`, { status: response.status, results, calls });
       expect(response.status).toBe(200); expect(results).toHaveLength(1); expect(results[0].candidates).toHaveLength(1);
+      expect(results[0].generationKind).toBe("fallback");
+      await expect(ui.screen.getByText("Résultat de secours tiré du texte source.", { exact: true })).toBeVisible();
       const result = results[0] as { draftId: string; candidates: Array<{
         candidateId: string; designation: string; unit: string; quantity: number; sources: Json[];
       }> }, candidate = result.candidates[0];
@@ -502,6 +506,7 @@ armyTest("GO06 two real local fallback generations discard the previous pending 
     expect(resumedResponse.status).toBe(200); expect(resumedRecords).toHaveLength(1); expect(resumedRecords[0].ok).toBe(true);
     const resumedDraft = resumedRecords[0].data as Json;
     expect(resumedDraft.draftId).toBe(generated[1].draftId);
+    expect(resumedDraft.generationKind).toBe("fallback");
     const resumedCandidates = resumedDraft.candidates as Json[];
     expect(resumedCandidates).toHaveLength(1); expect(resumedCandidates[0].candidateId).toBe(generated[1].candidateId);
     expect(resumedCandidates[0].sources).toEqual(generated[1].sources);
@@ -510,7 +515,11 @@ armyTest("GO06 two real local fallback generations discard the previous pending 
     const candidate = final.rows.candidates.find((row) => row.id === generated[1].candidateId)!;
     expect([candidate.designation, candidate.unit, candidate.quantity, candidate.resolution_status, candidate.suggested_lot_id]).toEqual([generated[1].designation, "m", 6, "pending", g.sectionB]);
     for (const value of generated) expect(final.rows.candidateSources.filter((row) => row.draft_id === value.draftId)).toEqual(value.links);
-    expect(calls).toHaveLength(2); expect(calls.every((call) => call.sessionPresent)).toBe(true); expect(bulk).toHaveLength(0);
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call).toMatchObject({ sessionPresent: true, request: { ai: { source: "fallback" } } });
+    }
+    expect(bulk).toHaveLength(0);
     const networkFile = process.env.E2E_COVERAGE_NETWORK_LOG;
     if (!networkFile) throw new Error("Real server network guard evidence is required for the local fallback.");
     const network = await readJsonlWitness<{ kind?: string; allowed?: boolean }>(networkFile);

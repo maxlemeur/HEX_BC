@@ -310,7 +310,8 @@ const RULES: Array<{ rule: string; entryPoints: EntryPoint[]; active: Expected; 
         call: () => generateOuvragesFromText({
           projectId: PROJECT_ID, versionId: VERSION_ID, draftLockSessionId: LOCK_SESSION_ID,
           sourceKind: "free_text", sourceText: "Cloison fictive",
-        } as never),
+          ai: { source: "fallback" },
+        }),
         afterAccess: [LOCK_REQUIRED],
         refusedBefore: WRITERS_ONLY,
       },

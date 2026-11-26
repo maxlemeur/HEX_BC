@@ -41,7 +41,15 @@ import {
   notFound,
 } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { ApiKeyError, isApiKeyError } from "@/lib/ai/access/api-key-errors";
+import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
+import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
+import { LocalChatGptOverrideUnavailableError } from "@/lib/ai/chatgpt-local-inference";
+import { chatGptReasoningEffortSchema } from "@/lib/ai/chatgpt-model-preferences";
+import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
+import { readAiRequestOptions, resolveAiRequest } from "@/lib/ai/request-settings-server";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { StructuredAiError, structuredAiFailureMessage } from "@/lib/ai/structured-ai-diagnostic";
 import type { Database, Json } from "@/types/database";
 import { toNonEmptyString } from "@/lib/value-guards";
 import { mapFragmentKindToCandidateSourceType, toJson } from "@/lib/estimates/generated-ouvrage-provenance";
@@ -287,7 +295,7 @@ type DraftLoaded = {
   applications: GeneratedOuvrageApplicationRow[];
 };
 
-const GENERATED_OUVRAGE_MODEL = "gemini-3-pro-preview";
+const GENERATED_OUVRAGE_AI_POLICY = { allowedSources: ["chatgpt_plan", "personal_api_key"] } as const;
 const GENERATED_OUVRAGE_PROMPT_VERSION = "est381-generated-ouvrages-v1";
 const GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE = "À classer";
 const MAX_SOURCE_TEXT_LENGTH = 12_000;
@@ -346,6 +354,20 @@ const generatedOuvrageGenerateInputSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
   draftLockSessionId: z.string().uuid("draftLockSessionId invalide."),
   sourceKind: generatedOuvrageInputSourceKindSchema,
+  ai: z.discriminatedUnion("source", [
+    z.object({
+      source: z.literal("chatgpt_plan"),
+      model: z.string().trim().min(1).max(200),
+      effort: chatGptReasoningEffortSchema.nullable(),
+    }),
+    z.object({
+      source: z.literal("personal_api_key"),
+      model: z.string().trim().min(1).max(200),
+      effort: chatGptReasoningEffortSchema.nullable(),
+      expectedConnectionId: z.string().min(1).max(200),
+    }),
+    z.object({ source: z.literal("fallback") }),
+  ]),
   sourceText: z
     .string()
     .trim()
@@ -526,6 +548,8 @@ type GeneratedOuvrageCandidateResolutionStatus = z.infer<
   typeof generatedOuvrageCandidateResolutionStatusSchema
 >;
 type GenerateGeneratedOuvrageInput = z.infer<typeof generatedOuvrageGenerateInputSchema>;
+type GeneratedOuvrageAiSelection = Extract<Awaited<ReturnType<typeof resolveAiRequest>>, { ok: true }>;
+type GeneratedOuvrageAiOwner = Pick<AuthenticatedContext, "userId" | "tenantId">;
 type FetchGeneratedOuvrageDraftInput = z.infer<typeof generatedOuvrageFetchInputSchema>;
 type FetchGeneratedOuvrageSubdetailInput = z.infer<
   typeof generatedOuvrageSubdetailFetchInputSchema
@@ -609,6 +633,7 @@ export type GeneratedOuvrageDraftResult = {
   status: GeneratedOuvrageDraftStatus;
   summary: GeneratedOuvrageDraftSummary;
   generatedAt: string;
+  generationKind: "model" | "fallback" | null;
   candidates: GeneratedOuvrageCandidate[];
 };
 
@@ -1259,8 +1284,8 @@ function buildFallbackCandidates(input: {
       status,
       sourceFragmentIds: [input.sourceFragmentId],
       reasoning: hasQuantity
-        ? "Fallback heuristique base sur le texte source."
-        : "Information incomplete à clarifier en revue humaine.",
+        ? "Suggestion déduite du texte source."
+        : "Information incomplète à clarifier en revue humaine.",
     });
   }
 
@@ -1278,60 +1303,89 @@ function buildFallbackCandidates(input: {
   }
 
   return {
-    summary: "Fallback heuristique utilise.",
+    summary: "Résultat de secours tiré du texte source.",
     candidates,
   };
 }
 
 async function generatePromptCandidates(input: {
+  owner: GeneratedOuvrageAiOwner;
+  selection: GeneratedOuvrageAiSelection | null;
   project: EmbeddedProjectAccess;
   sourceKind: GeneratedOuvrageInputSourceKind;
   preferredLotLabel: string | null;
   fragments: GeneratedOuvrageSourceFragmentRow[];
 }) {
-  const prompt = buildGeneratedOuvragePrompt(input);
+  const answer = input.selection
+    ? await requestGeneratedOuvrages(input.owner, input.selection, buildGeneratedOuvragePrompt(input))
+    : null;
+  const modelExchange = answer?.data?.candidates.length ? answer.data : null;
+  const primaryFragment = input.fragments[0];
+  const exchange = modelExchange ?? buildFallbackCandidates({
+    sourceText: primaryFragment?.excerpt ?? "",
+    sourceFragmentId: primaryFragment?.id ?? "",
+    preferredLotLabel: input.preferredLotLabel,
+  });
 
+  return {
+    exchange,
+    metadata: {
+      model: answer?.model ?? null,
+      reasoning_effort: answer ? input.selection?.preferences.reasoningEffort ?? null : null,
+      billing_source: input.selection?.source ?? null,
+      prompt_version: GENERATED_OUVRAGE_PROMPT_VERSION,
+      used_fallback: modelExchange === null,
+      token_count: answer?.tokenCount ?? null,
+      cost_cents: answer?.costCents ?? null,
+      duration_ms: answer?.durationMs ?? null,
+      summary: exchange.summary ?? null,
+    },
+  };
+}
+
+async function requestGeneratedOuvrages(
+  owner: GeneratedOuvrageAiOwner,
+  selection: GeneratedOuvrageAiSelection,
+  prompt: string,
+) {
+  const { preferences, connection } = selection;
+  const schema = geminiGeneratedOuvrageExchangeSchema;
   try {
-    const result = await callStructuredAi<GeminiGeneratedOuvrageExchange>({
-      prompt,
-      schema: geminiGeneratedOuvrageExchangeSchema,
-      context: {
-        model: GENERATED_OUVRAGE_MODEL,
-        promptVersion: GENERATED_OUVRAGE_PROMPT_VERSION,
-      },
-    });
+    if (connection) {
+      const api = openAiApiKeyAccess();
+      const ceiling = AI_REQUEST_CEILINGS_NANO_USD.generationOrDocument;
+      // One paid call per generation, including when its result is unusable.
+      const prepared = await api.prepare(owner, {
+        ...preferences, expectedVersion: connection.version, prompt, schema, files: [],
+        allotmentNanoUsd: ceiling, outputCap: 8_192, minOutputTokens: 4_096,
+      });
+      const answer = await api.execute<GeminiGeneratedOuvrageExchange>(owner, prepared, { timeoutMs: 120_000 });
+      if (answer.costNanoUsd === null) throw new ApiKeyError("AI_KEY_COST_UNKNOWN");
+      if (answer.costNanoUsd > ceiling) {
+        throw new ApiKeyError("AI_KEY_CEILING_EXCEEDED", { detail: {
+          ceiling: formatUsdCeiling(ceiling), cost: formatUsdCeiling(answer.costNanoUsd),
+        } });
+      }
+      if (answer.refused) throw new StructuredAiError("GENERATED_OUVRAGE_MODEL_REFUSED", "Le modèle a refusé cette demande.");
+      return { data: answer.data, model: answer.model, tokenCount: answer.usage.total,
+        costCents: Math.round(answer.costNanoUsd / 10_000_000), durationMs: answer.durationMs };
+    }
 
-    return {
-      exchange: result.data,
-      metadata: {
-        model: result.model,
-        prompt_version: result.promptVersion,
-        used_fallback: false,
-        token_count: result.tokenCount,
-        cost_cents: result.costCents,
-        duration_ms: result.durationMs,
-        summary: result.data.summary ?? null,
-      } satisfies JsonRecord,
-    };
+    return await callStructuredAi({
+      prompt, schema, context: { tenantId: owner.tenantId, promptVersion: GENERATED_OUVRAGE_PROMPT_VERSION },
+    }, owner, preferences);
   } catch (error) {
-    const primaryFragment = input.fragments[0];
-    return {
-      exchange: buildFallbackCandidates({
-        sourceText: primaryFragment?.excerpt ?? "",
-        sourceFragmentId: primaryFragment?.id ?? "",
-        preferredLotLabel: input.preferredLotLabel,
-      }),
-      metadata: {
-        model: null,
-        prompt_version: GENERATED_OUVRAGE_PROMPT_VERSION,
-        used_fallback: true,
-        token_count: null,
-        cost_cents: null,
-        duration_ms: null,
-        summary: "Fallback heuristique utilise.",
-        failure_message: error instanceof Error ? error.message : "Generation indisponible.",
-      } satisfies JsonRecord,
-    };
+    if (isApiKeyError(error)) throw conflict(error.message, undefined, error.code);
+    if (error instanceof StructuredAiError) throw conflict(error.message, undefined, error.code);
+    if (error instanceof LocalChatGptOverrideUnavailableError) {
+      throw conflict(error.message, undefined, "GENERATED_OUVRAGE_AI_MODEL_UNAVAILABLE");
+    }
+    if (error instanceof Error && "usage" in error && (error instanceof SyntaxError || error instanceof z.ZodError)) {
+      // The plan adapter attaches usage only to a received answer that failed parsing.
+      const usage = error.usage as { totalTokens?: number };
+      return { data: null, model: preferences.model, tokenCount: usage.totalTokens, costCents: 0, durationMs: null };
+    }
+    throw conflict(structuredAiFailureMessage(error), undefined, "GENERATED_OUVRAGE_AI_FAILED");
   }
 }
 
@@ -2312,6 +2366,7 @@ function normalizeDraftResult(loaded: DraftLoaded): GeneratedOuvrageDraftResult 
   }
 
   const summary = buildDraftSummary(loaded.candidates);
+  const usedFallback = (loaded.draft.generation_metadata as JsonRecord | null)?.used_fallback;
   const appliedValuesByCandidateId = new Map(
     loaded.applications.map((application) => {
       const reviewed = readReviewedCandidateSnapshot(application.applied_payload);
@@ -2337,6 +2392,7 @@ function normalizeDraftResult(loaded: DraftLoaded): GeneratedOuvrageDraftResult 
     status: loaded.draft.status,
     summary,
     generatedAt: loaded.draft.created_at,
+    generationKind: typeof usedFallback === "boolean" ? (usedFallback ? "fallback" : "model") : null,
     candidates: loaded.candidates.map((candidate) => ({
       candidateId: candidate.id,
       suggestedLotId: candidate.suggested_lot_id,
@@ -2437,6 +2493,31 @@ async function persistGeneratedOuvrageSubdetail(input: {
   } catch { throw generatedOuvrageOutcomeUnknown(); }
 }
 
+export async function readGeneratedOuvrageAiOptions(versionId: string) {
+  const parsed = z.string().uuid().parse(versionId);
+  const context = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(context.tenantRole);
+  const { version } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
+    context.supabase, parsed, context, GENERATED_OUVRAGE_VERSION_ACCESS,
+  );
+  assertDraftStatus(version.status);
+  const { defaultSource, options } = await readAiRequestOptions(context, GENERATED_OUVRAGE_AI_POLICY);
+  const toOption = (option: typeof options.chatgpt_plan) => ({
+    available: option?.ok === true,
+    message: option?.message ?? "Source indisponible.",
+    models: option?.ok ? option.models : [],
+    preferences: option?.ok ? option.preferences : null,
+  });
+  return {
+    defaultSource,
+    sources: {
+      chatgpt_plan: toOption(options.chatgpt_plan),
+      personal_api_key: toOption(options.personal_api_key),
+    },
+    keyConnectionId: options.personal_api_key?.ok ? options.personal_api_key.connection?.id ?? null : null,
+  };
+}
+
 export async function generateOuvragesFromText(
   input: GenerateGeneratedOuvrageInput
 ): Promise<GeneratedOuvrageDraftResult> {
@@ -2473,6 +2554,13 @@ export async function generateOuvragesFromText(
     userId,
     draftLockSessionId: parsed.draftLockSessionId,
   });
+
+  const owner = { tenantId, userId };
+  const selection = parsed.ai.source === "fallback"
+    ? null : await resolveAiRequest(owner, GENERATED_OUVRAGE_AI_POLICY, parsed.ai);
+  if (selection?.ok === false) {
+    throw conflict(selection.message, undefined, `GENERATED_OUVRAGE_AI_${selection.reason.toUpperCase()}`);
+  }
 
   const preferredLotLabel = parsed.preferredLotId
     ? await loadLotLabel({
@@ -2559,6 +2647,8 @@ export async function generateOuvragesFromText(
 
     fragments = fragmentData as GeneratedOuvrageSourceFragmentRow[];
     generation = await generatePromptCandidates({
+      owner,
+      selection,
       project,
       sourceKind: parsed.sourceKind,
       preferredLotLabel,
@@ -2637,13 +2727,7 @@ export async function generateOuvragesFromText(
       candidates,
       applications: [],
       generationMetadata: {
-        model: generation.metadata.model ?? null,
-        prompt_version: generation.metadata.prompt_version,
-        used_fallback: Boolean(generation.metadata.used_fallback),
-        token_count: generation.metadata.token_count ?? null,
-        cost_cents: generation.metadata.cost_cents ?? null,
-        duration_ms: generation.metadata.duration_ms ?? null,
-        summary: generation.metadata.summary ?? null,
+        ...generation.metadata,
         source_fragment_count: fragments.length,
         candidate_count: candidates.length,
         preferred_lot_label: preferredLotLabel,
