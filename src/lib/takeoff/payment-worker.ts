@@ -97,14 +97,23 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
       return row;
     }
     let callId: string | null = null;
+    let settlementStarted = false;
     let endCall: (() => void) | undefined;
     async function settle(cost: number | null, tokens: number | null) {
       if (!callId) return;
-      const { data, error } = await service.rpc("settle_takeoff_api_call", {
+      settlementStarted = true;
+      const settlement = {
         ...args, p_call_id: callId, p_cost: cost ?? undefined, p_tokens: tokens ?? undefined,
-      });
-      if (error || data !== true) throw stopForLedger();
-      callId = null;
+      };
+      // The transaction might have committed before the response was lost. Repeat the exact same settlement.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const reply = await Promise.resolve(service.rpc("settle_takeoff_api_call", settlement)).catch(() => null);
+        if (!reply || reply.error) continue;
+        if (reply.data !== true) break;
+        callId = null;
+        return;
+      }
+      throw stopForLedger();
     }
     async function send() {
       const input = apiInput(options.prompt, options.files ?? []);
@@ -166,6 +175,10 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
         tokenCount: tokenUsage.totalTokens, costCents: Math.floor(answer.costNanoUsd / TAKEOFF_NANO_USD_PER_CENT),
         promptVersion: options.context?.promptVersion ?? job.prompt_version ?? "" };
     } catch (error) {
+      if (settlementStarted && callId !== null) {
+        halted = stopForLedger();
+        throw halted;
+      }
       const coverage = tile && error instanceof TakeoffError ? asRecord(error.details) : null;
       if (coverage?.tileAttempted || typeof coverage?.paidUsage === "number") throw error;
       const apiError = isApiKeyError(error) ? error : null;

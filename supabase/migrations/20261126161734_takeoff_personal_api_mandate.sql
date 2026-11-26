@@ -123,22 +123,24 @@ declare
 begin
   if tg_op = 'INSERT' then
     perform private.assert_takeoff_api_scope(selection, new.tenant_id, new.project_id, new.created_by, new.execution_host_id);
-  elsif old.preparation_snapshot->'execution_selection'->>'source' = 'personal_api_key' then
-    if selection is distinct from old.preparation_snapshot->'execution_selection' then
+  elsif old.preparation_snapshot->'execution_selection'->>'source' in ('chatgpt_plan', 'personal_api_key') then
+    if selection is distinct from old.preparation_snapshot->'execution_selection'
+      or new.execution_host_id is distinct from old.execution_host_id then
       raise exception 'TAKEOFF_API_MANDATE_INVALID' using errcode = '42501';
     end if;
     if new.status = 'processing' and old.status <> 'processing'
-      and pg_catalog.current_setting('mergeone.takeoff_api_claim', true) is distinct from old.id::text then
+      and pg_catalog.current_setting('mergeone.takeoff_payment_claim', true) is distinct from old.id::text then
       return null;
     end if;
-    -- The previously deployed recovery can scan every host. Its unleased failures cannot close API work.
+    -- The released recovery scans every host. Only versioned callers can close work with no live lease.
     if new.status = 'failed' and (
       old.status <> 'processing' or old.processing_lease_expires_at is null or old.processing_lease_expires_at <= pg_catalog.clock_timestamp()
-    ) and pg_catalog.current_setting('mergeone.takeoff_api_recovery', true) is distinct from
-      (case when old.status = 'processing' then old.execution_host_id else 'queue' end) then
+    ) and pg_catalog.current_setting('mergeone.takeoff_payment_recovery', true) is distinct from 'on'
+      and not (old.status = 'pending' and pg_catalog.current_setting('mergeone.takeoff_payment_dispatch', true)
+        is not distinct from old.execution_host_id) then
       return null;
     end if;
-  elsif selection->>'source' = 'personal_api_key' then
+  elsif selection->>'source' in ('chatgpt_plan', 'personal_api_key') then
     raise exception 'TAKEOFF_API_MANDATE_INVALID' using errcode = '42501';
   end if;
   return new;
@@ -154,20 +156,30 @@ alter table public.takeoff_jobs add constraint takeoff_jobs_api_mandate_shape
     or (level = 'C' and execution_provider is not distinct from 'chatgpt_local' and execution_host_id is not null and created_by is not null))
   not valid;
 
-create function public.claim_personal_api_takeoff_job(
+create function public.claim_explicit_takeoff_payment_job(
   p_job_id uuid, p_tenant_id uuid, p_host_id text, p_started_at timestamptz, p_lease_token uuid,
   p_lease_expires_at timestamptz, p_model text, p_prompt_version text, p_observed_status text, p_observed_retry_count integer
 ) returns setof public.takeoff_jobs language plpgsql security definer set search_path = '' as $$
 begin
   if not exists (select 1 from public.takeoff_jobs j where j.id = p_job_id and j.tenant_id = p_tenant_id
-    and j.execution_host_id = p_host_id and j.preparation_snapshot->'execution_selection'->>'source' = 'personal_api_key') then
+    and j.execution_host_id = p_host_id and j.preparation_snapshot->'execution_selection'->>'source' in ('chatgpt_plan', 'personal_api_key')) then
     return;
   end if;
-  perform pg_catalog.set_config('mergeone.takeoff_api_claim', p_job_id::text, true);
+  perform pg_catalog.set_config('mergeone.takeoff_payment_claim', p_job_id::text, true);
   return query execute 'select * from public.claim_observed_local_takeoff_job($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)'
     using p_job_id, p_tenant_id, p_host_id, p_started_at, p_lease_token, p_lease_expires_at, p_model,
       p_prompt_version, p_observed_status, p_observed_retry_count;
-  perform pg_catalog.set_config('mergeone.takeoff_api_claim', '', true);
+  perform pg_catalog.set_config('mergeone.takeoff_payment_claim', '', true);
+end;
+$$;
+
+create function public.dispatch_next_takeoff_payment_job(p_host_id text, p_module_default boolean default false)
+returns table (job_id uuid, trigger_kind text, next_due_at timestamptz, closed_jobs uuid[])
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform pg_catalog.set_config('mergeone.takeoff_payment_dispatch', p_host_id, true);
+  return query select d.* from public.dispatch_next_takeoff_host_job(p_host_id, p_module_default) d;
+  perform pg_catalog.set_config('mergeone.takeoff_payment_dispatch', '', true);
 end;
 $$;
 
@@ -283,13 +295,16 @@ declare
 begin
   -- A delayed response belongs to the reservation's original lease, even after a crash and a new attempt.
   select c.scope_id into billing_scope from private.takeoff_api_calls c join private.takeoff_api_mandates m on m.id = c.mandate_id
-  where c.id = p_call_id and c.job_id = p_job_id and c.lease_token = p_lease_token and c.settled_at is null
+  where c.id = p_call_id and c.job_id = p_job_id and c.lease_token = p_lease_token
     and m.tenant_id = p_tenant_id and m.project_id = p_project_id and m.payer_id = p_payer_id;
   if not found then return false; end if;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-api:' || billing_scope::text, 0));
   update private.takeoff_api_calls c set actual_nano_usd = p_cost, actual_tokens = p_tokens, settled_at = pg_catalog.clock_timestamp()
   where c.id = p_call_id and c.settled_at is null returning c.* into settled;
-  if not found then return false; end if;
+  if not found then
+    return exists(select 1 from private.takeoff_api_calls c where c.id = p_call_id and c.settled_at is not null
+      and c.actual_nano_usd is not distinct from p_cost and c.actual_tokens is not distinct from p_tokens);
+  end if;
   if p_cost > settled.bound_nano_usd or p_tokens > settled.bound_tokens then
     insert into private.takeoff_api_budget_stops (mandate_id, scope_id, reason)
     values (settled.mandate_id, billing_scope, 'BUDGET_EXHAUSTED') on conflict do nothing;
@@ -298,53 +313,46 @@ begin
 end;
 $$;
 
--- Only this Mac's current runtime can reschedule an expired API lease. Its prior reservations still debit the request.
-create function public.recover_personal_api_takeoff_jobs(p_host_id text)
-returns void language plpgsql security definer set search_path = '' as $$
-begin
-  perform pg_catalog.set_config('mergeone.takeoff_api_recovery', p_host_id, true);
-  with expired as (
-    select j.id from public.takeoff_jobs j
-    where j.execution_host_id = p_host_id and j.status = 'processing'
-      and j.processing_lease_expires_at <= pg_catalog.clock_timestamp()
-      and j.preparation_snapshot->'execution_selection'->>'source' = 'personal_api_key'
-    order by j.id limit 20 for update skip locked
-  )
-  update public.takeoff_jobs j set status = 'failed',
-    completed_at = pg_catalog.clock_timestamp(), last_error_at = pg_catalog.clock_timestamp(),
-    error_code = 'TAKEOFF_WORKER_OUTCOME_UNKNOWN',
-    error_message = 'Le traitement du métré a été interrompu. Les dépenses réservées et les résultats enregistrés sont conservés.',
-    processing_lease_token = null, processing_lease_expires_at = null,
-    next_retry_at = case when j.retry_count < 3 then pg_catalog.clock_timestamp() end,
-    analysis_outcome = case when j.retry_count >= 3 then 'failure' end
-  from expired where j.id = expired.id;
-  perform pg_catalog.set_config('mergeone.takeoff_api_recovery', '', true);
-end;
-$$;
-
--- The hosted recovery can close a waiting API job after its deadline even if its Mac never comes back.
-create function public.expire_queued_personal_api_takeoff_jobs(p_now timestamptz)
+-- Recover from the hosted sweep even when the credential holder is offline. The Mac can also run this for its own queue.
+-- The persisted deadline follows the original lease expiry, not the time at which the first sweep happened to see it.
+create function public.recover_takeoff_payment_jobs(p_now timestamptz, p_host_id text default null)
 returns void language plpgsql security definer set search_path = '' as $$
 declare
   recovery_at timestamptz := least(p_now, pg_catalog.clock_timestamp());
   activation private.takeoff_completion_activation;
+  wait_ceiling interval;
 begin
   if p_now is null then raise exception 'TAKEOFF_RECOVERY_ARGUMENT_INVALID' using errcode = '22023'; end if;
   select * into activation from private.takeoff_completion_activation;
-  perform pg_catalog.set_config('mergeone.takeoff_api_recovery', 'queue', true);
+  wait_ceiling := coalesce(activation.wait_ceiling, interval '24 hours');
+  perform pg_catalog.set_config('mergeone.takeoff_payment_recovery', 'on', true);
   with expired as (
-    select j.id from public.takeoff_jobs j
-    where j.analysis_outcome is null and j.preparation_snapshot->'execution_selection'->>'source' = 'personal_api_key'
-      and (j.status = 'pending' or (j.status = 'failed' and j.next_retry_at is not null))
-      and greatest(activation.active_from, case when j.status = 'pending' then coalesce(j.analysis_queued_at, j.created_at)
-        else j.next_retry_at end) <= recovery_at - coalesce(activation.wait_ceiling, interval '24 hours')
-    order by j.id limit 20 for update skip locked
+    select j.id, j.status, dates.lease_end, j.status = 'processing' and j.retry_count < 3
+      and greatest(dates.lease_end, activation.active_from) > recovery_at - wait_ceiling as retry
+    from public.takeoff_jobs j
+    cross join lateral (select
+      coalesce(j.processing_lease_expires_at, coalesce(j.started_at, j.updated_at) + interval '10 minutes') as lease_end,
+      greatest(activation.active_from, case when j.status = 'pending' then coalesce(j.analysis_queued_at, j.created_at)
+        else j.next_retry_at end) as waiting_since) dates
+    where j.analysis_outcome is null and j.preparation_snapshot->'execution_selection'->>'source' in ('chatgpt_plan', 'personal_api_key')
+      and (p_host_id is null or j.execution_host_id = p_host_id)
+      and ((j.status = 'processing' and dates.lease_end <= recovery_at)
+        or ((j.status = 'pending' or (j.status = 'failed' and j.next_retry_at is not null))
+          and dates.waiting_since <= recovery_at - wait_ceiling))
+    order by j.id limit 20 for update of j skip locked
   )
   update public.takeoff_jobs j set status = 'failed', completed_at = recovery_at, last_error_at = recovery_at,
-    next_retry_at = null, analysis_outcome = 'failure', error_code = 'TAKEOFF_WORKER_QUEUE_EXPIRED',
-    error_message = 'Le métré n’a pas repris avant la fin du délai d’attente du poste autorisé. Les résultats déjà enregistrés sont conservés.'
-  from expired where j.id = expired.id;
-  perform pg_catalog.set_config('mergeone.takeoff_api_recovery', '', true);
+    next_retry_at = case when expired.retry then expired.lease_end end,
+    analysis_outcome = case when not expired.retry then 'failure' end,
+    processing_lease_token = null, processing_lease_expires_at = null,
+    error_code = case when expired.retry then 'TAKEOFF_WORKER_OUTCOME_UNKNOWN' else 'TAKEOFF_WORKER_QUEUE_EXPIRED' end,
+    error_message = case when expired.retry
+      then 'Le traitement du métré a été interrompu. Les dépenses réservées et les résultats enregistrés sont conservés.'
+      else 'Le métré n’a pas repris avant la fin du délai d’attente du poste autorisé. Les résultats déjà enregistrés sont conservés.' end
+  from expired where j.id = expired.id and j.status = expired.status and j.analysis_outcome is null
+    and (j.status <> 'processing'
+      or coalesce(j.processing_lease_expires_at, coalesce(j.started_at, j.updated_at) + interval '10 minutes') <= recovery_at);
+  perform pg_catalog.set_config('mergeone.takeoff_payment_recovery', '', true);
 end;
 $$;
 
@@ -353,17 +361,17 @@ revoke all on function private.assert_takeoff_api_scope(jsonb, uuid, uuid, uuid,
 
 revoke all on function public.seal_takeoff_api_mandate(uuid,uuid,uuid,uuid,jsonb),
   public.read_takeoff_api_mandate(uuid,uuid,uuid,uuid),
-  public.claim_personal_api_takeoff_job(uuid,uuid,text,timestamptz,uuid,timestamptz,text,text,text,integer),
+  public.claim_explicit_takeoff_payment_job(uuid,uuid,text,timestamptz,uuid,timestamptz,text,text,text,integer),
   public.reserve_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,boolean,text,bigint,bigint,boolean,text),
   public.settle_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,uuid,bigint,bigint),
-  public.recover_personal_api_takeoff_jobs(text), public.expire_queued_personal_api_takeoff_jobs(timestamptz) from public, anon, authenticated;
+  public.dispatch_next_takeoff_payment_job(text, boolean), public.recover_takeoff_payment_jobs(timestamptz, text) from public, anon, authenticated;
 
 grant execute on function public.seal_takeoff_api_mandate(uuid,uuid,uuid,uuid,jsonb),
   public.read_takeoff_api_mandate(uuid,uuid,uuid,uuid),
-  public.claim_personal_api_takeoff_job(uuid,uuid,text,timestamptz,uuid,timestamptz,text,text,text,integer),
+  public.claim_explicit_takeoff_payment_job(uuid,uuid,text,timestamptz,uuid,timestamptz,text,text,text,integer),
   public.reserve_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,boolean,text,bigint,bigint,boolean,text),
   public.settle_takeoff_api_call(uuid,uuid,uuid,uuid,uuid,uuid,bigint,bigint),
-  public.recover_personal_api_takeoff_jobs(text), public.expire_queued_personal_api_takeoff_jobs(timestamptz) to service_role;
+  public.dispatch_next_takeoff_payment_job(text, boolean), public.recover_takeoff_payment_jobs(timestamptz, text) to service_role;
 
 -- A recovered API job may retry because its prior paid calls still hold their full reservations.
 create or replace function private.set_takeoff_analysis_outcome()
@@ -457,11 +465,12 @@ begin
     if not worker_write then
       raise exception 'TAKEOFF_ANALYSIS_FIELDS_RESERVED' using errcode = '42501';
     end if;
-    if new.status = 'failed' and (new.analysis_outcome = 'failure' or (
-      old.preparation_snapshot->'execution_selection'->>'source' = 'personal_api_key'
-      and current_setting('mergeone.takeoff_api_recovery', true) = old.execution_host_id
-      and new.next_retry_at is not null
-    )) and new.error_code = 'TAKEOFF_WORKER_OUTCOME_UNKNOWN' then
+    if new.status = 'failed' and (
+      (new.analysis_outcome = 'failure' and new.error_code = 'TAKEOFF_WORKER_OUTCOME_UNKNOWN')
+      or (old.preparation_snapshot->'execution_selection'->>'source' in ('chatgpt_plan', 'personal_api_key')
+        and current_setting('mergeone.takeoff_payment_recovery', true) = 'on'
+        and new.error_code in ('TAKEOFF_WORKER_OUTCOME_UNKNOWN', 'TAKEOFF_WORKER_QUEUE_EXPIRED'))
+    ) then
       -- Recovery has already verified staleness in its UPDATE predicate.
       null;
     elsif old.processing_lease_token is null or old.processing_lease_expires_at <= finished_at then

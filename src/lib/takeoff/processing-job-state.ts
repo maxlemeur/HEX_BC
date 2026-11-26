@@ -1,4 +1,4 @@
-import { usesTakeoffApiKey } from "@/lib/takeoff/payment-mandate-server";
+import { usesExplicitTakeoffPayment } from "@/lib/takeoff/payment-mandate-server";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { TAKEOFF_PROCESSING_LEASE_TTL_SECONDS } from "@/lib/takeoff/constants";
 import { takeoffAnalysisFailureFields } from "@/lib/takeoff/completion-outcome";
@@ -151,8 +151,8 @@ export async function markJobAsProcessing(input: {
     Date.parse(input.startedAtIso) + TAKEOFF_PROCESSING_LEASE_TTL_MS
   ).toISOString();
 
-  const { data, error } = await input.supabase.rpc((usesTakeoffApiKey(input.job.preparation_snapshot)
-    ? "claim_personal_api_takeoff_job" : "claim_observed_local_takeoff_job") as never, {
+  const { data, error } = await input.supabase.rpc((usesExplicitTakeoffPayment(input.job.preparation_snapshot)
+    ? "claim_explicit_takeoff_payment_job" : "claim_observed_local_takeoff_job") as never, {
     p_job_id: input.job.id, p_tenant_id: input.job.tenant_id, p_host_id: input.hostId,
     p_started_at: input.startedAtIso, p_lease_token: processingLeaseToken,
     p_lease_expires_at: processingLeaseExpiresAt, p_model: input.model,

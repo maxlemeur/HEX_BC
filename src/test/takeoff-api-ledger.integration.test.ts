@@ -23,9 +23,9 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: "localhost:3163" }) }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => session }));
 
-it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1")(
-  "admits the confirmed payer's key, reserves before sending and refuses the next PDF chunk at the sealed ceiling",
-  async () => {
+it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before commit", "after commit"] as const)(
+  "replays the known PDF settlement after a fault %s and refuses the next chunk at the sealed ceiling",
+  async (fault) => {
     expect(process.env.RLS_E2E_EPHEMERAL).toBe("1");
     expect(process.env.RLS_E2E_LOCAL).toBe("1");
     const backend = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -37,6 +37,7 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1")(
     const secretMemory = new Map<string, string>();
     const fetchLocal = globalThis.fetch;
     const calls: string[] = [];
+    const settlements: string[] = [];
     const scopes = globalThis as Record<symbol, unknown>;
     let jobId: string;
     function ledger() {
@@ -64,7 +65,19 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1")(
       };
       vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
         const url = new URL(input instanceof Request ? input.url : String(input));
-        if (url.origin === new URL(backend).origin) return fetchLocal(input, init);
+        if (url.origin === new URL(backend).origin) {
+          if (!url.pathname.endsWith("/rpc/settle_takeoff_api_call")) return fetchLocal(input, init);
+          settlements.push(String(init?.body));
+          if (settlements.length > 1) return fetchLocal(input, init);
+          if (fault === "after commit") {
+            const committed = await fetchLocal(input, init);
+            expect(await committed.json()).toBe(true);
+            expect(ledger()).toMatch(/^\d+\|310000000$/);
+          } else {
+            expect(ledger()).toMatch(/^\d+\|$/);
+          }
+          return Response.json({ message: "Fictional lost settlement response" }, { status: 503 });
+        }
         if (url.origin !== "https://api.openai.com") throw new Error("Unexpected network origin in takeoff fixture");
         if (url.pathname === "/v1/models") return Response.json({ data: [{ id: model }] });
         const payload = JSON.parse(String(init?.body));
@@ -154,6 +167,9 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1")(
       const outcome = await processTakeoffJobAttempt(jobId, { correlationId: randomUUID(), trigger: "create" });
       expect(outcome).toMatchObject({ status: "failed_terminal", error_code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" });
       expect(calls).toEqual(["/v1/responses/input_tokens", "/v1/responses", "/v1/responses/input_tokens"]);
+      expect(settlements).toHaveLength(2);
+      expect(settlements[1]).toBe(settlements[0]);
+      expect(JSON.parse(settlements[0])).toMatchObject({ p_cost: 310000000, p_tokens: 151000 });
       expect(ledger()).toMatch(/^\d+\|310000000$/);
       const account = await api.state(owner);
       expect(account.analysisPreferences?.apiReasoningEffort).toBe("medium");

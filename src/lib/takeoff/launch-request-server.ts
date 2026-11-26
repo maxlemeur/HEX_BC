@@ -1,7 +1,7 @@
 import "server-only";
 
 import { TAKEOFF_NANO_USD_PER_CENT, type TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
-import { assertTakeoffApiConnection, readTakeoffApiMandate, takeoffApiHostId,
+import { assertTakeoffApiConnection, readTakeoffApiMandate, takeoffPaymentHostId,
   takeoffPaymentError, usesTakeoffApiKey, type TakeoffApiMandate } from "@/lib/takeoff/payment-mandate-server";
 import { resolveTakeoffPayment } from "@/lib/takeoff/payment-server";
 import { databaseError, gestureResult, payerNoticeDigest, readPayerSubscription, selectionParameters,
@@ -625,7 +625,7 @@ export async function evaluateTakeoffLaunchRequests(): Promise<TakeoffLaunchEval
   const service = createServiceRoleClient();
   const hostId = await getChatGptHostId();
   const results: TakeoffLaunchEvaluation[] = [];
-  for (const queueHost of [hostId, takeoffApiHostId(hostId)]) {
+  for (const queueHost of [hostId, takeoffPaymentHostId(hostId)]) {
     const token = randomUUID();
     const { data, error } = await service.rpc("claim_takeoff_launch_evaluations", { p_host_id: queueHost, p_token: token, p_limit: 5,
       p_module_default: takeoffModuleDefault() });

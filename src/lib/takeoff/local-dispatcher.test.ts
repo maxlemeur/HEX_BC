@@ -20,7 +20,7 @@ beforeEach(() => {
   keyQueue.length = 0;
   rpc.mockImplementation(async (name: string, args?: { p_host_id: string }) => {
     if (name === "takeoff_plan_dispatch_is_active") return { data: true, error: null };
-    expect(name).toBe("dispatch_next_takeoff_host_job");
+    expect(name).toBe(args?.p_host_id === hostId ? "dispatch_next_takeoff_host_job" : "dispatch_next_takeoff_payment_job");
     return { data: [(args?.p_host_id === hostId ? queue : keyQueue).shift() ?? { job_id: null, trigger_kind: null, next_due_at: null, closed_jobs: [] }], error: null };
   });
 });

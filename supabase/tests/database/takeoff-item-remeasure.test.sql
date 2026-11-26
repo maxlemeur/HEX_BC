@@ -1040,7 +1040,7 @@ select public.seal_takeoff_api_mandate(pg_temp.f(990),pg_temp.f(10),pg_temp.f(20
 select is((select outcome from pg_temp.detail_measure(2,17,303,1,320,pg_temp.mark_option(array[700],array[2],4),true)),
   'admitted','the detail command admits the opted-in reading with the acting member’s API mandate');
 create function pg_temp.claim_api_tile_job(token integer, observed text) returns bigint language sql as $$
-  select count(*) from public.claim_personal_api_takeoff_job(pg_temp.job(17,pg_temp.plan(1)),pg_temp.f(10),pg_temp.api_host(),
+  select count(*) from public.claim_explicit_takeoff_payment_job(pg_temp.job(17,pg_temp.plan(1)),pg_temp.f(10),pg_temp.api_host(),
     clock_timestamp(),pg_temp.f(token),clock_timestamp() + interval '30 minutes','gpt-6.1-terra','fixture',observed,0)
 $$;
 create function pg_temp.reserve_api_tile(token integer, tile text) returns uuid language sql as $$
@@ -1051,7 +1051,7 @@ select is(pg_temp.claim_api_tile_job(929,'pending'),1::bigint,'the first API att
 select ok(pg_temp.reserve_api_tile(929,'tile:2:2') is not null,'a tile was reserved before the first attempt stopped');
 update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second'
 where id = pg_temp.job(17,pg_temp.plan(1));
-select public.recover_personal_api_takeoff_jobs(pg_temp.api_host());
+select public.recover_takeoff_payment_jobs(clock_timestamp(), pg_temp.api_host());
 select is(pg_temp.claim_api_tile_job(919,'failed'),1::bigint,'the publishing attempt uses a new lease');
 select is(public.settle_takeoff_api_call(pg_temp.reserve_api_tile(919,'tile:2:1'),pg_temp.job(17,pg_temp.plan(1)),
   pg_temp.f(10),pg_temp.f(20),pg_temp.f(2),pg_temp.f(919),5000000,500),true,'the new tile settles in the API ledger');

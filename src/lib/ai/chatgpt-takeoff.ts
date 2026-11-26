@@ -17,7 +17,7 @@ import type { TakeoffPaidCall, TakeoffPaidCallBranch, TakeoffPaidCallLedger } fr
 import { takeoffExecutionSelectionSchema, type TakeoffExecutionSelection } from "@/lib/takeoff/preparation";
 import { assertTakeoffWorkerConfiguration } from "@/lib/takeoff/default-on-flags";
 import { DETAILED_TAKEOFF_PROCESSING } from "@/lib/takeoff/preparation-from-dossier";
-import { assertTakeoffApiConnection, readTakeoffApiMandate, takeoffApiHostId, takeoffPaymentError, usesTakeoffApiKey } from "@/lib/takeoff/payment-mandate-server";
+import { assertTakeoffApiConnection, readTakeoffApiMandate, takeoffPaymentHostId, takeoffPaymentError, usesExplicitTakeoffPayment, usesTakeoffApiKey } from "@/lib/takeoff/payment-mandate-server";
 import { rejectedTakeoffProviderAnswer } from "@/lib/takeoff/rejected-provider-answer";
 
 export function parseTakeoffProvider(value: unknown): TakeoffProvider {
@@ -87,7 +87,8 @@ export function compareTakeoffSelection(pinned: unknown, actual: TakeoffExecutio
   const parsed = takeoffExecutionSelectionSchema.safeParse(pinned);
   if (!parsed.success) return "changed";
   if (!parsed.data.authorizationId || parsed.data.authorizationId !== actual.authorizationId) return "withdrawn";
-  if (parsed.data.hostId !== actual.hostId || parsed.data.profileId !== actual.profileId) return "changed";
+  const queueHost = parsed.data.source === "chatgpt_plan" ? takeoffPaymentHostId(actual.hostId) : actual.hostId;
+  if (parsed.data.hostId !== queueHost || parsed.data.profileId !== actual.profileId) return "changed";
   if (frozen) return "unchanged";
   return parsed.data.model === actual.model && (parsed.data.reasoningEffort ?? null) === (actual.reasoningEffort ?? null)
     ? "unchanged" : "changed";
@@ -124,6 +125,11 @@ export async function getTakeoffExecutionSelection(supabase: ServerSupabaseClien
 /** Why a job's pinned connection cannot pay: the revocation reason a launch request names (CHATGPT_ACCESS_REVOKED). */
 const connectionWithdrawn = takeoffChatGptConnectionWithdrawn;
 
+function explicitPlanSetting(selection: TakeoffExecutionSelection | undefined): ChatGptPreferences | undefined {
+  if (selection?.source !== "chatgpt_plan") return undefined;
+  return { model: selection.model, reasoningEffort: selection.reasoningEffort };
+}
+
 function frozenMeasureSetting(requestId: string | null | undefined, snapshot: unknown) {
   return requestId && snapshot && typeof snapshot === "object" && "remeasure_setting" in snapshot
     ? chatGptPreferencesSchema.parse(snapshot.remeasure_setting) : undefined;
@@ -150,26 +156,26 @@ export async function getConfirmedTakeoffExecutionOwner(supabase: ServerSupabase
       throw takeoffPaymentError("Confirmez à nouveau la préparation avec votre propre clé API OpenAI.");
     }
     const mandate = await readTakeoffApiMandate(createServiceRoleClient(), { ...owner, projectId }, pinned.data);
-    if (mandate.hostId !== takeoffApiHostId(await getChatGptHostId())) {
+    if (mandate.hostId !== takeoffPaymentHostId(await getChatGptHostId())) {
       throw takeoffPaymentError("Ouvrez MergeOne sur le Mac qui détient la clé API OpenAI de ce métré.");
     }
     await assertTakeoffApiConnection(owner, mandate);
     return { execution_provider: "chatgpt_local" as const, execution_host_id: pinned.data.hostId };
   }
-  const fixed = pinned.success && pinned.data.source === "chatgpt_plan" ? pinned.data : undefined;
+  const fixed = explicitPlanSetting(pinned.data);
   const selected = await getTakeoffExecutionSelection(supabase, owner, "chatgpt", fixed);
   if (!assertPinnedTakeoffSelection(snapshot, owner.userId, selected, fixed)) {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
       message: "Confirmez à nouveau la préparation pour utiliser votre forfait ChatGPT." });
   }
-  return { execution_provider: "chatgpt_local" as const, execution_host_id: selected.hostId };
+  return { execution_provider: "chatgpt_local" as const, execution_host_id: fixed ? takeoffPaymentHostId(selected.hostId) : selected.hostId };
 }
 
 export async function assertLocalTakeoffExecutionHost(job: TakeoffJobProcessingRow): Promise<string> {
   assertTakeoffJobUsesLocalProvider(job);
   const viaKey = usesTakeoffApiKey(job.preparation_snapshot);
   const hostId = isLocalChatGptEnabled() ? await getChatGptHostId() : null;
-  if (!hostId || job.execution_host_id !== (viaKey ? takeoffApiHostId(hostId) : hostId)) {
+  if (!hostId || job.execution_host_id !== (usesExplicitTakeoffPayment(job.preparation_snapshot) ? takeoffPaymentHostId(hostId) : hostId)) {
     throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId: job.id,
       message: viaKey ? "Ce métré utilise la clé API OpenAI sur son Mac d’origine. Reprenez-le depuis ce Mac."
         : "Ce métré est réservé au forfait ChatGPT sur son Mac d’origine. Relancez-le depuis ce Mac." });
@@ -218,9 +224,9 @@ export async function assertLocalTakeoffResumeReady(supabase: ServerSupabaseClie
     return;
   }
   const pin = takeoffExecutionSelectionSchema.safeParse((snapshot as { execution_selection?: unknown } | null)?.execution_selection);
-  const setting = frozenMeasureSetting(requestId, snapshot) ?? (pin.success && pin.data.source === "chatgpt_plan" ? pin.data : undefined);
+  const setting = frozenMeasureSetting(requestId, snapshot) ?? explicitPlanSetting(pin.data);
   const selection = await getTakeoffExecutionSelection(supabase, { userId: job.created_by, tenantId }, "chatgpt", setting);
-  if (selection.hostId !== job.execution_host_id) {
+  if ((explicitPlanSetting(pin.data) ? takeoffPaymentHostId(selection.hostId) : selection.hostId) !== job.execution_host_id) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: "Relancez ce métré depuis le Mac d’origine avec le forfait ChatGPT du créateur connecté." });
   }
@@ -258,7 +264,7 @@ export type LocalTakeoffProvider = {
  */
 export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient, job: TakeoffJobProcessingRow,
   hooks: { lease?: () => string | null; ledger?: TakeoffPaidCallLedger } = {}): Promise<LocalTakeoffProvider> {
-  const hostId = await assertLocalTakeoffExecutionHost(job);
+  await assertLocalTakeoffExecutionHost(job);
   assertTakeoffWorkerConfiguration();
   // The persisted job supplies ownership, never the triggering HTTP session.
   const owner: ChatGptOwner = { userId: job.created_by ?? "", tenantId: job.tenant_id };
@@ -275,7 +281,7 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
   await assertOwnerActive();
   const pin = takeoffExecutionSelectionSchema.safeParse((job.preparation_snapshot as { execution_selection?: unknown } | null)?.execution_selection);
   const setting = frozenMeasureSetting(job.launch_request_id, job.preparation_snapshot)
-    ?? (pin.success && pin.data.source === "chatgpt_plan" ? pin.data : undefined);
+    ?? explicitPlanSetting(pin.data);
   const subscription = await readLocalChatGptSubscription(owner, undefined, setting);
   if (setting && (subscription.issue === "CHATGPT_ACCESS_REVOKED" || subscription.issue === "CHATGPT_NOT_CONNECTED")) throw connectionWithdrawn(job.id);
   if (subscription.issue === "CHATGPT_MODEL_MISSING") throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
@@ -283,7 +289,7 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
   if (subscription.issue) throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId: job.id,
     message: "Reconnectez le forfait ChatGPT du créateur de ce métré dans Mon profil." });
   const current = subscription.selection;
-  const useProfileForVectorGroups = assertPinnedTakeoffSelection(job.preparation_snapshot, owner.userId, { ...current, hostId }, setting);
+  const useProfileForVectorGroups = assertPinnedTakeoffSelection(job.preparation_snapshot, owner.userId, current, setting);
   // Every paid call (a chunk, a vector group) runs under the connection the job pinned, compared with the credential of
   // that call; a job that pinned none (queued before connections had one) is refused, never run on the current one. A
   // launch request's job reserves each call in its request's ledger and settles it with the usage of its response.

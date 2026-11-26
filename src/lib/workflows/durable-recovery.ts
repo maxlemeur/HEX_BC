@@ -296,7 +296,7 @@ export async function recoverDurableWorkflows(
     });
   }
 
-  const { error: apiQueueError } = await client.rpc("expire_queued_personal_api_takeoff_jobs", { p_now: now().toISOString() });
+  const { error: apiQueueError } = await client.rpc("recover_takeoff_payment_jobs", { p_now: now().toISOString() });
   if (apiQueueError && (apiQueueError as { code?: string }).code !== "PGRST202") {
     console.error("takeoff.api_queue.recovery_failed");
   }

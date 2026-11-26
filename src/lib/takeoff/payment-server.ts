@@ -9,7 +9,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getTakeoffLevelCProcessingConfigForTenant } from "@/lib/takeoff/feature-flags";
 import { deriveDeterministicJobId } from "@/lib/takeoff/job-creation-input";
 import { TAKEOFF_NANO_USD_PER_CENT, takeoffPaymentChoiceSchema, type TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
-import { assertTakeoffPayer, takeoffApiHostId, takeoffApiMandateSchema, takeoffPaymentError,
+import { assertTakeoffPayer, takeoffPaymentHostId, takeoffApiMandateSchema, takeoffPaymentError,
   type TakeoffApiMandate, type TakeoffPaymentScope } from "@/lib/takeoff/payment-mandate-server";
 import type { TakeoffExecutionSelection } from "@/lib/takeoff/preparation";
 import type { ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
@@ -48,14 +48,14 @@ export async function resolveTakeoffPayment(scope: TakeoffPaymentScope, input: T
     if (!plan.selection || plan.selection.authorizationId !== expectedConnectionId) {
       throw takeoffPaymentError("La connexion ChatGPT a changé. Rechargez les réglages du métré.");
     }
-    return { selection: { ...plan.selection, source: "chatgpt_plan" }, preferences: resolved.preferences };
+    return { selection: { ...plan.selection, source: "chatgpt_plan", hostId: takeoffPaymentHostId(plan.selection.hostId) }, preferences: resolved.preferences };
   }
   if (resolved.connection?.id !== expectedConnectionId) {
     throw takeoffPaymentError("La connexion OpenAI a changé. Rechargez les réglages du métré.");
   }
   const config = await getTakeoffLevelCProcessingConfigForTenant(scope.tenantId, { supabase: service });
   const mandate = takeoffApiMandateSchema.parse({ ...resolved.preferences, connectionId: resolved.connection.id,
-    connectionVersion: resolved.connection.version, hostId: takeoffApiHostId(await getChatGptHostId()),
+    connectionVersion: resolved.connection.version, hostId: takeoffPaymentHostId(await getChatGptHostId()),
     maxTokens: config.maxTotalTokens, maxNanoUsd: config.maxCostCents * TAKEOFF_NANO_USD_PER_CENT });
   // The exact same object produces the same brief-notice digest at preview and confirmation.
   const id = deriveDeterministicJobId(scope.tenantId, JSON.stringify([scope.projectId.toLowerCase(), scope.userId, mandate]));

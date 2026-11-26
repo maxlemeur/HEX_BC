@@ -28,8 +28,8 @@ export function takeoffPaymentError(message: string, jobId?: string) {
 export const TAKEOFF_API_CONNECTION_CHANGED =
   "La clé API OpenAI du payeur a été remplacée ou retirée. Les résultats déjà enregistrés sont conservés.";
 
-export function takeoffApiHostId(hostId: string) {
-  // Separate queue identity. The immediately preceding runtime only polls its own ChatGPT host.
+export function takeoffPaymentHostId(hostId: string) {
+  // Separate queue for explicit payments. Released workers only poll the physical ChatGPT host.
   return `urn:uuid:${deriveDeterministicJobId(hostId, "takeoff-personal-api-key")}`;
 }
 
@@ -62,5 +62,14 @@ export async function assertTakeoffApiConnection(scope: ChatGptOwner, mandate: T
 }
 
 export function usesTakeoffApiKey(snapshot: unknown): boolean {
-  return (snapshot as { execution_selection?: { source?: unknown } } | null)?.execution_selection?.source === "personal_api_key";
+  return paymentSource(snapshot) === "personal_api_key";
+}
+
+export function usesExplicitTakeoffPayment(snapshot: unknown): boolean {
+  const source = paymentSource(snapshot);
+  return source === "chatgpt_plan" || source === "personal_api_key";
+}
+
+function paymentSource(snapshot: unknown) {
+  return (snapshot as { execution_selection?: { source?: unknown } } | null)?.execution_selection?.source;
 }

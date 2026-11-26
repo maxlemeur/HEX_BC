@@ -12,6 +12,12 @@ create function pg_temp.selection() returns jsonb language sql immutable as $$
   select jsonb_build_object('source', 'personal_api_key', 'profileId', pg_temp.f(200), 'model', 'personal_api_key',
     'reasoningEffort', null, 'hostId', pg_temp.host(), 'authorizationId', pg_temp.f(200))
 $$;
+create function pg_temp.plan_selection(explicit boolean) returns jsonb language sql immutable as $$
+  select jsonb_build_object('profileId', 'fictif', 'model', 'modele-fictif', 'reasoningEffort', 'medium',
+    'hostId', case when explicit then pg_temp.host() else 'urn:uuid:' || pg_temp.f(98) end,
+    'authorizationId', 'connexion-fictive')
+    || case when explicit then '{"source":"chatgpt_plan"}'::jsonb else '{}'::jsonb end
+$$;
 create function pg_temp.settings() returns jsonb language sql immutable as $$
   select jsonb_build_object('connectionId', pg_temp.f(201), 'connectionVersion', 1, 'model', 'gpt-6.1-terra',
     'reasoningEffort', 'medium', 'hostId', pg_temp.host(), 'maxTokens', 400000, 'maxNanoUsd', 25000000000::bigint)
@@ -25,12 +31,14 @@ update public.feature_flags set enabled = true where tenant_id = pg_temp.f(10) a
 insert into public.tenant_memberships (tenant_id, user_id, role, is_default) values
   (pg_temp.f(10), pg_temp.f(1), 'engineer', true), (pg_temp.f(10), pg_temp.f(2), 'director', true);
 insert into public.estimate_projects (id, tenant_id, user_id, name)
-values (pg_temp.f(20), pg_temp.f(10), pg_temp.f(1), 'École fictive'), (pg_temp.f(21), pg_temp.f(10), pg_temp.f(1), 'Autre affaire');
-insert into public.plan_sets (id, tenant_id, project_id, name) values (pg_temp.f(40), pg_temp.f(10), pg_temp.f(20), 'Plans de l’école');
+select pg_temp.f(project), pg_temp.f(10), pg_temp.f(1), 'Affaire fictive ' || project from generate_series(20,22) project;
+insert into public.plan_sets (id, tenant_id, project_id, name)
+select pg_temp.f(project + 20), pg_temp.f(10), pg_temp.f(project), 'Plans fictifs' from generate_series(20,22) project;
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
-select pg_temp.f(100 + n), pg_temp.f(10), pg_temp.f(40), 'fictif-' || n || '.pdf',
-  concat_ws('/', pg_temp.f(10), pg_temp.f(40), pg_temp.f(100 + n), 'fictif-' || n || '.pdf'), 'application/pdf', 8, 9
-from generate_series(1, 2) n;
+select pg_temp.f(100 + n + 10 * (project - 20)), pg_temp.f(10), pg_temp.f(project + 20), 'fictif-' || n || '.pdf',
+  concat_ws('/', pg_temp.f(10), pg_temp.f(project + 20), pg_temp.f(100 + n + 10 * (project - 20)), 'fictif-' || n || '.pdf'),
+  'application/pdf', 8, 9
+from generate_series(1, 2) n cross join generate_series(20,22) project;
 
 create function pg_temp.digest(plan uuid) returns text language sql immutable as $$
   select encode(sha256(convert_to(plan::text, 'UTF8')), 'hex')
@@ -69,10 +77,10 @@ create function pg_temp.manifest(project integer, tokens integer default 400000,
     'coverage', jsonb_build_object('plans_retained', (select count(*) from plans), 'plans_omitted', '[]'::jsonb), 'references', '[]'::jsonb,
     'budget', jsonb_build_object('tokens', tokens, 'cost_cents', cents))
 $$;
-create function pg_temp.jobs(project integer) returns jsonb language sql as $$
+create function pg_temp.jobs(project integer, host_id text default pg_temp.host()) returns jsonb language sql as $$
   select jsonb_agg(jsonb_build_object('id', pg_temp.f(1000 + 10 * project + (u.value ->> 'ordinal')::integer),
       'plan_set_id', pg_temp.f(project + 20), 'launch_unit_key', u.value ->> 'key', 'source_file_name', 'plan.pdf',
-      'source_file_type', 'application/pdf', 'source_file_size_bytes', 8, 'prompt_version', 'fixture', 'execution_host_id', pg_temp.host())
+      'source_file_type', 'application/pdf', 'source_file_size_bytes', 8, 'prompt_version', 'fixture', 'execution_host_id', host_id)
     order by (u.value ->> 'ordinal')::integer)
   from jsonb_array_elements(pg_temp.manifest(project) -> 'units') u(value)
 $$;
@@ -80,11 +88,12 @@ $$;
 create function pg_temp.unit(project integer, ordinal integer) returns uuid language sql immutable as $$
   select pg_temp.f(1000 + 10 * project + ordinal)
 $$;
-create function pg_temp.launch(project integer, reference boolean default false, tokens integer default 400000)
+create function pg_temp.launch(project integer, reference boolean default false, tokens integer default 400000,
+  payment jsonb default pg_temp.selection())
 returns table (outcome text, request_id uuid, job_id uuid) language sql as $$
   select * from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(project), pg_temp.f(1), pg_temp.f(500 + project),
-    'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(project, tokens), pg_temp.snapshot(project, reference),
-    pg_temp.jobs(project), pg_temp.f(project + 20), 1,
+    'initial', null, payment->>'hostId', payment, pg_temp.manifest(project, tokens),
+    jsonb_set(pg_temp.snapshot(project, reference), '{execution_selection}', payment), pg_temp.jobs(project, payment->>'hostId'), pg_temp.f(project + 20), 1,
     (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)))
 $$;
 create function pg_temp.request(project integer) returns uuid language sql as $$
@@ -97,7 +106,7 @@ create function pg_temp.confirm(project integer) returns void language sql as $$
     pg_temp.f(1), pg_temp.f(1))
 $$;
 set local session_replication_role = replica;
-select pg_temp.confirm(20);
+select pg_temp.confirm(20), pg_temp.confirm(21), pg_temp.confirm(22);
 set local session_replication_role = origin;
 insert into private.takeoff_launch_activation (active_from) values (now() - interval '1 minute');
 insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 minute');
@@ -119,7 +128,7 @@ begin
     return (select count(*) from public.claim_observed_local_takeoff_job(j, pg_temp.f(10), pg_temp.host(), clock_timestamp(),
       pg_temp.f(token), clock_timestamp() + interval '10 minutes', 'gpt-6.1-terra', 'fixture', observed, 0));
   end if;
-  return (select count(*) from public.claim_personal_api_takeoff_job(j, pg_temp.f(10), pg_temp.host(), clock_timestamp(),
+  return (select count(*) from public.claim_explicit_takeoff_payment_job(j, pg_temp.f(10), pg_temp.host(), clock_timestamp(),
     pg_temp.f(token), clock_timestamp() + interval '10 minutes', 'gpt-6.1-terra', 'fixture', observed, 0));
 end;
 $$;
@@ -151,7 +160,9 @@ select is((select reason from pg_temp.reserve(1, 901, 'vector_group', 1000000000
 update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second' where id = pg_temp.unit(20, 1);
 select is((select count(*) from public.recover_stale_local_takeoff_jobs(clock_timestamp()) where job_id = pg_temp.unit(20,1)),
   0::bigint, 'the prior recovery cannot stop an expired API job');
-select lives_ok($$select public.recover_personal_api_takeoff_jobs(pg_temp.host())$$, 'the API worker reschedules its expired lease');
+select lives_ok($$select public.recover_takeoff_payment_jobs(clock_timestamp())$$, 'hosted recovery reschedules the lease without the originating Mac');
+select is((select state from public.takeoff_launch_requests where id = pg_temp.request(20)), 'admitted'::text,
+  'the request keeps its budget and remains admitted during the recovery window');
 select is(pg_temp.claim(1, 902, 'failed'), 1::bigint, 'the API worker can retry under a new lease');
 select is((select reason from pg_temp.reserve(1, 902, 'count_tile', 1, 1, false, 'tile:2:4')), 'TILE_ALREADY_ATTEMPTED',
   'a new lease never buys the same tile again');
@@ -161,9 +172,19 @@ select is((select remaining_nano_usd from pg_temp.reserve(1, 902, 'pdf')), 10000
   'the retry still sees the crashed call’s full reservation');
 select is(public.settle_takeoff_api_call((select call_id from call_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
   pg_temp.f(1), pg_temp.f(901), 5000000000, 20000), true, 'a late settlement is matched to the original lease');
+select is(public.settle_takeoff_api_call((select call_id from call_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
+  pg_temp.f(1), pg_temp.f(901), 5000000000, 20000), true, 'acknowledging the same late settlement is idempotent');
+select is(public.settle_takeoff_api_call((select call_id from call_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
+  pg_temp.f(1), pg_temp.f(901), null, null), false, 'a divergent settlement cannot overwrite the original amounts');
+select is(public.settle_takeoff_api_call((select call_id from call_a), pg_temp.unit(20,1), pg_temp.f(10), pg_temp.f(20),
+  pg_temp.f(1), pg_temp.f(902), 5000000000, 20000), false, 'the new lease cannot settle the prior lease’s reservation');
+select is(public.finalize_local_takeoff_result(pg_temp.unit(20,1),pg_temp.f(10),pg_temp.f(901),clock_timestamp(),
+  'modele-fictif','fixture','{}','[]'), null::uuid, 'a late answer cannot publish with the old lease');
 select is((select reason from pg_temp.reserve(1, 902, 'vector_group', 10000000000, 300000, true)), 'REPREPARE',
   'a settlement that freed capacity after the count requires a fresh preparation');
-update public.takeoff_jobs set status = 'completed', completed_at = clock_timestamp() where id = pg_temp.unit(20, 1);
+select ok(public.finalize_local_takeoff_result(pg_temp.unit(20,1),pg_temp.f(10),pg_temp.f(902),clock_timestamp(),
+  'modele-fictif','fixture','{"extracted_json":{},"warnings":[],"tables":[],"provider_meta":{"fixture":true},"token_count":20,"cost_cents":0,"duration_ms":1}',
+  '[]') is not null, 'the new lease publishes one result');
 select is(pg_temp.claim(2, 903), 1::bigint, 'the next plan takes its own lease');
 select is((select remaining_nano_usd from pg_temp.reserve(2, 903, 'pdf')), 20000000000::bigint,
   'the second plan shares the first plan’s settled cost');
@@ -174,25 +195,53 @@ select is((select reason from pg_temp.reserve(2, 903, 'vector_group', 2000000000
 select is((select reason from pg_temp.reserve(2, 903, 'pdf', 1, 1)), 'BUDGET_EXHAUSTED',
   'no generation can follow the budget stop');
 
--- Age both queue states without sleeping. The hosted poll can run with the Mac absent.
+-- The second Mac remains offline until the original lease deadline and recovery window are both past.
 update private.takeoff_completion_activation set active_from = now() - interval '3 days';
+select public.recover_takeoff_payment_jobs(clock_timestamp());
+select is((select status::text from public.takeoff_jobs where id = pg_temp.unit(20,2)), 'processing',
+  'hosted recovery respects a live lease');
+update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '2 days'
+where id = pg_temp.unit(20,2);
+select is((select count(*) from public.recover_stale_local_takeoff_jobs(clock_timestamp()) where job_id = pg_temp.unit(20,2)),
+  0::bigint, 'legacy hosted recovery cannot stop expired work for the explicit payer');
+select public.recover_takeoff_payment_jobs(clock_timestamp());
+select results_eq($$select status::text, analysis_outcome, next_retry_at, error_code from public.takeoff_jobs
+  where id = pg_temp.unit(20,2)$$,
+  $$values ('failed'::text, 'failure'::text, null::timestamptz, 'TAKEOFF_WORKER_QUEUE_EXPIRED'::text)$$,
+  'a Mac that stays offline reaches a terminal outcome at the original deadline');
+select is((select state from public.takeoff_launch_requests where id = pg_temp.request(20)), 'closed'::text,
+  'the abandoned plan no longer keeps the affaire occupied');
+select is((select count(*) from public.takeoff_results where job_id = pg_temp.unit(20,1) and provider_meta->>'fixture' = 'true'),
+  1::bigint, 'the already published result remains on the first plan');
+
+-- Normal admission for both plan variants, then the released worker's actual queue, claim and hosted sweep.
+select is((select outcome from pg_temp.launch(21, payment => pg_temp.plan_selection(true))), 'admitted', 'explicit plan choice is admitted');
+select is((select outcome from pg_temp.launch(22, payment => pg_temp.plan_selection(false))), 'admitted', 'legacy plan is admitted without a source field');
+select is((select job_id from public.dispatch_next_takeoff_host_job('urn:uuid:' || pg_temp.f(98))),
+  pg_temp.unit(22,1), 'the released worker sees the unversioned plan only');
+select is((select job_id from public.dispatch_next_takeoff_payment_job(pg_temp.host())),
+  pg_temp.unit(21,1), 'the upgraded worker sees the explicit plan choice');
+select is((select count(*) from public.claim_observed_local_takeoff_job(pg_temp.unit(21,1),pg_temp.f(10),pg_temp.host(),
+  clock_timestamp(),pg_temp.f(913),clock_timestamp()+interval '10 minutes','fictif','fixture','pending',0)), 0::bigint,
+  'the released claim cannot take the explicit plan even if given its queue identity');
+select is((select count(*) from public.claim_observed_local_takeoff_job(pg_temp.unit(22,1),pg_temp.f(10),'urn:uuid:' || pg_temp.f(98),
+  clock_timestamp(),pg_temp.f(914),clock_timestamp()+interval '10 minutes','fictif','fixture','pending',0)), 1::bigint,
+  'the released claim still runs the legacy plan');
+select is((select count(*) from public.claim_explicit_takeoff_payment_job(pg_temp.unit(21,1),pg_temp.f(10),pg_temp.host(),
+  clock_timestamp(),pg_temp.f(915),clock_timestamp()+interval '10 minutes','fictif','fixture','pending',0)), 1::bigint,
+  'the versioned claim runs the explicitly selected plan');
 set local session_replication_role = replica;
-update public.takeoff_jobs set status = 'pending', analysis_outcome = null, completed_at = null,
-  analysis_finished_at = null, analysis_completion_event_id = null,
-  analysis_queued_at = now() - interval '2 days', next_retry_at = null
-where id = pg_temp.unit(20, 1);
-update public.takeoff_jobs set status = 'failed', analysis_outcome = null,
-  processing_lease_token = null, processing_lease_expires_at = null, next_retry_at = now() - interval '2 days'
-where id = pg_temp.unit(20, 2);
+update public.takeoff_jobs set status = 'failed', next_retry_at = now() - interval '2 days',
+  processing_lease_token = null, processing_lease_expires_at = null where id = pg_temp.unit(21,1);
+update public.takeoff_jobs set analysis_queued_at = now() - interval '2 days' where id = pg_temp.unit(21,2);
 set local session_replication_role = origin;
 select is((select count(*) from public.recover_stale_local_takeoff_jobs(clock_timestamp())
-  where job_id in (pg_temp.unit(20,1), pg_temp.unit(20,2))), 0::bigint, 'legacy recovery cannot close either queued API job');
-select lives_ok($$select public.expire_queued_personal_api_takeoff_jobs(clock_timestamp())$$, 'the hosted API recovery closes overdue work');
-select results_eq($$select status::text, analysis_outcome, next_retry_at, error_code from public.takeoff_jobs
-  where id in (pg_temp.unit(20,1), pg_temp.unit(20,2)) order by id$$,
-  $$values ('failed'::text, 'failure'::text, null::timestamptz, 'TAKEOFF_WORKER_QUEUE_EXPIRED'::text),
-           ('failed'::text, 'failure'::text, null::timestamptz, 'TAKEOFF_WORKER_QUEUE_EXPIRED'::text)$$,
-  'pending and retrying jobs both become terminal and release their request');
+  where job_id in (pg_temp.unit(21,1),pg_temp.unit(21,2))), 0::bigint, 'the released worker cannot terminate explicit pending or retrying plans');
+select is((select state from public.takeoff_launch_requests where id = pg_temp.request(21)), 'admitted'::text,
+  'legacy recovery leaves the explicit mandate usable');
+select public.recover_takeoff_payment_jobs(clock_timestamp());
+select is((select state from public.takeoff_launch_requests where id = pg_temp.request(21)), 'closed'::text,
+  'the new hosted recovery closes the overdue explicit plan request');
 
 select * from finish();
 rollback;
