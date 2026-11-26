@@ -1,7 +1,7 @@
 import { waitForHydration } from "../critical/hydration-support";
 import { querySql } from "../local/calculation-gate-support";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
-import { countOwnedReceipts, fictionalSendPlanPdf, readOwnedLines, seedItemSendAffaire } from "./poste-send-support";
+import { countOwnedReceipts, fictionalSendPlanPdf, readOwnedLines, readOwnedParts, seedItemSendAffaire } from "./poste-send-support";
 import { describe, expect, nativeTest as test, type NativeUi } from "./native-ui";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "local"], timeout: 240_000 };
@@ -69,7 +69,7 @@ async function retainAndSend(ui: NativeUi, scenario: "rule" | "gap" | "both") {
   await expect(dialog).toHaveCount(0);
   await expect(screen.getByText("Retenu : 3 u", { exact: true })).toBeVisible();
   await expect(screen.getByText("Retenu sur ce plan · 3 u", { exact: true })).toBeVisible();
-  const line = await seedRetainDestination(seeded.projectId, item, owner.tenantId, owner.userId, scenario === "both" ? 2 : reference);
+  const { version, line } = await seedRetainDestination(seeded.projectId, item, owner.tenantId, owner.userId, scenario === "both" ? 2 : reference);
   await app.open(address);
   await screen.getByRole("button", "Envoyer ce plan au devis : « sanitaires.pdf »", { exact: true }).click();
   await expect(sendDialog.getByTestId(`item-send-line-${item}-dpgf`)).toContainText("3 u");
@@ -81,8 +81,12 @@ async function retainAndSend(ui: NativeUi, scenario: "rule" | "gap" | "both") {
     await sendDialog.getByRole("checkbox", /vérifié le rapprochement/).check();
   }
   await sendDialog.getByRole("button", /^Envoyer « sanitaires.pdf »/).click();
-  await expect(ui.browser).toHaveURL(new RegExp(`focusItemId=${line}$`), { timeout: 60_000 });
+  // An unchanged DPGF quantity still receives its part and receipt. Only a line whose quantity changes receives focus.
+  const landing = `/dashboard/estimates/${version}/edit${scenario === "rule" ? "" : `\\?focusItemId=${line}`}$`;
+  await expect(ui.browser).toHaveURL(new RegExp(landing), { timeout: 60_000 });
   expect((await readOwnedLines(seeded.projectId)).find(({ id }) => id === line)?.quantity).toBe(3);
+  expect(await readOwnedParts(seeded.projectId)).toEqual([{ job_id: plan.jobId, estimate_item_id: line,
+    item_id: item, quantity: 3, state: "live" }]);
   expect(await countOwnedReceipts(seeded.projectId)).toBe(1);
 }
 
@@ -118,7 +122,7 @@ async function seedRetainDestination(project: string, item: string, tenant: stri
       from public.takeoff_list_revision_entries where item_id='${item}';
     select public.estimate_v3_complete_entry_for_writer('${version}',array['${line}'::uuid]);
     commit;`);
-  return line;
+  return { version, line };
 }
 
 test("POSTE-RETENIR04 refuse un échec bloquant et une justification absente, puis rouvre une mesure modifiée", options, async ({ ui }) => {
