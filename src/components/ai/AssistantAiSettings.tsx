@@ -88,9 +88,13 @@ export function effectiveAiChoice(
 
 export type AssistantContextOption = { id: string; label: string; active: boolean; select(): void };
 
+type RequestFields = Parameters<typeof AiRequestSettings>[0];
+
 export function AssistantAiSettingsMenu({ scopeChoices, contextOptions, children, locked, onRefresh, keyCeiling = ASSISTANT_KEY_CEILING }: {
-  scopeChoices?: { sources: AiRequestSourceOptions; defaultSource: AssistantAiOptions["defaultSource"];
-    choice?: AiRequestSettingsValue; onChange(value: AiRequestSettingsValue): void; allowRulesOnly?: boolean };
+  scopeChoices?: Pick<RequestFields, "modelLabel" | "effortFallback"> & {
+    sources: AiRequestSourceOptions; defaultSource: AssistantAiOptions["defaultSource"];
+    choice?: AiRequestSettingsValue; onChange(value: AiRequestSettingsValue): void; allowRulesOnly?: boolean;
+  };
   contextOptions?: readonly AssistantContextOption[];
   children?: ReactNode;
   locked?: boolean;
@@ -145,6 +149,7 @@ export function AssistantAiSettingsMenu({ scopeChoices, contextOptions, children
           <AiRequestSettings sources={sources} defaultSource={defaultSource} value={invalid && (!contextOptions || !source?.available) ? NO_CHOICE : value}
             fields={contextOptions ? "source" : "all"}
             onChange={onChange} sourcePicker={{ label: "Source d’IA", ...(scopeChoices?.allowRulesOnly ? { rulesOnlyLabel: "Règles seules" } : {}) }}
+            modelLabel={scopeChoices?.modelLabel} effortFallback={scopeChoices?.effortFallback}
             locked={locked} keyCeiling={{ nanoUsd: keyCeiling }} />
         ) : <p role="status" className="text-sm text-muted-foreground">{shared.error ?? "Chargement des sources IA…"}</p>}
         {invalid ? <p role="status" className="text-xs text-muted-foreground">Le réglage choisi est indisponible. Choisissez une source ou un modèle disponible.</p> : null}
@@ -178,15 +183,14 @@ export function AssistantAiSettingsMenu({ scopeChoices, contextOptions, children
           <PopoverTitle>Modèle et effort</PopoverTitle>
           {sources && defaultSource !== undefined && onChange ? (
             <AiRequestSettings sources={sources} defaultSource={defaultSource} value={value}
-              fields="model" onChange={onChange} locked={locked} />
+              fields="model" onChange={onChange} locked={locked}
+              modelLabel={scopeChoices?.modelLabel} effortFallback={scopeChoices?.effortFallback} />
           ) : null}
         </PopoverContent>
       </Popover>
     </>
   );
 }
-
-type RequestFields = Parameters<typeof AiRequestSettings>[0];
 
 /** Existing dialogs surface the same menu inside their focus boundary. */
 export function AssistantAiFeatureSettings({ fixedSource = false, onRefresh, ...fields }: RequestFields & {
@@ -201,6 +205,7 @@ export function AssistantAiFeatureSettings({ fixedSource = false, onRefresh, ...
   const ceiling = value.source === "personal_api_key" && fields.keyCeiling ? formatUsdCeiling(fields.keyCeiling.nanoUsd) : null;
   const scopeChoices = {
     sources: fields.sources, defaultSource: fields.defaultSource, choice: value,
+    modelLabel: fields.modelLabel, effortFallback: fields.effortFallback,
     allowRulesOnly: Boolean(fields.sourcePicker?.rulesOnlyLabel),
     onChange(next: AiRequestSettingsValue) {
       if (next.source && next.source !== "decisions") shared.choose(next);

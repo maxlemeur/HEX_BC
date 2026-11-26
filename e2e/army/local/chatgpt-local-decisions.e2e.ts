@@ -17,7 +17,7 @@ import { fillTakeoffPreparation, openTakeoffOptions, saveTakeoffPreparation, tak
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
 import {
-  chatGptLocalServer, isAbsorbedClientAbort, LAB_VECTOR_DOCUMENT, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture,
+  chatGptLocalServer, isAbsorbedClientAbort, LAB_VECTOR_DOCUMENT, liveProbePath, localChatGptClient, openProjectAssistant, writeDecisionsControl, writePlanFixture,
   type ChatGptLiveProbe,
 } from "./chatgpt-local-journey-support";
 import { compileChatGptRoutes, createLocalChatGptOwner, TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
@@ -591,13 +591,17 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     await setDecisionsControl({ materialPhotoModels: true });
     const choosePhotoModel = async (modelId: string, reasoningEffort: string) => {
       const original = screen.getByRole("dialog", "Original de la demande", { exact: true });
-      const model = original.getByRole("combobox", "Modèle d’analyse", { exact: true });
-      const effort = original.getByRole("combobox", "Effort de raisonnement", { exact: true });
+      const settings = original.getByRole("button", "Réglages IA", { exact: true });
+      await settings.click(DEV_SERVER_WORK);
+      const options = screen.getByRole("dialog", "Réglages IA", { exact: true });
+      const model = options.getByRole("combobox", "Modèle d’analyse", { exact: true });
+      const effort = options.getByRole("combobox", "Effort de raisonnement", { exact: true });
       await model.selectOption({ value: modelId });
       await expect(model).toHaveValue(modelId);
       await expect(effort.getByRole("option", "Sans raisonnement", { exact: true })).toHaveCount(0);
       await effort.selectOption({ value: reasoningEffort });
       await expect(effort).toHaveValue(reasoningEffort);
+      await settings.click();
     };
 
     type RequestLine = { id: string; position: number; original_text: string | null; quantity: number | null; quantity_doubtful: boolean;
@@ -813,10 +817,9 @@ if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the esti
 
     await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
     const question = "Quel est le total de ce devis ?";
-    await screen.getByTestId("assistant-toggle").click();
-    const panel = screen.getByTestId("assistant-panel");
-    await expect(panel).toBeVisible();
-    const settings = screen.getByRole("button", { name: "Réglages IA", exact: true });
+    const panel = await openProjectAssistant(screen);
+    const settings = screen.getByRole("region", "Assistant MergeOne", { exact: true })
+      .getByRole("button", "Réglages IA", { exact: true });
     await settings.click();
     await expect(screen.getByLabel("Source d’IA", { exact: true })).toHaveValue("chatgpt_plan", DEV_SERVER_WORK);
     await settings.click();
@@ -862,7 +865,7 @@ if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the esti
     await citation.click();
     await expect(ui.browser).toHaveURL(new RegExp(`focusItemId=${line.id}`));
     await ui.browser.reload();
-    await screen.getByTestId("assistant-toggle").click();
+    await openProjectAssistant(screen);
     await expect(panel.getByTestId("assistant-empty")).toBeVisible();
     await panel.getByTestId("assistant-thread-select").selectOption({ label: question });
     await expect(panel.getByTestId("assistant-message-assistant")).toContainText(`Le total HT du devis est de ${total}.`, DEV_SERVER_WORK);
@@ -902,8 +905,7 @@ if (!existsSync(liveProbePath)) test("ASSIST02 takeoff review reads its job and 
     expect(detail.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "Tuyauterie cuivre DN20", quantity: 12.5, unit: "m" })]));
     const other = await createEstimateViaWizard(ui, { projectName: `${prefix}-other`, title: "Autre affaire" }, army);
     await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
-    await screen.getByTestId("assistant-toggle").click();
-    const panel = screen.getByTestId("assistant-panel");
+    const panel = await openProjectAssistant(screen);
     await panel.getByTestId("assistant-input").fill(`ASSIST02 ${jobId}`);
     await panel.getByTestId("assistant-send").click();
     const answer = panel.getByTestId("assistant-message-assistant");
@@ -912,7 +914,7 @@ if (!existsSync(liveProbePath)) test("ASSIST02 takeoff review reads its job and 
     await expect(answer.getByTestId("assistant-activity")).toContainText("Lecture du métré");
     const screenshot = await app.screenshot("assistant-takeoff-answer");
     await ui.app.open(`/dashboard/estimates/${other.versionId}/edit`);
-    await screen.getByTestId("assistant-toggle").click();
+    await openProjectAssistant(screen);
     await panel.getByTestId("assistant-input").fill(`ASSIST02 ${jobId}`);
     await panel.getByTestId("assistant-send").click();
     await expect(answer).toContainText("Ce métré n’appartient pas à l’affaire de cette conversation.", DEV_SERVER_WORK);
@@ -940,8 +942,7 @@ if (!existsSync(liveProbePath)) test("ASSIST03 timeout is explained and retry ke
     const total = (await readEstimate(browser, ids.versionId)).version.total_ht_cents;
     const euros = `${Math.trunc(total / 100)},${String(total % 100).padStart(2, "0")} €`;
     await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
-    await screen.getByTestId("assistant-toggle").click();
-    const panel = screen.getByTestId("assistant-panel");
+    const panel = await openProjectAssistant(screen);
     const question = "Quel est le total après délai ?";
     await setDecisionsControl({ timeoutWriting: true });
     await panel.getByTestId("assistant-input").fill(question);
