@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -9,6 +11,7 @@ import {
   createSupplierAlias,
   deleteSupplierAlias,
   listCatalogueImportBatches,
+  listPendingSupplierReferences,
   reviewSupplierReferences,
   undoCatalogueImportBatch,
 } from "@/lib/catalogue/import-review-server";
@@ -43,10 +46,15 @@ const OTHER_BATCH = "b0000000-0000-4000-8000-000000000002";
 const SUPPLY_TYPE = "a0000000-0000-4000-8000-000000000001";
 
 const uuid = (prefix: string, index: number) => `${prefix}0000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+const selectionOf = (indices: number[]) =>
+  createHash("sha256").update(indices.map((index) => uuid("5", index)).toSorted().join("\n")).digest("hex");
 const supplier = (id: string, name: string, extra: FakeRow = {}): FakeRow => ({ id, tenant_id: TENANT, name, is_active: true, ...extra });
 const item = (index: number, supplierId: string, extra: FakeRow = {}): FakeRow => ({
   id: uuid("5", index), tenant_id: TENANT, supplier_id: supplierId, product_id: uuid("9", index), supplier_sku: `SKU-${index}`,
-  reference_needs_review: true, is_active: false, import_batch_id: BATCH, ...extra,
+  reference_needs_review: true, is_active: false, import_batch_id: BATCH, created_at: "2026-11-25T11:00:00.000Z",
+  products: { reference: `REF-${index}`, designation: `Tube de démonstration ${index}`, created_by: ADMIN },
+  suppliers: { name: "Négoce de démonstration" },
+  ...extra,
 });
 const product = (index: number, extra: FakeRow = {}): FakeRow => ({
   id: uuid("9", index), tenant_id: TENANT, reference: `REF-${index}`, catalogue_status: "draft", import_batch_id: BATCH, ...extra,
@@ -107,6 +115,56 @@ describe("supplier aliases", () => {
   });
 });
 
+describe("listPendingSupplierReferences", () => {
+  it("uses the IDs already queried when the whole selection fits on one page", async () => {
+    const fake = seed("admin");
+    const page = await listPendingSupplierReferences({ page: 1, size: 25, supplier_id: ATLAS });
+    expect(page.selection_signature).toBe(selectionOf([1, 2]));
+    expect(page.items.map((row) => row.id)).toEqual([uuid("5", 1), uuid("5", 2)]);
+    expect(fake.reads.filter((table) => table === "supplier_catalog_items")).toHaveLength(1);
+  });
+
+  it("covers every page of the filter with a stable signature", async () => {
+    const fake = seed("admin");
+    const indices = Array.from({ length: 31 }, (_, index) => index + 1);
+    fake.tables.supplier_catalog_items = indices.toReversed().map((index) => item(index, ATLAS));
+    const page = await listPendingSupplierReferences({ page: 2, size: 25 });
+    expect(page.items).toHaveLength(6);
+    expect(page.selection_signature).toBe(selectionOf(indices));
+    expect(fake.reads.filter((table) => table === "supplier_catalog_items")).toHaveLength(2);
+  });
+
+  it("keeps the page readable without an approval signature if a displayed row no longer matches", async () => {
+    const fake = seed("admin");
+    fake.tables.supplier_catalog_items = Array.from({ length: 31 }, (_, index) => item(index + 1, ATLAS));
+    const from = fake.supabase.from;
+    let queueReads = 0;
+    vi.spyOn(fake.supabase, "from").mockImplementation((table) => {
+      if (table === "supplier_catalog_items" && ++queueReads === 2) fake.tables.supplier_catalog_items[0] = item(32, ATLAS);
+      return from(table);
+    });
+    const page = await listPendingSupplierReferences({ page: 1, size: 25 });
+    expect(page.items[0]?.id).toBe(uuid("5", 1));
+    expect(page.pagination.totalItems).toBe(31);
+    expect(page.selection_signature).toBeNull();
+  });
+
+  it("keeps the page readable if the additional ID scan fails", async () => {
+    const fake = seed("admin");
+    fake.tables.supplier_catalog_items = Array.from({ length: 31 }, (_, index) => item(index + 1, ATLAS));
+    const from = fake.supabase.from;
+    let queueReads = 0;
+    vi.spyOn(fake.supabase, "from").mockImplementation((table) => {
+      if (table === "supplier_catalog_items" && ++queueReads === 2) throw new Error("Lecture incomplète.");
+      return from(table);
+    });
+    const page = await listPendingSupplierReferences({ page: 1, size: 25 });
+    expect(page.items).toHaveLength(25);
+    expect(page.pagination.totalItems).toBe(31);
+    expect(page.selection_signature).toBeNull();
+  });
+});
+
 describe("reviewSupplierReferences", () => {
   beforeEach(() => vi.clearAllMocks());
   const review: FakeRpcHandler = (args) => ({ data: { reviewed: (args.p_item_ids as string[]).length - 1, skipped: 1 } });
@@ -117,20 +175,42 @@ describe("reviewSupplierReferences", () => {
     expect(fake.rpcArgs.at(-1)).toEqual({ name: "review_supplier_references", args: { p_item_ids: [uuid("5", 1), uuid("5", 3)], p_validate: false } });
 
     // Atlas only: neither Boréal's, nor the one already checked, nor the other company's.
-    await reviewSupplierReferences({ action: "validate", filter: { supplier_id: ATLAS }, expected_count: 2 });
+    await reviewSupplierReferences({ action: "validate", filter: { supplier_id: ATLAS }, expected_count: 2, expected_selection: selectionOf([1, 2]) });
     expect(fake.rpcArgs.at(-1)?.args).toEqual({ p_item_ids: [uuid("5", 1), uuid("5", 2)], p_validate: true });
     // The whole queue with an empty filter; nothing to review asks nothing of the database.
-    await reviewSupplierReferences({ action: "validate", filter: {}, expected_count: 3 });
+    await reviewSupplierReferences({ action: "validate", filter: {}, expected_count: 3, expected_selection: selectionOf([1, 2, 3]) });
     expect(fake.rpcArgs.at(-1)?.args.p_item_ids).toEqual([uuid("5", 1), uuid("5", 2), uuid("5", 3)]);
     const calls = fake.rpcCalls.length;
-    expect(await reviewSupplierReferences({ action: "validate", filter: { import_batch_id: OTHER_BATCH }, expected_count: 0 })).toEqual({ reviewed: 0, skipped: 0 });
+    expect(await reviewSupplierReferences({
+      action: "validate", filter: { import_batch_id: OTHER_BATCH }, expected_count: 0, expected_selection: selectionOf([]),
+    })).toEqual({ reviewed: 0, skipped: 0 });
     expect(fake.rpcCalls).toHaveLength(calls);
   });
 
   it("rejects a filter whose pending count changed since confirmation", async () => {
     const fake = seed("admin", { rpc: { review_supplier_references: review } });
-    const confirmed = { action: "validate" as const, filter: {}, expected_count: 2 };
+    const confirmed = { action: "validate" as const, filter: {}, expected_count: 2, expected_selection: selectionOf([1, 2]) };
     await expect(reviewSupplierReferences(confirmed)).rejects.toMatchObject({ status: 409 });
+    expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it("refuses a replacement at the same count before writing any reference", async () => {
+    const fake = seed("admin", { rpc: { review_supplier_references: review } });
+    const confirmed = {
+      action: "validate" as const,
+      filter: {},
+      expected_count: 3,
+      expected_selection: selectionOf([1, 2, 3]),
+    };
+    fake.tables.supplier_catalog_items[0] = item(6, ATLAS);
+    await expect(reviewSupplierReferences(confirmed)).rejects.toMatchObject({ status: 409 });
+    expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it("refuses a previously opened page that sends only the count", async () => {
+    const fake = seed("admin", { rpc: { review_supplier_references: review } });
+    await expect(reviewSupplierReferences({ action: "validate", filter: {}, expected_count: 3 })).rejects.toMatchObject({ status: 409 });
+    expect(fake.reads).not.toContain("supplier_catalog_items");
     expect(fake.rpcCalls).toEqual([]);
   });
 
@@ -139,8 +219,11 @@ describe("reviewSupplierReferences", () => {
     const fake = seed("admin", { rpc: { review_supplier_references: () => ++calls === 1
       ? { data: { reviewed: 4999, skipped: 1 } }
       : { data: null, error: { code: "42501", message: "SUPPLIER_CATALOG_ITEM_EDITORS_ONLY" } } } });
-    fake.tables.supplier_catalog_items = Array.from({ length: 5001 }, (_, index) => item(index + 1, ATLAS));
-    await expect(reviewSupplierReferences({ action: "validate", filter: {}, expected_count: 5001 })).rejects.toMatchObject({
+    const indices = Array.from({ length: 5001 }, (_, index) => index + 1);
+    fake.tables.supplier_catalog_items = indices.map((index) => item(index, ATLAS));
+    await expect(reviewSupplierReferences({
+      action: "validate", filter: {}, expected_count: indices.length, expected_selection: selectionOf(indices),
+    })).rejects.toMatchObject({
       status: 403, details: { committed: { reviewed: 4999, skipped: 1 } },
     });
     expect(fake.rpcCalls).toHaveLength(2);

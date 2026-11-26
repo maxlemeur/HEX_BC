@@ -6,7 +6,7 @@ import * as XLSX from "xlsx";
 import { expect } from "e2e";
 
 import { COSTING_WORKBOOK_SHEET } from "@/lib/catalogue/costing-workbook";
-import type { CostingWorkbookImportReport } from "@/lib/catalogue/costing-workbook-contract";
+import type { CostingWorkbookImportReport, CostingWorkbookSupplierReferenceReport } from "@/lib/catalogue/costing-workbook-contract";
 
 import { apiRequest, armyTest, recordEvidence } from "./fixtures";
 
@@ -758,9 +758,64 @@ armyTest(
     const queue = screen.getByRole("table", "Références fournisseur à vérifier", { exact: true });
     await expect(queue.getByRole("row")).toHaveCount(2, { timeout: 30_000 });
     await expect(queue.getByRole("link", "Fiche fournisseur", { exact: false })).toHaveAttribute("href", "https://lumen.example/nl-40");
-    await queue.getByRole("checkbox", "Sélectionner les références de cette page", { exact: true }).tap();
-    await screen.getByRole("button", "Valider la sélection", { exact: true }).tap();
-    await expect(screen.getByText("1 référence validée.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    async function anotherPendingReference(sku: string) {
+      const reference = `${prefix}-${sku}`;
+      const article = await apiRequest<Envelope<{ item: Product }>>(browser, "POST", "/api/products", {
+        action: "create", item: { reference, designation: reference, unit: "ml", unit_price_cents: 1500 },
+      });
+      expect(article.status).toBe(201);
+      const endpoint = "/api/catalogue/workbook-import/supplier-references";
+      const input = {
+        rows: [HEADERS, row({ ...base, "ID": reference, "Caractéristique": "Tube", "F1_nom": supplierName, "F1_ref": sku })],
+        source_name: "bible-lumen-review-fixture.xlsx",
+      };
+      const preview = await apiRequest<Envelope<CostingWorkbookSupplierReferenceReport>>(browser, "POST", endpoint, { ...input, confirm: false });
+      expect(preview.status).toBe(200);
+      expect(preview.body.data.to_import).toBe(1);
+      const imported = await apiRequest<Envelope<CostingWorkbookSupplierReferenceReport>>(browser, "POST", endpoint, {
+        ...input, confirm: true, preview_token: preview.body.data.preview_token,
+      });
+      expect(imported.status).toBe(200);
+      expect(imported.body.data.imported).toBe(1);
+      const [referenceItem] = await itemsOf(article.body.data.item.id);
+      expect(referenceItem).toMatchObject({ supplier_sku: sku, reference_needs_review: true, is_active: false });
+      return { productId: article.body.data.item.id, id: referenceItem.id };
+    }
+
+    const removed = await anotherPendingReference("NL-42");
+    await screen.getByRole("button", "Voir tous les imports", { exact: true }).tap();
+    await screen.getByRole("combobox", "Fournisseur", { exact: true }).selectOption({ value: supplierId });
+    await expect(queue.getByText("NL-42", { exact: true })).toBeVisible({ timeout: 30_000 });
+    const validateAll = screen.getByRole("button", "Valider les 2 références", { exact: true });
+    const confirmation = screen.getByRole("alertdialog", "Valider 2 références ?", { exact: true });
+    await validateAll.tap();
+    await expect(confirmation).toBeVisible();
+
+    const endpoint = "/api/catalogue/supplier-references";
+    const withdrawn = await apiRequest<Envelope<{ reviewed: number; skipped: number }>>(browser, "POST", endpoint, {
+      action: "withdraw", ids: [removed.id],
+    });
+    expect(withdrawn.status).toBe(200);
+    expect(withdrawn.body.data).toEqual({ reviewed: 1, skipped: 0 });
+    const replacement = await anotherPendingReference("NL-43");
+    expect(replacement.id).not.toBe(removed.id);
+    expect((await apiRequest<Envelope<{ pagination: { totalItems: number } }>>(
+      browser, "GET", `${endpoint}?supplier_id=${supplierId}`,
+    )).body.data.pagination.totalItems).toBe(2);
+
+    const staleResponse = browser.waitForResponse("**/api/catalogue/supplier-references");
+    await confirmation.getByRole("button", "Valider", { exact: true }).tap();
+    expect((await staleResponse).status).toBe(409);
+    await expect(screen.getByText(/La liste des références à vérifier a changé/)).toBeVisible({ timeout: 30_000 });
+    await expect(queue.getByText("NL-43", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(queue.getByText("NL-42", { exact: true })).toBeHidden();
+    expect(await itemsOf(productId)).toMatchObject([{ reference_needs_review: true, is_active: false }]);
+    expect(await itemsOf(replacement.productId)).toMatchObject([{ reference_needs_review: true, is_active: false }]);
+
+    await validateAll.tap();
+    await confirmation.getByRole("button", "Valider", { exact: true }).tap();
+    await expect(screen.getByText("2 références validées.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    expect(await itemsOf(replacement.productId)).toMatchObject([{ supplier_sku: "NL-43", reference_needs_review: false, is_active: true }]);
     expect(await itemsOf(productId)).toMatchObject([{
       supplier_id: supplierId, supplier_sku: "NL-40", product_url: "https://lumen.example/nl-40", reference_needs_review: false, is_active: true,
     }]);
@@ -796,7 +851,8 @@ armyTest(
 
     await recordEvidence(army, "catalogue-workbook-review-together", {
       source: { sha256: createHash("sha256").update(bytes).digest("hex"), rows: sheetRows.length },
-      productId, supplierId, rememberedName: workbookName, checkedTogether: 1, undone: { references: 1, drafts: 1 },
+      productId, supplierId, rememberedName: workbookName, checkedTogether: 2, undone: { references: 1, drafts: 1 },
+      sameCountReplacement: { removedId: removed.id, newId: replacement.id, staleStatus: 409 },
     });
   },
 );

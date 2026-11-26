@@ -18,6 +18,7 @@ import { fetchPendingSupplierReferences, reviewSupplierReferences } from "@/lib/
 import {
   CATALOGUE_BULK_INCOMPLETE,
   PENDING_REFERENCE_PAGE_SIZES,
+  REFERENCE_QUEUE_CHANGED,
   type PendingSupplierReferencePage,
   type PendingReferencesQuery,
   type ReviewReferencesInput,
@@ -127,12 +128,18 @@ export function SupplierReferenceQueue({ initialImportBatchId }: Readonly<{ init
 
   async function validateAll() {
     if (!ready || busy || total === 0) return;
+    const expectedSelection = data?.selection_signature;
+    if (!expectedSelection) {
+      setMessage({ tone: "danger", text: REFERENCE_QUEUE_CHANGED });
+      await mutate().catch(() => undefined);
+      return;
+    }
     const confirmed = await confirm({
       title: `Valider ${count(total)} ${plural(total, "référence", "références")} ?`,
       description: "Elles serviront aux achats telles que le classeur les donne. Une référence validée se corrige ensuite depuis la fiche de son article.",
       confirmLabel: "Valider",
     });
-    if (confirmed) await review({ action: "validate", filter, expected_count: total }, total);
+    if (confirmed) await review({ action: "validate", filter, expected_count: total, expected_selection: expectedSelection }, total);
   }
 
   async function withdrawSelection() {

@@ -9416,11 +9416,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operation executee avec succes.",
+            "description": "Page et empreinte de la sélection filtrée complète.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/ApiPendingSupplierReferencePage"
                 }
               }
             }
@@ -9494,7 +9494,7 @@
         "summary": "Vérifier des références fournisseur ensemble",
         "description": "Valide (elles servent alors aux achats telles qu’importées) ou retire les références nommées, ou toutes celles à vérifier que le filtre désigne. Ce que l’appelant ne peut pas vérifier (article d’un autre pour un ingénieur sans la base partagée, article ou fournisseur archivé) est laissé en attente et compté dans skipped. Réservé aux administrateurs et aux ingénieurs.",
         "requestBody": {
-          "description": "Action et références nommées, ou filtre accompagné du nombre confirmé.",
+          "description": "Action et références nommées, ou filtre accompagné du nombre confirmé et de l’empreinte de sélection renvoyée par la liste.",
           "required": true,
           "content": {
             "application/json": {
@@ -9556,7 +9556,7 @@
             }
           },
           "409": {
-            "description": "Le nombre de références a changé depuis la confirmation. Actualisez la liste.",
+            "description": "L’empreinte est absente ou la sélection a changé depuis sa lecture. Actualisez la liste.",
             "content": {
               "application/json": {
                 "schema": {
@@ -57621,6 +57621,157 @@
         "type": "string",
         "maxLength": 100
       },
+      "ApiPendingSupplierReferencePage": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "product_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "product_reference": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "product_designation": {
+                      "type": "string"
+                    },
+                    "supplier_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "supplier_name": {
+                      "type": "string"
+                    },
+                    "supplier_sku": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "product_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "import_batch_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "can_review": {
+                      "type": "boolean",
+                      "description": "L’appelant peut vérifier cette référence."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "product_id",
+                    "product_reference",
+                    "product_designation",
+                    "supplier_id",
+                    "supplier_name",
+                    "supplier_sku",
+                    "product_url",
+                    "created_at",
+                    "import_batch_id",
+                    "can_review"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "pagination": {
+                "type": "object",
+                "properties": {
+                  "page": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "size": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "totalItems": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "totalPages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "page",
+                  "size",
+                  "totalItems",
+                  "totalPages"
+                ],
+                "additionalProperties": false
+              },
+              "selection_signature": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Empreinte des références de toutes les pages du filtre. Si elle est absente (null), actualisez la liste avant de valider l’ensemble."
+              }
+            },
+            "required": [
+              "items",
+              "pagination",
+              "selection_signature"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "ReviewSupplierReferencesRequest": {
         "anyOf": [
           {
@@ -57684,6 +57835,11 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991
+              },
+              "expected_selection": {
+                "description": "Empreinte renvoyée par la liste. Obligatoire pour valider ; son absence entraîne un conflit (409).",
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
               }
             },
             "required": [
