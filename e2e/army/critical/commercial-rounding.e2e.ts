@@ -227,6 +227,9 @@ armyTest(
       await openSettings(ui, ids.versionId);
       await expect(screen.getByLabel("Titre", { exact: true })).toHaveValue(updatedTitle);
       await expect(screen.getByRole("option", optionLabel, { exact: true })).toBeSelected();
+      const drawer = screen.getByRole("dialog", "Paramétrage du devis", { exact: true });
+      await drawer.getByRole("button", "Fermer", { exact: true }).tap();
+      await expect(drawer).toBeHidden();
     }
   },
 );

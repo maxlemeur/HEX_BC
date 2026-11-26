@@ -525,11 +525,16 @@ async function waitScreen(ui: Ui, expected: ScreenExpectation, timeoutMs = 30_00
  * One saved state, read three ways (contract §9.3 of the doc): the persisted values (API), the
  * values displayed by the editor that saved them, and the values displayed and reread after a
  * reload. The caller has already triggered the save (Ctrl+S, « Enregistrer le paramétrage »).
+ * Close the settings drawer if it is still open so both reads observe the exposed editor.
  */
 export async function checkpoint(ui: Ui, army: ArmyState, label: string, versionId: string,
   expected: { api: ApiExpectation; screen: ScreenExpectation }) {
   const apiTarget = { version: expected.api.version, lines: expected.api.lines ?? {} };
   const persisted = await waitPersisted(ui, versionId, expected.api);
+  if (await settingsDialog(ui).isVisible()) {
+    await closeSavedSettings(ui);
+  }
+  await expect(grid(ui)).toBeVisible();
   const before = await waitScreen(ui, expected.screen);
   await ui.browser.reload();
   await expect(grid(ui)).toBeVisible({ timeout: 60_000 });
@@ -551,6 +556,7 @@ export const settingsDialog = (ui: Ui) => ui.screen.getByRole("dialog", "Paramé
 
 /** Sync states of a page that does not own its draft lease yet (useEstimateEditorAutoSave). */
 const LEASE_PENDING_LABELS = new Set(["Verrouillé", "Connexion…"]);
+const DRAFT_LEASE_TIMEOUT_MS = 150_000;
 
 /**
  * Waits until the page owns its draft lease: every grid and drawer input stays disabled before
@@ -563,22 +569,34 @@ const LEASE_PENDING_LABELS = new Set(["Verrouillé", "Connexion…"]);
  */
 export async function waitForDraftLease(ui: Ui) {
   const status = ui.screen.getByTestId("estimate-page-toolbar-autosave-status");
-  await expect.poll(async () => LEASE_PENDING_LABELS.has(normalized(await status.textContent())), { timeout: 150_000, interval: 1_000 })
+  await expect.poll(async () => LEASE_PENDING_LABELS.has(normalized(await status.textContent())), { timeout: DRAFT_LEASE_TIMEOUT_MS, interval: 1_000 })
     .toBe(false);
 }
 
 export async function openSettings(ui: Ui, versionId: string) {
   await ui.browser.goto(`/dashboard/estimates/${versionId}/edit?openSettings=general`, { waitUntil: "domcontentloaded" });
-  await expect(settingsDialog(ui)).toBeVisible({ timeout: 60_000 });
-  await expect(settingsDialog(ui).getByLabel("Coefficient de vente FO", { exact: true })).toBeVisible({ timeout: 30_000 });
-  await waitForDraftLease(ui);
-  return settingsDialog(ui);
+  const drawer = settingsDialog(ui);
+  await expect(drawer).toBeVisible({ timeout: 60_000 });
+  await expect(drawer.getByLabel("Coefficient de vente FO", { exact: true })).toBeEnabled({ timeout: DRAFT_LEASE_TIMEOUT_MS });
+  return drawer;
+}
+
+function settingsSaveButton(ui: Ui) {
+  return settingsDialog(ui).getByRole("button", "Enregistrer le paramétrage", { exact: true });
 }
 
 export async function clickSaveSettings(ui: Ui) {
-  const save = settingsDialog(ui).getByRole("button", "Enregistrer le paramétrage", { exact: true });
+  const save = settingsSaveButton(ui);
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.tap();
+}
+
+export async function closeSavedSettings(ui: Ui) {
+  const drawer = settingsDialog(ui);
+  await expect(settingsSaveButton(ui)).toBeEnabled({ timeout: 30_000 });
+  await drawer.getByRole("button", "Fermer", { exact: true }).tap();
+  await expect(drawer).toBeHidden();
+  expect(new URL(await ui.browser.url()).searchParams.has("openSettings")).toBe(false);
 }
 
 /** Text of an element of the settings drawer, spaces normalized (null when absent). */

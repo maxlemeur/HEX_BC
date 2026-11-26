@@ -24,18 +24,18 @@ export function useEstimateEditorSettingsDrawer({
     setDrawerScrollTarget(section ?? null);
   }, []);
 
-  const autoOpenedSettingsRef = useRef(false);
+  const autoOpenedSettingsPathRef = useRef<string | null>(null);
   useEffect(() => {
     if (
       !autoOpenSettingsSection ||
-      autoOpenedSettingsRef.current ||
+      autoOpenedSettingsPathRef.current ||
       isLoading ||
       !settings
     ) {
       return;
     }
 
-    autoOpenedSettingsRef.current = true;
+    autoOpenedSettingsPathRef.current = window.location.pathname;
     handleOpenSettingsDrawer(autoOpenSettingsSection);
   }, [
     autoOpenSettingsSection,
@@ -84,6 +84,11 @@ export function useEstimateEditorSettingsDrawer({
     return () => timers.forEach(clearTimeout);
   }, [isSettingsDrawerOpen]);
   const closeSettingsDrawer = useCallback(() => {
+    const url = new URL(window.location.href);
+    if (url.pathname === autoOpenedSettingsPathRef.current && url.searchParams.has("openSettings")) {
+      url.searchParams.delete("openSettings");
+      window.history.replaceState(null, "", url);
+    }
     setIsSettingsDrawerOpen(false);
   }, []);
 
