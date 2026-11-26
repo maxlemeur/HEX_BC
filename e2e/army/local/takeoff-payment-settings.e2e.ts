@@ -84,8 +84,8 @@ describe("Paid takeoff request settings", () => {
 
   const options = { tags: ["critical", "local", "chatgpt", "premetre"], session: "army", trace: "off", timeout: 300_000 } as const;
 
-  test("PAIDMETRE01 a draft's preparation sends the chosen key model under the cap shown at 375 px", options, async (fixtures) => {
-    const { ui, army, ids } = await prepares(fixtures, "lancement");
+  test("PAIDMETRE01 a draft's preparation sends the chosen key model under the cap shown at 375 px", options, async ({ app, screen, browser }) => {
+    const { ui, army, ids } = await prepares({ app, screen, browser }, "lancement");
     const plans = await createPlanSet(ui, army, ids, "Plans fictifs");
     await uploadSamplePlan(ui, army, plans);
     await saveProfileKey(ui);
@@ -96,7 +96,7 @@ describe("Paid takeoff request settings", () => {
     const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
     await showOverride(dialog);
     expect(await ui.browser.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-    const screenshot = await fixtures.app.screenshot("paidmetre01-lancement-375");
+    const screenshot = await app.screenshot("paidmetre01-lancement-375");
     const before = (await providerReads()).length;
 
     await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
@@ -110,10 +110,10 @@ describe("Paid takeoff request settings", () => {
     await recordEvidence(army, "paidmetre01-lancement", { screenshot, observed: { width: 375, ceilingUsd: 25, unchangedProfile: true } });
   });
 
-  test("PAIDMETRE02 the brief confirms the payer notice for the specifically selected key settings", options, async (fixtures) => {
+  test("PAIDMETRE02 the brief confirms the payer notice for the specifically selected key settings", options, async ({ app, screen, browser }) => {
     await activateOwnedPlanDispatch();
     try {
-      const { ui, army, ids, owner } = await prepares(fixtures, "brief");
+      const { ui, army, ids, owner } = await prepares({ app, screen, browser }, "brief");
       await dossier.uploadDossierPlan(ui, ids.projectId, PLAN_NAME, owner.email);
       await dossier.waitForDossierAnalysis(ui, ids.projectId);
       await saveProfileKey(ui);
@@ -122,7 +122,7 @@ describe("Paid takeoff request settings", () => {
       await dialog.getByRole("checkbox", /Plan plomberie fictif/).check();
       await showOverride(dialog);
       await expect(dialog.getByText(/Vous autorisez le métré à utiliser votre clé API OpenAI, avec un plafond de 25/)).toBeVisible();
-      const screenshot = await fixtures.app.screenshot("paidmetre02-brief");
+      const screenshot = await app.screenshot("paidmetre02-brief");
 
       await dialog.getByRole("button", "Confirmer et analyser 1 plan", { exact: true }).click();
 
@@ -136,10 +136,10 @@ describe("Paid takeoff request settings", () => {
     }
   });
 
-  test("PAIDMETRE03 the member takes the waiting plan on with their key and reads it within the shown cap", options, async (fixtures) => {
+  test("PAIDMETRE03 the member takes the waiting plan on with their key and reads it within the shown cap", options, async ({ app, screen, browser }) => {
     await activateOwnedPlanDispatch();
     try {
-      const { ui, army, ids, owner } = await prepares(fixtures, "prise-en-charge");
+      const { ui, army, ids, owner } = await prepares({ app, screen, browser }, "prise-en-charge");
       await dossier.uploadDossierPlan(ui, ids.projectId, PLAN_NAME, owner.email);
       await dossier.openBriefConfirmation(ui, ids.projectId, owner.userId, true);
       const brief = (await readOwnedBrief(ids.projectId))!;
@@ -153,7 +153,7 @@ describe("Paid takeoff request settings", () => {
       await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
       const zone = takeoffZone(ui);
       await showOverride(zone, "les lectures que vous prenez en charge");
-      const screenshot = await fixtures.app.screenshot("paidmetre03-prise-en-charge");
+      const screenshot = await app.screenshot("paidmetre03-prise-en-charge");
 
       await zone.getByRole("button", "Prendre en charge avec ma clé API", { exact: true }).click();
 
@@ -166,11 +166,11 @@ describe("Paid takeoff request settings", () => {
     }
   });
 
-  test("PAIDMETRE04 relaunching a failed plan opens a fresh key choice scoped to that plan", options, async (fixtures) => {
+  test("PAIDMETRE04 relaunching a failed plan opens a fresh key choice scoped to that plan", options, async ({ app, screen, browser }) => {
     await activateOwnedPlanDispatch();
     let subscription: string | undefined;
     try {
-      const { ui, army, ids, owner } = await prepares(fixtures, "relance");
+      const { ui, army, ids, owner } = await prepares({ app, screen, browser }, "relance");
       subscription = await writePlanFixture(owner.email, null, false);
       await dossier.uploadDossierPlan(ui, ids.projectId, PLAN_NAME, owner.email);
       await (await dossier.openBriefConfirmation(ui, ids.projectId, owner.userId, true)).click();
@@ -189,7 +189,7 @@ describe("Paid takeoff request settings", () => {
       const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
       await expect(dialog.getByRole("checkbox", /Plan plomberie fictif/)).toBeChecked(DEV_SERVER_WORK);
       await showOverride(dialog);
-      const screenshot = await fixtures.app.screenshot("paidmetre04-relance");
+      const screenshot = await app.screenshot("paidmetre04-relance");
 
       await dialog.getByRole("button", "Relancer 1 plan avec ma clé API", { exact: true }).click();
 
