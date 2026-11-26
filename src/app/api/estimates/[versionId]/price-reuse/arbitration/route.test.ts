@@ -100,7 +100,7 @@ describe("price reuse arbitration route", () => {
     expect(executeEstimateBatch).not.toHaveBeenCalled();
   });
 
-  it("uses one key allotment across batches and keeps the first batch when the next cannot fit", async () => {
+  it("keeps the first batch when even one of the remaining questions cannot fit the shared key allotment", async () => {
     key.prepare.mockImplementation(async (_owner, input) => {
       if (input.allotmentNanoUsd < 40_000_000) throw new ApiKeyError("AI_KEY_CEILING");
       return { prompt: input.prompt };
@@ -118,8 +118,9 @@ describe("price reuse arbitration route", () => {
     expect(data.answers[50]).toEqual({ line_id: TARGETS[50], reference_line_id: null, confidence: null });
     const selected = { model: "gpt-6.2-sol", reasoningEffort: "high", expectedVersion: 4 };
     expect(key.prepare).toHaveBeenNthCalledWith(1, OWNER, expect.objectContaining({ ...selected, allotmentNanoUsd: 100_000_000 }));
-    expect(key.prepare).toHaveBeenNthCalledWith(2, OWNER, expect.objectContaining({ ...selected, allotmentNanoUsd: 30_000_000 }));
-    expect(key.prepare).toHaveBeenCalledTimes(2);
+    const retries = key.prepare.mock.calls.slice(1);
+    expect(retries.map(([, input]) => questions(input.prompt).length)).toEqual([50, 25, 12, 6, 3, 1]);
+    expect(retries).toEqual(retries.map(() => [OWNER, expect.objectContaining({ ...selected, allotmentNanoUsd: 30_000_000 })]));
     expect(key.execute).toHaveBeenCalledTimes(1);
     expect(callStructuredAi).not.toHaveBeenCalled();
     expect(callOpenAiDecisions).not.toHaveBeenCalled();
