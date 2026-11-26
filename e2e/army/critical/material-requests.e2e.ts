@@ -4,8 +4,9 @@ import path from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
+import ExcelJS from "exceljs";
 
-import type { MaterialRequestFileUploads } from "@/lib/material-requests/contracts";
+import { MATERIAL_REQUEST_WORKBOOK_MIME_TYPE, type MaterialRequestFileUploads } from "@/lib/material-requests/contracts";
 
 import {
   apiRequest,
@@ -221,7 +222,7 @@ armyTest(
     const heic = path.join(directory, "demande-abimee.heic");
     await writeFile(photo, PNG);
     await writeFile(heic, Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from("ftypheic"), Buffer.alloc(12)]));
-    const picker = browser.locator('input[type="file"][aria-label="Photos à ajouter"]').first();
+    const picker = browser.locator('input[type="file"][aria-label="Fichiers à ajouter"]').first();
     await picker.setInputFiles([photo]);
     await expect.poll(async () => (await read()).files.length, { timeout: 60_000 }).toBe(1);
     const [stored] = (await read()).files;
@@ -282,10 +283,34 @@ armyTest(
     // A HEIC that cannot be read is refused in words, and nothing of it is stored.
     await picker.setInputFiles([heic]);
     await expect(screen.getByText(
-      "« demande-abimee.heic » n’a pas pu être convertie en JPEG. Aucune photo n’a été gardée : enregistrez-la en JPEG sur le téléphone, puis déposez-la à nouveau.",
+      "« demande-abimee.heic » n’a pas pu être convertie en JPEG. Aucune pièce n’a été gardée : enregistrez-la en JPEG sur le téléphone, puis déposez-la à nouveau.",
       { exact: true },
     ).first()).toBeVisible({ timeout: 60_000 });
     expect((await read()).files).toHaveLength(3);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.addWorksheet("Matériel").addRows([["Article", "Quantité"], ["Coude fictif", 4]]);
+    const workbookBytes = Buffer.from(await workbook.xlsx.writeBuffer());
+    const workbookName = "Liste matériel.xlsx";
+    const workbookPath = path.join(directory, workbookName);
+    await writeFile(workbookPath, workbookBytes);
+    await picker.setInputFiles([workbookPath]);
+    await expect.poll(async () => (await read()).files.length, { timeout: 60_000 }).toBe(4);
+    const workbookFile = (await read()).files.find((file) => file.file_name === workbookName)!;
+    expect([workbookFile.mime_type, workbookFile.byte_size]).toEqual([MATERIAL_REQUEST_WORKBOOK_MIME_TYPE, workbookBytes.length]);
+    await expect(original.getByText(workbookName, { exact: true })).toBeVisible();
+    const workbookUrl = `${base}/${requestId}/files/${workbookFile.id}`;
+    await expect(original.getByRole("link", "Télécharger", { exact: true })).toHaveAttribute("href", workbookUrl);
+    const workbookDownload = await browser.evaluate(async (url) => {
+      const response = await fetch(url, { credentials: "same-origin" });
+      const digest = await crypto.subtle.digest("SHA-256", await response.arrayBuffer());
+      const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      return [response.status, response.headers.get("content-type"), response.headers.get("content-disposition"), hash];
+    }, workbookUrl);
+    expect(workbookDownload).toEqual([
+      200, MATERIAL_REQUEST_WORKBOOK_MIME_TYPE, "attachment; filename=\"Liste_mat_riel.xlsx\"; filename*=UTF-8''Liste%20mat%C3%A9riel.xlsx",
+      createHash("sha256").update(workbookBytes).digest("hex"),
+    ]);
 
     const final = await read();
 
@@ -296,14 +321,14 @@ armyTest(
     );
     expect([removed.status, removed.body.data?.deleted]).toEqual([200, true]);
     expect((await apiRequest(browser, "GET", `${base}/${requestId}/files/${stored.id}`)).status).toBe(404);
-    expect((await read()).files.map((file) => file.id)).toEqual([largeStored.id, converted.id]);
+    expect((await read()).files.map((file) => file.id)).toEqual([largeStored.id, converted.id, workbookFile.id]);
     const requestRemoved = await apiRequest<Envelope<{ deleted: boolean }>>(browser, "DELETE", `${base}/${requestId}`);
     expect([requestRemoved.status, requestRemoved.body.data?.deleted]).toEqual([200, true]);
     expect((await apiRequest(browser, "GET", `${base}/${requestId}`)).status).toBe(404);
     expect((await apiRequest(browser, "GET", `${base}/${requestId}/files/${largeStored.id}`)).status).toBe(404);
 
     await recordEvidence(army, "material-requests", {
-      ...ids, requestId, statuses: statuses(final), files: final.files, refused: refused.body.error,
+      ...ids, requestId, statuses: statuses(final), files: final.files, workbookDownload, refused: refused.body.error,
       stillBlocked: stillBlocked.body.error,
     });
   },

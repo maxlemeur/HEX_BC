@@ -40,7 +40,10 @@ type CheckedColumns = CheckedColumnSpec<{
   material_requests: { delivery_place: "site" | "office" | "counter" | null };
   material_request_lines: { imputation: "project" | "overhead"; status: "draft" | "validated";
     product_match: "reference" | "alias" | "ranked" | "manual" | "created" | null; price_per: 1 | 10 | 100 | 1000 };
-  material_request_files: { mime_type: "image/jpeg" | "image/png" | "image/webp" | "application/pdf"; rotation: 0 | 90 | 180 | 270 };
+  material_request_files: {
+    mime_type: "image/jpeg" | "image/png" | "image/webp" | "application/pdf" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    rotation: 0 | 90 | 180 | 270;
+  };
   material_request_quotes: { status: "requested" | "received" | "retained" | "closed" };
   material_request_quote_lines: { price_per: 1 | 10 | 100 | 1000 };
   purchase_orders: { delivery_mode: "site" | "office" | "counter" | null };

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Download, ImagePlus, Maximize2, RotateCcw, RotateCw, Scissors, Sparkles, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileSpreadsheet, Maximize2, Paperclip, RotateCcw, RotateCw, Scissors, Sparkles, Trash2 } from "lucide-react";
 
 import { loadPhotoAnalysisModelOptions } from "@/app/dashboard/_actions/chatgpt";
 import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
@@ -10,7 +10,7 @@ import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
 import type { ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { useToast } from "@/components/feedback/toast-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -24,6 +24,7 @@ import {
 } from "@/lib/material-requests/client";
 import {
   isMaterialRequestPdf,
+  isMaterialRequestWorkbook,
   MATERIAL_REQUEST_PICKER_ACCEPT,
   MATERIAL_REQUEST_MAX_FILES,
   MATERIAL_REQUEST_MAX_LINES,
@@ -39,7 +40,7 @@ import {
 import { splitSourceText } from "@/lib/material-requests/source-text";
 
 import { ConfirmButton } from "./cells";
-import { checkPhotoSelection } from "./format";
+import { checkOriginalSelection } from "./format";
 import { MaterialRequestPdfViewer } from "./MaterialRequestPdfViewer";
 import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
 import type { MaterialRequestEditorApi } from "./useMaterialRequestEditor";
@@ -51,11 +52,12 @@ function quarterTurn(rotation: MaterialRequestFileRotation, direction: 1 | -1): 
 
 type PhotoResource = { fileId: string; url: string | null; error: string | null };
 
-function usePhotoUrl(projectId: string, requestId: string, fileId: string) {
+function usePhotoUrl(projectId: string, requestId: string, fileId: string | null) {
   const [resource, setResource] = useState<PhotoResource | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    if (fileId === null) return;
     const abort = new AbortController();
     let objectUrl: string | undefined;
     fetchMaterialRequestFileBlob(projectId, requestId, fileId, abort.signal)
@@ -105,7 +107,7 @@ function PhotoFrame({
   );
 }
 
-function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
+function OriginalFiles({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
   const { data, canWrite } = editor;
   const files = data.files;
   const [index, setIndex] = useState(0);
@@ -116,11 +118,12 @@ function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
   const picker = useRef<HTMLInputElement>(null);
   const shownIndex = Math.min(index, Math.max(files.length - 1, 0));
   const file: MaterialRequestFile | undefined = files[shownIndex];
+  const hasDocument = files.some((entry) => isMaterialRequestPdf(entry) || isMaterialRequestWorkbook(entry));
 
   const add = async (selection: File[]) => {
     // One batch at a time: a second choice made while photos travel is ignored, not queued.
     if (selection.length === 0 || sending.current) return;
-    const refusal = checkPhotoSelection(selection, files.length);
+    const refusal = checkOriginalSelection(selection, files.length);
     if (refusal) {
       setError(refusal);
       return;
@@ -138,7 +141,7 @@ function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
   return (
     <div className="space-y-2">
       {file ? (
-        <Photo
+        <OriginalFile
           key={file.id}
           editor={editor}
           file={file}
@@ -150,7 +153,7 @@ function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
         />
       ) : (
         <p className="rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-6 text-center text-sm text-muted-foreground">
-          Pas de photo de l’original.
+          Aucune pièce jointe.
         </p>
       )}
       {files.length > 1 ? (
@@ -159,20 +162,20 @@ function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
             type="button"
             variant="outline"
             size="icon-sm"
-            aria-label={files.some(isMaterialRequestPdf) ? "Original précédent" : "Photo précédente"}
+            aria-label={hasDocument ? "Original précédent" : "Photo précédente"}
             disabled={shownIndex === 0}
             onClick={() => setIndex(shownIndex - 1)}
           >
             <ChevronLeft aria-hidden="true" />
           </Button>
           <p className="text-xs text-muted-foreground" aria-live="polite">
-            {files.some(isMaterialRequestPdf) ? "Original" : "Photo"} {shownIndex + 1} sur {files.length}
+            {hasDocument ? "Original" : "Photo"} {shownIndex + 1} sur {files.length}
           </p>
           <Button
             type="button"
             variant="outline"
             size="icon-sm"
-            aria-label={files.some(isMaterialRequestPdf) ? "Original suivant" : "Photo suivante"}
+            aria-label={hasDocument ? "Original suivant" : "Photo suivante"}
             disabled={shownIndex >= files.length - 1}
             onClick={() => setIndex(shownIndex + 1)}
           >
@@ -188,7 +191,7 @@ function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
             multiple
             hidden
             accept={MATERIAL_REQUEST_PICKER_ACCEPT}
-            aria-label="Photos à ajouter"
+            aria-label="Fichiers à ajouter"
             disabled={progress !== null}
             onChange={(event) => {
               const selection = Array.from(event.currentTarget.files ?? []);
@@ -204,9 +207,10 @@ function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
             disabled={files.length >= MATERIAL_REQUEST_MAX_FILES}
             onClick={() => picker.current?.click()}
           >
-            <ImagePlus aria-hidden="true" />
-            Ajouter des photos ou PDF
+            <Paperclip aria-hidden="true" />
+            Joindre des fichiers
           </Button>
+          <p className="text-xs text-muted-foreground">Photos, PDF ou Excel (.xlsx), jusqu’à 20 Mo par fichier.</p>
           <p role="status" className="text-sm text-muted-foreground">
             {progress ? photoUploadStepLabel(progress) : null}
           </p>
@@ -262,7 +266,7 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
   const hintId = useId();
   const { data, projectId, requestId } = editor;
   const availability = data.photoAnalysis ?? null;
-  const files = data.files;
+  const files = useMemo(() => data.files.filter((file) => !isMaterialRequestWorkbook(file)), [data.files]);
   const lines = data.lines;
   const [run, setRun] = useState<PhotoAnalysisRun | null>(null);
   const [choosing, setChoosing] = useState(false);
@@ -654,7 +658,7 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
   );
 }
 
-function Photo({
+function OriginalFile({
   editor,
   file,
   position,
@@ -673,7 +677,9 @@ function Photo({
 }>) {
   const { canWrite, projectId, requestId } = editor;
   const isPdf = isMaterialRequestPdf(file);
-  const photo = usePhotoUrl(projectId, requestId, file.id);
+  const isWorkbook = isMaterialRequestWorkbook(file);
+  const isImage = !isPdf && !isWorkbook;
+  const photo = usePhotoUrl(projectId, requestId, isWorkbook ? null : file.id);
   const downloadUrl = materialRequestFileUrl(projectId, requestId, file.id);
   const alt = `${isPdf ? "PDF" : "Photo"} ${position} de la demande : ${file.file_name}`;
 
@@ -684,7 +690,12 @@ function Photo({
 
   return (
     <div className="space-y-2">
-      {photo.url ? (
+      {isWorkbook ? (
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle p-4">
+          <FileSpreadsheet aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
+          <p className="min-w-0 break-words text-sm font-medium">{file.file_name}</p>
+        </div>
+      ) : photo.url ? (
         isPdf ? (
           <MaterialRequestPdfViewer url={photo.url} name={file.file_name} downloadUrl={downloadUrl} />
         ) : (
@@ -703,7 +714,7 @@ function Photo({
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        {canWrite && !isPdf ? (
+        {canWrite && isImage ? (
           <>
             <Button type="button" variant="outline" size="sm" onClick={() => void rotate(-1)}>
               <RotateCcw aria-hidden="true" />
@@ -715,24 +726,26 @@ function Photo({
             </Button>
           </>
         ) : null}
-        <Button type="button" variant="outline" size="sm" disabled={!photo.url} onClick={() => onEnlargedChange(true)}>
-          <Maximize2 aria-hidden="true" />
-          Agrandir
-        </Button>
-        {isPdf ? (
+        {isWorkbook ? null : (
+          <Button type="button" variant="outline" size="sm" disabled={!photo.url} onClick={() => onEnlargedChange(true)}>
+            <Maximize2 aria-hidden="true" />
+            Agrandir
+          </Button>
+        )}
+        {!isImage ? (
           <a
             href={downloadUrl}
             download={file.file_name}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
           >
-            <Download aria-hidden="true" className="size-3.5" />
+            <Download aria-hidden="true" />
             Télécharger
           </a>
         ) : null}
         {canWrite ? (
           <ConfirmButton
-            label={isPdf ? "Retirer le document" : "Retirer la photo"}
-            confirmLabel={isPdf ? "Confirmer le retrait du document" : "Confirmer le retrait de la photo"}
+            label={isImage ? "Retirer la photo" : "Retirer le document"}
+            confirmLabel={isImage ? "Confirmer le retrait de la photo" : "Confirmer le retrait du document"}
             confirmText="Retirer ?"
             onConfirm={async () => {
               const result = await editor.removeFile(file.id);
@@ -744,7 +757,7 @@ function Photo({
           </ConfirmButton>
         ) : null}
       </div>
-      <Dialog open={enlarged && Boolean(photo.url)} onOpenChange={onEnlargedChange}>
+      {isWorkbook ? null : <Dialog open={enlarged && Boolean(photo.url)} onOpenChange={onEnlargedChange}>
         <DialogContent size="full" className="items-center">
           <DialogHeader className="self-stretch">
             <DialogTitle>{file.file_name}</DialogTitle>
@@ -760,7 +773,7 @@ function Photo({
             )
           ) : null}
         </DialogContent>
-      </Dialog>
+      </Dialog>}
     </div>
   );
 }
@@ -994,11 +1007,11 @@ export function MaterialRequestOriginalDialog({ editor }: Readonly<{ editor: Mat
       <DialogContent size="xl" keepMounted>
         <DialogHeader>
           <DialogTitle>Original de la demande</DialogTitle>
-          <DialogDescription className="sr-only">Message et photos reçus du technicien.</DialogDescription>
+          <DialogDescription className="sr-only">Message et fichiers reçus du technicien.</DialogDescription>
         </DialogHeader>
         <div className={editor.data.files.length ? "grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]" : "grid gap-5"}>
           <SourceText editor={editor} />
-          <Photos editor={editor} />
+          <OriginalFiles editor={editor} />
         </div>
       </DialogContent>
     </Dialog>

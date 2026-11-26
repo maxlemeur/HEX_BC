@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ImagePlus, UserPlus, X } from "lucide-react";
+import { Paperclip, UserPlus, X } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -31,14 +31,14 @@ import {
 } from "@/lib/material-requests/contracts";
 import { cn } from "@/lib/utils";
 
-import { checkPhotoSelection, materialRequestHref } from "./format";
+import { checkOriginalSelection, materialRequestHref } from "./format";
 import { photoUploadStepLabel, uploadMaterialRequestPhotos, type PhotoUploadStep } from "./photo-upload";
 
 const LABEL = "mb-1 block text-sm font-medium text-foreground";
 
 /**
  * A new request starts from who asked, and from the original when the operator has it at hand: the
- * pasted message, the photos of the paper. Nothing else is prefilled; the affaire is the page's.
+ * pasted message, any files. Nothing else is prefilled; the affaire is the page's.
  */
 export function NewMaterialRequestDialog({
   open,
@@ -48,7 +48,7 @@ export function NewMaterialRequestDialog({
   onTechnicianCreated,
   onRequestCreated,
 }: Readonly<{
-  /** A request now exists although the dialog did not open it (its photos failed): the list shows it. */
+  /** A request now exists although the dialog did not open it (its attachments failed): the list shows it. */
   onRequestCreated: () => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -64,29 +64,29 @@ export function NewMaterialRequestDialog({
   const [newName, setNewName] = useState("");
   const [savingName, setSavingName] = useState(false);
   const [sourceText, setSourceText] = useState("");
-  const [photos, setPhotos] = useState<File[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [creating, setCreating] = useState(false);
   const [progress, setProgress] = useState<PhotoUploadStep | null>(null);
   const submitting = useRef(false);
   const leaving = useRef<AbortController | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** The request exists but its photos were refused: the operator opens it and adds them there. */
-  const [createdWithoutPhotos, setCreatedWithoutPhotos] = useState<{ requestId: string; message: string } | null>(null);
+  /** The request exists but its attachments were refused: the operator opens it and adds them there. */
+  const [createdWithoutFiles, setCreatedWithoutFiles] = useState<{ requestId: string; message: string } | null>(null);
   const active = technicians.filter((technician) => technician.is_active);
 
-  // Leaving the page while the photos are on their way drops what was prepared for them.
+  // Leaving the page while the files are on their way drops what was prepared for them.
   useEffect(() => {
     const controller = new AbortController();
     leaving.current = controller;
     return () => controller.abort();
   }, []);
 
-  const addPhotos = (selection: File[]) => {
-    if (selection.length === 0) return;
-    const refusal = checkPhotoSelection(selection, photos.length);
+  const addFiles = (selection: File[]) => {
+    if (creating || selection.length === 0) return;
+    const refusal = checkOriginalSelection(selection, files.length);
     setError(refusal);
-    if (!refusal) setPhotos((current) => [...current, ...selection]);
+    if (!refusal) setFiles((current) => [...current, ...selection]);
   };
 
   const addTechnician = async () => {
@@ -124,18 +124,18 @@ export function NewMaterialRequestDialog({
       setCreating(false);
       return;
     }
-    if (photos.length > 0) {
+    if (files.length > 0) {
       const result = await uploadMaterialRequestPhotos({
         projectId,
         requestId,
-        files: photos,
+        files,
         onStep: setProgress,
         signal: leaving.current?.signal,
       });
       setProgress(null);
       if (!result.ok) {
-        // The request exists: it is not created a second time, the photos are added from its page.
-        setCreatedWithoutPhotos({ requestId, message: result.message });
+        // The request exists: it is not created a second time, the files are added from its page.
+        setCreatedWithoutFiles({ requestId, message: result.message });
         onRequestCreated();
         setCreating(false);
         return;
@@ -148,7 +148,7 @@ export function NewMaterialRequestDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // Closing while the request is being created would hide where its photos are.
+        // Closing while the request is being created would hide where its files are.
         if (!creating) onOpenChange(next);
       }}
     >
@@ -156,22 +156,22 @@ export function NewMaterialRequestDialog({
         <DialogHeader>
           <DialogTitle>Nouvelle demande</DialogTitle>
           <DialogDescription>
-            Indiquez qui demande. Le message et les photos peuvent aussi être ajoutés après.
+            Indiquez qui demande. Vous pouvez aussi joindre des fichiers après la création.
           </DialogDescription>
         </DialogHeader>
 
-        {createdWithoutPhotos ? (
+        {createdWithoutFiles ? (
           <>
             <Alert variant="warning" role="alert">
               <AlertDescription>
-                <p className="font-semibold">La demande est créée, mais sans ses photos.</p>
-                <p>{createdWithoutPhotos.message}</p>
+                <p className="font-semibold">La demande est créée, mais sans ses pièces jointes.</p>
+                <p>{createdWithoutFiles.message}</p>
                 <p>Ouvrez la demande pour les ajouter.</p>
               </AlertDescription>
             </Alert>
             <DialogFooter>
               <Link
-                href={materialRequestHref(projectId, createdWithoutPhotos.requestId)}
+                href={materialRequestHref(projectId, createdWithoutFiles.requestId)}
                 className={buttonVariants({ variant: "primary" })}
               >
                 Ouvrir la demande
@@ -267,8 +267,8 @@ export function NewMaterialRequestDialog({
             </div>
 
             <div>
-              <label htmlFor={`${ids}-photos`} className={LABEL}>
-                Photos de l’original <span className="font-normal text-muted-foreground">(facultatif)</span>
+              <label htmlFor={`${ids}-files`} className={LABEL}>
+                Fichiers d’origine <span className="font-normal text-muted-foreground">(facultatif)</span>
               </label>
               <div
                 className={cn(
@@ -283,12 +283,12 @@ export function NewMaterialRequestDialog({
                 onDrop={(event) => {
                   event.preventDefault();
                   setDragging(false);
-                  addPhotos(Array.from(event.dataTransfer.files));
+                  addFiles(Array.from(event.dataTransfer.files));
                 }}
               >
                 <input
                   ref={picker}
-                  id={`${ids}-photos`}
+                  id={`${ids}-files`}
                   type="file"
                   multiple
                   hidden
@@ -296,10 +296,10 @@ export function NewMaterialRequestDialog({
                   onChange={(event) => {
                     const selection = Array.from(event.currentTarget.files ?? []);
                     event.currentTarget.value = "";
-                    addPhotos(selection);
+                    addFiles(selection);
                   }}
                 />
-                <p className="text-sm text-muted-foreground">Déposez ici les photos ou PDF de l’original (JPEG, PNG, WebP ou PDF).</p>
+                <p className="text-sm text-muted-foreground">Déposez vos photos, PDF ou Excel (.xlsx), jusqu’à 20 Mo par fichier.</p>
                 <Button
                   type="button"
                   variant="outline"
@@ -308,22 +308,22 @@ export function NewMaterialRequestDialog({
                   disabled={creating}
                   onClick={() => picker.current?.click()}
                 >
-                  <ImagePlus aria-hidden="true" />
-                  Choisir des photos
+                  <Paperclip aria-hidden="true" />
+                  Joindre des fichiers
                 </Button>
               </div>
-              {photos.length > 0 ? (
-                <ul aria-label="Photos choisies" className="mt-2 space-y-1">
-                  {photos.map((photo, index) => (
-                    <li key={`${photo.name}-${index}`} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="min-w-0 truncate">{photo.name}</span>
+              {files.length > 0 ? (
+                <ul aria-label="Fichiers sélectionnés" className="mt-2 space-y-1">
+                  {files.map((file, index) => (
+                    <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="min-w-0 truncate">{file.name}</span>
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon-xs"
-                        aria-label={`Retirer ${photo.name}`}
+                        aria-label={`Retirer ${file.name}`}
                         disabled={creating}
-                        onClick={() => setPhotos((current) => current.filter((_, position) => position !== index))}
+                        onClick={() => setFiles((current) => current.filter((_, position) => position !== index))}
                       >
                         <X aria-hidden="true" />
                       </Button>

@@ -207,7 +207,8 @@ select ok((select bool_and(not prosecdef) from pg_proc where oid in (
     'public.update_material_request_quote(uuid, jsonb)'::regprocedure,
     'public.retain_material_request_quote(uuid)'::regprocedure)),
   '1 the quote functions run as the caller: RLS decides who writes');
-select ok((select not public and allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+select ok((select not public and allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp', 'application/pdf',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
   from storage.buckets where id = 'material-requests'), '1 the private bucket now accepts the PDF of a quote');
 
 -- ---------------------------------------------------------------------------
@@ -650,6 +651,11 @@ select throws_ok($$insert into public.material_request_files (id, request_id, st
     'notes.txt', 'text/plain', 2048)$$,
   '23514', null, '12 an original of the request refuses an unsupported type');
 select set_config('test.beta2_prefix', 'a9300000-0000-4000-8000-000000000101/a9300000-0000-4000-8000-000000000201/a9300000-0000-4000-8000-000000000601/', true);
+select throws_ok($$insert into public.material_request_files (id, request_id, quote_id, storage_path, file_name, mime_type, byte_size, created_by)
+  values ('a9300000-0000-4000-8000-000000000902', 'a9300000-0000-4000-8000-000000000601', current_setting('test.beta2')::uuid,
+    current_setting('test.beta2_prefix') || 'a9300000-0000-4000-8000-000000000902/devis-beta.xlsx',
+    'devis-beta.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 2048, 'a9300000-0000-4000-8000-000000000001')$$,
+  '23514', null, '12 a quote stays restricted to PDF and images');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$insert into public.material_request_files (id, request_id, quote_id, storage_path, file_name, mime_type, byte_size, created_by)
     values ('a9300000-0000-4000-8000-000000000902', 'a9300000-0000-4000-8000-000000000601', current_setting('test.beta2')::uuid,
