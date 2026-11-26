@@ -16,6 +16,7 @@ import {
   readCostingWorkbookRows,
   type CostingWorkbookArticle,
   type CostingWorkbookColumn,
+  type CostingWorkbookColumnInspection,
   type CostingWorkbookSupplyKind,
 } from "@/lib/catalogue/costing-workbook";
 import type { CostingWorkbookImportReport } from "@/lib/catalogue/costing-workbook-contract";
@@ -90,11 +91,12 @@ function ExportButton({ label, onExport }: Readonly<{ label: string; onExport: (
 }
 
 export function ArticlePreview({
-  report, rows, review, onReviewChange, supplyTypeChoices, onSupplyTypeChoice, supplyTypeRows, onSupplyTypeRows,
+  report, rows, sourceInspection, review, onReviewChange, supplyTypeChoices, onSupplyTypeChoice, supplyTypeRows, onSupplyTypeRows,
   duplicateSearch, knownDuplicateRows, onDuplicateSearch, onShowSupplierReferences, onValidate, editorDirty,
 }: Readonly<{
   report: CostingWorkbookImportReport;
   rows: CostingWorkbookRows;
+  sourceInspection: CostingWorkbookColumnInspection;
   review: WorkbookReview;
   onReviewChange: (review: WorkbookReview) => void;
   supplyTypeChoices: SupplyTypeChoices;
@@ -162,7 +164,7 @@ export function ArticlePreview({
   const duplicates = duplicateSearch
     ? { ...duplicateSearch, found: duplicateSearch.found.filter(({ row, article }) => proposedRows.get(row) === article) } : null;
 
-  const columnWarnings = missingColumnWarnings(inspection);
+  const columnWarnings = missingColumnWarnings(sourceInspection);
   const differences = (report.catalogue_differences ?? []).flatMap((difference) => {
     const article = articleByRow.get(difference.row);
     return article ? [{ ...difference, article }] : [];
@@ -552,7 +554,7 @@ export function ArticlePreview({
           </section>
         ) : null}
 
-        {active === "columns" ? <ColumnsPanel inspection={inspection} /> : null}
+        {active === "columns" ? <ColumnsPanel inspection={sourceInspection} /> : null}
 
         {active === "duplicates" ? (
           <>
