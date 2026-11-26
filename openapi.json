@@ -3128,6 +3128,145 @@
         }
       }
     },
+    "/api/affaires/{projectId}/material-requests/{requestId}/files/{fileId}/workbook-preview": {
+      "get": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Prévisualiser les lignes d’un original Excel",
+        "description": "Lit un XLSX joint aux originaux d’une demande. Retourne les feuilles visibles dont les en-têtes sont reconnus, les lignes proposées pour la feuille choisie, leurs numéros Excel et les problèmes à vérifier. L’ajout de brouillons se fait ensuite via POST lines.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProjectId"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "description": "Demande de cette affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestId"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "description": "Original ou fichier d'un devis de cette demande.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestFileId"
+            }
+          },
+          {
+            "name": "sheet",
+            "in": "query",
+            "description": "Nom exact de la feuille. Par défaut, la première feuille reconnue est lue.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestWorkbookSheet"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aperçu des lignes et contrôles à effectuer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestWorkbookPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : l'écriture demande le propriétaire de l'affaire ou un administrateur, avec le rôle admin ou engineer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : original Excel absent de cette demande ou inaccessible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "UNPROCESSABLE_ENTITY : classeur illisible, trop volumineux ou sans tableau reconnu dans la feuille demandée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MATERIAL_REQUEST_WORKBOOK_BUSY : d’autres aperçus sont en cours. Réessayer dans quelques instants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/material-requests/{requestId}/files/complete": {
       "post": {
         "tags": [
@@ -40181,6 +40320,156 @@
               "file_id",
               "lines",
               "model"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialRequestWorkbookSheet": {
+        "type": "string"
+      },
+      "ApiMaterialRequestWorkbookPreview": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "sheet_name": {
+                "type": "string"
+              },
+              "sheet_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "rows": {
+                "maxItems": 300,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "row_number": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "line": {
+                      "type": "object",
+                      "properties": {
+                        "original_text": {},
+                        "quantity": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "exclusiveMinimum": 0,
+                              "maximum": 1000000
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "quantity_doubtful": {
+                          "type": "boolean"
+                        },
+                        "unit": {},
+                        "dimension": {},
+                        "no_dimension": {
+                          "type": "boolean"
+                        },
+                        "product_type": {},
+                        "material": {},
+                        "material_precision": {},
+                        "reference": {},
+                        "supplier_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "zone": {},
+                        "imputation": {
+                          "type": "string",
+                          "enum": [
+                            "project",
+                            "overhead"
+                          ]
+                        },
+                        "overhead_category": {},
+                        "duplicate_acknowledged": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "original_text",
+                        "unit",
+                        "dimension",
+                        "product_type",
+                        "material",
+                        "material_precision",
+                        "reference",
+                        "zone",
+                        "overhead_category"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "row_number",
+                    "line"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "row_number": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "row_number",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "omitted_rows": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "sheet_name",
+              "sheet_names",
+              "rows",
+              "issues",
+              "omitted_rows"
             ],
             "additionalProperties": false
           }

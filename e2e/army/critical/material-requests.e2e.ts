@@ -358,7 +358,12 @@ armyTest(
     expect((await read()).files).toHaveLength(3);
 
     const workbook = new ExcelJS.Workbook();
-    workbook.addWorksheet("Matériel").addRows([["Article", "Quantité"], ["Coude fictif", 4]]);
+    workbook.addWorksheet("Matériel").addRows([
+      ["Liste de matériel fictive"], [],
+      ["Désignation", "Quantité", "Unité", "Dimension", "Référence", "Zone"],
+      ["Tube fictif Excel", "12,5", "m", "DN 28", "EXCEL-01", "Local technique"],
+      ["Coude fictif Excel", 4, "pièce", "DN 28", "EXCEL-02", "Local technique"],
+    ]);
     const workbookBytes = Buffer.from(await workbook.xlsx.writeBuffer());
     const workbookName = "Liste matériel.xlsx";
     const workbookPath = path.join(directory, workbookName);
@@ -381,6 +386,24 @@ armyTest(
       createHash("sha256").update(workbookBytes).digest("hex"),
     ]);
 
+    const beforeImport = (await read()).lines;
+    await original.getByRole("button", "Prévisualiser les lignes", { exact: true }).tap();
+    const workbookPreview = screen.getByRole("dialog", "Importer les lignes Excel", { exact: true });
+    await expect(workbookPreview.getByText("Tube fictif Excel", { exact: true })).toBeVisible();
+    await expect(workbookPreview.getByText("12,5", { exact: true })).toBeVisible();
+    await expect(workbookPreview.getByText("Coude fictif Excel", { exact: true })).toBeVisible();
+    expect((await read()).lines).toEqual(beforeImport);
+    await workbookPreview.getByRole("checkbox", "Sélectionner la ligne 5", { exact: true }).uncheck();
+    await workbookPreview.getByRole("button", "Ajouter 1 ligne en brouillon", { exact: true }).tap();
+    await expect(workbookPreview).not.toBeVisible();
+    await expect(original).not.toBeVisible();
+    const afterImport = (await read()).lines;
+    expect(afterImport.slice(0, beforeImport.length)).toEqual(beforeImport);
+    expect(afterImport.slice(beforeImport.length)).toEqual([expect.objectContaining({
+      original_text: "Tube fictif Excel", product_type: "Tube fictif Excel", quantity: 12.5, unit: "m",
+      dimension: "DN 28", reference: "EXCEL-01", status: "draft",
+    })]);
+
     const final = await read();
 
     // Removing an original removes its bytes with it, and removing the request removes the rest: the
@@ -397,7 +420,8 @@ armyTest(
     expect((await apiRequest(browser, "GET", `${base}/${requestId}/files/${largeStored.id}`)).status).toBe(404);
 
     await recordEvidence(army, "material-requests", {
-      ...ids, requestId, statuses: statuses(final), files: final.files, workbookDownload, refused: refused.body.error,
+      ...ids, requestId, statuses: statuses(final), files: final.files, workbookDownload,
+      importedWorkbookLines: afterImport.slice(beforeImport.length), refused: refused.body.error,
       stillBlocked: stillBlocked.body.error,
     });
   },

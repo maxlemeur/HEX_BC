@@ -42,6 +42,7 @@ import { splitSourceText } from "@/lib/material-requests/source-text";
 import { ConfirmButton } from "./cells";
 import { checkOriginalSelection } from "./format";
 import { MaterialRequestPdfViewer } from "./MaterialRequestPdfViewer";
+import { MaterialRequestWorkbookImport } from "./MaterialRequestWorkbookImport";
 import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
 import type { MaterialRequestEditorApi } from "./useMaterialRequestEditor";
 import { plural } from "@/lib/text/plural";
@@ -107,7 +108,7 @@ function PhotoFrame({
   );
 }
 
-function OriginalFiles({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
+function OriginalFiles({ editor, onWorkbookImported }: Readonly<{ editor: MaterialRequestEditorApi; onWorkbookImported: () => void }>) {
   const { data, canWrite } = editor;
   const files = data.files;
   const [index, setIndex] = useState(0);
@@ -150,6 +151,7 @@ function OriginalFiles({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
           enlarged={enlarged}
           onEnlargedChange={setEnlarged}
           onError={setError}
+          onWorkbookImported={onWorkbookImported}
         />
       ) : (
         <p className="rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-6 text-center text-sm text-muted-foreground">
@@ -666,6 +668,7 @@ function OriginalFile({
   enlarged,
   onEnlargedChange,
   onError,
+  onWorkbookImported,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   file: MaterialRequestFile;
@@ -674,6 +677,7 @@ function OriginalFile({
   enlarged: boolean;
   onEnlargedChange: (open: boolean) => void;
   onError: (message: string | null) => void;
+  onWorkbookImported: () => void;
 }>) {
   const { canWrite, projectId, requestId } = editor;
   const isPdf = isMaterialRequestPdf(file);
@@ -714,6 +718,9 @@ function OriginalFile({
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
+        {canWrite && isWorkbook && (
+          <MaterialRequestWorkbookImport editor={editor} file={file} onImported={onWorkbookImported} />
+        )}
         {canWrite && isImage ? (
           <>
             <Button type="button" variant="outline" size="sm" onClick={() => void rotate(-1)}>
@@ -999,8 +1006,9 @@ function SourceText({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) 
 }
 
 export function MaterialRequestOriginalDialog({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
+  const [open, setOpen] = useState(false);
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button type="button" variant="ghost" size="sm" />}>
         Voir l’original
       </DialogTrigger>
@@ -1011,7 +1019,7 @@ export function MaterialRequestOriginalDialog({ editor }: Readonly<{ editor: Mat
         </DialogHeader>
         <div className={editor.data.files.length ? "grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]" : "grid gap-5"}>
           <SourceText editor={editor} />
-          <OriginalFiles editor={editor} />
+          <OriginalFiles editor={editor} onWorkbookImported={() => setOpen(false)} />
         </div>
       </DialogContent>
     </Dialog>

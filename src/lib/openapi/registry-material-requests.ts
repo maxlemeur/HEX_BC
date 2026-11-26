@@ -44,6 +44,7 @@ import {
   type MaterialRequestPhotoAnalysisAvailability,
 } from "@/lib/material-requests/photo-analysis";
 import { materialRequestQuoteComparisonSchema, quoteComparisonSettingsSchema } from "@/lib/material-requests/quote-comparison";
+import { materialRequestWorkbookPreviewSchema } from "@/lib/material-requests/workbook-preview-contract";
 import {
   LINE_SUPPLIER_REASONS,
   productPreferredSupplierSchema,
@@ -502,6 +503,21 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     description: "Retire l'original de toute lecture, puis supprime ses octets et sa ligne. Vaut aussi pour un fichier préparé mais pas encore conservé : c'est ainsi qu'un dépôt s'annule, et un envoi encore en cours n'aboutit plus. Le fichier d'un devis se supprime de même tant que le devis est demandé ou reçu ; il reste une fois le devis retenu ou clos.",
     parameters: [project, requestId, fileId],
     responses: { "200": success("ApiMaterialRequestFileDeleted", "Original supprimé.", deleted), ...writeRefusals, "409": quoteReadOnly },
+  },
+  {
+    tags, method: "get", path: `${one}/files/{fileId}/workbook-preview`, summary: "Prévisualiser les lignes d’un original Excel",
+    description: "Lit un XLSX joint aux originaux d’une demande. Retourne les feuilles visibles dont les en-têtes sont reconnus, les lignes proposées pour la feuille choisie, leurs numéros Excel et les problèmes à vérifier. L’ajout de brouillons se fait ensuite via POST lines.",
+    parameters: [project, requestId, fileId, queryParameter({
+      name: "sheet", description: "Nom exact de la feuille. Par défaut, la première feuille reconnue est lue.",
+      schemaName: "MaterialRequestWorkbookSheet", schema: z.string(),
+    })],
+    responses: {
+      "200": success("ApiMaterialRequestWorkbookPreview", "Aperçu des lignes et contrôles à effectuer.", materialRequestWorkbookPreviewSchema),
+      ...writeRefusals,
+      "404": refusal("NOT_FOUND : original Excel absent de cette demande ou inaccessible."),
+      "422": refusal("UNPROCESSABLE_ENTITY : classeur illisible, trop volumineux ou sans tableau reconnu dans la feuille demandée."),
+      "503": refusal("MATERIAL_REQUEST_WORKBOOK_BUSY : d’autres aperçus sont en cours. Réessayer dans quelques instants."),
+    },
   },
   {
     tags, method: "post", path: `${one}/files/{fileId}/analysis`, summary: "Lire un original avec l'IA",
