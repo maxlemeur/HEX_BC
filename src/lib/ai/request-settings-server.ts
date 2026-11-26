@@ -99,9 +99,9 @@ function resolveAiRequestSource(
 
 export function aiRequestApiKeyOptions(state: ApiKeyAccessState, usage?: AiAnalysisUsage): SourceOptions {
   if (state.status === "unavailable") return refusal("source_unavailable", state.message);
-  if (state.status !== "saved" || !state.analysisPreferences) return refusal("source_unavailable", AI_REQUEST_KEY_MISSING);
+  if (state.status !== "saved") return refusal("source_unavailable", AI_REQUEST_KEY_MISSING);
   const models = state.connection.offeredModels;
-  const preferences = resolveApiAnalysisPreferences(state.analysisPreferences, models, usage);
+  const preferences = resolveApiAnalysisPreferences(state.analysisPreferences ?? DEFAULT_AI_ANALYSIS_PREFERENCES, models, usage);
   if (!preferences) return refusal("no_model", AI_REQUEST_KEY_MISSING);
   return {
     ok: true, message: "Clé API OpenAI enregistrée.", models, preferences,
