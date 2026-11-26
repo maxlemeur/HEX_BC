@@ -1,3 +1,4 @@
+import { apiRequest, readEstimate } from "../critical/fixtures";
 import { waitForHydration } from "../critical/hydration-support";
 import { querySql } from "../local/calculation-gate-support";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
@@ -99,10 +100,16 @@ test("POSTE-PORTEE03 la collision présente la saisie en place avant un remplace
 
 test("POSTE-PORTEE04 une saisie modifiée reste en place, puis son retrait rend le poste aux lectures", options, async ({ ui }) => {
   const f = await prepare(ui, ["nord.pdf"]);
-  await f.entry("4");
+  await f.open("?postePlan=" + f.seeded.plans[0].fileId);
+  await ui.screen.getByRole("link", `Détail de « ${label} » sur le plan`, { exact: true }).click();
+  await ui.screen.getByRole("listbox", "Postes", { exact: true }).press("F2");
+  await f.dialog.getByLabel("Quantité", { exact: true }).fill("4");
+  await f.dialog.getByRole("button", "Continuer").click();
+  await f.dialog.getByLabel("Ce qui fonde ces quantités").selectOption({ value: "site_survey" });
+  await expect(f.scope).toHaveValue(f.seeded.plans[0].fileId);
   await f.scope.selectOption({ label: "Total de toute l’affaire" });
-  await f.save();
-  await f.expand();
+  await f.dialog.getByRole("button", "Enregistrer", { exact: true }).click();
+  await expect(ui.screen.getByTestId("poste-detail-decision")).toContainText("Poste saisi.");
   await f.button(withdraw).click();
   await querySql(`update public.takeoff_item_entries set quantity=5,revision=revision+1 where project_id='${f.seeded.projectId}'`);
   await f.dialog.getByRole("button", "Retirer", { exact: true }).click();
@@ -124,7 +131,21 @@ test("POSTE-PORTEE05 une part vivante dans un devis émis empêche le retrait et
   await f.send();
   await seedLegacyTotal(f.seeded.projectId);
   const [line] = (await readOwnedLines(f.seeded.projectId)).filter(row => row.item_type === "line");
-  await querySql(`update public.estimate_versions set status='sent',seal_hash=repeat('1',64) where id='${line.version_id}'`);
+  // Price the line in the editor's draft, then issue the estimate through the normal manual emission.
+  await f.open();
+  const base = `/api/estimates/${line.version_id}`;
+  const lock = await apiRequest(ui.browser, "POST", base + "/lock");
+  expect([200, 201]).toContain(lock.status);
+  const draft = await readEstimate(ui.browser, line.version_id);
+  const priced = await apiRequest(ui.browser, "POST", base + "/batch", { operation_key: crypto.randomUUID(),
+    operations: [{ op: "update", id: line.id, data: { unit_price_ht_cents: 4200, pricing_status: "priced" } }] },
+    { "if-match": draft.version.updated_at });
+  expect(priced.status).toBe(200);
+  expect((await apiRequest(ui.browser, "DELETE", base + "/lock")).status).toBe(200);
+  await ui.app.open(`/dashboard/estimates/${line.version_id}/edit`);
+  await ui.screen.getByTestId("estimate-page-toolbar-send-button").click();
+  await ui.screen.getByRole("dialog", "Vérification avant envoi").getByRole("button", "Envoyer", { exact: true }).click();
+  await expect.poll(async () => (await readEstimate(ui.browser, line.version_id)).version.status).toBe("sent");
   await f.open();
   await f.expand();
   await f.button(withdraw).click();

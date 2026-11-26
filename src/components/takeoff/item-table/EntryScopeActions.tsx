@@ -26,10 +26,11 @@ export function EntryScopeActions({ projectId, viewerKey, line, filtered, versio
   projectId: string; viewerKey: string; line: ItemTableResponseLine; filtered: boolean; version: number;
   onRefused: (error: unknown) => boolean; onRefresh: () => void;
 }) {
-  const read = useSWR(filtered && line.wholeEntry ? ["poste-entry-scope", viewerKey, projectId, line.itemId, version] : null,
+  const needsFullLine = filtered && line.entry?.scope !== "affaire";
+  const read = useSWR(needsFullLine && line.wholeEntry ? ["poste-entry-scope", viewerKey, projectId, line.itemId, version] : null,
     () => fetchItemLine(projectId, line.itemId), { shouldRetryOnError: false });
   useEffect(() => { if (read.error) onRefused(read.error); }, [read.error, onRefused]);
-  const full = filtered ? read.data?.canReview && !read.error ? read.data.line : null : line;
+  const full = needsFullLine ? read.data?.canReview && !read.error ? read.data.line : null : line;
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const begin = (action: Snapshot["action"]) => {
     if (full?.entry?.scope !== "affaire") return;
