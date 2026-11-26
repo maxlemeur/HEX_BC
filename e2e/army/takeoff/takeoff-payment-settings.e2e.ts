@@ -96,10 +96,12 @@ describe("Paid takeoff request settings", () => {
     const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
     await showOverride(dialog);
     expect(await ui.browser.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    const launch = dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true });
+    await launch.scrollIntoView();
     const screenshot = await app.screenshot("paidmetre01-lancement-375");
     const before = (await providerReads()).length;
 
-    await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    await launch.click();
 
     await expect(dialog.getByText("Analyse transmise au traitement", { exact: true })).toBeVisible(DEV_SERVER_WORK);
     await expect.poll(async () => (await ownedTakeoffJobs(ui.browser, ids).list()).map((job) => job.status),
@@ -189,9 +191,11 @@ describe("Paid takeoff request settings", () => {
       const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
       await expect(dialog.getByRole("checkbox", /Plan plomberie fictif/)).toBeChecked(DEV_SERVER_WORK);
       await showOverride(dialog);
+      const relaunch = dialog.getByRole("button", "Relancer 1 plan avec ma clé API", { exact: true });
+      await relaunch.scrollIntoView();
       const screenshot = await app.screenshot("paidmetre04-relance");
 
-      await dialog.getByRole("button", "Relancer 1 plan avec ma clé API", { exact: true }).click();
+      await relaunch.click();
 
       await expect(dialog.getByText("Analyse transmise au traitement", { exact: true })).toBeVisible(DEV_SERVER_WORK);
       await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map((request) => [request.state, request.units_expected]),
