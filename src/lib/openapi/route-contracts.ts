@@ -1030,7 +1030,7 @@ const directoryAndOrdersContracts: RouteContract[] = [
     path: "/api/products",
     summary: "Creer ou mettre a jour un produit",
     description:
-      "Cree un article du referentiel ou met a jour ses champs, y compris l'archivage. L'unite d'un article qui a des conditionnements de vente ne change pas : 409 PRODUCT_UNIT_HAS_PACKAGINGS, retirer d'abord ses conditionnements.",
+      "Cree un article du referentiel ou met a jour ses champs, y compris l'archivage. L'unite d'un article qui a des conditionnements de vente ne change pas : 409 PRODUCT_UNIT_HAS_PACKAGINGS, retirer d'abord ses conditionnements. A la creation, une reference laissee vide prend le format de la nomenclature de l'entreprise quand un administrateur l'a enregistree et que l'article indique ce que ce format demande, sinon le numero automatique. Une reference deja prise repond 409, avec l'article qui la porte (PRODUCT_REFERENCE_TAKEN) quand il est lisible. La reference d'un article existant est figee : seul un administrateur la corrige, et un autre membre qui la change recoit 403 PRODUCT_REFERENCE_LOCKED ; tout membre qui modifie la fiche en donne une a un article qui n'en a pas.",
     tags: ["Catalogue"],
     body: { schema: productActionSchema, description: "Action produit discriminee." },
     success: [

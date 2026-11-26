@@ -30,7 +30,7 @@ export async function readCatalogueAccess(): Promise<CatalogueAccess> {
  * zero-row write into an explicit 403.
  */
 export async function getCatalogueWriterClient(refusal: string) {
-  const { supabase, userId, tenantRole } = await getAuthenticatedTenantContext();
+  const { supabase, userId, tenantId, tenantRole } = await getAuthenticatedTenantContext();
   if (!canAddToCatalogue(tenantRole)) throw forbidden(refusal);
-  return { supabase, userId, isTenantAdmin: tenantRole === "admin" };
+  return { supabase, userId, tenantId, isTenantAdmin: tenantRole === "admin" };
 }

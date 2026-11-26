@@ -116,6 +116,11 @@ type ProductFormModalProps = {
    * offers « Nouveau type » to them alone. Absent, it is not offered.
    */
   canCreateSupplyType?: boolean;
+  /**
+   * The member is an administrator of the active tenant: the reference of an existing article, fixed once
+   * given, can be corrected by them alone. Absent, it stays read-only.
+   */
+  canChangeReference?: boolean;
   onSupplyTypeCreated?: (supplyType: ProductSupplyType) => void;
   /** A supplier of the article, or its preferred one, was saved from the form (saved at once, TI-691). */
   onSuppliersChanged?: () => void;
@@ -209,6 +214,7 @@ export function ProductFormModal({
   materialSuggestions,
   supplyTypes,
   canCreateSupplyType = false,
+  canChangeReference = false,
   onSupplyTypeCreated,
   onSuppliersChanged,
   onOpenChange,
@@ -220,6 +226,10 @@ export function ProductFormModal({
   const [localError, setLocalError] = useState<string | null>(null);
   const isEditing = product !== null;
   const isDraft = product?.catalogue_status === "draft";
+  // Quotes, requests and orders name an article by its reference: once given it is not retyped with the rest.
+  const [referenceUnlocked, setReferenceUnlocked] = useState(false);
+  const hasReference = Boolean(product?.reference?.trim());
+  const referenceLocked = isEditing && hasReference && !referenceUnlocked;
   // The article type lives in the technical details and a draft needs it: they start unfolded.
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(
     () => hasTechnicalDetails(product) || isDraft,
@@ -366,15 +376,28 @@ export function ProductFormModal({
                     autoComplete="off"
                     placeholder="Ex. Tub.I4S.50"
                     aria-describedby="product-reference-hint"
+                    readOnly={referenceLocked}
                     value={form.reference}
                     onChange={(event) => setField("reference", event.target.value)}
                   />
                   <FieldDescription id="product-reference-hint" className="text-xs">
-                    Référence interne de l’article, distincte des références fournisseur.
+                    {referenceLocked
+                      ? "Référence interne figée après la création : devis, demandes et commandes s’y rattachent."
+                      : isEditing && hasReference
+                        ? "L’ancienne référence ne retrouvera plus cet article. Changez-la seulement pour corriger une erreur."
+                        : "Référence interne de l’article, distincte des références fournisseur."}
                   </FieldDescription>
+                  {referenceLocked && canChangeReference ? (
+                    <div>
+                      <Button variant="outline" size="sm" onClick={() => setReferenceUnlocked(true)}>
+                        Corriger la référence
+                      </Button>
+                    </div>
+                  ) : null}
                   <ProductReferenceSuggestion
                     enabled={open && !isEditing}
                     value={form.reference}
+                    identity={form}
                     onUse={(reference) => setField("reference", reference)}
                   />
                 </div>

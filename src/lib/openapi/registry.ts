@@ -138,6 +138,7 @@ import {
   priceExplanationSettingsSchema,
 } from "@/lib/estimates/explanation-schemas";
 import { pricesActionSchema } from "@/lib/catalogue/schemas";
+import { productReferenceNamingSchema } from "@/lib/catalogue/product-reference-naming";
 import { referencePriceActionSchema, referencePriceHistorySchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
 import {
   COSTING_WORKBOOK_FORMAT,
@@ -3033,12 +3034,12 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "get",
     path: "/api/products/reference-suggestion",
     summary: "Proposer une référence interne d’article",
-    description: "Suggestion provisoire réservée aux administrateurs et aux ingénieurs, qui ajoutent des articles. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant.",
+    description: "Suggestion provisoire réservée aux administrateurs et aux ingénieurs, qui ajoutent des articles. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant. « naming » est la nomenclature enregistrée et activée par l’entreprise : le formulaire en tire la référence d’un article d’après ses caractéristiques, et « reference », le numéro automatique, reste la valeur de repli.",
     tags: ["Catalogue"],
     responses: {
       "200": jsonResponse("Référence proposée.", schemaDefinition(
         "ProductReferenceSuggestionResponse",
-        successEnvelopeSchema(z.object({ reference: z.string().min(1) })), "output"
+        successEnvelopeSchema(z.object({ reference: z.string().min(1), naming: productReferenceNamingSchema.optional() })), "output"
       )),
       "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "403": jsonResponse("Administrateur ou ingénieur requis.", openApiSharedSchemaDefinitions.apiFailureResponse),

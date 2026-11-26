@@ -600,6 +600,7 @@ export function SupplierOfferFormModal({
                     <ProductReferenceSuggestion
                       enabled={open && productMode === "new"}
                       value={productDraft.reference}
+                      identity={productDraft}
                       onUse={(reference) => updateProduct("reference", reference)}
                     />
                   </div>

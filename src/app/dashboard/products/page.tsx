@@ -767,6 +767,7 @@ export default function ProductsPage() {
           materialSuggestions={data?.facets.materials}
           supplyTypes={data?.supplyTypes}
           canCreateSupplyType={canCreateSupplyType}
+          canChangeReference={tenantRole === "admin"}
           onSupplyTypeCreated={() => void mutate()}
           onSuppliersChanged={() => void mutate()}
           onOpenChange={handleFormOpenChange}

@@ -10,6 +10,8 @@ import type { Database } from "@/types/database";
 
 import { getCatalogueWriterClient } from "./access-server";
 import type { CreateProductInput, UpdateProductInput } from "./directory-schemas";
+import { proposeProductReference } from "./product-reference-naming";
+import { readProductReferenceNaming } from "./product-reference-naming-server";
 import {
   PRODUCT_UNIT_HAS_PACKAGINGS,
   PRODUCT_UNIT_HAS_PACKAGINGS_MESSAGE,
@@ -55,6 +57,29 @@ const PRODUCT_VALIDATION_ADMIN_ONLY = "PRODUCT_VALIDATION_ADMIN_ONLY";
 export const PRODUCT_REFERENCE_TAKEN =
   "Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide.";
 
+export const PRODUCT_REFERENCE_LOCKED = "PRODUCT_REFERENCE_LOCKED";
+const PRODUCT_REFERENCE_LOCKED_MESSAGE =
+  "La référence d’un article est figée après sa création : devis, demandes et commandes s’y rattachent. Un administrateur peut la corriger.";
+
+type WriterSupabase = Awaited<ReturnType<typeof getCatalogueWriterClient>>["supabase"];
+
+/**
+ * A reference already taken, said with the article that holds it: with a format built from the article's
+ * characteristics, the same reference is most often the same article entered twice.
+ */
+async function referenceTaken(supabase: WriterSupabase, tenantId: string, reference: string | null | undefined, fallback: string) {
+  const wanted = reference?.trim();
+  if (!wanted) return conflict(fallback);
+  const { data } = await supabase.from("products").select("id, reference, designation")
+    .eq("tenant_id", tenantId).eq("reference_normalized", wanted.toLowerCase()).maybeSingle();
+  if (!data?.designation) return conflict(fallback);
+  return conflict(
+    `La référence « ${data.reference ?? wanted} » est déjà celle de l’article « ${data.designation} ». S’il s’agit du même article, utilisez sa fiche ; sinon complétez la fiche ou saisissez une autre référence.`,
+    { product_id: data.id, reference: data.reference ?? wanted },
+    "PRODUCT_REFERENCE_TAKEN",
+  );
+}
+
 /** Refusals of the triggers that guard an item's catalogue status, as sentences. */
 export function catalogueStatusError(error: { message: string; details?: string | null }) {
   if (error.message.includes(PRODUCT_VALIDATION_INCOMPLETE)) {
@@ -75,9 +100,13 @@ export function catalogueStatusError(error: { message: string; details?: string 
 }
 
 export async function createProduct(input: CreateProductInput) {
-  const { supabase } = await getWriterClient();
+  const { supabase, tenantId } = await getWriterClient();
+  // A typed reference is kept as typed. A blank one takes the company's format when its administrator saved
+  // one and the article states what the format needs; otherwise the database assigns the automatic number.
+  const naming = input.reference ? null : await readProductReferenceNaming(supabase, tenantId);
+  const proposed = naming?.saved ? proposeProductReference(naming.naming, input) : null;
   const payload = compactRecord<ProductInsert>({
-    reference: input.reference,
+    reference: proposed ?? input.reference,
     designation: input.designation,
     category: input.category,
     product_type: input.product_type,
@@ -100,7 +129,7 @@ export async function createProduct(input: CreateProductInput) {
 
   if (error) {
     if (error.code === "23505") {
-      throw conflict(PRODUCT_REFERENCE_TAKEN);
+      throw await referenceTaken(supabase, tenantId, proposed ?? input.reference, PRODUCT_REFERENCE_TAKEN);
     }
     throw catalogueStatusError(error) ?? mapSupabaseError(error, "Impossible de créer le produit.");
   }
@@ -109,15 +138,19 @@ export async function createProduct(input: CreateProductInput) {
 }
 
 export async function suggestProductReference() {
-  const { supabase } = await getWriterClient();
-  const { data, error } = await supabase.rpc("suggest_product_reference");
+  const { supabase, tenantId } = await getWriterClient();
+  const [{ data, error }, naming] = await Promise.all([
+    supabase.rpc("suggest_product_reference"),
+    readProductReferenceNaming(supabase, tenantId),
+  ]);
   if (error) {
     throw mapSupabaseError(error, "Impossible de proposer une référence interne.");
   }
   if (typeof data !== "string" || !data.trim()) {
     throw badRequest("Aucune référence interne n’a pu être proposée.");
   }
-  return { reference: data };
+  // The form builds the proposal of the company's format from what is typed; the number stays the fallback.
+  return { reference: data, ...(naming.saved && naming.naming.enabled ? { naming: naming.naming } : {}) };
 }
 
 export async function updateProduct(input: UpdateProductInput) {
@@ -129,6 +162,16 @@ export async function updateProduct(input: UpdateProductInput) {
     throw badRequest("Aucun champ de mise à jour fourni.");
   }
 
+  // A reference identifies the article wherever it was used: once given it does not change with the rest of
+  // the sheet. An administrator corrects a mistake; anyone who edits the sheet gives one to an article without.
+  if (typeof payload.reference === "string" && !writer.isTenantAdmin) {
+    const { data: current } = await supabase.from("products").select("id, reference").eq("id", input.id).maybeSingle();
+    const held = current?.reference?.trim();
+    if (held && held !== payload.reference.trim()) {
+      throw forbidden(PRODUCT_REFERENCE_LOCKED_MESSAGE, undefined, PRODUCT_REFERENCE_LOCKED);
+    }
+  }
+
   const { data, error } = await supabase
     .from("products")
     .update(payload)
@@ -138,7 +181,9 @@ export async function updateProduct(input: UpdateProductInput) {
 
   if (error) {
     if (error.code === "23505") {
-      throw conflict("Cette référence interne existe déjà. Choisissez une autre référence.");
+      throw await referenceTaken(
+        supabase, writer.tenantId, payload.reference, "Cette référence interne existe déjà. Choisissez une autre référence.",
+      );
     }
     if (isProductUnitHeldByPackagings(error)) {
       throw conflict(PRODUCT_UNIT_HAS_PACKAGINGS_MESSAGE, undefined, PRODUCT_UNIT_HAS_PACKAGINGS);
