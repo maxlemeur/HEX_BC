@@ -1,11 +1,13 @@
 import { strToU8, zipSync } from "fflate";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { utils as xlsxUtils, write as writeXlsx } from "xlsx";
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
 import * as fileRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/files/[fileId]/route";
+import * as workbookRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/files/[fileId]/workbook-preview/route";
 import * as completeRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/files/complete/route";
 import * as filesRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/files/route";
 import * as lineRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/[lineId]/route";
@@ -1136,6 +1138,32 @@ describe("material requests of an affaire: originals", () => {
   const listed = async () => ((await call(requestRoute.GET, "GET", inRequest)).data as { files: FakeRow[] }).files.map((entry) => entry.id);
 
   const workbookMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+  it("previews a saved Excel original without creating lines or caching the response", async () => {
+    const workbook = xlsxUtils.book_new();
+    xlsxUtils.book_append_sheet(workbook, xlsxUtils.aoa_to_sheet([["Article", "Quantité"], ["Tube fictif", 2.5]]), "Matériel");
+    const bytes = Buffer.from(writeXlsx(workbook, { type: "buffer", bookType: "xlsx" }));
+    const fake = seed(OWNER, "engineer", { objects: { [FILE_PATH]: bytes } });
+    Object.assign(fake.tables.material_request_files[0], { mime_type: workbookMime, quote_id: null, file_name: "liste.xlsx", byte_size: bytes.byteLength });
+
+    const preview = await call(workbookRoute.GET, "GET", { ...inRequest, fileId: FILE });
+    expect(preview.status).toBe(200);
+    expect(preview.response.headers.get("cache-control")).toBe("private, no-store");
+    expect(preview.data).toMatchObject({ sheet_name: "Matériel", rows: [{ row_number: 2, line: { product_type: "Tube fictif", quantity: 2.5 } }] });
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("preserves write rights and scope before reading workbook bytes", async () => {
+    const reader = seed(VIEWER, "viewer");
+    expect((await call(workbookRoute.GET, "GET", { ...inRequest, fileId: FILE })).status).toBe(403);
+    expect(reader.storageCalls).toEqual([]);
+
+    const owner = seed(OWNER, "engineer");
+    expect((await call(workbookRoute.GET, "GET", { ...inRequest, fileId: OTHER_FILE })).status).toBe(404);
+    Object.assign(owner.tables.material_request_files[0], { mime_type: workbookMime, quote_id: null, stored_at: null });
+    expect((await call(workbookRoute.GET, "GET", { ...inRequest, fileId: FILE })).status).toBe(404);
+    expect(owner.storageCalls).toEqual([]);
+  });
 
   it("keeps an Excel original with a missing browser MIME type and serves its unchanged bytes as a download", async () => {
     const fake = seed(OWNER, "engineer");

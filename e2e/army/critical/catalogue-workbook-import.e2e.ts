@@ -187,7 +187,8 @@ armyTest(
     };
     // The company's supply types come with the preview; other journeys of the run may add theirs meanwhile.
     const readReport = async (response: { json<T>(): Promise<T> }) => {
-      const { supply_types: offered, ...report } = (await response.json<Envelope<CostingWorkbookImportReport>>()).data;
+      const { supply_types: offered, review_tenant_id: reviewedTenant, ...report } = (await response.json<Envelope<CostingWorkbookImportReport>>()).data;
+      expect(reviewedTenant).toMatch(/^[0-9a-f-]{36}$/);
       return { report, offeredCodes: (offered ?? []).map((type) => type.code) };
     };
     const firstPreview = await readReport(previewResponse);
@@ -343,6 +344,65 @@ armyTest(
   },
 );
 
+
+armyTest(
+  "CAT05 validates a reviewed workbook family in bulk after correcting a series of units",
+  { session: "army", tags: ["critical", "catalogue"], timeout: 240_000 },
+  async ({ app, screen, browser, army }) => {
+    const prefix = `${army.runPrefix}-Fam`;
+    await app.open("/dashboard/products/import-workbook");
+
+    if (!(await supplyTypes(browser)).some((type) => type.code === "tube")) {
+      const type = await apiRequest(browser, "POST", "/api/catalogue/supply-types", { name: "Tube" });
+      expect([201, 409]).toContain(type.status);
+    }
+    const tube = (suffix: string, unit: string | null, price: number | null) => row({
+      "Type_ligne": "Art", "ID": `${prefix}-${suffix}`, "Caractéristique": "Tube", "Matériau": "Cuivre",
+      "Dimension": `DN${suffix}`, "Type FO": "I4L", "Unité": unit, "PR. FO": price,
+    });
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      HEADERS,
+      tube("12", null, 4.25), tube("14", null, 5.3), tube("16", "ml", 6), tube("18", "ml", null),
+      row({
+        "Type_ligne": "Art", "ID": `${prefix}-ROB`, "Caractéristique": "Vanne", "Matériau": "Laiton",
+        "Type FO": "ROB", "Unité": "u", "PR. FO": 15,
+      }),
+    ]), COSTING_WORKBOOK_SHEET);
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+    await mkdir(directory, { recursive: true });
+    const workbookPath = path.join(directory, "familles.xlsx");
+    await writeFile(workbookPath, XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }));
+
+    const page = screen.getByRole("region", "Importer le classeur de chiffrage", { exact: true });
+    await page.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(workbookPath);
+    const family = page.getByRole("combobox", "Famille du classeur", { exact: true });
+    const table = page.getByRole("table", "Articles proposés en brouillon", { exact: true });
+    await family.selectOption({ value: "family:I4L" });
+    await expect(table.getByRole("row")).toHaveCount(5);
+    await page.getByRole("button", "À examiner · 3", { exact: true }).tap();
+    await page.getByRole("combobox", "Unité dans le classeur", { exact: true }).selectOption({ value: ":" });
+    await expect(table.getByRole("row")).toHaveCount(3);
+    await page.getByRole("textbox", "Nouvelle unité pour ces lignes", { exact: true }).fill("ml");
+    await page.getByRole("button", "Corriger l’unité de 2 lignes", { exact: true }).tap();
+    await expect(page.getByRole("button", "Prêts à valider · 3", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", "À examiner · 1", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", "Prêts à valider · 3", { exact: true }).tap();
+    await table.getByRole("checkbox", `Sélectionner ${prefix}-16 pour la validation`, { exact: true }).tap();
+    await page.getByRole("button", "Importer et valider 2 articles", { exact: true }).tap();
+    await screen.getByRole("button", "Confirmer la validation", { exact: true }).tap();
+    await expect(page.getByText(/^2 brouillons validés\./)).toBeVisible({ timeout: 30_000 });
+
+    const validated = await cataloguePage(browser, prefix, "validated");
+    expect(validated.map(({ reference, unit, unit_price_cents }) => [reference, unit, unit_price_cents]).sort())
+      .toEqual([[`${prefix}-12`, "ml", 425], [`${prefix}-14`, "ml", 530]]);
+    expect(await cataloguePage(browser, prefix, "draft")).toEqual([]);
+    await page.getByRole("button", "Tous", { exact: true }).tap();
+    await expect(table.getByText(`${prefix}-16`, { exact: true })).toBeVisible();
+    await expect(table.getByText(`${prefix}-18`, { exact: true })).toBeVisible();
+  },
+);
 
 armyTest(
   "CAT03 the costing workbook imports only matched supplier references for review, with an actionable report",

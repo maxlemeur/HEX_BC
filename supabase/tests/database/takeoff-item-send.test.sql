@@ -478,6 +478,11 @@ create function pg_temp.tried(p_sql text) returns text language sql as $$
 $$;
 grant execute on function pg_temp.tried(text) to authenticated;
 
+\if :{?takeoff_read_budget}
+\ir ../fixtures/takeoff-retained-read-cost.sql
+\else
+\ir ../fixtures/takeoff-retain-measure.sql
+
 -- 2. The first send of a plan: a first draft created, its section by its identity, one line for the lavabo (2 on page 2
 --    and 1 on page 7: 3 u), the target, its parts, its pages, the receipt; the job linked and applied.
 select pg_temp.sign_in(1);
@@ -837,6 +842,7 @@ select is(pg_temp.refusal($$select pg_temp.send(720, 'undeclared_bathtub')$$), '
   'a measured-only target cannot silently omit the retained typed bathtub');
 select is(pg_temp.exclude_item(302, 2402), 'applied', 'the member sets the bathtub aside for the lavabo-only second send');
 reset role;
+\ir ../fixtures/takeoff-retain-unreferenced.sql
 insert into plans values ('second', pg_temp.second(pg_temp.decisions(), pg_temp.chosen()));
 insert into plans values ('no_decision', pg_temp.second('[]'::jsonb, pg_temp.chosen()));
 insert into plans values ('replace_today', pg_temp.second(jsonb_set(pg_temp.decisions(), '{0}',
@@ -1704,6 +1710,9 @@ select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.refusal($$select pg_temp.send(781, 'wc_planner_choice')$$), '22023 TAKEOFF_ITEM_SEND_INVALID',
   'closing 5: a choice of line spelled otherwise than the writer reads it is a malformed plan');
+reset role;
+\ir ../fixtures/takeoff-retain-destination.sql
+set local role authenticated;
 -- The same choice as the planner writes it now (estimate_item_id): confirmed.
 select is((pg_temp.send(781, 'wc_page_7') -> 'lines' -> 0 ->> 'quantity_after'), '6',
   'page 2 left out, page 7 sent: the DPGF line holds max(4, 1 + 5) = 6, its legacy part kept');
@@ -2398,5 +2407,6 @@ select results_eq($$select a.replaces_answer_id, (select count(*)::integer from 
     from public.takeoff_item_answers a where a.job_id = pg_temp.f(1090)$$,
   $$select answer_id, 0 from seen_lavabo$$, 'the new answer replaces the lavabo''s reading on the plan, undecided');
 
+\endif
 select * from finish();
 rollback;

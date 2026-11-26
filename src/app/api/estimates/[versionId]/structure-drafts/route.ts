@@ -4,6 +4,9 @@ import { generateEstimateStructureDraftSchema } from "@/lib/estimates/schemas";
 import { generateEstimateStructureDraft } from "@/lib/estimates/structure-drafts";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
+// Database writes are fenced on runtimes that do not enforce this deployment limit.
+export const maxDuration = 300;
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ versionId: string }> }

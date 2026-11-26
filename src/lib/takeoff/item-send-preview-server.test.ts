@@ -606,6 +606,9 @@ describe("confirmTakeoffItemSend", () => {
       expect(error.message).toMatch(/[a-zàâçéèêëîïôûùüÿœ]/);
       expect(error.message).not.toContain("TAKEOFF_");
     }
+    expect(mapItemSendRpcError({ message: "TAKEOFF_ITEM_SEND_PREVIEW_STALE", code: "40001",
+      details: '{"reason":"measure_reconciliation_changed"}' }, JOB).message).toBe(
+      "Le métré, le devis ou la liste ont changé depuis l’aperçu. Rouvrez l’aperçu puis confirmez de nouveau. Rien n’a été écrit.");
     expect(mapItemSendRpcError({ message: "TAKEOFF_ITEM_SEND_PAGE_DECISION_INVALID", code: "22023",
       details: '{"reason": "keep_both_same_line", "page": 2}' }, JOB).message).toContain("Garder les deux");
   });

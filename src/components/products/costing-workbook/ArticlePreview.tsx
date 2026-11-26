@@ -5,6 +5,7 @@ import { useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { DownloadIcon, ExternalLinkIcon } from "lucide-react";
 
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,8 @@ import {
   missingColumnWarnings,
   type ArticleFinding,
 } from "@/lib/catalogue/costing-workbook-review";
+import { workbookCellText } from "@/lib/catalogue/costing-workbook-edits";
+import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import { exportToExcelWithSheets } from "@/lib/export";
 import { formatEUR } from "@/lib/money";
 import { foldText } from "@/lib/text/fold";
@@ -88,7 +91,7 @@ function ExportButton({ label, onExport }: Readonly<{ label: string; onExport: (
 
 export function ArticlePreview({
   report, rows, review, onReviewChange, supplyTypeChoices, onSupplyTypeChoice, supplyTypeRows, onSupplyTypeRows,
-  duplicateSearch, onDuplicateSearch, onShowSupplierReferences,
+  duplicateSearch, knownDuplicateRows, onDuplicateSearch, onShowSupplierReferences, onValidate, editorDirty,
 }: Readonly<{
   report: CostingWorkbookImportReport;
   rows: CostingWorkbookRows;
@@ -100,10 +103,18 @@ export function ArticlePreview({
   supplyTypeRows: Readonly<Record<number, string>>;
   onSupplyTypeRows: (choices: ReadonlyArray<{ rows: readonly number[]; supplyTypeId: string | null }>) => void;
   duplicateSearch: DuplicateSearch | null;
+  knownDuplicateRows: ReadonlySet<number>;
   onDuplicateSearch: (search: DuplicateSearch | null) => void;
   onShowSupplierReferences: () => void;
+  onValidate?: (rows: readonly number[]) => void;
+  editorDirty: boolean;
 }>) {
-  const { busy } = useWorkbookEditor();
+  const { busy, applyEdits, revision, isCurrentRevision } = useWorkbookEditor();
+  const [family, setFamily] = useState("");
+  const [sourceUnit, setSourceUnit] = useState("");
+  const [newUnit, setNewUnit] = useState("");
+  const [excluded, setExcluded] = useState<ReadonlySet<number>>(new Set());
+  const [pending, setPending] = useState<{ rows: number[]; revision: number } | null>(null);
   const supplyTypeSelectId = useId();
   const { new_articles: newArticles, already_in_catalogue: already, supplier_references_not_imported: notImported } = report;
   const { read, inspection } = useMemo(
@@ -124,20 +135,22 @@ export function ArticlePreview({
 
   const proposedAll: ProposedArticle[] = (report.proposed_articles ?? []).flatMap((proposal) => {
     const article = articleByRow.get(proposal.row);
-    return article ? [{ row: proposal.row, article, findings: articleFindings(article, proposal.without_supply_type) }] : [];
+    if (!article) return [];
+    const findings = articleFindings(article, proposal.without_supply_type, {
+      typeChosen: Boolean(supplyTypeRows[article.row] ?? supplyTypeChoices.get(article.family_code ?? "")),
+      referenceRepeated: read.repeatedRows.has(article.row),
+      possibleDuplicate: knownDuplicateRows.has(article.row),
+    });
+    return [{ row: proposal.row, article, findings }];
   });
-  const findingCounts = new Map<ArticleFinding, number>();
-  for (const { findings } of proposedAll) for (const finding of findings) findingCounts.set(finding, (findingCounts.get(finding) ?? 0) + 1);
-  const availableFindings = (Object.keys(ARTICLE_FINDINGS) as ArticleFinding[]).filter((finding) => findingCounts.has(finding));
-  const activeFinding = availableFindings.find((finding) => finding === review.filter) ?? null;
-  const toCheck = proposedAll.filter(({ findings }) => findings.length > 0).length;
 
-  const familyGroups = new Map<string, { family: string | null; kinds: Set<CostingWorkbookSupplyKind>; rows: number[] }>();
-  for (const { row, article: { family_code: family, supply_type_code: kind } } of proposedAll) {
+  const familyGroups = new Map<string, { family: string | null; kinds: Set<CostingWorkbookSupplyKind>; rows: number[]; ready: number }>();
+  for (const { row, findings, article: { family_code: family, supply_type_code: kind } } of proposedAll) {
     const key = family ? `family:${family}` : `kind:${kind}`;
-    const group = familyGroups.get(key) ?? { family, kinds: new Set(), rows: [] };
+    const group = familyGroups.get(key) ?? { family, kinds: new Set(), rows: [], ready: 0 };
     group.rows.push(row);
     group.kinds.add(kind);
+    if (!findings.length) group.ready += 1;
     familyGroups.set(key, group);
   }
   const families = [...familyGroups.entries()].sort(([, left], [, right]) => right.rows.length - left.rows.length);
@@ -157,10 +170,56 @@ export function ArticlePreview({
   // The sheet is read here as the server reads it: the screen lists every remark, the report only the first ones.
   const issues = read.issues.length === report.issue_count ? read.issues : report.issues;
 
+  const familyRows = family ? familyGroups.get(family)?.rows ?? [] : null;
+  const familyRowSet = familyRows ? new Set(familyRows) : null;
+  const familyArticles = familyRowSet ? proposedAll.filter(({ row }) => familyRowSet.has(row)) : proposedAll;
   const query = foldText(review.search.trim());
-  const proposed = proposedAll.filter(({ article, findings }) =>
-    (!activeFinding || findings.includes(activeFinding))
-    && (!query || [article.reference, article.designation, article.material ?? ""].some((text) => foldText(text).includes(query))));
+  const matching = familyArticles.filter(({ article }) =>
+    !query || [article.reference, article.designation, article.material ?? "", article.dimensions ?? ""].some((text) => foldText(text).includes(query)));
+  const findingCounts = new Map<ArticleFinding, number>();
+  for (const { findings } of matching) {
+    for (const finding of findings) findingCounts.set(finding, (findingCounts.get(finding) ?? 0) + 1);
+  }
+  const availableFindings = (Object.keys(ARTICLE_FINDINGS) as ArticleFinding[])
+    .filter((finding) => findingCounts.has(finding) || finding === review.filter);
+  const activeFinding = availableFindings.find((finding) => finding === review.filter) ?? null;
+  const toCheck = matching.filter(({ findings }) => findings.length > 0).length;
+  const ready = matching.length - toCheck;
+  const filtered = matching.filter(({ findings }) => {
+    if (review.filter === "ready") return findings.length === 0;
+    if (review.filter === "exceptions") return findings.length > 0;
+    return !activeFinding || findings.includes(activeFinding);
+  });
+  const unitColumn = column("Unité");
+  const sourceOf = (row: number) => unitColumn === undefined ? "" : workbookCellText(rows, row, unitColumn);
+  const units = new Map<string, number>();
+  if (unitColumn !== undefined) {
+    for (const { row } of filtered) {
+      const source = sourceOf(row);
+      units.set(source, (units.get(source) ?? 0) + 1);
+    }
+  }
+  const unitSourceActive = sourceUnit.startsWith(":");
+  const proposed = unitSourceActive ? filtered.filter(({ row }) => sourceOf(row) === sourceUnit.slice(1)) : filtered;
+  const selectedRows = proposed.filter(({ row, findings }) => !findings.length && !excluded.has(row)).map(({ row }) => row);
+  const normalizedUnit = normalizeMeasurementUnit(newUnit).unitCode;
+  const canCorrectUnits = unitColumn !== undefined && proposed.length > 0 && unitSourceActive && normalizedUnit && normalizedUnit !== sourceUnit.slice(1);
+  const locked = busy || editorDirty;
+  const pendingValid = pending && isCurrentRevision(pending.revision)
+    && pending.rows.length === selectedRows.length && pending.rows.every((row, index) => row === selectedRows[index]);
+
+  function filterBy(filter?: string) {
+    setSourceUnit("");
+    onReviewChange({ ...review, page: 0, filter });
+  }
+
+  function applyUnitCorrection() {
+    if (locked || !canCorrectUnits || !normalizedUnit || unitColumn === undefined) return;
+    applyEdits(proposed.map(({ row }) => ({ row, column: unitColumn, value: normalizedUnit })));
+    setSourceUnit("");
+    setNewUnit("");
+    filterBy(undefined);
+  }
 
   const mainViews: ReviewChoice[] = [{ id: "proposed", label: "Articles proposés", count: newArticles }];
   if (families.length > 0) mainViews.push({ id: "supply-types", label: "Types de fourniture", count: unclassified, tone: "warning" });
@@ -228,7 +287,6 @@ export function ArticlePreview({
                   ? "Aucun nouvel article en brouillon"
                   : `${formatCount(newArticles)} ${plural(newArticles, "nouvel article", "nouveaux articles")} en brouillon`}
               </h3>
-              {pager}
             </div>
             <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
               <li>{already === 0 ? "Aucun article déjà au catalogue" : `${formatCount(already)} déjà au catalogue (${plural(already, "inchangé", "inchangés")})`}</li>
@@ -249,6 +307,32 @@ export function ArticlePreview({
             ) : null}
             {proposedAll.length > 0 ? (
               <>
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="grid max-w-full gap-1 text-xs font-medium">
+                    Famille du classeur
+                    <NativeSelect size="sm" value={family} onChange={(event) => {
+                      setFamily(event.currentTarget.value);
+                      filterBy(undefined);
+                    }}>
+                      <option value="">Toutes les familles</option>
+                      {family && !familyGroups.has(family) ? <option value={family}>Famille sélectionnée · 0</option> : null}
+                      {families.map(([key, group]) => (
+                        <option key={key} value={key}>
+                          {`${group.family ?? SUPPLY_KIND_LABELS[[...group.kinds][0]]} · ${formatCount(group.rows.length)} · ${formatCount(group.ready)} prêts · ${formatCount(group.rows.length - group.ready)} à examiner`}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </label>
+                  <div role="group" aria-label="État des articles" className="flex flex-wrap gap-1">
+                    <Button size="sm" variant="outline" aria-pressed={!review.filter} onClick={() => filterBy(undefined)}>Tous</Button>
+                    <Button size="sm" variant="outline" aria-pressed={review.filter === "ready"} onClick={() => filterBy("ready")}>
+                      {`Prêts à valider · ${formatCount(ready)}`}
+                    </Button>
+                    <Button size="sm" variant="outline" aria-pressed={review.filter === "exceptions"} onClick={() => filterBy("exceptions")}>
+                      {`À examiner · ${formatCount(toCheck)}`}
+                    </Button>
+                  </div>
+                </div>
                 {availableFindings.length > 0 ? (
                   <div role="group" aria-label="Articles à vérifier" className="flex flex-wrap items-center gap-1.5">
                     <span className="text-xs text-muted-foreground">
@@ -262,7 +346,7 @@ export function ArticlePreview({
                         size="xs"
                         aria-pressed={finding === activeFinding}
                         className="h-auto rounded-full border-border px-2.5 py-0.5 font-normal whitespace-normal text-foreground transition-none focus-visible:outline-offset-0 active:not-aria-[haspopup]:scale-100 aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:font-semibold aria-pressed:text-primary hover:aria-pressed:text-primary"
-                        onClick={() => onReviewChange({ ...review, page: 0, filter: finding === activeFinding ? undefined : finding })}
+                        onClick={() => filterBy(finding === activeFinding ? undefined : finding)}
                       >
                         {`${ARTICLE_FINDINGS[finding].label} · ${formatCount(findingCounts.get(finding) ?? 0)}`}
                       </Button>
@@ -273,15 +357,59 @@ export function ArticlePreview({
                   type="search"
                   size="sm"
                   aria-label="Rechercher un article proposé"
-                  placeholder="Référence, désignation ou matière"
+                  placeholder="Référence, désignation, matière ou dimension"
                   className="sm:max-w-84"
                   value={review.search}
-                  onChange={(event) => onReviewChange({ ...review, search: event.currentTarget.value, page: 0 })}
+                  onChange={(event) => {
+                    setSourceUnit("");
+                    onReviewChange({ ...review, search: event.currentTarget.value, page: 0 });
+                  }}
                 />
+                {units.size > 0 || unitSourceActive ? (
+                  <div className="flex flex-wrap items-end gap-3">
+                    <label className="grid max-w-full gap-1 text-xs font-medium">
+                      Unité dans le classeur
+                      <NativeSelect size="sm" value={unitSourceActive ? sourceUnit : ""} onChange={(event) => {
+                        setSourceUnit(event.currentTarget.value);
+                        setNewUnit("");
+                        onReviewChange({ ...review, page: 0 });
+                      }}>
+                        <option value="">Toutes les unités</option>
+                        {unitSourceActive && !units.has(sourceUnit.slice(1))
+                          ? <option value={sourceUnit}>{sourceUnit.slice(1) || "Unité absente"} · 0</option>
+                          : null}
+                        {[...units].map(([unit, count]) => (
+                          <option key={unit} value={`:${unit}`}>{`${unit || "Unité absente"} · ${formatCount(count)}`}</option>
+                        ))}
+                      </NativeSelect>
+                    </label>
+                    {unitSourceActive ? (
+                      <>
+                        <label className="grid max-w-full gap-1 text-xs font-medium">
+                          Nouvelle unité pour ces lignes
+                          <Input size="sm" maxLength={50} value={newUnit} onChange={(event) => setNewUnit(event.currentTarget.value)} placeholder="m, u, kg…" />
+                        </label>
+                        <Button size="sm" variant="secondary" disabled={locked || !canCorrectUnits} onClick={applyUnitCorrection}>
+                          {`Corriger l’unité de ${formatCount(proposed.length)} ${plural(proposed.length, "ligne", "lignes")}`}
+                        </Button>
+                        <p className="basis-full text-xs text-muted-foreground">Le prix actuel sera appliqué à la nouvelle unité. Vérifiez le conditionnement des lignes affichées.</p>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {onValidate && selectedRows.length > 0 ? (
+                    <Button size="sm" variant="secondary" disabled={locked} onClick={() => setPending({ rows: selectedRows, revision })}>
+                      {`Importer et valider ${formatCount(selectedRows.length)} ${plural(selectedRows.length, "article", "articles")}`}
+                    </Button>
+                  ) : null}
+                  {pager}
+                </div>
                 <div className="overflow-x-auto rounded-md border border-border">
                   <table aria-label="Articles proposés en brouillon" className="w-full min-w-200 text-left text-sm">
                     <thead className="border-b border-border bg-surface-subtle text-xs text-muted-foreground">
                       <tr className="[&>th]:px-3 [&>th]:py-2.5">
+                        {onValidate ? <th scope="col">Valider</th> : null}
                         <th scope="col">Ligne Excel</th>
                         <th scope="col">Référence</th>
                         <th scope="col">Désignation</th>
@@ -297,6 +425,28 @@ export function ArticlePreview({
                         const type = typeOfArticle(article);
                         return (
                           <tr key={row} className="align-top wrap-anywhere [&>td]:px-3 [&>td]:py-2.5">
+                            {onValidate ? (
+                              <td>
+                                {!findings.length ? (
+                                  <input
+                                    type="checkbox"
+                                    className="size-4 accent-primary"
+                                    checked={!excluded.has(row)}
+                                    aria-label={`Sélectionner ${article.reference} pour la validation`}
+                                    disabled={locked}
+                                    onChange={(event) => {
+                                      const checked = event.currentTarget.checked;
+                                      setExcluded((previous) => {
+                                        const next = new Set(previous);
+                                        if (checked) next.delete(row);
+                                        else next.add(row);
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                ) : null}
+                              </td>
+                            ) : null}
                             <td className="tabular-nums">{row}</td>
                             <td><EditableValue row={row} column={column("ID")} mono display={article.reference} /></td>
                             <td>{article.designation}</td>
@@ -327,7 +477,7 @@ export function ArticlePreview({
                         );
                       })}
                       {proposed.length === 0 ? (
-                        <tr><td colSpan={8} className="px-3 py-4 text-muted-foreground">Aucun article ne correspond à la recherche.</td></tr>
+                        <tr><td colSpan={onValidate ? 9 : 8} className="px-3 py-4 text-muted-foreground">Aucun article ne correspond à la recherche.</td></tr>
                       ) : null}
                     </tbody>
                   </table>
@@ -405,7 +555,12 @@ export function ArticlePreview({
         {active === "columns" ? <ColumnsPanel inspection={inspection} /> : null}
 
         {active === "duplicates" ? (
-          <ArticleDuplicates proposed={proposedAll} idColumn={column("ID")} search={duplicates} onSearch={onDuplicateSearch} />
+          <>
+            {!duplicates && proposedAll.some(({ row }) => knownDuplicateRows.has(row)) ? (
+              <Alert variant="warning">Des doublons signalés restent à examiner. Relancez la recherche après les corrections.</Alert>
+            ) : null}
+            <ArticleDuplicates proposed={proposedAll} idColumn={column("ID")} search={duplicates} onSearch={onDuplicateSearch} />
+          </>
         ) : null}
 
         {active === "differences" ? (
@@ -496,6 +651,29 @@ export function ArticlePreview({
           </>
         ) : null}
       </WorkbookReviewLayout>
+      <AlertDialog open={pending !== null} onOpenChange={(open) => { if (!open) setPending(null); }}>
+        <AlertDialogContent>
+          <AlertDialogTitle>Valider les articles sélectionnés ?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {pending?.rows.length === 1
+              ? "L’article sélectionné sera ajouté au catalogue et validé."
+              : `Les ${formatCount(pending?.rows.length ?? 0)} articles sélectionnés seront ajoutés au catalogue et validés.`}
+          </AlertDialogDescription>
+          {pending && !pendingValid ? (
+            <Alert variant="warning">La sélection a changé. Fermez cette fenêtre et vérifiez le lot avant de confirmer.</Alert>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <Button disabled={locked || !pendingValid} onClick={() => {
+              if (!pending || !pendingValid) return;
+              setPending(null);
+              onValidate?.(pending.rows);
+            }}>
+              Confirmer la validation
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

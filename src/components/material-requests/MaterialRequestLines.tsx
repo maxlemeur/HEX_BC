@@ -6,6 +6,15 @@ import { CheckCheck, Link2, Plus, Truck } from "lucide-react";
 import { useToast } from "@/components/feedback/toast-provider";
 import { SupplyTypeSuppliersDialog } from "@/components/products/SupplyTypeSuppliersDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import type { MaterialRequestLineAlert } from "@/lib/material-requests/alerts";
 import type { MaterialRequestBlockedLine, MaterialRequestOrderLink } from "@/lib/material-requests/client";
@@ -207,6 +216,8 @@ export function MaterialRequestLines({
   const unitListId = useId();
   const [typeSuppliersOpen, setTypeSuppliersOpen] = useState(false);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
+  const [deleteIds, setDeleteIds] = useState<string[]>([]);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linkReport, setLinkReport] = useState<string[] | null>(null);
@@ -217,6 +228,8 @@ export function MaterialRequestLines({
   const alertToFocus = useRef<{ lineId: string; selector: string | null } | null>(null);
   const [articleLineId, setArticleLineId] = useState<string | null>(null);
   const section = useRef<HTMLElement>(null);
+  const addLineButton = useRef<HTMLButtonElement>(null);
+  const deleteButton = useRef<HTMLButtonElement>(null);
   const focusQuantity = useRef<{ position: number } | { afterCount: number } | null>(null);
   const { data, canWrite, alertsByLine } = editor;
   const lines = data.lines;
@@ -333,6 +346,19 @@ export function MaterialRequestLines({
     if (result.ok && result.validated) {
       toast.success({ title: plural(result.validated, "ligne validée", "lignes validées") });
     }
+  };
+  const deleteSelected = async () => {
+    setBusy(true);
+    setDeleteError(null);
+    const result = await editor.removeLines(deleteIds);
+    setBusy(false);
+    if (!result.ok) {
+      setDeleteError(result.message);
+      return;
+    }
+    setDeleteIds([]);
+    setError(null);
+    toast.success({ title: plural(deleteIds.length, "ligne supprimée", "lignes supprimées") });
   };
   const linkSure = async () => {
     if (sureLinks.length === 0) return;
@@ -464,7 +490,7 @@ export function MaterialRequestLines({
         <div className="flex flex-wrap items-center gap-2">
           {toolbar}
           {canWrite ? (
-            <Button type="button" variant={lines.length === 0 ? "primary" : "outline"} size="sm" disabled={busy} onClick={() => void addLine()}>
+            <Button ref={addLineButton} type="button" variant={lines.length === 0 ? "primary" : "outline"} size="sm" disabled={busy} onClick={() => void addLine()}>
               <Plus aria-hidden="true" />
               Ajouter une ligne
             </Button>
@@ -539,10 +565,39 @@ export function MaterialRequestLines({
             supplierOptions={data.supplierOptions}
             onApply={(patch) => guarded(() => editor.applyToLines(selectedIds, patch))}
             onValidate={() => void validate(selectedIds)}
+            onDelete={() => {
+              setDeleteError(null);
+              setDeleteIds(selectedIds);
+            }}
             onClear={() => setSelection(new Set())}
+            deleteButtonRef={deleteButton}
           />
         </div>
       ) : null}
+
+      <AlertDialog open={deleteIds.length > 0} onOpenChange={(open) => {
+        if (!open && !busy) setDeleteIds([]);
+      }}>
+        <AlertDialogContent finalFocus={() =>
+          deleteButton.current?.getClientRects().length ? deleteButton.current : addLineButton.current
+        }>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Supprimer {plural(deleteIds.length, "ligne", "lignes")} ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette suppression est définitive.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError ? <p role="alert" className="text-sm font-medium text-danger">{deleteError}</p> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Annuler</AlertDialogCancel>
+            <Button type="button" variant="danger-solid" size="lg" loading={busy} onClick={() => void deleteSelected()}>
+              Supprimer
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {lines.length > 0 ? (
         <>

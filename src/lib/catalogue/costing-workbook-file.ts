@@ -194,6 +194,8 @@ export function costingWorkbookImportBody(
   confirm: boolean,
   extra: {
     preview_token?: string;
+    selected_rows?: readonly number[];
+    expected_tenant_id?: string;
     supply_type_families?: Array<{ family_code: string; supply_type_id: string }>;
     supply_types?: Record<string, string>;
     supply_type_rows?: Array<{ row: number; supply_type_id: string }>;

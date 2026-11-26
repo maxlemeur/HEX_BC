@@ -55,6 +55,7 @@ import {
 import type { MaterialRequestQuoteComparison, QuoteComparisonSettings } from "./quote-comparison";
 import type { AffaireSupplyCost } from "./supply-cost-contracts";
 import type { ConsultationTemplateRecord, ConsultationTemplates } from "./consultation-template-contracts";
+import type { MaterialRequestWorkbookPreview } from "./workbook-preview-contract";
 
 /**
  * Browser-side calls of the material request screens (TI-690). Each function is one HTTP request and
@@ -302,6 +303,17 @@ export async function deleteMaterialRequestFile(projectId: string, requestId: st
   );
 }
 
+export function fetchMaterialRequestWorkbookPreview(
+  projectId: string,
+  requestId: string,
+  fileId: string,
+  sheet: string | undefined,
+  signal: AbortSignal,
+): Promise<MaterialRequestWorkbookPreview> {
+  const path = requestsPath(projectId, requestId, "files", fileId, "workbook-preview");
+  return read(sheet === undefined ? path : `${path}?${new URLSearchParams({ sheet })}`, "L’aperçu du classeur n’a pas pu être affiché.", signal);
+}
+
 /**
  * The AI reading of one photo: draft lines, not written. A reading takes up to three minutes; `signal` gives it up
  * when the office closes the photos.
@@ -404,6 +416,16 @@ export async function deleteMaterialRequestLine(projectId: string, requestId: st
     undefined,
     "La ligne n’a pas pu être supprimée.",
   );
+}
+
+export async function bulkDeleteMaterialRequestLines(projectId: string, requestId: string, ids: string[]): Promise<string[]> {
+  const { deleted_ids } = await write<{ deleted_ids: string[] }>(
+    requestsPath(projectId, requestId, "lines", "delete"),
+    "POST",
+    { ids },
+    "Les lignes sélectionnées n’ont pas pu être supprimées.",
+  );
+  return deleted_ids;
 }
 
 export async function bulkUpdateMaterialRequestLines(

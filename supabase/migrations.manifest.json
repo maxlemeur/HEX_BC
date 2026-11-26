@@ -405,6 +405,9 @@
     "20261126100842_workbook_undo_authorization_and_batch_indexes.sql": "eaf3165602bb2c6bcb164917718be45eb629baa742e8cda1d95c2b71fd7295d7",
     "20261126145712_material_request_original_workbooks.sql": "520a0893d22ee3f223225260e39ac9082ca21b8f6130a8a88eaf0eb0cdf056ea",
     "20261126153210_intake_ai_request_settings.sql": "2f86d7f712b1b3f6af51f30e961e4f32a21005cc93f64c36ac4bae1887922bc8",
-    "20261126153211_validate_intake_transcription_ai_source.sql": "99988082697173a27fdcfe40fe9f24c50c12c9ffc8c8a743f266343f80b3202f"
+    "20261126153211_validate_intake_transcription_ai_source.sql": "99988082697173a27fdcfe40fe9f24c50c12c9ffc8c8a743f266343f80b3202f",
+    "20261126154030_takeoff_retain_measure.sql": "9571b43647a5ea0b87f712500732890a14a0661aca513b21253fe4a733e571bf",
+    "20261126161733_delete_draft_material_request_lines.sql": "ec832d688237b5373d9da5a2f5b9183ee9c70e05221af57a51c59cf1c246c198",
+    "20261126165318_separate_estimate_generation_execution_lock.sql": "3554778590cef070884256dc480cdf780e4a576b1d870fefc072447cbdea0ff0"
   }
 }

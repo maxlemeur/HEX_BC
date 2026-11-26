@@ -9,7 +9,6 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/estimates/structure-drafts", () => ({
   buildEstimateStructurePreview: vi.fn(),
-  withEstimateAiGenerationLease: vi.fn(),
 }));
 import {
   enrichEstimateItemsWithVersionZeroProvenance,

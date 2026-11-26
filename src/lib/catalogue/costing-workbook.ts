@@ -88,6 +88,7 @@ export type CostingWorkbookReadResult = {
   articles: CostingWorkbookArticle[];
   supplierReferenceOccurrences: CostingWorkbookSupplierOccurrence[];
   issues: CostingWorkbookIssue[];
+  repeatedRows: ReadonlySet<number>;
   /** Section title rows (« Rub »), not articles. */
   sections: number;
 };
@@ -421,6 +422,7 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
   const issues: CostingWorkbookIssue[] = [];
   const supplierReferenceOccurrences: CostingWorkbookSupplierOccurrence[] = [];
   const firstRowOf = new Map<string, number>();
+  const repeatedRows = new Set<number>();
   let sections = 0;
 
   for (let index = headerIndex + 1; index < rows.length; index += 1) {
@@ -497,6 +499,7 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
     const key = workbookReferenceKey(reference);
     const first = firstRowOf.get(key);
     if (first !== undefined) {
+      repeatedRows.add(first);
       issues.push({ row: sheetRow, reference, message: `Référence déjà lue ligne ${first} : ignorée.` });
       continue;
     }
@@ -554,5 +557,5 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
     });
   }
 
-  return { articles, issues, sections, supplierReferenceOccurrences };
+  return { articles, issues, sections, supplierReferenceOccurrences, repeatedRows };
 }

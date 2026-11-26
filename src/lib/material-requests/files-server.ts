@@ -579,6 +579,17 @@ export async function readMaterialRequestFile(
   return downloadStoredFile(access, file);
 }
 
+/** A stored XLSX original that the caller may turn into draft lines on this request. */
+export async function readMaterialRequestWorkbookOriginal(projectId: string, requestId: string, fileId: string): Promise<Blob> {
+  const access = await requireProjectAccess(projectId, "write");
+  const file = await requireFile(access, requestId, fileId);
+  if (file.quote_id !== null || file.mime_type !== MATERIAL_REQUEST_WORKBOOK_MIME_TYPE) {
+    throw notFound("Classeur Excel introuvable dans les originaux de cette demande.");
+  }
+  const { body } = await downloadStoredFile(access, file);
+  return body;
+}
+
 /** File bytes for the comparison, scoped to the supplier quote of the URL before asking storage. */
 export async function readMaterialRequestQuoteFile(
   access: MaterialRequestAccess,

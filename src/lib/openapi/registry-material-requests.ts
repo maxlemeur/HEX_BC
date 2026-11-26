@@ -44,6 +44,7 @@ import {
   type MaterialRequestPhotoAnalysisAvailability,
 } from "@/lib/material-requests/photo-analysis";
 import { materialRequestQuoteComparisonSchema, quoteComparisonSettingsSchema } from "@/lib/material-requests/quote-comparison";
+import { materialRequestWorkbookPreviewSchema } from "@/lib/material-requests/workbook-preview-contract";
 import {
   LINE_SUPPLIER_REASONS,
   productPreferredSupplierSchema,
@@ -504,6 +505,21 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     responses: { "200": success("ApiMaterialRequestFileDeleted", "Original supprimé.", deleted), ...writeRefusals, "409": quoteReadOnly },
   },
   {
+    tags, method: "get", path: `${one}/files/{fileId}/workbook-preview`, summary: "Prévisualiser les lignes d’un original Excel",
+    description: "Lit un XLSX joint aux originaux d’une demande. Retourne les feuilles visibles dont les en-têtes sont reconnus, les lignes proposées pour la feuille choisie, leurs numéros Excel et les problèmes à vérifier. L’ajout de brouillons se fait ensuite via POST lines.",
+    parameters: [project, requestId, fileId, queryParameter({
+      name: "sheet", description: "Nom exact de la feuille. Par défaut, la première feuille reconnue est lue.",
+      schemaName: "MaterialRequestWorkbookSheet", schema: z.string(),
+    })],
+    responses: {
+      "200": success("ApiMaterialRequestWorkbookPreview", "Aperçu des lignes et contrôles à effectuer.", materialRequestWorkbookPreviewSchema),
+      ...writeRefusals,
+      "404": refusal("NOT_FOUND : original Excel absent de cette demande ou inaccessible."),
+      "422": refusal("UNPROCESSABLE_ENTITY : classeur illisible, trop volumineux ou sans tableau reconnu dans la feuille demandée."),
+      "503": refusal("MATERIAL_REQUEST_WORKBOOK_BUSY : d’autres aperçus sont en cours. Réessayer dans quelques instants."),
+    },
+  },
+  {
     tags, method: "post", path: `${one}/files/{fileId}/analysis`, summary: "Lire un original avec l'IA",
     description: `Fait lire un original de la demande (photo ou PDF) par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à l'original. Un champ qui n'est pas écrit reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Un original par appel, de ${MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES / (1024 * 1024)} Mo au plus ; la rotation d'affichage d'une photo est indiquée au modèle, ses octets partent tels quels. L'annulation de la requête HTTP interrompt l'appel fournisseur. Seules les photos et les PDF originaux de la demande sont analysés. Après validation des réglages de lecture, un fichier Excel, le fichier d'un devis et un original en cours de dépôt ou de suppression répondent 404. Un original sans article répond lines vide.`,
     parameters: [project, requestId, fileId],
@@ -537,6 +553,17 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     requestBody: jsonBody({ name: "MaterialRequestLinesBulkUpdate", description: "Lignes de la demande et valeurs à appliquer.", schema: bulkUpdateMaterialRequestLinesSchema }),
     responses: { "200": success("ApiMaterialRequestLinesUpdated", "Lignes de la sélection.", linesData), ...writeRefusals,
       "409": refusal(`${linePriced.description} ${lineOrdered}`) },
+  },
+  {
+    tags, method: "post", path: `${one}/lines/delete`, summary: "Supprimer une sélection de lignes",
+    description: "Supprime les brouillons désignés dans une seule transaction et renvoie leurs identifiants. Le lot entier est refusé si une ligne manque, est validée, ou figure dans un devis ou un bon de commande. Les positions des autres lignes sont conservées.",
+    parameters: [project, requestId],
+    requestBody: jsonBody({ name: "MaterialRequestLinesDelete", description: "Lignes sélectionnées dans cette demande.", schema: materialRequestLineIdsSchema }),
+    responses: {
+      "200": success("ApiMaterialRequestLinesDeleted", "Identifiants des lignes supprimées.", z.object({ deleted_ids: z.array(uuid) })),
+      ...writeRefusals,
+      "409": refusal("MATERIAL_REQUEST_LINES_CHANGED : une ligne désignée ne fait plus partie de la demande. MATERIAL_REQUEST_LINES_KEPT : au moins une ligne est validée ou appartient à un devis ou un bon de commande. Aucune ligne n’est supprimée."),
+    },
   },
   {
     tags, method: "patch", path: `${one}/lines/{lineId}`, summary: "Modifier une ligne",
