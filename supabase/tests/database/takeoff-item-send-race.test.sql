@@ -853,8 +853,7 @@ select is((select x.result::jsonb ->> 'outcome' from extensions.dblink('race_a',
   pg_temp.choose_quantity(620,'measured') - 'quantity_choice')) as x(result text)),
   'stale','no implicit choice between one verified mark and two measured units');
 select is(extensions.dblink_exec('race_a','rollback'),'ROLLBACK','finish this review');
-select is((select x.result::jsonb ->> 'outcome' from extensions.dblink('race_a',pg_temp.review_sql(20,
-  pg_temp.cmd('accept_measured',620,array[300]))) as x(result text)),'applied','the existing acceptance without marks');
+\ir ../fixtures/takeoff-retain-measure-race.sql
 select is((select x.result::jsonb ->> 'outcome' from extensions.dblink('race_a',pg_temp.review_sql(21,
   pg_temp.choose_quantity(621,'verified_count'))) as x(result text)),'applied','the member explicitly chooses the verified count');
 select is((select jsonb_build_array(a -> 'quantity_source',a #> '{verified_count,quantity}',a #> '{verified_count,marks_revision}',

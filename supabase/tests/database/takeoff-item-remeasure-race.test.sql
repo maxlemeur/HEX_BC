@@ -264,6 +264,7 @@ create function pg_temp.tile_confirmation() returns jsonb language sql immutable
     'count_marks','{"pages":[{"page":2,"width_points":700},{"page":7,"width_points":720}],
     "tile_calls":10,"other_calls":2.0,"total_calls":12}'::jsonb)
 $$;
+\ir ../fixtures/takeoff-retain-remeasure-race.sql
 create temp table first_targets as select pg_temp.targets(array[300]) as targets;
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'the first tab confirms a new measure of the first item');
 select is((select x.answer from extensions.dblink('race_a', pg_temp.remeasure_sql(700, array[300], 2, pg_temp.job(1), confirmation => pg_temp.tile_confirmation()))

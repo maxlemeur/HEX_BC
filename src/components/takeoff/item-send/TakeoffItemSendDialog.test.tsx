@@ -74,6 +74,22 @@ beforeEach(() => {
   network.renew.mockResolvedValue({ renewed: true, lock: { isOwnedByCurrentUser: true } });
 });
 
+it("shows the unreferenced cumulative quantity before confirmation and the released stale notice after refusal", async () => {
+  const message = "Le métré, le devis ou la liste ont changé depuis l’aperçu. Rouvrez l’aperçu puis confirmez de nouveau. Rien n’a été écrit.";
+  network.preview.mockResolvedValue(response({ lines: [{ ...line(lineA, 7), quantity_before: 2,
+    entered: null, earlier: 2, added: 5 }] }));
+  network.confirm.mockRejectedValue(new TakeoffApiError(message, 409, {
+    guard: "item_send_preview_stale", reason: "measure_reconciliation_changed",
+  }, "CONFLICT"));
+  const onSent = vi.fn();
+  render(view(onSent));
+  const row = await screen.findByTestId(`item-send-line-${item}-${group.key}`);
+  expect(row).toHaveTextContent(/2\s*u.*5\s*u.*7\s*u/);
+  fireEvent.click(sendButton());
+  expect(await screen.findByTestId("item-send-notice")).toHaveTextContent(message);
+  expect(onSent).not.toHaveBeenCalled();
+});
+
 it.each([
   { name: "the line was replaced, with the same entered quantity", replacement: lineB, after: 5 },
   { name: "the measured quantity to retain changed", replacement: lineA, after: 7 },
