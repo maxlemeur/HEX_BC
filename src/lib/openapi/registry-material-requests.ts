@@ -539,6 +539,17 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
       "409": refusal(`${linePriced.description} ${lineOrdered}`) },
   },
   {
+    tags, method: "post", path: `${one}/lines/delete`, summary: "Supprimer une sélection de lignes",
+    description: "Supprime les brouillons désignés dans une seule transaction et renvoie leurs identifiants. Le lot entier est refusé si une ligne manque, est validée, ou figure dans un devis ou un bon de commande. Les positions des autres lignes sont conservées.",
+    parameters: [project, requestId],
+    requestBody: jsonBody({ name: "MaterialRequestLinesDelete", description: "Lignes sélectionnées dans cette demande.", schema: materialRequestLineIdsSchema }),
+    responses: {
+      "200": success("ApiMaterialRequestLinesDeleted", "Identifiants des lignes supprimées.", z.object({ deleted_ids: z.array(uuid) })),
+      ...writeRefusals,
+      "409": refusal("MATERIAL_REQUEST_LINES_CHANGED : une ligne désignée ne fait plus partie de la demande. MATERIAL_REQUEST_LINES_KEPT : au moins une ligne est validée ou appartient à un devis ou un bon de commande. Aucune ligne n’est supprimée."),
+    },
+  },
+  {
     tags, method: "patch", path: `${one}/lines/{lineId}`, summary: "Modifier une ligne",
     description: `Seuls les champs envoyés changent. ${draftRule} Changer le type, la dimension, la matière, la zone ou l'imputation d'une ligne retire son « doublon vu », sauf si la même requête le redonne. Statut, position et validation ne se modifient pas ici.`,
     parameters: [project, requestId, lineId],

@@ -4178,6 +4178,118 @@
         }
       }
     },
+    "/api/affaires/{projectId}/material-requests/{requestId}/lines/delete": {
+      "post": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Supprimer une sélection de lignes",
+        "description": "Supprime les brouillons désignés dans une seule transaction et renvoie leurs identifiants. Le lot entier est refusé si une ligne manque, est validée, ou figure dans un devis ou un bon de commande. Les positions des autres lignes sont conservées.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProjectId"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "description": "Demande de cette affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Lignes sélectionnées dans cette demande.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialRequestLinesDelete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Identifiants des lignes supprimées.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestLinesDeleted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : l'écriture demande le propriétaire de l'affaire ou un administrateur, avec le rôle admin ou engineer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : affaire d'un autre tenant ou archivée, ou identifiant d'une autre affaire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "MATERIAL_REQUEST_LINES_CHANGED : une ligne désignée ne fait plus partie de la demande. MATERIAL_REQUEST_LINES_KEPT : au moins une ligne est validée ou appartient à un devis ou un bon de commande. Aucune ligne n’est supprimée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/material-requests/{requestId}/lines/reopen": {
       "post": {
         "tags": [
@@ -42769,6 +42881,56 @@
             },
             "required": [
               "candidates"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialRequestLinesDelete": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "minItems": 1,
+            "maxItems": 300,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "additionalProperties": false
+      },
+      "ApiMaterialRequestLinesDeleted": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "deleted_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "required": [
+              "deleted_ids"
             ],
             "additionalProperties": false
           }
