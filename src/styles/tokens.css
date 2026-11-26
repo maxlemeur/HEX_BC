@@ -29,6 +29,16 @@
   --surface: #ffffff;
   --surface-subtle: #f6f8fa;
 
+  /* Workbook assistant */
+  --workbook-composer-surface: #25372f;
+  --workbook-composer-control: #31483e;
+  --workbook-composer-border: #456457;
+  --workbook-composer-text: #f1f6ef;
+  --workbook-composer-muted: #bccbc3;
+  --workbook-composer-send: #efbd5d;
+  --workbook-composer-send-hover: #f8ce80;
+  --workbook-composer-send-text: #262112;
+
   /* Sidebar */
   --sidebar-width: 280px;
   --sidebar-collapsed-width: 72px;

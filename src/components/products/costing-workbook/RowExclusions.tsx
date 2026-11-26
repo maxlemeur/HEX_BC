@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
-import { ArrowUpIcon, Loader2Icon, Settings2Icon, SparklesIcon } from "lucide-react";
+import { ArrowUpIcon, ChevronDownIcon, Loader2Icon, Settings2Icon, SparklesIcon } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -11,6 +11,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
+import { CHATGPT_REASONING_EFFORT_LABELS, chatGptReasoningEffortSchema } from "@/lib/ai/chatgpt-model-preferences";
 import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import { AI_REQUEST_SOURCE_LABELS } from "@/lib/ai/request-settings";
 import type { CostingWorkbookColumnInspection } from "@/lib/catalogue/costing-workbook";
@@ -97,6 +98,8 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
   const activeModel = provider === "chatgpt_plan" || provider === "personal_api_key"
     ? sourceOptions?.providers[provider].models.find(({ id }) => id === requestOptions.model)?.name
     : undefined;
+  const activeEffort = chatGptReasoningEffortSchema.safeParse(requestOptions.reasoning_effort).data;
+  const sourceLabel = provider ? AI_REQUEST_SOURCE_LABELS[provider] : null;
   const canAnalyse = sourceOptions !== null && provider !== null && !disabled && !settingsLocked && !loading
     && criterion.trim().length > 0 && total > 0;
   const proposed = answer?.proposed ?? [];
@@ -175,14 +178,15 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <div className="pointer-events-none sticky bottom-0 z-20 mt-4 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
-        <form aria-label="Assistant du classeur" className="pointer-events-auto mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-dropdown sm:p-3"
+      <div className="pointer-events-none sticky bottom-0 z-20 mt-4 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
+        <form aria-label="Assistant du classeur"
+          className="pointer-events-auto mx-auto max-w-5xl rounded-[1.5rem] border border-(--workbook-composer-border) bg-(--workbook-composer-surface) p-2 text-(--workbook-composer-text) shadow-xl focus-within:border-(--workbook-composer-muted) sm:rounded-[1.75rem] sm:p-3"
           onSubmit={(event) => { event.preventDefault(); void analyse(); }}>
           <FieldLabel htmlFor={`${id}-criterion`} className="sr-only">Quelles lignes souhaitez-vous supprimer ?</FieldLabel>
           <Textarea ref={criterionInput} id={`${id}-criterion`} aria-describedby={`${id}-criterion-help`}
             value={criterion} maxLength={COSTING_WORKBOOK_ROW_CRITERION_MAX_LENGTH}
             placeholder="Décrivez les lignes à écarter de l’import…"
-            className="min-h-11 max-h-32 resize-none rounded-xl bg-transparent px-3 py-2"
+            className="min-h-16 max-h-40 resize-none border-0 bg-transparent px-3 py-2 leading-relaxed text-(--workbook-composer-text) placeholder:text-(--workbook-composer-muted) focus-visible:ring-0 disabled:bg-transparent sm:min-h-20 sm:px-4"
             disabled={loading}
             onChange={(event) => { setCriterion(event.target.value); resetProposal(); }}
             onKeyDown={(event) => {
@@ -191,41 +195,11 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
                 event.currentTarget.form?.requestSubmit();
               }
             }} />
-          <div className="flex flex-wrap items-center gap-2">
-            <Popover>
-              <PopoverTrigger render={<Button type="button" variant="ghost" size="sm" leftIcon={<Settings2Icon aria-hidden="true" />} />}>
-                Réglages IA
-              </PopoverTrigger>
-              <PopoverContent align="start" side="top" sideOffset={8} className="w-[min(28rem,calc(100vw-1.5rem))] border border-border p-3">
-                <PopoverTitle>Réglages IA du classeur</PopoverTitle>
-                <AssistantProviderSelect />
-                {sourceOptions && apiKey ? (
-                  <>
-                    {!apiKey.available && (provider !== null || sourceOptions.defaultProvider !== "personal_api_key") ? (
-                      <p className="text-xs text-muted-foreground">{apiKey.message}</p>
-                    ) : null}
-                    <div className="flex flex-wrap gap-2">
-                      <a href={settingsLocked ? undefined : "/dashboard/profile#section-cle-api"} target="_blank" rel="noopener noreferrer"
-                        aria-disabled={settingsLocked || undefined}
-                        className={buttonVariants({ variant: "outline", size: "xs", className: "aria-disabled:opacity-50" })}>
-                        {apiKey.available ? "Gérer la clé API" : "Configurer la clé API"}
-                        <span className="sr-only"> (nouvel onglet)</span>
-                      </a>
-                      <Button type="button" size="xs" variant="ghost" disabled={settingsLocked} onClick={() => loadProviders(true)}>
-                        Actualiser les sources d’IA
-                      </Button>
-                    </div>
-                  </>
-                ) : null}
-              </PopoverContent>
-            </Popover>
-            {provider ? (
-              <span className="text-xs text-muted-foreground">
-                {AI_REQUEST_SOURCE_LABELS[provider]}{activeModel ? ` · ${activeModel}` : ""}
-              </span>
-            ) : null}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 pb-1 sm:px-2">
             {batches.length > 1 ? (
-              <NativeSelect aria-label="Lignes à analyser" size="sm" wrapperClassName="w-auto max-w-full"
+              <NativeSelect aria-label="Lignes à analyser" size="sm"
+                wrapperClassName="w-auto max-w-full [&>svg]:text-(--workbook-composer-muted)"
+                className="rounded-full border-(--workbook-composer-border) bg-(--workbook-composer-control) text-(--workbook-composer-text) [color-scheme:dark] hover:border-(--workbook-composer-muted) focus-visible:border-(--workbook-composer-muted) focus-visible:ring-0 disabled:bg-(--workbook-composer-control)"
                 value={activeScope} disabled={loading}
                 onChange={(event) => { setScope(event.target.value); resetProposal(); }}>
                 <option value="all">Tout l’onglet</option>
@@ -234,23 +208,62 @@ export function RowExclusions({ rows, inspection, disabled, onApply }: Props) {
                 </option>)}
               </NativeSelect>
             ) : null}
+            <p id={`${id}-criterion-help`} className="min-w-32 flex-1 text-xs leading-snug text-(--workbook-composer-muted)">
+              {scopeHelp}
+            </p>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              <Popover>
+                <PopoverTrigger render={<Button type="button" aria-label="Réglages IA" variant="ghost" size="sm"
+                  className="h-auto max-w-full rounded-full px-2.5 py-1.5 text-left text-(--workbook-composer-text) hover:bg-(--workbook-composer-control) hover:text-(--workbook-composer-text) aria-expanded:bg-(--workbook-composer-control) aria-expanded:text-(--workbook-composer-text)"
+                  leftIcon={<Settings2Icon aria-hidden="true" />} rightIcon={<ChevronDownIcon aria-hidden="true" />} />}>
+                  <span className="min-w-0">
+                    <span className="block truncate">{activeModel ?? sourceLabel ?? "Réglages IA"}</span>
+                    {activeModel && sourceLabel ? (
+                      <span className="block truncate text-xs font-normal text-(--workbook-composer-muted)">
+                        {sourceLabel} · {activeEffort ? CHATGPT_REASONING_EFFORT_LABELS[activeEffort] : "Automatique"}
+                      </span>
+                    ) : null}
+                  </span>
+                </PopoverTrigger>
+                <PopoverContent align="start" side="top" sideOffset={8} className="w-[min(28rem,calc(100vw-1.5rem))] border border-border p-3">
+                  <PopoverTitle>Réglages IA du classeur</PopoverTitle>
+                  <AssistantProviderSelect />
+                  {sourceOptions && apiKey ? (
+                    <>
+                      {!apiKey.available && (provider !== null || sourceOptions.defaultProvider !== "personal_api_key") ? (
+                        <p className="text-xs text-muted-foreground">{apiKey.message}</p>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        <a href={settingsLocked ? undefined : "/dashboard/profile#section-cle-api"} target="_blank" rel="noopener noreferrer"
+                          aria-disabled={settingsLocked || undefined}
+                          className={buttonVariants({ variant: "outline", size: "xs", className: "aria-disabled:opacity-50" })}>
+                          {apiKey.available ? "Gérer la clé API" : "Configurer la clé API"}
+                          <span className="sr-only"> (nouvel onglet)</span>
+                        </a>
+                        <Button type="button" size="xs" variant="ghost" disabled={settingsLocked} onClick={() => loadProviders(true)}>
+                          Actualiser les sources d’IA
+                        </Button>
+                      </div>
+                    </>
+                  ) : null}
+                </PopoverContent>
+              </Popover>
               {answer ? (
                 <DialogTrigger render={<Button ref={resultTrigger} type="button" variant="secondary" size="sm"
+                  className="rounded-full border-(--workbook-composer-border) bg-(--workbook-composer-control) text-(--workbook-composer-text) hover:border-(--workbook-composer-muted) hover:bg-(--workbook-composer-control)"
                   leftIcon={loading ? <Loader2Icon aria-hidden="true" className="motion-safe:animate-spin" /> : <SparklesIcon aria-hidden="true" />} />}>
                   {triggerLabel}
                 </DialogTrigger>
               ) : null}
               {!loading ? (
-                <Button type="submit" size="sm" disabled={!canAnalyse} rightIcon={<ArrowUpIcon aria-hidden="true" />}>
-                  Analyser {formatCount(total)} {plural(total, "ligne", "lignes")}
+                <Button type="submit" size="icon-lg" disabled={!canAnalyse}
+                  aria-label={`Analyser ${formatCount(total)} ${plural(total, "ligne", "lignes")}`}
+                  className="size-11 shrink-0 rounded-full bg-(--workbook-composer-send) text-(--workbook-composer-send-text) shadow-none hover:bg-(--workbook-composer-send-hover) focus-visible:outline-(--workbook-composer-send-hover)">
+                  <ArrowUpIcon aria-hidden="true" className="size-5" />
                 </Button>
               ) : null}
             </div>
           </div>
-          <p id={`${id}-criterion-help`} className="px-2 pb-0.5 text-xs text-muted-foreground">
-            {scopeHelp}
-          </p>
         </form>
       </div>
       <DialogContent size="lg" finalFocus={() => resultTrigger.current?.isConnected ? resultTrigger.current : criterionInput.current ?? true}>
