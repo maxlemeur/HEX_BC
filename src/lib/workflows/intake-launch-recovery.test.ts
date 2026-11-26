@@ -14,9 +14,10 @@ vi.mock("@/lib/affaires/intake-analysis-server", () => ({ processAffaireIntakeAn
 vi.mock("@/lib/supabase/service-role", () => ({ createOptionalServiceRoleClient: vi.fn() }));
 
 let retired: string[];
-const paid = [{ id: "other-mac", created_by: "other", tenant_id: "tenant" },
-  { id: "exhausted", created_by: "payer", tenant_id: "tenant" }, { id: "due", created_by: "payer", tenant_id: "tenant" }];
-const unpaid = [{ id: "no-reading", created_by: "member", tenant_id: "tenant" }];
+const paid = [{ id: "other-mac", created_by: "other", tenant_id: "tenant", project_id: "project" },
+  { id: "exhausted", created_by: "payer", tenant_id: "tenant", project_id: "project" },
+  { id: "due", created_by: "payer", tenant_id: "tenant", project_id: "project" }];
+const unpaid = [{ id: "no-reading", created_by: "member", tenant_id: "tenant", project_id: "project" }];
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -25,6 +26,7 @@ beforeEach(() => {
     global: { fetch: async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/rpc/intake_payer_can_write")) return Response.json(true);
+      if (url.pathname.endsWith("/rpc/read_affaire_intake_ai_batch")) return Response.json(null);
       if (url.pathname.endsWith("/rpc/stop_affaire_intake_analysis")) {
         const { p_upload_id } = JSON.parse(String(init?.body));
         retired.push(p_upload_id);
@@ -51,7 +53,9 @@ it("records no scan reading at the press when the selected account cannot refres
 it("leaves launches that require a personal plan for the Mac during hosted recovery", async () => {
   vi.mocked(isLocalChatGptEnabled).mockReturnValue(false);
   expect(await recoverIntakeAnalysisLaunch()).toBe("no-reading");
-  expect(processAffaireIntakeAnalysisLaunch).toHaveBeenCalledExactlyOnceWith("no-reading", null);
+  expect(processAffaireIntakeAnalysisLaunch).toHaveBeenCalledExactlyOnceWith("no-reading", null, {
+    payerId: "member", tenantId: "tenant", projectId: "project",
+  });
   expect(hasLocalChatGptStore).not.toHaveBeenCalled();
 });
 

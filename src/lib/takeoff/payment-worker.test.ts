@@ -60,8 +60,8 @@ it("waits for the first vector generation to settle, then prepares the second ag
     return { prompt: input.prompt, boundNanoUsd: 5_100, inputTokens: 1_000, maxOutputTokens: 4_100 };
   });
   const dispatched: string[] = [];
-  const execute = vi.fn(async (_owner: unknown, prepared: { prompt: string }, hooks: { beforeSend(): Promise<void> }) => {
-    await hooks.beforeSend();
+  const execute = vi.fn(async (_owner: unknown, prepared: { prompt: string }, hooks: { reserveBeforeSend(): Promise<void> }) => {
+    await hooks.reserveBeforeSend();
     dispatched.push(prepared.prompt);
     if (prepared.prompt === "Premier groupe") {
       firstDispatched.resolve();
@@ -90,12 +90,12 @@ it.each(["invalid schema", "truncated output"])("settles a vector group with %s 
   });
   const usage = { total: 110, input: 100, output: 10, reasoning: 0, cachedInput: 0, cacheWrite: 0, cacheWrite12h: 0 };
   const answer = { usage, costNanoUsd: 90, model: mandate.model, durationMs: 1 };
-  const execute = vi.fn(async (_owner: unknown, _prepared: unknown, { beforeSend }: { beforeSend(): Promise<void> }):
+  const execute = vi.fn(async (_owner: unknown, _prepared: unknown, { reserveBeforeSend }: { reserveBeforeSend(): Promise<void> }):
     Promise<typeof answer & { data: { accepted: boolean } | null; schemaError: SyntaxError | null }> => {
-    await beforeSend();
+    await reserveBeforeSend();
     return { ...answer, data: { accepted: true }, schemaError: null };
-  }).mockImplementationOnce(async (_owner, _prepared, { beforeSend }) => {
-    await beforeSend();
+  }).mockImplementationOnce(async (_owner, _prepared, { reserveBeforeSend }) => {
+    await reserveBeforeSend();
     if (failure === "truncated output") throw new ApiKeyError("AI_KEY_OUTPUT_LIMIT", answer);
     return { ...answer, data: null, schemaError: new SyntaxError("Fictional invalid JSON") };
   });

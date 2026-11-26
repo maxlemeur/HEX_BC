@@ -1,3 +1,5 @@
+import { IntakeAiBudgetStopped, IntakeAiLedgerError, type IntakeAiRunner } from "@/lib/affaires/intake-ai-server";
+import type { IntakeAiReceipt } from "@/lib/affaires/intake-ai-settings";
 import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 import { z } from "zod";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
@@ -515,6 +517,8 @@ export async function generateAffaireBriefDraft(input: {
   missingPieces: AffaireIntakeWorkspaceMissingPiece[];
   renewLease?: () => Promise<void>;
   aiOwner?: ChatGptOwner | null;
+  ai?: IntakeAiRunner;
+  onReceipt?: (receipt: IntakeAiReceipt) => void;
 }): Promise<AffaireIntakeBriefDraft> {
   const fallback = buildFallbackAffaireBrief({
     project: input.project,
@@ -527,26 +531,35 @@ export async function generateAffaireBriefDraft(input: {
   let generated: AffaireBriefGeneration | null = null;
 
   try {
-    if (aiDocuments.length > 0) {
+    if (aiDocuments.length > 0 && input.ai?.source !== "rules_only") {
+      const options = {
+        prompt: buildBriefGenerationPrompt({
+          project: input.project,
+          documents: aiDocuments,
+          missingPieces: input.missingPieces,
+        }),
+        schema: affaireBriefGenerationSchema,
+        beforeSend: input.renewLease,
+        context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
+      };
       const result = await durableIntake.runAffaireIntakeLeasedProviderEffect({
         renewLease: input.renewLease ?? (async () => undefined),
-        effect: () => callStructuredAi({
-          prompt: buildBriefGenerationPrompt({
-            project: input.project,
-            documents: aiDocuments,
-            missingPieces: input.missingPieces,
-          }),
-          schema: affaireBriefGenerationSchema,
-          beforeSend: input.renewLease,
-          context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
-        }, input.aiOwner),
+        effect: async () => {
+          if (input.ai) return input.ai.run("brief", options);
+          const answer = await callStructuredAi(options, input.aiOwner);
+          const receipt: IntakeAiReceipt | undefined = answer.model
+            ? { source: "chatgpt_plan", model: answer.model, reasoningEffort: answer.reasoningEffort ?? null } : undefined;
+          return { data: answer.data, receipt };
+        },
       });
-
+      if (result.receipt) input.onReceipt?.(result.receipt);
       generated = result.data;
     }
   } catch (error) {
     if (!(error instanceof durableIntake.AffaireIntakeProviderCallError)) throw error;
-    if (input.aiOwner?.connection && error.cause instanceof LocalChatGptConnectionWithdrawnError) throw error.cause;
+    if (error.cause instanceof IntakeAiBudgetStopped || error.cause instanceof IntakeAiLedgerError ||
+        error.cause instanceof durableIntake.AffaireIntakeLeaseUnavailableError ||
+        ((input.ai || input.aiOwner?.connection) && error.cause instanceof LocalChatGptConnectionWithdrawnError)) throw error.cause;
     console.error("Affaire brief AI generation failed", { projectId: input.project.id, uploadId: input.uploadId, error_code: getSafeProviderErrorCode(error.cause) });
   }
 

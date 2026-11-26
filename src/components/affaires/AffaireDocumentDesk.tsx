@@ -1,6 +1,6 @@
 "use client";
 
-import { buildIntakeAnalysisFeedback, type IntakeAnalysisAttempt } from "@/lib/affaires/intake-analysis-feedback";
+import type { IntakeAiChoice } from "@/lib/affaires/intake-ai-settings";
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -18,6 +18,7 @@ import {
   RotateCw,
 } from "lucide-react";
 import {
+  readAffaireIntakeRetryStatus,
   reclassifyAffaireDocument,
   retryAffaireDocumentAnalysis,
 } from "@/app/dashboard/affaires/_actions/intake";
@@ -54,6 +55,7 @@ import {
   type CockpitOpenSurfaceEventDetail,
 } from "@/lib/cockpit/events";
 import { AFFAIRE_INTAKE_AWAITING_LAUNCH_LABEL } from "@/lib/affaires/intake";
+import { IntakeAnalysisRetryDialog } from "./IntakeAiControls";
 import { IntakeAnalysisLaunch } from "./IntakeAnalysisLaunch";
 import "./AffaireDocumentDesk.css";
 
@@ -159,7 +161,18 @@ export function AffaireDocumentDesk({
   const selectedRetryableDocuments = selectedDocuments.filter(
     canRetryDossierDocument,
   );
-  const analysisAvailable = workspace.analysisAvailability?.available === true;
+  const [retrySelection, setRetrySelection] = useState<DossierDocument[]>([]);
+  const [pendingRetryId, setPendingRetryId] = useState<string | null>(null);
+  const [retryBudgetNotice, setRetryBudgetNotice] = useState<string | null>(null);
+  useDossierPoll(Boolean(pendingRetryId), async () => {
+    if (!pendingRetryId) return;
+    const status = await readAffaireIntakeRetryStatus(projectId, pendingRetryId);
+    if (status.message) setRetryBudgetNotice(status.message);
+    if (status.finished) {
+      setPendingRetryId(null);
+      await onReload();
+    }
+  }, { intervalMs: 5000, maxMs: 300_000 });
   const fallbackCount = retryableDocuments.filter(
     (item) =>
       item.classificationSource === "heuristic" &&
@@ -286,49 +299,37 @@ export function AffaireDocumentDesk({
     showDepositedFiles();
     void onReload();
   }
-  async function retryAnalysis(items: DossierDocument[]) {
-    if (!canManage || busy || running.current || !analysisAvailable) return;
+  async function retryAnalysis(choice: IntakeAiChoice) {
+    if (!canManage || busy || running.current) return;
+    const eligible = retrySelection.filter(canRetryDossierDocument);
+    setRetrySelection([]);
+    setRetryBudgetNotice(null);
+    setPendingRetryId(null);
+    if (!eligible.length) return;
     running.current = true;
     setBusy(true);
     setFailures([]);
     setMessage("");
-    const eligible = items.filter(canRetryDossierDocument);
-    const attempts: IntakeAnalysisAttempt[] = [];
-    let notRun: string[] = [];
-    let interrupted = false;
+    setProgress(`Analyse de ${eligible.length} pièce${eligible.length > 1 ? "s" : ""}…`);
     try {
-      for (let index = 0; index < eligible.length; index++) {
-        const item = eligible[index];
-        setProgress(`Analyse ${index + 1} sur ${eligible.length}…`);
-        try {
-          const result = await retryAffaireDocumentAnalysis({ projectId, documentId: item.documentId });
-          attempts.push({ fileName: item.fileName, succeeded: !result.usedFallback,
-            manualPreserved: result.preservedManualClassification,
-            ...(result.usedFallback ? { reason: result.failure?.message ?? result.warning ?? "L’analyse IA n’a pas abouti." } : {}),
-          });
-          setDrafts((prior) => { const next = { ...prior }; delete next[item.documentId]; return next; });
-          setSelection((prior) => prior.filter(id => id !== item.documentId));
-          if (result.usedFallback && result.failure?.scope !== "document") {
-            notRun = eligible.slice(index + 1).map(document => document.fileName);
-            break;
-          }
-        } catch (cause) {
-          attempts.push({ fileName: item.fileName, succeeded: false, manualPreserved: false,
-            reason: cause instanceof Error ? cause.message : "Analyse interrompue. Réessayez." });
-          notRun = eligible.slice(index + 1).map(document => document.fileName);
-          interrupted = true;
-          break;
-        }
-      }
-      const report = buildIntakeAnalysisFeedback(attempts, notRun);
-      setFailures(report.failures);
-      setMessage(report.message);
+      const result = await retryAffaireDocumentAnalysis({ projectId, documentIds: eligible.map(item => item.documentId), choice });
+      const analyzed = new Set(result.analyzedDocumentIds ?? []);
+      setDrafts(prior => {
+        const next = { ...prior };
+        for (const id of analyzed) delete next[id];
+        return next;
+      });
+      setSelection(prior => prior.filter(id => !analyzed.has(id)));
+      setFailures(result.failures);
+      setMessage(result.message);
+      setPendingRetryId(result.batchId ?? null);
+    } catch {
+      setMessage("Analyse interrompue. Actualisez le dossier et relancez les pièces à analyser.");
     } finally {
       running.current = false;
       setBusy(false);
       setProgress("");
-      // Each analysis re-renders the page in its own response; an interrupted one may not have.
-      if (interrupted) void onReload();
+      void onReload();
     }
   }
   const selectableRows = rows.filter(canClassifyDossierDocument);
@@ -381,14 +382,10 @@ export function AffaireDocumentDesk({
               <button
                 className="document-desk-button"
                 disabled={
-                  busy || !analysisAvailable || retryableDocuments.length === 0
+                  busy || retryableDocuments.length === 0
                 }
-                title={
-                  !analysisAvailable
-                    ? workspace.analysisAvailability?.message
-                    : "Relancer l’IA, y compris sur les pièces validées. Les classements manuels sont conservés."
-                }
-                onClick={() => void retryAnalysis(retryableDocuments)}
+                title="Relancer l’IA, y compris sur les pièces validées. Les classements manuels sont conservés."
+                onClick={() => setRetrySelection(retryableDocuments)}
               >
                 <RotateCw size={15} />
                 Relancer l’analyse ({retryableDocuments.length})
@@ -428,17 +425,12 @@ export function AffaireDocumentDesk({
           l’affaire et aux administrateurs.
         </p>
       )}
-      {canManage && (fallbackCount > 0 || !analysisAvailable) && (
-        <div className="document-desk-analysis-notice" role="status">
-          <span>
-            {!analysisAvailable
-              ? (workspace.analysisAvailability?.message ??
-                "La connexion IA n’est pas disponible.")
-              : `${fallbackCount} document${fallbackCount > 1 ? "s" : ""} classé${fallbackCount > 1 ? "s" : ""} d’après le nom après un échec de l’IA. Vous pouvez relancer l’analyse.`}
-          </span>
-          <Link href="/dashboard/profile">{workspace.analysisAvailability?.provider === "decisions" ? "Vérifier la disponibilité Decisions" : "Vérifier la connexion ChatGPT"}</Link>
-        </div>
+      {canManage && fallbackCount > 0 && (
+        <p className="document-desk-analysis-notice" role="status">
+          {`${fallbackCount} document${fallbackCount > 1 ? "s" : ""} classé${fallbackCount > 1 ? "s" : ""} d’après le nom après un échec de l’IA. Vous pouvez relancer l’analyse.`}
+        </p>
       )}
+      {retryBudgetNotice && <p role="status">{retryBudgetNotice}</p>}
       {(message || progress) && (
         <p className="document-desk-feedback" role="status">
           {progress || message}
@@ -506,10 +498,9 @@ export function AffaireDocumentDesk({
                 className="document-desk-button"
                 disabled={
                   busy ||
-                  !analysisAvailable ||
                   selectedRetryableDocuments.length === 0
                 }
-                onClick={() => void retryAnalysis(selectedRetryableDocuments)}
+                onClick={() => setRetrySelection(selectedRetryableDocuments)}
               >
                 <RotateCw size={14} />
                 Réanalyser ({selectedRetryableDocuments.length})
@@ -720,8 +711,8 @@ export function AffaireDocumentDesk({
                               className="document-desk-icon"
                               aria-label={`Relancer l’analyse de ${document.fileName}`}
                               title="Relancer l’analyse"
-                              disabled={busy || !analysisAvailable}
-                              onClick={() => void retryAnalysis([document])}
+                              disabled={busy}
+                              onClick={() => setRetrySelection([document])}
                             >
                               <RotateCw size={15} />
                             </button>
@@ -858,6 +849,8 @@ export function AffaireDocumentDesk({
           onRefresh={() => void onReload()}
         />
       )}
+      {retrySelection.length > 0 && <IntakeAnalysisRetryDialog projectId={projectId} count={retrySelection.length}
+        onClose={() => setRetrySelection([])} onSubmit={choice => void retryAnalysis(choice)} />}
       <Dialog open={addFiles} onOpenChange={setAddFiles}>
         <DialogContent size="lg">
           <DialogHeader>

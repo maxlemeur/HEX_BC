@@ -1,3 +1,4 @@
+import { INTAKE_AI_BUDGET_STOP, INTAKE_AI_COST_ABOVE_HOLD } from "@/lib/affaires/intake-ai-settings";
 import { readLaunchConnection } from "@/lib/affaires/intake-payer-server";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
@@ -55,6 +56,7 @@ export type AffaireIntakeWorkspace = {
   briefPreparationDue?: boolean;
   briefOutdated?: boolean;
   launchConnectionUnavailable?: boolean;
+  launchBudgetNotice?: string;
   canManageDocuments?: boolean;
   documents: Array<{
     documentId: string;
@@ -213,8 +215,8 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   if (publicationDebt.error) throw internalError("Impossible de vérifier si le brief doit être actualisé.", publicationDebt.error);
 
   const stopped = publicationDebt.data[0];
-  const connectionUnavailable = stopped?.last_error === "connection_unavailable" &&
-    (active || Boolean(await readLaunchConnection(stopped.id)));
+  const connectionUnavailable = stopped?.last_error === "ai_connection_unavailable" ||
+    (stopped?.last_error === "connection_unavailable" && (active || Boolean(await readLaunchConnection(stopped.id))));
 
   return {
     projectId: project.id,
@@ -222,6 +224,8 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     pendingUploadIds: pendingUploads.ids,
     launchRunning: pendingUploads.launchRunning,
     ...(connectionUnavailable ? { launchConnectionUnavailable: true } : {}),
+    ...(stopped?.last_error === INTAKE_AI_BUDGET_STOP || stopped?.last_error === INTAKE_AI_COST_ABOVE_HOLD
+      ? { launchBudgetNotice: stopped.last_error } : {}),
     ...(briefState === "required" && brief ? { briefOutdated: true } : {}),
     briefPreparationDue: pendingUploads.ids.length === 0 &&
       !documents.some(doc => doc.upload_status === "uploaded" && (doc.deletion_token ||

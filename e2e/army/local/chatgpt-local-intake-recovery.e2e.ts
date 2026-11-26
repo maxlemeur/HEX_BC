@@ -193,7 +193,7 @@ test("INTPROFILE01 a second usable profile cannot take or pay for the first prof
     const batch = async () => (await client.from("affaire_intake_uploads").select("id,status,attempt_count,last_error")
       .eq("project_id", projectId).eq("launch_read_scans",true).single()).data!;
     const lot = (await batch()).id;
-    expect(await querySql(`select profile_id || '/' || authorization_id from private.affaire_intake_launch_selections where upload_id='${lot}'`))
+    expect(await querySql(`select (selection#>>'{connection,profileId}') || '/' || (selection#>>'{connection,authorizationId}') from private.affaire_intake_ai_batches where launch_id='${lot}'`))
       .toEqual([`${primary.id}/${primary.authorizationId}`]);
     await select(secondary.id);
     await querySql(`update public.affaire_intake_uploads set processing_lease_expires_at=clock_timestamp()-interval '1 second' where id='${lot}'`);
@@ -208,10 +208,10 @@ test("INTPROFILE01 a second usable profile cannot take or pay for the first prof
     expect(await sends()).toBe(before + 1);
     await querySql(`update public.affaire_intake_uploads set processing_lease_expires_at=clock_timestamp()-interval '31 minutes' where id='${lot}'`);
     await expect.poll(async () => { await sweep(); return batch(); }, DEV_SERVER_WORK)
-      .toMatchObject({ attempt_count: 1, status: "failed", last_error: "connection_unavailable" });
+      .toMatchObject({ attempt_count: 1, status: "failed", last_error: "ai_connection_unavailable" });
     expect(await sends()).toBe(before + 1);
     await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
-    await expect(screen.getByText("Analyse interrompue. La connexion ChatGPT choisie au lancement n’est plus disponible.", { exact: true }).first()).toBeVisible();
+    await expect(screen.getByText("Analyse interrompue. La connexion IA choisie au lancement n’est plus disponible.", { exact: true }).first()).toBeVisible();
     await querySql("insert into private.intake_current_brief_activation(active_from) values(clock_timestamp())");
     // A later deposit cannot erase the explanation for the outstanding launch.
     const late = await browser.evaluate(async project => {
@@ -225,17 +225,18 @@ test("INTPROFILE01 a second usable profile cannot take or pay for the first prof
       projectId, documentId: late, category: "annexes",
     }))).toMatchObject({ status: 200, digest: null });
     await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
-    await expect(screen.getByText("Analyse interrompue. La connexion ChatGPT choisie au lancement n’est plus disponible.", { exact: true }).first()).toBeVisible();
+    await expect(screen.getByText("Analyse interrompue. La connexion IA choisie au lancement n’est plus disponible.", { exact: true }).first()).toBeVisible();
     await expect(screen.getByText("1 pièce en attente de lancement", { exact: true }).first()).toBeVisible();
     await screen.getByRole("button", "Lancer l’analyse", { exact: true }).first().click();
     await expect.poll(async () => (await client.from("affaire_briefs").select("id").eq("project_id",projectId)).data?.length, DEV_SERVER_WORK).toBe(1);
     await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
-    await expect(screen.getByText("Analyse interrompue. La connexion ChatGPT choisie au lancement n’est plus disponible.", { exact: true })).toHaveCount(0);
+    await expect(screen.getByText("Analyse interrompue. La connexion IA choisie au lancement n’est plus disponible.", { exact: true })).toHaveCount(0);
     expect((await transport()).slice(before + 1).map(row => [row.inputKind, row.fixtureProfile])).toEqual([
       ["intake-classification", "second"], ["intake-brief", "second"],
     ]);
-    expect(await querySql(`select count(*) from private.affaire_intake_launch_selections s join public.affaire_intake_uploads u on u.id=s.upload_id
-      where u.project_id='${projectId}' and s.profile_id='army-second-profile' and s.authorization_id='army-second-grant'`)).toEqual(["1"]);
+    expect(await querySql(`select count(*) from private.affaire_intake_ai_batches s join public.affaire_intake_uploads u on u.id=s.launch_id
+      where u.project_id='${projectId}' and s.selection#>>'{connection,profileId}'='army-second-profile'
+        and s.selection#>>'{connection,authorizationId}'='army-second-grant'`)).toEqual(["1"]);
   } finally {
     await setDecisionsControl({});
     await querySql("delete from private.intake_current_brief_activation where singleton");

@@ -138,7 +138,7 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
           });
           const answer = await access.execute<T>(owner, prepared, {
             timeoutMs: options.timeoutMs ?? TAKEOFF_C_TIMEOUT_MS_DEFAULT, signal: options.signal,
-            beforeSend: async () => {
+            reserveBeforeSend: async () => {
               await options.beforeSend?.();
               callId = (await reserve(prepared.boundNanoUsd, prepared.inputTokens + prepared.maxOutputTokens)).call_id;
               if (!callId) throw stopForLedger();
