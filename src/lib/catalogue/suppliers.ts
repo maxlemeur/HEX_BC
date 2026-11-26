@@ -45,12 +45,14 @@ async function supplierWriteRefusal(writer: WriterClient, supplierId: string) {
   return notFound("Fournisseur introuvable.");
 }
 
-export async function listSuppliers(scope?: "active") {
+export async function listSuppliers() {
   const { supabase, tenantId } = await getAuthenticatedTenantContext();
-  const { data, error } = scope === "active"
-    ? await readAllRows(() => supabase.from("suppliers")
-      .select("*", { count: "exact" }).eq("tenant_id", tenantId).eq("is_active", true).order("name"))
-    : await supabase.from("suppliers").select("*").eq("is_active", true).order("name", { ascending: true });
+  const { data, error } = await readAllRows(() => supabase
+    .from("suppliers")
+    .select("*", { count: "exact" })
+    .eq("tenant_id", tenantId)
+    .eq("is_active", true)
+    .order("name"));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les fournisseurs.");
@@ -65,12 +67,12 @@ export async function listSuppliers(scope?: "active") {
   };
 }
 
-export async function getSupplierUsage(supplierId: string) {
-  const { supabase } = await getAuthenticatedTenantContext();
-  const { count, error } = await supabase
+async function countSupplierOrders(supabase: WriterClient["supabase"], supplierId: string, tenantId?: string) {
+  const query = supabase
     .from("purchase_orders")
     .select("id", { count: "exact", head: true })
     .eq("supplier_id", supplierId);
+  const { count, error } = await (tenantId === undefined ? query : query.eq("tenant_id", tenantId));
 
   if (error) {
     throw mapSupabaseError(
@@ -79,7 +81,26 @@ export async function getSupplierUsage(supplierId: string) {
     );
   }
 
-  return { linked_orders_count: count ?? 0 };
+  return count ?? 0;
+}
+
+export async function getSupplierUsage(supplierId: string) {
+  const { supabase, tenantId } = await getAuthenticatedTenantContext();
+  const { data, error } = await supabase
+    .from("suppliers")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("id", supplierId)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de vérifier l'utilisation du fournisseur.");
+  }
+  if (!data) {
+    throw notFound("Fournisseur introuvable.");
+  }
+
+  return { linked_orders_count: await countSupplierOrders(supabase, supplierId, tenantId) };
 }
 
 export async function createSupplier(input: CreateSupplierInput) {
@@ -162,9 +183,9 @@ async function archiveSupplier(writer: WriterClient, supplierId: string) {
 export async function deleteSupplier(supplierId: string) {
   const writer = await getWriterClient();
   const { supabase } = writer;
-  const { linked_orders_count } = await getSupplierUsage(supplierId);
+  const linkedOrderCount = await countSupplierOrders(supabase, supplierId);
 
-  if (linked_orders_count > 0) {
+  if (linkedOrderCount > 0) {
     return archiveSupplier(writer, supplierId);
   }
 

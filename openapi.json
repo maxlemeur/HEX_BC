@@ -25464,7 +25464,7 @@
             }
           },
           "404": {
-            "description": "Ressource introuvable.",
+            "description": "Ressource introuvable, notamment si la fiche article-fournisseur à modifier a disparu.",
             "content": {
               "application/json": {
                 "schema": {
@@ -26792,11 +26792,11 @@
             }
           },
           "409": {
-            "description": "Conflit metier ou de concurrence.",
+            "description": "CONFLICT : une modification concurrente empêche l’enregistrement de la référence fournisseur. Réessayez.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -28319,7 +28319,7 @@
           "Catalogue"
         ],
         "summary": "Lister les fournisseurs",
-        "description": "Retourne les fournisseurs actifs ou le nombre de bons de commande lies.",
+        "description": "Liste tous les fournisseurs actifs de l’entreprise active. La vue usage compte les bons de commande de cette entreprise liés au fournisseur demandé et retourne 404 si ce fournisseur est inconnu ou hors de l’entreprise active.",
         "parameters": [
           {
             "name": "view",
@@ -28333,7 +28333,7 @@
           {
             "name": "scope",
             "in": "query",
-            "description": "Restreint la liste aux fournisseurs de l’entreprise active.",
+            "description": "Accepté pour compatibilité. La liste utilise toujours l’entreprise active.",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/ListSuppliersScopeParameter"
