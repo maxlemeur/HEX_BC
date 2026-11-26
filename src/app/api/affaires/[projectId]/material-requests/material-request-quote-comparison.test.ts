@@ -1,5 +1,5 @@
 import { PDFDocument } from "pdf-lib";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "./[requestId]/quotes/[quoteId]/files/[fileId]/comparison/route";
 
@@ -17,19 +17,34 @@ const mocks = vi.hoisted(() => ({
   quote: vi.fn(),
   file: vi.fn(),
   download: vi.fn(),
+  keyState: vi.fn(),
+  credential: vi.fn(),
   prepare: vi.fn(),
+  execute: vi.fn(),
   analyze: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("next/headers", () => ({ headers: () => new Headers({ host: "localhost:3140" }) }));
+vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
+  isLocalChatGptEnabled: () => true,
+  assertLocalChatGptHost: vi.fn(),
+  getLocalChatGptCredential: mocks.credential,
+}));
+vi.mock("@/lib/ai/structured-ai", () => ({
+  getStructuredAiAvailability: async () => ({ available: true, message: "" }),
+  callStructuredAi: mocks.analyze,
+}));
+vi.mock("@/lib/ai/access/openai-api", () => ({
+  openAiApiKeyAccess: () => ({
+    state: mocks.keyState, prepare: mocks.prepare, execute: mocks.execute,
+  }),
+}));
 vi.mock("@/lib/material-requests/server-shared", () => ({
   requireProjectAccess: mocks.authorize,
   requireRequest: mocks.request,
 }));
 vi.mock("@/lib/material-requests/quotes-server", () => ({ requireQuote: mocks.quote }));
-vi.mock("@/lib/material-requests/document-analysis-server", () => ({
-  prepareMaterialRequestDocumentAnalysis: mocks.prepare,
-}));
 
 const settings = { billingSource: "chatgpt_plan", preferences: { model: "demo", reasoningEffort: null } };
 
@@ -65,6 +80,7 @@ describe("material request quote comparison route", () => {
     mocks.authorize.mockResolvedValue({
       project: { id: ids.projectId },
       context: {
+        userId: "fixture-user",
         tenantId: "fixture-tenant",
         supabase: { from: () => query, storage: { from: () => ({ download: mocks.download }) } },
       },
@@ -72,12 +88,18 @@ describe("material request quote comparison route", () => {
     mocks.request.mockResolvedValue({ id: ids.requestId });
     mocks.quote.mockResolvedValue({ id: ids.quoteId, message });
     mocks.file.mockResolvedValue({ data: file(), error: null });
-    mocks.prepare.mockResolvedValue(mocks.analyze);
+    mocks.keyState.mockResolvedValue({ status: "empty", placeLabel: "Sur ce Mac" });
+    mocks.credential.mockResolvedValue({ ...settings.preferences, accessToken: "fixture-token", profileId: "fixture-profile" });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      models: [{ slug: "demo", display_name: "Démo", visibility: "list", supported_reasoning_levels: ["low"] }],
+    })));
   });
+
+  afterEach(() => vi.unstubAllGlobals());
 
   it("requires an explicit AI source before using either provider", async () => {
     expect((await post({})).status).toBe(400);
-    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.keyState).not.toHaveBeenCalled();
   });
 
   it.each([null, "00000000-0000-4000-8000-000000000005"])(
@@ -91,6 +113,47 @@ describe("material request quote comparison route", () => {
       expect(mocks.analyze).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    { model: "unknown", reasoningEffort: null },
+    { model: "demo-key", reasoningEffort: "high" },
+  ])("refuses an API key model or effort the connection does not offer (%o) before downloading the file", async (preferences) => {
+    const billingSource = "personal_api_key";
+    const connectionId = "00000000-0000-4000-8000-000000000006";
+    const analysisPreferences = { billingSource, apiModel: "demo-key", apiReasoningEffort: "low" };
+    mocks.keyState.mockResolvedValue({
+      status: "saved", analysisPreferences,
+      connection: { connectionId, offeredModels: [{ id: "demo-key", reasoningEfforts: ["low"] }] },
+    });
+
+    const response = await post({ billingSource, connectionId, preferences });
+    expect(response.status).toBe(422);
+    expect((await response.json()).error).toMatchObject({
+      code: "MATERIAL_REQUEST_ANALYSIS_MODEL_UNAVAILABLE",
+      message: "Ce modèle ou ce niveau d’effort n’est pas disponible pour cette clé API OpenAI.",
+    });
+    expect(mocks.download).not.toHaveBeenCalled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.analyze).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { model: "unknown", reasoningEffort: null },
+    { model: "demo", reasoningEffort: "high" },
+  ])("validates the plan's selection (%o) before reading the quote", async (preferences) => {
+    const response = await post({ ...settings, preferences });
+    expect(response.status).toBe(422);
+    expect((await response.json()).error).toMatchObject({
+      code: "MATERIAL_REQUEST_ANALYSIS_MODEL_UNAVAILABLE",
+      message: "Ce modèle ou ce niveau d’effort ChatGPT n’est pas disponible pour ce compte.",
+    });
+    expect(mocks.credential).toHaveBeenCalledWith({ userId: "fixture-user", tenantId: "fixture-tenant" });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(mocks.download).not.toHaveBeenCalled();
+    expect(mocks.analyze).not.toHaveBeenCalled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+  });
 
   it("compares the authorized PDF with the sent message and counts explicit packs in code", async () => {
     const pdf = await PDFDocument.create();
@@ -115,8 +178,8 @@ describe("material request quote comparison route", () => {
     expect(mocks.download).toHaveBeenCalledWith("fixture/quote.pdf");
     expect(mocks.analyze).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining(JSON.stringify(message)),
-      file: expect.objectContaining({ mimeType: "application/pdf" }),
-    }));
+      files: [expect.objectContaining({ mimeType: "application/pdf" })],
+    }), undefined, settings.preferences);
     const output = await response.json();
     expect(output.data).toMatchObject({
       file_id: ids.fileId,

@@ -19,7 +19,7 @@ import {
   type ChatGptLiveProbe,
 } from "./chatgpt-local-journey-support";
 import { createBlankEstimateFixture } from "./blank-estimate-fixture";
-import { TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
+import { compileChatGptRoutes, TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
 import { callServerAction, serverActionId } from "./engine-v3-creators-support";
 import { verifyV3TakeoffCreation } from "./engine-v3-takeoff-journey";
 import { localTakeoffWorkerClient } from "../takeoff/fixtures";
@@ -59,6 +59,7 @@ beforeAll(async () => {
 });
 // One hook per wave: each has its own time limit, and the start with every compile does not fit in one.
 for (const wave of TAKEOFF_JOURNEY_WAVES) beforeAll(() => server.compileTakeoffRoutes(wave));
+beforeAll(() => compileChatGptRoutes(localOrigin, fixtureEmail, "takeoff-launch-panel"));
 
 afterAll(() => server.stop(fixtureStore));
 

@@ -1,4 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { randomBytes } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: "127.0.0.1:3151" }) }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/ai/structured-ai", () => ({
+  callStructuredAi: vi.fn(),
+  getStructuredAiAvailability: vi.fn().mockResolvedValue({ available: true, message: "Forfait connecté." }),
+}));
+vi.mock("@/lib/ai/chatgpt-local-inference", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ai/chatgpt-local-inference")>(),
+  readLocalChatGptModelOptions: vi.fn(),
+}));
+vi.mock("@/lib/ai/access/openai-api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ai/access/openai-api")>(),
+  openAiApiKeyAccess: vi.fn(),
+}));
 
 vi.mock("@/lib/estimates/server-context", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/estimates/server-context")>(),
@@ -31,6 +50,14 @@ import { createEstimateItem } from "@/lib/estimates/item-create-server";
 import { prepareEstimateBatch } from "@/lib/estimates/batch-preparation";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import {
+  generateOuvragesFromText as generateOuvragesAction,
+  readGeneratedOuvrageAiOptions,
+} from "@/app/dashboard/affaires/_actions/generated-ouvrages";
+import type { ApiKeySecret } from "@/lib/ai/access/api-key-secret";
+import { createOpenAiApiKeyAccess, openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
+import { readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
+import { callStructuredAi } from "@/lib/ai/structured-ai";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -372,7 +399,27 @@ beforeEach(() => {
   } as never);
 });
 describe("generateOuvragesFromText", () => {
-  it("keeps the previous pending draft until the new draft is fully materialized", async () => {
+  const owner = { userId: USER_ID, tenantId: TENANT_ID };
+  const baseInput = { projectId: PROJECT_ID, versionId: VERSION_ID, draftLockSessionId: LOCK_SESSION_ID,
+    sourceKind: "free_text", sourceText: "Pose de faux plafond 120 m2." } as const;
+  const planChoice = { source: "chatgpt_plan", model: "gpt-6.2-sol", effort: "high" } as const;
+  const exchange = {
+    candidates: [{ designation: "Pose de faux plafond", unit: "m2", quantity: 120, confidence: 0.93,
+      status: "certain", sourceFragmentIds: [FRAGMENT_ID], reasoning: "Quantité indiquée dans le CCTP." }],
+    summary: "Plafond suspendu de la salle polyvalente.",
+  };
+
+  beforeEach(() => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("PORT", "3151");
+    vi.stubEnv("MERGEONE_DEV_SUPABASE_TARGET", "");
+    vi.mocked(openAiApiKeyAccess).mockReset();
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  function setup(mode: "complete" | "refusal" | "adapter-refusal" | "fragment-failure", fragments = [createFragmentRow()]) {
+    const draft = createDraftRow();
+    const projection = createQueryBuilder({ data: draft, error: null });
     const supabase = createSupabaseStub({
       estimate_versions: {
         select: [
@@ -405,32 +452,43 @@ describe("generateOuvragesFromText", () => {
         select: [createQueryBuilder({ data: [], error: null })],
       },
       estimate_generated_ouvrage_drafts: {
-        insert: [createQueryBuilder({ data: createDraftRow(), error: null })],
+        insert: mode === "refusal" ? [] : [createQueryBuilder({ data: draft, error: null })],
+        update: [projection],
       },
       estimate_generated_ouvrage_source_fragments: {
-        insert: [
-          createQueryBuilder({
-            data: null,
-            error: { message: "insert fragments failed", code: "23514" },
-          }),
-        ],
+        insert: [createQueryBuilder(mode === "fragment-failure"
+          ? { data: null, error: { message: "insert fragments failed", code: "23514" } }
+          : { data: fragments, error: null })],
+      },
+      estimate_generated_ouvrage_candidates: {
+        insert: [createQueryBuilder({ data: [createCandidateRow()], error: null })],
+      },
+      estimate_generated_ouvrage_candidate_sources: {
+        insert: [createQueryBuilder({ data: null, error: null })],
       },
     });
 
+    projection.single.mockImplementation(() => {
+      const update = supabase.__history.find((entry) => entry.operation === "update");
+      return Promise.resolve({ data: { ...draft, ...update?.payload as object }, error: null });
+    });
     supabase.rpc.mockResolvedValue({ data: {
       ok: true, versionId: VERSION_ID, draftId: DRAFT_ID,
-      status: "discarded", discardedDraftIds: [DRAFT_ID],
+      ...(mode === "complete" ? { status: "pending", discardedDraftIds: [] }
+        : { status: "discarded", discardedDraftIds: [DRAFT_ID] }),
     }, error: null });
     createAuthenticatedContext(supabase);
+    vi.mocked(readLocalChatGptModelOptions).mockResolvedValue({
+      models: [{ id: planChoice.model, name: "GPT-6.2 Sol", reasoningEfforts: ["low", "high"], defaultReasoningEffort: "low" }],
+      preferences: { model: planChoice.model, reasoningEffort: "low" },
+    });
+    return supabase;
+  }
 
+  it("keeps the previous pending draft until the new draft is fully materialized", async () => {
+    const supabase = setup("fragment-failure");
     await expect(
-      generateOuvragesFromText({
-        projectId: PROJECT_ID,
-        versionId: VERSION_ID,
-        draftLockSessionId: LOCK_SESSION_ID,
-        sourceKind: "free_text",
-        sourceText: "Pose de faux plafond 120 m2.",
-      })
+      generateOuvragesFromText({ ...baseInput, ai: { source: "fallback" } })
     ).rejects.toMatchObject({
       message: "Impossible de persister les fragments sources des ouvrages.",
     });
@@ -448,6 +506,154 @@ describe("generateOuvragesFromText", () => {
     });
     expect(supabase.__history.filter((entry) => entry.table === "estimate_generated_ouvrage_source_fragments"
       && entry.operation === "update")).toHaveLength(0);
+  });
+
+  it("passes the per-request plan model and effort for the authenticated owner", async () => {
+    const supabase = setup("complete");
+    const result = {
+      data: exchange, provider: "chatgpt", model: planChoice.model, promptVersion: "est381-generated-ouvrages-v1",
+      tokenCount: 1_670, tokenUsage: { inputTokens: 1_000, outputTokens: 370, reasoningTokens: 300, totalTokens: 1_670 },
+      costCents: 0, durationMs: 100,
+    } as const;
+    vi.mocked(callStructuredAi).mockResolvedValueOnce(result);
+
+    await expect(generateOuvragesAction({ ...baseInput, ai: planChoice })).resolves.toMatchObject({ generationKind: "model" });
+    expect(callStructuredAi).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      prompt: expect.stringContaining(baseInput.sourceText),
+    }), owner, { model: planChoice.model, reasoningEffort: planChoice.effort });
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
+    expect(supabase.__history.find((entry) => entry.operation === "update")?.payload).toMatchObject({
+      generation_metadata: { model: planChoice.model, reasoning_effort: planChoice.effort, billing_source: planChoice.source, used_fallback: false },
+    });
+  });
+
+  it("shows a French refusal for an unavailable plan model before any inference or draft write", async () => {
+    const supabase = setup("refusal");
+    await expect(generateOuvragesAction({ ...baseInput, ai: { ...planChoice, model: "modele-retire" } })).resolves.toEqual({
+      ok: false, error: { status: 409, code: "GENERATED_OUVRAGE_AI_MODEL_UNAVAILABLE",
+        message: "Ce modèle n’est pas proposé par la source d’IA choisie." },
+    });
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
+    expect(supabase.__history.every((entry) => entry.operation === "select")).toBe(true);
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("keeps a no-charge heuristic fallback when the selected plan returns no usable answer", async () => {
+    const supabase = setup("complete");
+    vi.mocked(callStructuredAi).mockRejectedValueOnce(Object.assign(new SyntaxError(), { usage: { totalTokens: 1_200 } }));
+    await expect(generateOuvragesAction({ ...baseInput, ai: planChoice })).resolves.toMatchObject({ generationKind: "fallback" });
+    expect(openAiApiKeyAccess).not.toHaveBeenCalled();
+    expect(supabase.__history.find((entry) => entry.operation === "update")?.payload).toMatchObject({
+      generation_metadata: { model: planChoice.model, reasoning_effort: planChoice.effort, token_count: 1_200, cost_cents: 0, used_fallback: true },
+    });
+  });
+
+  it("prices one realistic key generation through the adapter and refuses before dispatch when the allotment cannot fit", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ouvrage-api-test-"));
+    try {
+      const excerpt = [
+        "LOT 06 — Plafonds suspendus de la salle polyvalente et des locaux annexes.",
+        "Fourniture et pose de 120 m² de dalles acoustiques démontables, ossature apparente et rives comprises.",
+        "Pose de 34 m de cornières périphériques avec adaptation au droit des gaines et des luminaires.",
+        "Fourniture de 8 trappes de visite 600 × 600 mm pour l’entretien des équipements au-dessus du plafond.",
+        "Coordonner l’implantation avec les lots ventilation et électricité. Prévoir la protection des sols et le nettoyage final.",
+      ].join("\n");
+      const supabase = setup("complete", [{ ...createFragmentRow(), excerpt, source_kind: "cctp_excerpt" }]);
+      const model = "gpt-6.2-astra";
+      let count = 3_000; // Simulated provider count, including schema, prompt and request framing.
+      const outputTokens = 2_100; // Includes 1,600 reasoning tokens and 500 answer tokens.
+      let secret: ApiKeySecret | null = null;
+      const fetch = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async (url) => {
+        switch (new URL(url).pathname) {
+          case "/v1/models": return Response.json({ data: [{ id: model }] });
+          case "/v1/responses/input_tokens": return Response.json({ input_tokens: count });
+          case "/v1/responses": return Response.json({
+            status: "completed", model, service_tier: "default",
+            output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(exchange) }] }],
+            usage: { input_tokens: count, output_tokens: outputTokens, total_tokens: count + outputTokens,
+              output_tokens_details: { reasoning_tokens: 1_600 } },
+          });
+          default: throw new Error("Unexpected API endpoint in fixture");
+        }
+      });
+      const api = createOpenAiApiKeyAccess({
+        directory: () => directory,
+        installationId: async () => "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        secretStore: () => ({
+          kind: "macos-keychain", placeLabel: "Trousseau de test",
+          async read() { return secret; },
+          async write(_item, value) { secret = value; },
+          async remove() { secret = null; },
+        }),
+        fetch,
+      });
+      const saved = await api.save(owner, { key: `sk-proj-${randomBytes(30).toString("base64url")}` });
+      if (saved.outcome !== "saved" || saved.state.status !== "saved") throw new Error("Missing key fixture");
+      const { connectionId, version } = saved.state.connection;
+      const profile = { billingSource: "personal_api_key", apiModel: model, apiReasoningEffort: "medium" } as const;
+      await api.saveAnalysisPreferences(owner, profile, connectionId);
+      const saveProfile = vi.spyOn(api, "saveAnalysisPreferences");
+      vi.mocked(openAiApiKeyAccess).mockReturnValue(api);
+      const prepare = vi.spyOn(api, "prepare");
+      const execute = vi.spyOn(api, "execute");
+      const selection = { ...baseInput, sourceKind: "cctp_excerpt", sourceText: excerpt, ai: {
+        source: "personal_api_key", model, effort: "high", expectedConnectionId: connectionId,
+      } } as const;
+      fetch.mockClear();
+
+      await expect(readGeneratedOuvrageAiOptions(VERSION_ID)).resolves.toMatchObject({ ok: true, data: {
+        defaultSource: "personal_api_key", keyConnectionId: connectionId,
+        sources: { personal_api_key: { available: true, preferences: { model, reasoningEffort: "medium" } } },
+      } });
+      expect(fetch).not.toHaveBeenCalled();
+      // The options action consumed the first version read, so initialise the generation fixture afresh.
+      const generationDb = setup("complete", [{ ...createFragmentRow(), excerpt, source_kind: "cctp_excerpt" }]);
+      await expect(generateOuvragesAction(selection)).resolves.toMatchObject({ generationKind: "model" });
+      expect(prepare).toHaveBeenCalledExactlyOnceWith(owner, expect.objectContaining({
+        model, reasoningEffort: "high", expectedVersion: version, allotmentNanoUsd: 1_000_000_000, files: [],
+      }));
+      const prepared = await prepare.mock.results[0].value;
+      expect(prepared).toMatchObject({ inputTokens: 3_000, maxOutputTokens: 8_192, boundNanoUsd: 387_680_000 });
+      expect(execute).toHaveBeenCalledExactlyOnceWith(owner, prepared, expect.any(Object));
+      expect(await execute.mock.results[0].value).toMatchObject({ costNanoUsd: 108_000_000 });
+      expect(fetch.mock.calls.map(([url]) => new URL(url).pathname)).toEqual(["/v1/responses/input_tokens", "/v1/responses"]);
+      expect(JSON.parse(String(fetch.mock.calls[1][1].body))).toMatchObject({
+        model, reasoning: { effort: "high" }, max_output_tokens: 8_192,
+      });
+      expect(String(fetch.mock.calls[1][1].body)).toContain("Plafonds suspendus de la salle polyvalente");
+      expect(generationDb.__history.find((entry) => entry.operation === "update")?.payload).toMatchObject({
+        generation_metadata: { model, reasoning_effort: "high", billing_source: "personal_api_key", token_count: 5_100, cost_cents: 11 },
+      });
+      expect(saveProfile).not.toHaveBeenCalled();
+      expect(callStructuredAi).not.toHaveBeenCalled();
+      expect(supabase.rpc).not.toHaveBeenCalled();
+
+      fetch.mockClear();
+      setup("refusal");
+      await expect(generateOuvragesAction({ ...selection, ai: { ...selection.ai, model: "modele-retire" } })).resolves.toMatchObject({
+        ok: false, error: { code: "GENERATED_OUVRAGE_AI_MODEL_UNAVAILABLE" },
+      });
+      expect(fetch).not.toHaveBeenCalled();
+      setup("refusal");
+      await expect(generateOuvragesAction({ ...selection, ai: { ...selection.ai, expectedConnectionId: "cle-remplacee" } })).resolves.toMatchObject({
+        ok: false, error: { code: "GENERATED_OUVRAGE_AI_CONNECTION_CHANGED" },
+      });
+      expect(fetch).not.toHaveBeenCalled();
+
+      count = 50_000;
+      const refusedDb = setup("adapter-refusal", [{ ...createFragmentRow(), excerpt }]);
+      await expect(generateOuvragesAction(selection)).resolves.toMatchObject({
+        ok: false, error: { code: "AI_KEY_CEILING", message: expect.stringContaining("plafond de 1,00 $ US") },
+      });
+      expect(fetch.mock.calls.map(([url]) => new URL(url).pathname)).toEqual(["/v1/responses/input_tokens"]);
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(callStructuredAi).not.toHaveBeenCalled();
+      expect(refusedDb.rpc).toHaveBeenCalledExactlyOnceWith("close_generated_ouvrage_generation", expect.objectContaining({ p_mode: "failed" }));
+      expect(refusedDb.__history.some((entry) => entry.table === "estimate_generated_ouvrage_candidates")).toBe(false);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
 

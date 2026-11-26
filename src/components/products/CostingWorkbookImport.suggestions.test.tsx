@@ -14,8 +14,7 @@ import { CostingWorkbookImport } from "./CostingWorkbookImport";
  * Failure modes of the proposals of the import screen (TI-711), written before the code. A proposal comes from
  * the rules, or from the AI source the office chose (its ChatGPT plan, its API key, the Decisions API); the
  * network is the only stub, and every name is invented.
- *  1. An AI source is asked, or even its availability read, without the office asking for it; an unavailable
- *     source can be chosen; the source chosen is not the one the request names.
+ *  1. Loading the sources starts inference, selects an unavailable source or sends different settings from those shown.
  *  2. A proposal is applied by itself: nothing may change before the office retains it. « Retenir les
  *     propositions » retains one the model is not sure of.
  *  3. What the provider says of its answer (partial, unavailable, failed) is not shown.
@@ -69,8 +68,31 @@ type Body = Record<string, unknown> & { rows?: unknown[][] };
 type Sent = { url: string; method: string; body: Body | null };
 const sent: Sent[] = [];
 const SUGGESTIONS = "/api/catalogue/workbook-import/suggestions";
+const UNAVAILABLE_SOURCES = {
+  chatgpt_plan: { available: false, message: "Connectez votre forfait ChatGPT dans Mon profil.", models: [], preferences: null },
+  personal_api_key: { available: false, message: "Configurez votre clé API OpenAI dans Mon profil.", models: [], preferences: null },
+  decisions: { available: true, message: "Decisions configuré : consommation API distincte du forfait ChatGPT." },
+};
+const PERSONAL_SOURCES = {
+  ...UNAVAILABLE_SOURCES,
+  chatgpt_plan: {
+    available: true, message: "Connexion ChatGPT configurée.",
+    models: [
+      { id: "plan-a", name: "Forfait A", reasoningEfforts: ["high"], defaultReasoningEffort: "high" },
+      { id: "plan-b", name: "Forfait B", reasoningEfforts: ["low", "medium"], defaultReasoningEffort: "medium" },
+    ],
+    preferences: { model: "plan-a", reasoningEffort: "high" },
+  },
+  personal_api_key: {
+    available: true, message: "Clé API OpenAI : 0,10 $ US au plus par demande.",
+    models: [{ id: "key-a", name: "Clé A", reasoningEfforts: ["low", "high"], defaultReasoningEffort: "high" }],
+    preferences: { model: "key-a", reasoningEffort: "low" },
+  },
+};
 const answers = {
+  articles: () => ok(articleReport()),
   suppliers: () => ok(supplierReport()),
+  sources: () => ok({ defaultProvider: "chatgpt_plan", providers: UNAVAILABLE_SOURCES }),
   /** What the suggestions route answers to a task, from its request. */
   suggest: (body: Body): unknown => ({ task: body.task, provider: body.provider ?? null, model: null, status: "deterministic", message: "", items: [] }),
 };
@@ -81,18 +103,14 @@ const fetchMock = vi.fn<typeof fetch>((input, init) => {
   sent.push({ url, method, body });
   if (url === SUGGESTIONS) {
     return method === "GET"
-      ? ok({ providers: {
-        chatgpt_plan: { available: false, message: "L’analyse IA est indisponible sur cette instance." },
-        personal_api_key: { available: false, message: "Configurez votre clé API OpenAI dans Mon profil." },
-        decisions: { available: true, message: "Decisions configuré : consommation API distincte du forfait ChatGPT." },
-      } })
+      ? answers.sources()
       : ok(answers.suggest(body!));
   }
   if (url.startsWith("/api/catalogue/supplier-aliases")) {
     return method === "GET" ? ok({ items: [] }) : ok({ item: { id: "alias-1", ...body, supplier_name: "Point P Matériaux", created_at: "2026-11-25T10:00:00.000Z" } }, 201);
   }
   if (url === "/api/suppliers?scope=active") return ok({ items: [{ id: "s1", name: "Point P Matériaux" }] });
-  return url.endsWith("/supplier-references") ? answers.suppliers() : ok(articleReport());
+  return url.endsWith("/supplier-references") ? answers.suppliers() : answers.articles();
 });
 
 const posted = (path: string) => sent.filter((call) => call.url === path && call.method === "POST");
@@ -100,14 +118,13 @@ const previews = () => posted("/api/catalogue/workbook-import");
 const supplierPreviews = () => posted("/api/catalogue/workbook-import/supplier-references");
 const suggestions = () => posted(SUGGESTIONS).map((call) => call.body!);
 
-async function openImport(user: ReturnType<typeof userEvent.setup>) {
+async function openImport(user: ReturnType<typeof userEvent.setup>, file = workbook()) {
   render(<CostingWorkbookImport catalogueHref="/dashboard/products" draftsHref="/dashboard/products?catalogue_status=draft" onImported={vi.fn()} />);
-  await user.upload(screen.getByLabelText("Fichier Excel"), workbook());
+  await user.upload(screen.getByLabelText("Fichier Excel"), file);
   await screen.findByRole("table", { name: "Articles proposés en brouillon" });
 }
 
 async function chooseDecisions(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Propositions avec l’IA" }));
   await user.selectOptions(await screen.findByLabelText("Propositions"), "API Decisions");
 }
 
@@ -119,7 +136,9 @@ async function openSupplierReferences(user: ReturnType<typeof userEvent.setup>) 
 describe("CostingWorkbookImport, proposals", () => {
   beforeEach(() => {
     sent.length = 0;
+    answers.articles = () => ok(articleReport());
     answers.suppliers = () => ok(supplierReport());
+    answers.sources = () => ok({ defaultProvider: "chatgpt_plan", providers: UNAVAILABLE_SOURCES });
     answers.suggest = (body) => ({ task: body.task, provider: body.provider ?? null, model: null, status: "deterministic", message: "", items: [] });
     fetchMock.mockClear();
     vi.stubGlobal("fetch", fetchMock);
@@ -129,18 +148,68 @@ describe("CostingWorkbookImport, proposals", () => {
     vi.unstubAllGlobals();
   });
 
-  it("reads the AI sources only when asked, and lets the office choose an available one (1)", async () => {
+  it("starts with rules and explains why the profile default is unavailable, even when Decisions is available (1)", async () => {
     const user = userEvent.setup();
     await openImport(user);
-    expect(sent.some((call) => call.url === SUGGESTIONS)).toBe(false);
-
-    await user.click(screen.getByRole("button", { name: "Propositions avec l’IA" }));
     const select = await screen.findByLabelText("Propositions");
     expect(sent.filter((call) => call.url === SUGGESTIONS).map((call) => call.method)).toEqual(["GET"]);
+    expect(select).toHaveValue("");
+    expect(select).toHaveAccessibleDescription("Source par défaut indisponible : Connectez votre forfait ChatGPT dans Mon profil.");
     expect(within(select).getByRole("option", { name: "Forfait ChatGPT (indisponible)" })).toBeDisabled();
     expect(within(select).getByRole("option", { name: "Clé API OpenAI (indisponible)" })).toBeDisabled();
     await user.selectOptions(select, "API Decisions");
     expect(screen.getByText("Decisions configuré : consommation API distincte du forfait ChatGPT.")).toBeVisible();
+    expect(screen.queryByLabelText("Modèle")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Effort de raisonnement")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["chatgpt_plan", "plan-a", "high", ["Forfait A", "Forfait B"]],
+    ["personal_api_key", "key-a", "low", ["Clé A"]],
+  ] as const)("prefills the profile source %s and its own model and effort", async (defaultProvider, model, effort, labels) => {
+    answers.sources = () => ok({ defaultProvider, providers: PERSONAL_SOURCES });
+    await openImport(userEvent.setup());
+
+    expect(await screen.findByLabelText("Propositions")).toHaveValue(defaultProvider);
+    const modelSelect = screen.getByLabelText("Modèle");
+    expect(modelSelect).toHaveValue(model);
+    expect(within(modelSelect).getAllByRole("option").map((option) => option.textContent)).toEqual(labels);
+    expect(screen.getByLabelText("Effort de raisonnement")).toHaveValue(effort);
+    if (defaultProvider === "personal_api_key") expect(screen.getByText(/0,10 \$ US au plus par demande/)).toBeVisible();
+    expect(suggestions()).toHaveLength(0);
+  });
+
+  it("uses rules for an unreadable profile even with a connected plan", async () => {
+    const user = userEvent.setup();
+    answers.sources = () => ok({ defaultProvider: null, providers: { ...UNAVAILABLE_SOURCES, chatgpt_plan: PERSONAL_SOURCES.chatgpt_plan } });
+    await openImport(user);
+
+    const source = await screen.findByLabelText("Propositions");
+    expect(source).toHaveValue("");
+    expect(source).toHaveAccessibleDescription("Les préférences de Mon profil n’ont pas pu être lues.");
+    expect(within(source).getByRole("option", { name: "Forfait ChatGPT" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Doublons possibles" }));
+    await user.click(screen.getByRole("button", { name: "Chercher les doublons" }));
+    await waitFor(() => expect(suggestions()).toHaveLength(1));
+    expect(suggestions()[0]).not.toHaveProperty("provider");
+  });
+
+  it("resets an unsupported effort to the new model default and sends it only with the suggestion", async () => {
+    const user = userEvent.setup();
+    answers.sources = () => ok({ defaultProvider: "chatgpt_plan", providers: PERSONAL_SOURCES });
+    await openImport(user);
+    await user.selectOptions(await screen.findByLabelText("Modèle"), "plan-b");
+    const effort = screen.getByLabelText("Effort de raisonnement");
+    expect(effort).toHaveValue("medium");
+    expect(within(effort).queryByRole("option", { name: "Élevé" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Doublons possibles" }));
+    await user.click(screen.getByRole("button", { name: /chercher les doublons.*avec l’IA/i }));
+    await waitFor(() => expect(suggestions()).toEqual([expect.objectContaining({
+      task: "articles", provider: "chatgpt_plan", model: "plan-b", reasoning_effort: "medium",
+    })]));
+    expect(sent.filter((call) => /profile|profil|ai-access/.test(call.url))).toEqual([]);
+    await user.selectOptions(screen.getByLabelText("Propositions"), "");
+    expect(screen.queryByLabelText("Modèle")).not.toBeInTheDocument();
   });
 
   it("proposes a supplier by the rules, then by the source chosen, and applies nothing by itself (1, 2, 3, 4)", async () => {
@@ -302,6 +371,50 @@ describe("CostingWorkbookImport, proposals", () => {
     expect(screen.queryByRole("button", { name: /c’est CAT-TUBE-20/ })).not.toBeInTheDocument();
     expect(previews()).toHaveLength(2);
     expect(previews()[1].body?.rows?.[1][0]).toBe("AUTRE-20");
+  });
+
+  it.each(["complete", "stop"] as const)("locks the payer and settings across a 101-article search until it can %s", async (outcome) => {
+    const user = userEvent.setup();
+    const rows = Array.from({ length: 101 }, (_, index) => [`TUBE-${index}`, ...SHEET_ROWS[1].slice(1)]);
+    answers.articles = () => ok({ ...articleReport(), articles: rows.length, new_articles: rows.length,
+      proposed_articles: rows.map((_, index) => ({ row: index + 2, without_supply_type: false })),
+    });
+    answers.sources = () => ok({ defaultProvider: "personal_api_key", providers: PERSONAL_SOURCES });
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    const requests: Array<{ body: Body; signal?: AbortSignal | null }> = [];
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>((input, init) => {
+      if (String(input) !== SUGGESTIONS || init?.method !== "POST") return fetchMock(input, init);
+      const request = { body: JSON.parse(String(init.body)) as Body, signal: init.signal };
+      requests.push(request);
+      return requests.length === 1 ? pending : ok(answers.suggest(request.body));
+    }));
+    await openImport(user, workbook([HEADERS, ...rows]));
+    await user.click(screen.getByRole("button", { name: "Doublons possibles" }));
+    await user.click(screen.getByRole("button", { name: "Chercher les doublons avec l’IA" }));
+    expect(requests).toHaveLength(1);
+
+    const source = screen.getByLabelText("Propositions");
+    expect(source).toBeDisabled();
+    expect(screen.getByLabelText("Modèle")).toBeDisabled();
+    expect(screen.getByLabelText("Effort de raisonnement")).toBeDisabled();
+    await user.selectOptions(source, "");
+    expect(source).toHaveValue("personal_api_key");
+    expect(screen.getByText(/2 demandes et coûter jusqu’à 0,20 \$ US/)).toBeVisible();
+    const stop = screen.getByRole("button", { name: "Arrêter" });
+    expect(stop).toBeEnabled();
+    if (outcome === "stop") {
+      await user.click(stop);
+      expect(requests[0].signal?.aborted).toBe(true);
+    }
+    await act(async () => finish(await ok(answers.suggest(requests[0].body))));
+    expect(requests.map(({ body }) => (body.lines as unknown[]).length)).toEqual(outcome === "stop" ? [100] : [100, 1]);
+    for (const { body } of requests) {
+      expect(body).toMatchObject({ provider: "personal_api_key", model: "key-a", reasoning_effort: "low" });
+    }
+    expect(source).toBeEnabled();
+    await user.selectOptions(source, "");
+    expect(source).toHaveValue("");
   });
 
   it("hides the earlier all-code conclusion when imported corrections change the proposed values", async () => {

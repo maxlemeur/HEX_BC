@@ -12,7 +12,7 @@ import * as XLSX from "xlsx";
 
 import { generatePdf, printText, readWorkbookRows, type WorkbookRow } from "./engine-v3-emission-support";
 import {
-  BANNER, addGridLine, checkpoint, openLineStateControl, clickSaveSettings, eur, fillCell, grid, lineView, lockVersion, normalized, openSettings,
+  BANNER, addGridLine, checkpoint, openLineStateControl, clickSaveSettings, closeSavedSettings, eur, fillCell, grid, lineView, lockVersion, normalized, openSettings,
   openV3Editor, pause, prepareV3Draft, readConsistent, releaseVersion, seedLines, settingsDialog, switchToExpertMode,
   waitForDraftLease, type Envelope, type LineView, type Ui, type V3Draft,
 } from "./engine-v3-editor-support";
@@ -804,6 +804,7 @@ armyTest("V3E10 the VAT propagation question opens from every save path of the v
     await expect.poll(persistedRates, { timeout: 30_000 }).toEqual({ version: 550, line: 550, totals: [13260, 729, 13989] });
     await expect(settingsDialog(ui)).toBeHidden({ timeout: 30_000 });
     await expect(closeConfirm).toBeHidden({ timeout: 30_000 });
+    expect(new URL(await browser.url()).searchParams.has("openSettings")).toBe(false);
     await checkpoint(ui, army, "v3e10-vat", draft.versionId, {
       api: { version: { totals: [13260, 729, 13989], taxRateBp: 550 }, lines: { [line.id]: { taxRateBp: 550 } } },
       screen: { chips: chips([13260, 729, 13989], "5,5") },
@@ -836,6 +837,7 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
     await fillCell(ui, "Remise (%)", "0");
     await clickSaveSettings(ui);
     await expect.poll(settingsOf, { timeout: 30_000 }).toEqual({ discountBp: 0, discountAmountCents: null, rounding: ["none", 1], totals: initial });
+    await closeSavedSettings(ui);
     const settled = await becomes(async () => /^(Sauvegardé|À jour)$/.test(normalized(await status().textContent())));
     await recordEvidence(army, "v3e11-zero-discount", { versionId: draft.versionId, settled, status: normalized(await status().textContent()) });
     expect.soft(settled, "a saved 0 % discount leaves nothing pending").toBe(true);
@@ -1189,9 +1191,9 @@ armyTest("V3E14 a v3 settings save that applies its VAT rate to every line close
     expect({ ...rates(saved), totals: totalsOf(saved) }).toEqual({ version: 1000, lines: [1000, 1000, 1000], totals: atTenPercent });
     // The API sees the commit before the editor receives it: the button comes back with the acknowledgement.
     await expect(settingsDialog(ui).getByRole("button", "Enregistrer le paramétrage", { exact: true })).toBeEnabled({ timeout: 30_000 });
-    await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/, { timeout: 30_000 });
     await screen.getByTestId("estimate-editor-drawer-close-button").tap();
     await expect(settingsDialog(ui)).toBeHidden({ timeout: 30_000 });
+    await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/, { timeout: 30_000 });
 
     // Both undos hold A and B as they were at 20 %. Still offered here, each one is run, so that the step fails on the
     // VAT rate it writes back: the evidence of the stale undo.

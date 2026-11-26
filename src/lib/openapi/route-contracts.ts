@@ -1044,11 +1044,11 @@ const directoryAndOrdersContracts: RouteContract[] = [
     path: "/api/suppliers",
     summary: "Lister les fournisseurs",
     description:
-      "Retourne les fournisseurs actifs ou le nombre de bons de commande lies.",
+      "Liste tous les fournisseurs actifs de l’entreprise active. La vue usage compte les bons de commande de cette entreprise liés au fournisseur demandé et retourne 404 si ce fournisseur est inconnu ou hors de l’entreprise active.",
     tags: ["Catalogue"],
     queryParameters: [
       { name: "view", schema: z.enum(["list", "usage"]), description: "Vue liste ou usage." },
-      { name: "scope", schema: z.literal("active"), description: "Restreint la liste aux fournisseurs de l’entreprise active." },
+      { name: "scope", schema: z.literal("active"), description: "Accepté pour compatibilité. La liste utilise toujours l’entreprise active." },
       { name: "id", schema: uuidSchema, description: "Identifiant fournisseur pour la vue usage." },
     ],
   },

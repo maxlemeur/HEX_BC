@@ -1,17 +1,19 @@
 "use client";
 
-import { createContext, useContext, useId, useState } from "react";
+import { createContext, useContext, useRef, useState } from "react";
 
 import { SparklesIcon } from "lucide-react";
 
+import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
 import { Button } from "@/components/ui/button";
-import { NativeSelect } from "@/components/ui/native-select";
-import {
-  fetchSuggestionProviders,
-  type SuggestionProvider,
-  type SuggestionProviders,
-} from "@/lib/catalogue/costing-workbook-suggestions-client";
-import type { CostingWorkbookSuggestionStatus } from "@/lib/catalogue/costing-workbook-suggestions-contract";
+import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
+import { AI_REQUEST_SOURCE_LABELS, defaultAiRequestSettings, type AiRequestSettingsValue } from "@/lib/ai/request-settings";
+import { fetchSuggestionProviders } from "@/lib/catalogue/costing-workbook-suggestions-client";
+import type {
+  CostingWorkbookSuggestionProvidersResponse,
+  CostingWorkbookSuggestionsRequest,
+  CostingWorkbookSuggestionStatus,
+} from "@/lib/catalogue/costing-workbook-suggestions-contract";
 
 /**
  * The AI source the office chose for the import screen's proposals (TI-711): its ChatGPT plan, its own OpenAI
@@ -19,44 +21,62 @@ import type { CostingWorkbookSuggestionStatus } from "@/lib/catalogue/costing-wo
  * chooses among candidates the rules found, and nothing it proposes is applied without the office retaining it.
  */
 
-export const SUGGESTION_PROVIDER_LABELS: Record<SuggestionProvider, string> = {
-  chatgpt_plan: "Forfait ChatGPT",
-  personal_api_key: "Clé API OpenAI",
-  decisions: "API Decisions",
-};
-
 /** A proposal the office may retain in one go: the rules found it, or the model is at least this sure. */
 export const RETAINED_CONFIDENCE = 0.8;
 
 export type WorkbookAssistant = {
-  /**
-   * null until the office asks for them; "loading"; "error" when the sources could not be read (proposals then
-   * come from the rules alone).
-   */
-  providers: SuggestionProviders | "loading" | "error" | null;
-  provider: SuggestionProvider | null;
-  chooseProvider: (provider: SuggestionProvider | null) => void;
-  /** Reads which sources this member can ask here; no provider is called. */
+  sources: CostingWorkbookSuggestionProvidersResponse | "loading" | "error" | null;
+  provider: AiRequestSettingsValue["source"];
+  selection?: AiRequestSettingsValue;
+  requestOptions: Pick<CostingWorkbookSuggestionsRequest, "provider" | "model" | "reasoning_effort">;
+  settingsLocked: boolean;
+  lockSettings: () => (() => void) | null;
+  chooseSettings: (selection: AiRequestSettingsValue) => void;
   loadProviders: () => void;
 };
 
 const NO_ASSISTANT: WorkbookAssistant = {
-  providers: null, provider: null, chooseProvider: () => undefined, loadProviders: () => undefined,
+  sources: null, provider: null, requestOptions: {},
+  settingsLocked: false, lockSettings: () => () => undefined,
+  chooseSettings: () => undefined, loadProviders: () => undefined,
 };
 const WorkbookAssistantContext = createContext<WorkbookAssistant>(NO_ASSISTANT);
 export const WorkbookAssistantProvider = WorkbookAssistantContext.Provider;
 export const useWorkbookAssistant = () => useContext(WorkbookAssistantContext);
 
-/** The sources are read when the office asks to choose one; the choice lasts as long as the page. */
+/** The choices last as long as the page. */
 export function useWorkbookAssistantState(): WorkbookAssistant {
-  const [providers, setProviders] = useState<WorkbookAssistant["providers"]>(null);
-  const [provider, setProvider] = useState<SuggestionProvider | null>(null);
-  function loadProviders() {
-    if (providers !== null && providers !== "error") return;
-    setProviders("loading");
-    fetchSuggestionProviders().then((answer) => setProviders(answer), () => setProviders("error"));
+  const [sources, setSources] = useState<WorkbookAssistant["sources"]>(null);
+  const [selection, setSelection] = useState<AiRequestSettingsValue>();
+  const [settingsLocked, setSettingsLocked] = useState(false);
+  const settingsLock = useRef(false);
+  const loaded = typeof sources === "object" ? sources : null;
+  const { source: provider, preferences } = selection ?? defaultAiRequestSettings(loaded?.defaultProvider ?? null, loaded?.providers ?? {});
+
+  function lockSettings() {
+    if (settingsLock.current) return null;
+    settingsLock.current = true;
+    setSettingsLocked(true);
+    return () => {
+      settingsLock.current = false;
+      setSettingsLocked(false);
+    };
   }
-  return { providers, provider, chooseProvider: setProvider, loadProviders };
+
+  function loadProviders() {
+    if (settingsLock.current || (sources !== null && sources !== "error")) return;
+    setSources("loading");
+    void fetchSuggestionProviders().then((answer) => {
+      setSources(answer);
+    }, () => setSources("error"));
+  }
+
+  function chooseSettings(next: AiRequestSettingsValue) {
+    if (!settingsLock.current) setSelection(next);
+  }
+
+  const requestOptions = provider ? { provider, ...(preferences && { model: preferences.model, reasoning_effort: preferences.reasoningEffort }) } : {};
+  return { sources, provider, selection, requestOptions, settingsLocked, lockSettings, chooseSettings, loadProviders };
 }
 
 export function confidenceLabel(confidence: number | null) {
@@ -65,54 +85,26 @@ export function confidenceLabel(confidence: number | null) {
 
 /** The choice of the AI source, with why a source cannot be chosen here. */
 export function AssistantProviderSelect() {
-  const selectId = useId();
-  const { providers, provider, chooseProvider, loadProviders } = useWorkbookAssistant();
-  if (providers === null || providers === "loading" || providers === "error") {
+  const { sources, selection, settingsLocked, chooseSettings, loadProviders } = useWorkbookAssistant();
+  if (sources === "error") {
     return (
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <Button
-          variant="ghost"
-          size="xs"
-          loading={providers === "loading"}
-          leftIcon={<SparklesIcon aria-hidden="true" />}
-          onClick={loadProviders}
-        >
-          Propositions avec l’IA
-        </Button>
-        {providers === "error" ? <span role="alert">Les sources d’IA n’ont pas pu être lues. Les propositions suivent les règles seules.</span> : null}
+        <span role="alert">Les sources d’IA n’ont pas pu être lues. Les propositions suivent les règles seules.</span>
+        <Button variant="ghost" size="xs" disabled={settingsLocked} onClick={loadProviders}>Recharger les sources d’IA</Button>
       </div>
     );
   }
-  const entries = Object.entries(providers) as Array<[SuggestionProvider, SuggestionProviders[SuggestionProvider]]>;
-  const unavailable = entries.filter(([, state]) => !state.available);
+  if (sources === null || sources === "loading") {
+    return <span role="status" className="text-xs text-muted-foreground">Chargement des sources d’IA…</span>;
+  }
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-      <label htmlFor={selectId} className="inline-flex items-center gap-1 font-medium">
-        <SparklesIcon className="size-3.5" aria-hidden="true" /> Propositions
-      </label>
-      <NativeSelect
-        id={selectId}
-        size="sm"
-        wrapperClassName="w-52"
-        className="h-8 text-xs"
-        value={provider ?? ""}
-        onChange={(event) => chooseProvider((event.currentTarget.value || null) as SuggestionProvider | null)}
-      >
-        <option value="">Règles seules, sans IA</option>
-        {entries.map(([id, state]) => (
-          <option key={id} value={id} disabled={!state.available}>
-            {`${SUGGESTION_PROVIDER_LABELS[id]}${state.available ? "" : " (indisponible)"}`}
-          </option>
-        ))}
-      </NativeSelect>
-      {provider ? (
-        <span>{providers[provider].message}</span>
-      ) : unavailable.length === entries.length ? (
-        <span title={unavailable.map(([id, state]) => `${SUGGESTION_PROVIDER_LABELS[id]} : ${state.message}`).join("\n")}>
-          Aucune source d’IA n’est disponible ici.
-        </span>
-      ) : null}
-    </div>
+    <AiRequestSettings sources={sources.providers} defaultSource={sources.defaultProvider} value={selection}
+      onChange={chooseSettings} locked={settingsLocked}
+      sourcePicker={{
+        label: <><SparklesIcon className="size-3.5" aria-hidden="true" /> Propositions</>,
+        rulesOnlyLabel: "Règles seules, sans IA",
+      }}
+      keyCeiling={{ nanoUsd: AI_REQUEST_CEILINGS_NANO_USD.shortQuestion }} />
   );
 }
 
@@ -139,15 +131,15 @@ export function SuggestButton({ label, withAi, loading, disabled, onClick }: Rea
   disabled?: boolean;
   onClick: () => void;
 }>) {
-  const { provider } = useWorkbookAssistant();
+  const { provider, sources } = useWorkbookAssistant();
   return (
     <Button
       variant="secondary"
       size="sm"
       loading={loading}
-      disabled={disabled}
+      disabled={disabled || (withAi && sources === "loading")}
       leftIcon={<SparklesIcon aria-hidden="true" />}
-      title={withAi && provider ? `Arbitré par ${SUGGESTION_PROVIDER_LABELS[provider]} : rien n’est appliqué sans votre accord` : undefined}
+      title={withAi && provider ? `Arbitré par ${AI_REQUEST_SOURCE_LABELS[provider]} : rien n’est appliqué sans votre accord` : undefined}
       onClick={onClick}
     >
       {withAi && provider ? `${label} avec l’IA` : label}

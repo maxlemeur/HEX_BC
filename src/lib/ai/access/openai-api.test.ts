@@ -397,6 +397,8 @@ describe("replace and remove", () => {
     const { service } = access(fakeOpenAi(() => listed()).fetch);
     const notice = "Le descriptif local de la clé était illisible : aucune clé n’est considérée comme enregistrée. Enregistrez-la de nouveau.";
     expect(await service.state(OWNER)).toEqual({ status: "empty", placeLabel: "Sur ce Mac", notice });
+    const { service: withoutKeychain } = access(fakeOpenAi(() => listed()).fetch, undefined, { secretStore: () => null });
+    expect(await withoutKeychain.state(OWNER)).toMatchObject({ status: "unavailable", notice });
     expect(await service.remove(OWNER)).toMatchObject({ status: "empty" });
     await writeFile(record, JSON.stringify({ schema_version: 1, next_version: "two", connections: {} }));
     const key = fictionalKey();

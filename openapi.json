@@ -3008,7 +3008,7 @@
           }
         ],
         "requestBody": {
-          "description": "Source, modèle et effort pour une lecture. Avec la clé API, envoyer son identifiant de connexion et les préférences de lecture. Un effort null utilise celui du modèle. Une requête sans source utilise le forfait ChatGPT.",
+          "description": "Source, modèle et effort pour une lecture. Avec la clé API, envoyer son identifiant de connexion et les préférences de lecture. Un effort null utilise celui du modèle. Une requête sans source utilise le forfait ChatGPT si le profil désigne le forfait ChatGPT, y compris par défaut en l’absence de réglage enregistré. Si le modèle et l’effort sont omis, la lecture suit les préférences photo valides pour le forfait, puis les réglages du forfait.",
           "required": false,
           "content": {
             "application/json": {
@@ -3070,7 +3070,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ou clé API à configurer) ; le message dit quoi faire. details.status : disabled ou unavailable. MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE : la source, la clé ou les modèles disponibles ont changé.",
+            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ou clé API à configurer) ; le message dit quoi faire. details.status : disabled ou unavailable. MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE : la source ou la connexion a changé, les préférences de la clé API sont absentes, ou le profil ne peut pas être lu. Si la requête omet la source et que le profil désigne la clé API, la même erreur demande de confirmer les réglages avant l'envoi. Rechargez la demande pour reprendre.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3090,7 +3090,7 @@
             }
           },
           "422": {
-            "description": "MATERIAL_REQUEST_PHOTO_UNREADABLE : le PDF ne peut pas être ouvert (verrouillé, endommagé ou vide).",
+            "description": "MATERIAL_REQUEST_PHOTO_UNREADABLE : le PDF ne peut pas être ouvert (verrouillé, endommagé ou vide). MATERIAL_REQUEST_ANALYSIS_MODEL_UNAVAILABLE : le modèle ou l’effort demandé n’est pas disponible pour cette source.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5431,7 +5431,7 @@
             }
           },
           "409": {
-            "description": "La source IA est indisponible ou ses réglages ont changé.",
+            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : la source IA est indisponible. MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE : le profil ne peut pas être lu ou les réglages de la source ont changé. Rechargez la demande pour reprendre.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5442,6 +5442,16 @@
           },
           "413": {
             "description": "La pièce dépasse la taille acceptée pour la comparaison.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "MATERIAL_REQUEST_ANALYSIS_MODEL_UNAVAILABLE : le modèle ou l’effort demandé n’est pas disponible pour cette source.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10073,7 +10083,7 @@
           "Catalogue"
         ],
         "summary": "Lire les sources d’IA disponibles pour les propositions de l’import",
-        "description": "Dit lesquelles des sources (forfait ChatGPT, clé API OpenAI personnelle, API Decisions) ce membre peut interroger ici. Aucun fournisseur d’IA n’est appelé.",
+        "description": "Donne la source par défaut de Mon profil et la disponibilité des sources. Si les préférences sont illisibles, aucune source n’est présélectionnée (defaultProvider vaut null). Pour le forfait ChatGPT et la clé API OpenAI personnelle, donne aussi les modèles proposés, leurs niveaux de raisonnement et les réglages utilisés par défaut dans les demandes. Le forfait utilise son catalogue de modèles. Aucune inférence n’est lancée.",
         "responses": {
           "200": {
             "description": "Disponibilité des sources de propositions.",
@@ -10154,7 +10164,7 @@
         "summary": "Proposer des corrections pour l’import du classeur de chiffrage",
         "description": "Propose, pour une tâche (fournisseurs, articles, types de fourniture, colonnes, codes fournisseur), ce que les règles trouvent ; avec provider, la source d’IA choisie arbitre seulement ce que les règles laissent indécis, parmi leurs candidats ou « aucun ». Rien n’est écrit : une proposition s’applique quand le bureau la retient à l’écran. Aucun repli d’une source vers une autre. Réservé aux administrateurs et aux ingénieurs.",
         "requestBody": {
-          "description": "Tâche, éléments à proposer et source d’IA éventuelle.",
+          "description": "Tâche, éléments à proposer et source d’IA éventuelle. Pour le forfait ChatGPT ou la clé API OpenAI, model et reasoning_effort sont facultatifs et ponctuels. À défaut, la demande utilise les réglages initiaux de la source renvoyés par GET, ou le niveau par défaut du modèle si un autre modèle est demandé seul.",
           "required": true,
           "content": {
             "application/json": {
@@ -10221,6 +10231,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Modèle ou niveau de raisonnement non proposé, ou réglage envoyé sans source compatible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
                 }
               }
             }
@@ -25475,7 +25495,7 @@
             }
           },
           "404": {
-            "description": "Ressource introuvable.",
+            "description": "Ressource introuvable, notamment si la fiche article-fournisseur à modifier a disparu.",
             "content": {
               "application/json": {
                 "schema": {
@@ -26803,11 +26823,11 @@
             }
           },
           "409": {
-            "description": "Conflit metier ou de concurrence.",
+            "description": "CONFLICT : une modification concurrente empêche l’enregistrement de la référence fournisseur. Réessayez.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -28330,7 +28350,7 @@
           "Catalogue"
         ],
         "summary": "Lister les fournisseurs",
-        "description": "Retourne les fournisseurs actifs ou le nombre de bons de commande lies.",
+        "description": "Liste tous les fournisseurs actifs de l’entreprise active. La vue usage compte les bons de commande de cette entreprise liés au fournisseur demandé et retourne 404 si ce fournisseur est inconnu ou hors de l’entreprise active.",
         "parameters": [
           {
             "name": "view",
@@ -28344,7 +28364,7 @@
           {
             "name": "scope",
             "in": "query",
-            "description": "Restreint la liste aux fournisseurs de l’entreprise active.",
+            "description": "Accepté pour compatibilité. La liste utilise toujours l’entreprise active.",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/ListSuppliersScopeParameter"
@@ -58613,6 +58633,21 @@
           "data": {
             "type": "object",
             "properties": {
+              "defaultProvider": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "chatgpt_plan",
+                      "personal_api_key"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "La source préférée dans Mon profil. La valeur null indique que les préférences sont illisibles."
+              },
               "providers": {
                 "type": "object",
                 "properties": {
@@ -58624,11 +58659,106 @@
                       },
                       "message": {
                         "type": "string"
+                      },
+                      "models": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "reasoningEfforts": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "low",
+                                  "medium",
+                                  "high",
+                                  "xhigh",
+                                  "max"
+                                ]
+                              }
+                            },
+                            "defaultReasoningEffort": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "none",
+                                    "low",
+                                    "medium",
+                                    "high",
+                                    "xhigh",
+                                    "max"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "reasoningEfforts",
+                            "defaultReasoningEffort"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "preferences": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "model": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "reasoningEffort": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "none",
+                                      "low",
+                                      "medium",
+                                      "high",
+                                      "xhigh",
+                                      "max"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "model",
+                              "reasoningEffort"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
                       "available",
-                      "message"
+                      "message",
+                      "models",
+                      "preferences"
                     ],
                     "additionalProperties": false
                   },
@@ -58640,11 +58770,106 @@
                       },
                       "message": {
                         "type": "string"
+                      },
+                      "models": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "reasoningEfforts": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "low",
+                                  "medium",
+                                  "high",
+                                  "xhigh",
+                                  "max"
+                                ]
+                              }
+                            },
+                            "defaultReasoningEffort": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "none",
+                                    "low",
+                                    "medium",
+                                    "high",
+                                    "xhigh",
+                                    "max"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "reasoningEfforts",
+                            "defaultReasoningEffort"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "preferences": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "model": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "reasoningEffort": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "none",
+                                      "low",
+                                      "medium",
+                                      "high",
+                                      "xhigh",
+                                      "max"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "model",
+                              "reasoningEffort"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
                       "available",
-                      "message"
+                      "message",
+                      "models",
+                      "preferences"
                     ],
                     "additionalProperties": false
                   },
@@ -58674,6 +58899,7 @@
               }
             },
             "required": [
+              "defaultProvider",
               "providers"
             ],
             "additionalProperties": false
@@ -58700,6 +58926,25 @@
                   "chatgpt_plan",
                   "personal_api_key",
                   "decisions"
+                ]
+              },
+              "model": {
+                "description": "Modèle proposé par la source choisie.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoning_effort": {
+                "description": "Niveau de raisonnement proposé par le modèle. La valeur null sélectionne Automatique.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "names": {
@@ -58732,6 +58977,25 @@
                   "chatgpt_plan",
                   "personal_api_key",
                   "decisions"
+                ]
+              },
+              "model": {
+                "description": "Modèle proposé par la source choisie.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoning_effort": {
+                "description": "Niveau de raisonnement proposé par le modèle. La valeur null sélectionne Automatique.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "lines": {
@@ -58798,6 +59062,25 @@
                   "chatgpt_plan",
                   "personal_api_key",
                   "decisions"
+                ]
+              },
+              "model": {
+                "description": "Modèle proposé par la source choisie.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoning_effort": {
+                "description": "Niveau de raisonnement proposé par le modèle. La valeur null sélectionne Automatique.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "groups": {
@@ -58885,6 +59168,25 @@
                   "decisions"
                 ]
               },
+              "model": {
+                "description": "Modèle proposé par la source choisie.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoning_effort": {
+                "description": "Niveau de raisonnement proposé par le modèle. La valeur null sélectionne Automatique.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "missing": {
                 "minItems": 1,
                 "maxItems": 20,
@@ -58968,6 +59270,25 @@
                   "chatgpt_plan",
                   "personal_api_key",
                   "decisions"
+                ]
+              },
+              "model": {
+                "description": "Modèle proposé par la source choisie.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoning_effort": {
+                "description": "Niveau de raisonnement proposé par le modèle. La valeur null sélectionne Automatique.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "values": {

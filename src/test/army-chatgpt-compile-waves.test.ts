@@ -17,6 +17,17 @@ const root = process.cwd();
 const absent = "00000000-0000-4000-8000-000000000001";
 
 describe("ChatGPT local compile waves", () => {
+  it("warms the dashboard poll and the Next.js development error bundle before LOCAL01", () => {
+    expect(chatGptCompileRequests("takeoff-launch-panel")).toEqual([
+      { path: "/api/affaires/analysis-progress", method: "OPTIONS", expected: [204] },
+      { path: "/_next/static/chunks/pages/_error.js", anonymous: true, expected: [200] },
+    ]);
+    const source = fs.readFileSync(path.join(root, "e2e/army/local/chatgpt-local-takeoff.e2e.ts"), "utf8");
+    const hook = source.indexOf('beforeAll(() => compileChatGptRoutes(localOrigin, fixtureEmail, "takeoff-launch-panel"));');
+    expect(hook).toBeGreaterThan(source.indexOf("await server.start()"));
+    expect(hook).toBeLessThan(source.indexOf('test("LOCAL01'));
+  });
+
   it("warms the activity-center reads before the decisions journeys open the takeoff dialog", () => {
     expect(chatGptCompileRequests("takeoff-activity")).toEqual([
       { path: "/api/takeoff/activity-center/requests", method: "OPTIONS", expected: [204] },

@@ -312,6 +312,40 @@ interface IsolatedProjectOptions {
   bare?: boolean;
 }
 
+/** A copy of the project configuration with ports reserved for a native stack. */
+export async function prepareNativeStackConfig(
+  sourceDirectory: string, projectId: string, additionalReservedPorts: ReadonlySet<number>, preferredApiPort?: number
+) {
+  const configuredPorts = [54320, 54321, 54322, 54323, 54324, 54327, 54329, 8083];
+  // An Army application's port is reserved even before its journeys bind it.
+  const reservedPorts = new Set([...configuredPorts, ...additionalReservedPorts, ...leasedAppPorts()]);
+  const ephemeralRanges = hostEphemeralPortRanges();
+  const ports: Record<number, number> = {};
+  for (const configuredPort of configuredPorts) {
+    const isolatedPort = await findAvailablePort(reservedPorts, ephemeralRanges,
+      configuredPort === 54321 ? preferredApiPort : undefined);
+    reservedPorts.add(isolatedPort);
+    ports[configuredPort] = isolatedPort;
+  }
+
+  let config = fs.readFileSync(path.join(sourceDirectory, "config.toml"), "utf8");
+  config = config.replace(/^project_id\s*=.*$/m, `project_id = "${projectId}"`);
+  for (const configuredPort of configuredPorts) {
+    config = config.replace(new RegExp(`\\b${configuredPort}\\b`, "g"), String(ports[configuredPort]));
+  }
+  config = enableNativeStack(config);
+  if (!config.split(/\r?\n/).includes(`project_id = "${projectId}"`)) {
+    throw new Error("Could not isolate the Supabase project ID");
+  }
+  for (const configuredPort of configuredPorts) {
+    if (new RegExp(`\\b${configuredPort}\\b`).test(config) ||
+      !new RegExp(`\\b${ports[configuredPort]}\\b`).test(config)) {
+      throw new Error(`Could not isolate Supabase port configured at ${configuredPort}`);
+    }
+  }
+  return { config, ports };
+}
+
 async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<number>, environment: SupabaseEnvironment,
   options: IsolatedProjectOptions = {}): Promise<IsolatedSupabaseProject> {
   const rootDirectory = fs.mkdtempSync(
@@ -326,54 +360,9 @@ async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<numbe
     if (options.bare) fs.mkdirSync(path.join(targetDirectory, "migrations"));
     else prepareProjectInputs(sourceDirectory, targetDirectory, rootDirectory, environment);
 
-    const configuredPorts = [
-      54320,
-      54321,
-      54322,
-      54323,
-      54324,
-      54327,
-      54329,
-      8083,
-    ];
-    // The application ports live Army campaigns lease are not bound before their journeys (TI-672).
-    const reservedPorts = new Set([...configuredPorts, ...additionalReservedPorts, ...leasedAppPorts()]);
-    const ephemeralRanges = hostEphemeralPortRanges();
-    const portReplacements = new Map<number, number>();
-    for (const configuredPort of configuredPorts) {
-      const isolatedPort = await findAvailablePort(reservedPorts, ephemeralRanges,
-        configuredPort === 54321 ? options.preferredApiPort : undefined);
-      reservedPorts.add(isolatedPort);
-      portReplacements.set(configuredPort, isolatedPort);
-    }
-
-    let config = fs.readFileSync(
-      path.join(sourceDirectory, "config.toml"),
-      "utf8"
-    );
-    config = config.replace(/^project_id\s*=.*$/m, `project_id = "${projectId}"`);
-    for (const [configuredPort, isolatedPort] of portReplacements) {
-      config = config.replace(
-        new RegExp(`\\b${configuredPort}\\b`, "g"),
-        String(isolatedPort)
-      );
-    }
-    config = enableNativeStack(config);
-    if (!new RegExp(`^project_id\\s*=\\s*"${projectId}"\\r?$`, "m").test(config)) {
-      throw new Error("Could not isolate the Supabase project ID");
-    }
-    for (const [configuredPort, isolatedPort] of portReplacements) {
-      if (
-        new RegExp(`\\b${configuredPort}\\b`).test(config) ||
-        !new RegExp(`\\b${isolatedPort}\\b`).test(config)
-      ) {
-        throw new Error(
-          `Could not isolate Supabase port configured at ${configuredPort}`
-        );
-      }
-    }
+    const { config, ports } = await prepareNativeStackConfig(sourceDirectory, projectId, additionalReservedPorts, options.preferredApiPort);
     fs.writeFileSync(path.join(targetDirectory, "config.toml"), config, "utf8");
-    return { projectId, rootDirectory, ports: [...portReplacements.values()] };
+    return { projectId, rootDirectory, ports: Object.values(ports) };
   } catch (error) {
     removeIsolatedProject({ projectId, rootDirectory });
     throw error;

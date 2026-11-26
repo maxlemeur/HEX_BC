@@ -3144,6 +3144,10 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         "Acces interdit.",
         openApiSharedSchemaDefinitions.apiFailureResponse
       ),
+      "404": jsonResponse(
+        "Ressource introuvable, notamment si la fiche article-fournisseur à modifier a disparu.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
+      ),
       "409": jsonResponse(
         "Conflit de reference ou d'URL avec la fiche fournisseur existante.",
         openApiSharedSchemaDefinitions.apiFailureResponse
