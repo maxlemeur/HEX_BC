@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+
 import { z } from "zod";
 
 import { getAuthenticatedTenantContext, type AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
@@ -7,8 +9,7 @@ import { buildCatalogueAccess, canAddToCatalogue, canEditCatalogueRecord } from 
 import { readEngineersCanEditShared } from "@/lib/catalogue/access-server";
 import { workbookSupplierNameKey } from "@/lib/catalogue/costing-workbook";
 import {
-  bulkValidationSummary,
-  CATALOGUE_BULK_INCOMPLETE,
+  REFERENCE_QUEUE_CHANGED,
   REVIEW_REFERENCES_MAX,
   type BulkProductsInput,
   type BulkProductsResult,
@@ -21,6 +22,7 @@ import {
   type SupplierAlias,
   type UndoImportResult,
 } from "@/lib/catalogue/import-review-contract";
+import { bulkValidationSummary, CATALOGUE_BULK_INCOMPLETE } from "@/lib/catalogue/import-review-feedback";
 import { catalogueStatusError, PRODUCT_WRITE_REFUSAL } from "@/lib/catalogue/product-writes";
 import { ApiError, badRequest, conflict, forbidden, mapSupabaseError, notFound, type SupabaseErrorLike } from "@/lib/http/api-response";
 import { readAllRows } from "@/lib/supabase/read-all";
@@ -106,28 +108,44 @@ async function catalogueAccessOf({ supabase, tenantId, tenantRole, userId }: Con
   return buildCatalogueAccess({ userId, role: tenantRole, engineersCanEditShared });
 }
 
+function pendingReferencesQuery<Columns extends string>({ supabase, tenantId }: Context, filter: ReferenceFilter, columns: Columns) {
+  let request = supabase.from("supplier_catalog_items").select(columns, { count: "exact" })
+    .eq("tenant_id", tenantId).eq("reference_needs_review", true);
+  if (filter.supplier_id) request = request.eq("supplier_id", filter.supplier_id);
+  if (filter.import_batch_id) request = request.eq("import_batch_id", filter.import_batch_id);
+  if (filter.q) request = request.ilike("supplier_sku", likePattern(filter.q));
+  return request;
+}
+
+function referenceSelectionSignature(ids: readonly string[]): string {
+  return createHash("sha256").update(ids.toSorted().join("\n")).digest("hex");
+}
+
 /** The references an import left to check, the latest first: the office reads them together instead of article by article. */
 export async function listPendingSupplierReferences(query: PendingReferencesQuery): Promise<PendingSupplierReferencePage> {
   const context = await getAuthenticatedTenantContext();
-  const { supabase, tenantId } = context;
   const from = (query.page - 1) * query.size;
-  let request = supabase.from("supplier_catalog_items")
-    .select(
-      "id, product_id, supplier_id, supplier_sku, product_url, created_at, import_batch_id, products!inner(reference, designation, created_by), suppliers!inner(name)",
-      { count: "exact" },
-    )
-    .eq("tenant_id", tenantId).eq("reference_needs_review", true);
-  if (query.supplier_id) request = request.eq("supplier_id", query.supplier_id);
-  if (query.import_batch_id) request = request.eq("import_batch_id", query.import_batch_id);
-  if (query.q) request = request.ilike("supplier_sku", likePattern(query.q));
+  const request = pendingReferencesQuery(context, query,
+    "id, product_id, supplier_id, supplier_sku, product_url, created_at, import_batch_id, products!inner(reference, designation, created_by), suppliers!inner(name)");
   const [{ data, error, count }, access] = await Promise.all([
     request.order("created_at", { ascending: false }).order("id").range(from, from + query.size - 1),
     catalogueAccessOf(context),
   ]);
   if (error) throw mapSupabaseError(error, "Impossible de lire les références à vérifier.");
   const totalItems = count ?? 0;
+  const rows = data ?? [];
+  // A single page can supply its own IDs without another query. On larger lists, compare the two reads
+  // before offering a confirmation. A failed scan leaves the page readable, but prevents bulk approval.
+  const ids = rows.length === totalItems
+    ? rows.map((row) => row.id)
+    : await pendingReferenceIds(context, query).catch(() => null);
+  const idSet = new Set(ids);
+  const selection_signature = ids?.length === totalItems && rows.every((row) => idSet.has(row.id))
+    ? referenceSelectionSignature(ids)
+    : null;
   return {
-    items: (data ?? []).map((row) => ({
+    selection_signature,
+    items: rows.map((row) => ({
       id: row.id,
       product_id: row.product_id,
       product_reference: row.products.reference,
@@ -144,15 +162,12 @@ export async function listPendingSupplierReferences(query: PendingReferencesQuer
   };
 }
 
-async function pendingReferenceIds({ supabase, tenantId }: Context, filter: ReferenceFilter): Promise<string[]> {
-  const { data, error } = await readAllRows(() => {
-    let request = supabase.from("supplier_catalog_items").select("id", { count: "exact" })
-      .eq("tenant_id", tenantId).eq("reference_needs_review", true);
-    if (filter.supplier_id) request = request.eq("supplier_id", filter.supplier_id);
-    if (filter.import_batch_id) request = request.eq("import_batch_id", filter.import_batch_id);
-    if (filter.q) request = request.ilike("supplier_sku", likePattern(filter.q));
-    return request;
-  }, { concurrency: 4 });
+async function pendingReferenceIds(context: Context, filter: ReferenceFilter): Promise<string[]> {
+  // Apply the same joins as the page so relation visibility cannot change what a confirmation covers.
+  const { data, error } = await readAllRows(
+    () => pendingReferencesQuery(context, filter, "id, products!inner(), suppliers!inner()"),
+    { concurrency: 4, pageSize: 1000 },
+  );
   if (error) throw mapSupabaseError(error, "Impossible de lire les références à vérifier.");
   return (data ?? []).map((row) => row.id);
 }
@@ -165,9 +180,11 @@ const reviewAnswerSchema = z.object({ reviewed: z.number().int().nonnegative(), 
  */
 export async function reviewSupplierReferences(input: ReviewReferencesInput): Promise<ReviewReferencesResult> {
   const context = await editorContext();
+  // Accept the old request shape for a clear refusal, including when the count still matches.
+  if ("filter" in input && !input.expected_selection) throw conflict(REFERENCE_QUEUE_CHANGED);
   const ids = "ids" in input ? input.ids : await pendingReferenceIds(context, input.filter);
-  if ("expected_count" in input && input.expected_count !== ids.length) {
-    throw conflict("La liste des références à vérifier a changé. Actualisez-la avant de confirmer à nouveau.");
+  if ("filter" in input && (input.expected_count !== ids.length || input.expected_selection !== referenceSelectionSignature(ids))) {
+    throw conflict(REFERENCE_QUEUE_CHANGED);
   }
   const result = { reviewed: 0, skipped: 0 };
   for (let start = 0; start < ids.length; start += REVIEW_REFERENCES_MAX) {

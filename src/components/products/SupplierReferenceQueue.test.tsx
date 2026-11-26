@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SWRConfig } from "swr";
@@ -32,6 +34,9 @@ const matches = (filter: { supplier_id?: string; import_batch_id?: string; q?: s
   (!filter.supplier_id || item.supplier_id === filter.supplier_id)
   && (!filter.import_batch_id || item.import_batch_id === filter.import_batch_id)
   && (!filter.q || item.supplier_sku?.toLowerCase().includes(filter.q.toLowerCase())));
+const snapshot = (items: readonly PendingSupplierReference[]) =>
+  createHash("sha256").update(items.map((item) => item.id).toSorted().join("\n")).digest("hex");
+const inauguralSnapshot = snapshot([reference(1), reference(2), reference(3)]);
 const fetchMock = vi.fn<typeof fetch>((input, init) => {
   const url = String(input);
   const method = init?.method ?? "GET";
@@ -41,7 +46,7 @@ const fetchMock = vi.fn<typeof fetch>((input, init) => {
   if (url === "/api/suppliers") return answer({ items: [{ id: "s1", name: "Comptoir Atlas" }, { id: "s2", name: "Dépôt Boréal" }] });
   if (method === "POST") {
     const matching = matches((body?.filter ?? {}) as Parameters<typeof matches>[0]);
-    if (body?.filter && body.expected_count !== matching.length) {
+    if (body?.filter && (body.expected_count !== matching.length || body.expected_selection !== snapshot(matching))) {
       return Promise.resolve(Response.json({ ok: false, error: {
         code: "CONFLICT", message: "La liste des références à vérifier a changé. Actualisez-la avant de confirmer à nouveau.",
       } }, { status: 409 }));
@@ -57,6 +62,7 @@ const fetchMock = vi.fn<typeof fetch>((input, init) => {
   return answer({
     items: items.slice((page - 1) * size, page * size),
     pagination: { page, size, totalItems: items.length, totalPages: Math.ceil(items.length / size) },
+    selection_signature: snapshot(items),
   });
 });
 
@@ -113,7 +119,9 @@ describe("SupplierReferenceQueue", () => {
     expect(reviews()).toEqual([]);
 
     await user.click(screen.getByRole("button", { name: "Valider les 3 références" }));
-    await waitFor(() => expect(reviews()).toEqual([{ action: "validate", filter: { supplier_id: "s1" }, expected_count: 3 }]));
+    await waitFor(() => expect(reviews()).toEqual([
+      { action: "validate", filter: { supplier_id: "s1" }, expected_count: 3, expected_selection: inauguralSnapshot },
+    ]));
     expect(await screen.findByText(/^2 références validées\. 1 sur 3 laissée en attente/)).toBeVisible();
   });
 
@@ -152,18 +160,25 @@ describe("SupplierReferenceQueue", () => {
     expect(reviews()).toEqual([]);
   });
 
-  it("refreshes when a new reference arrives during confirmation", async () => {
+  it("refreshes when another reference takes the place of one shown before confirmation", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockImplementation(() => {
-      pending.push(reference(4));
+    vi.spyOn(window, "confirm").mockImplementationOnce(() => {
+      pending[0] = reference(4);
       return true;
-    });
+    }).mockReturnValue(true);
     renderQueue();
-    await user.click(await screen.findByRole("button", { name: "Valider les 3 références" }));
+    const validateAll = await screen.findByRole("button", { name: "Valider les 3 références" });
+    await user.click(validateAll);
     expect(await screen.findByText(/La liste des références à vérifier a changé/)).toBeVisible();
-    expect(await screen.findByRole("button", { name: "Valider les 4 références" })).toBeEnabled();
-    expect(reviews()).toEqual([{ action: "validate", filter: {}, expected_count: 3 }]);
-    expect(pending).toHaveLength(4);
+    expect(await screen.findByRole("checkbox", { name: "Sélectionner AT-4 de Comptoir Atlas pour TUBE-4" })).toBeEnabled();
+    expect(reviews()).toEqual([{ action: "validate", filter: {}, expected_count: 3, expected_selection: inauguralSnapshot }]);
+    expect(pending.map((item) => item.id)).toEqual([reference(4).id, reference(2).id, reference(3).id]);
+
+    await user.click(validateAll);
+    expect(await screen.findByText(/^2 références validées\./)).toBeVisible();
+    expect(reviews().at(-1)).toEqual({
+      action: "validate", filter: {}, expected_count: 3, expected_selection: snapshot([reference(4), reference(2), reference(3)]),
+    });
   });
 
   it("goes back to the last page that holds references once a review has emptied the one on screen", async () => {

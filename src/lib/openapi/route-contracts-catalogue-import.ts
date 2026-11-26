@@ -8,6 +8,7 @@ import {
 import {
   bulkProductsSchema,
   createSupplierAliasSchema,
+  pendingSupplierReferencePageSchema,
   PENDING_REFERENCE_PAGE_SIZES,
   reviewReferencesSchema,
 } from "@/lib/catalogue/import-review-contract";
@@ -61,6 +62,10 @@ export const catalogueImportContracts: RouteContract[] = [
       { name: "import_batch_id", schema: uuidSchema, description: "Références de cet import." },
       { name: "q", schema: z.string().max(100), description: "Partie du code fournisseur." },
     ],
+    success: [{
+      status: "200", description: "Page et empreinte de la sélection filtrée complète.",
+      schema: successResponseSchemaDefinition("ApiPendingSupplierReferencePage", pendingSupplierReferencePageSchema),
+    }],
   },
   {
     id: "review-supplier-references",
@@ -70,8 +75,8 @@ export const catalogueImportContracts: RouteContract[] = [
     description:
       "Valide (elles servent alors aux achats telles qu’importées) ou retire les références nommées, ou toutes celles à vérifier que le filtre désigne. Ce que l’appelant ne peut pas vérifier (article d’un autre pour un ingénieur sans la base partagée, article ou fournisseur archivé) est laissé en attente et compté dans skipped. Réservé aux administrateurs et aux ingénieurs.",
     tags: ["Catalogue"],
-    body: { schema: reviewReferencesSchema, description: "Action et références nommées, ou filtre accompagné du nombre confirmé." },
-    extraErrors: [{ status: "409", description: "Le nombre de références a changé depuis la confirmation. Actualisez la liste." }],
+    body: { schema: reviewReferencesSchema, description: "Action et références nommées, ou filtre accompagné du nombre confirmé et de l’empreinte de sélection renvoyée par la liste." },
+    extraErrors: [{ status: "409", description: "L’empreinte est absente ou la sélection a changé depuis sa lecture. Actualisez la liste." }],
   },
   {
     id: "bulk-update-products",

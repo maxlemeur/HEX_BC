@@ -84,9 +84,14 @@ describe("published catalogue review contracts", () => {
   it("publishes mutually exclusive review and validation targets", () => {
     const ajv = new Ajv();
     const review = ajv.compile(published.components.schemas.ReviewSupplierReferencesRequest);
-    expect(review({ action: "validate", filter: {}, expected_count: 2 })).toBe(true);
+    const expected_selection = "a".repeat(64);
+    expect(review({ action: "validate", filter: {}, expected_count: 2, expected_selection })).toBe(true);
+    expect(review({ action: "validate", filter: {}, expected_count: 2 })).toBe(true); // Legacy shape receives a documented 409.
+    expect(review({ action: "validate", filter: {}, expected_count: 2, expected_selection: "invalid" })).toBe(false);
     expect(review({ action: "validate", filter: {} })).toBe(false);
-    expect(review({ action: "validate", filter: {}, expected_count: 2, ids: [id] })).toBe(false);
+    expect(review({ action: "validate", filter: {}, expected_count: 2, expected_selection, ids: [id] })).toBe(false);
+    expect(published.paths["/api/catalogue/supplier-references"].get.responses["200"].content["application/json"].schema.$ref)
+      .toBe("#/components/schemas/ApiPendingSupplierReferencePage");
     const products = ajv.compile(published.components.schemas.BulkUpdateProductsRequest);
     expect(products({ action: "validate", import_batch_id: id })).toBe(true);
     expect(products({ action: "validate", ids: [id] })).toBe(true);

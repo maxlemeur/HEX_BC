@@ -35,25 +35,38 @@ export const pendingReferencesQuerySchema = z.object({
 });
 export type PendingReferencesQuery = z.infer<typeof pendingReferencesQuerySchema>;
 
-export type PendingSupplierReference = {
-  id: string;
-  product_id: string;
-  product_reference: string | null;
-  product_designation: string;
-  supplier_id: string;
-  supplier_name: string;
-  supplier_sku: string | null;
-  product_url: string | null;
-  created_at: string;
-  import_batch_id: string | null;
-  /** The member may check it: an engineer only on the articles they may edit. */
-  can_review: boolean;
-};
+const pendingSupplierReferenceSchema = z.object({
+  id,
+  product_id: id,
+  product_reference: z.string().nullable(),
+  product_designation: z.string(),
+  supplier_id: id,
+  supplier_name: z.string(),
+  supplier_sku: z.string().nullable(),
+  product_url: z.string().nullable(),
+  created_at: z.iso.datetime({ offset: true }),
+  import_batch_id: id.nullable(),
+  can_review: z.boolean().describe("L’appelant peut vérifier cette référence."),
+});
+export type PendingSupplierReference = z.infer<typeof pendingSupplierReferenceSchema>;
 
-export type PendingSupplierReferencePage = {
-  items: PendingSupplierReference[];
-  pagination: { page: number; size: number; totalItems: number; totalPages: number };
-};
+const referenceSelectionSignatureSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
+export const REFERENCE_QUEUE_CHANGED = "La liste des références à vérifier a changé. Actualisez-la avant de confirmer à nouveau.";
+
+export const pendingSupplierReferencePageSchema = z.object({
+  items: z.array(pendingSupplierReferenceSchema),
+  pagination: z.object({
+    page: z.number().int().positive(),
+    size: z.number().int().positive(),
+    totalItems: z.number().int().nonnegative(),
+    totalPages: z.number().int().nonnegative(),
+  }),
+  selection_signature: referenceSelectionSignatureSchema.nullable().describe(
+    "Empreinte des références de toutes les pages du filtre. Si elle est absente (null), actualisez la liste avant de valider l’ensemble.",
+  ),
+});
+export type PendingSupplierReferencePage = z.infer<typeof pendingSupplierReferencePageSchema>;
 
 /** References one request reviews: the database function's own limit. */
 export const REVIEW_REFERENCES_MAX = 5000;
@@ -70,6 +83,8 @@ export const reviewReferencesSchema = z.union([
     action: referenceReviewAction,
     filter: z.object(referenceFilterShape).strict(),
     expected_count: z.number().int().nonnegative(),
+    // A previously opened page may still send only the count. The server refuses that request with 409.
+    expected_selection: referenceSelectionSignatureSchema.optional().describe("Empreinte renvoyée par la liste. Obligatoire pour valider ; son absence entraîne un conflit (409)."),
   }).strict(),
 ]);
 export type ReviewReferencesInput = z.infer<typeof reviewReferencesSchema>;
@@ -92,14 +107,6 @@ export type BulkProductsInput = z.infer<typeof bulkProductsSchema>;
 export type BulkValidateResult = { action: "validate"; validated: number; incomplete: number; skipped: number };
 export type BulkAssignResult = { action: "assign-supply-type"; updated: number };
 export type BulkProductsResult = BulkValidateResult | BulkAssignResult;
-
-export const CATALOGUE_BULK_INCOMPLETE = "CATALOGUE_BULK_INCOMPLETE";
-
-export function bulkValidationSummary({ validated, incomplete, skipped }: BulkValidateResult) {
-  return `${validated.toLocaleString("fr-FR")} ${validated === 1 ? "brouillon validé" : "brouillons validés"}. `
-    + `${incomplete.toLocaleString("fr-FR")} ${incomplete === 1 ? "brouillon incomplet à compléter" : "brouillons incomplets à compléter"}. `
-    + `${skipped.toLocaleString("fr-FR")} ${skipped === 1 ? "article ignoré" : "articles ignorés"}.`;
-}
 
 export type CatalogueImportBatchKind = "workbook_articles" | "workbook_supplier_references";
 

@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { fetchCatalogueImportBatches, undoCatalogueImport, validateDraftProducts } from "@/lib/catalogue/import-review-client";
-import { bulkValidationSummary, CATALOGUE_BULK_INCOMPLETE, type CatalogueImportBatch } from "@/lib/catalogue/import-review-contract";
+import type { CatalogueImportBatch } from "@/lib/catalogue/import-review-contract";
+import { bulkValidationSummary, CATALOGUE_BULK_INCOMPLETE } from "@/lib/catalogue/import-review-feedback";
 import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { catalogueErrorMessage } from "@/lib/catalogue/supplier-items-client";
 
