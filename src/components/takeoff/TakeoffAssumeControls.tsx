@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { assumeTakeoffLaunchRequestAction } from "@/app/dashboard/affaires/_actions/takeoff";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { TakeoffPaymentFields } from "./TakeoffPaymentFields";
 import { useTakeoffPaymentSettings } from "./useTakeoffPaymentSettings";
 
-export function TakeoffAssumeControls({ projectId, requestId, revision, action, label, busyLabel, size = "sm", className, wrapperClassName, onChanged }: {
+export function TakeoffAssumeControls({ projectId, requestId, revision, action, label, busyLabel, size = "sm", className, wrapperClassName, onChanged, onSource }: {
   projectId: string;
   requestId: string;
   revision: number;
@@ -22,6 +22,8 @@ export function TakeoffAssumeControls({ projectId, requestId, revision, action, 
   /** The button sizes itself against this wrapper: give it the width the button must fill. */
   wrapperClassName?: string;
   onChanged: (result: TakeoffLaunchGestureResult | null, viaKey: boolean) => void;
+  /** Whether the gesture reads « avec ma clé API »: the text beside it then names no plan to resume with. */
+  onSource?: (viaKey: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; reloadSettings?: true } | null>(null);
@@ -29,6 +31,8 @@ export function TakeoffAssumeControls({ projectId, requestId, revision, action, 
   const settings = useTakeoffPaymentSettings(projectId, requestId, explicitRequired);
   const viaKey = settings.value.source === "personal_api_key";
   const choice = settings.choice;
+  // The source comes with the options, read after the first render, or from the member's own choice.
+  useEffect(() => { onSource?.(viaKey); }, [onSource, viaKey]);
 
   async function confirm() {
     if (busy || !settings.ready || error?.reloadSettings) return;

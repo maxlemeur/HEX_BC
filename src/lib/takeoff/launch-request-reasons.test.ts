@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  describeTakeoffLaunchReason, TAKEOFF_LAUNCH_DOSSIER_REASONS, TAKEOFF_LAUNCH_MANDATE_REASONS, TAKEOFF_LAUNCH_TRANSIENT_REASONS,
+  describeTakeoffLaunchReason, describeTakeoffLaunchReasonWithKey, TAKEOFF_LAUNCH_DOSSIER_REASONS, TAKEOFF_LAUNCH_MANDATE_REASONS, TAKEOFF_LAUNCH_TRANSIENT_REASONS,
 } from "@/lib/takeoff/launch-request";
 
 // The reasons a launch request waits on are decided in SQL (the claim, the allowed gesture) and shown by the server:
@@ -45,5 +45,21 @@ describe("what a launch request's reason tells the member to do", () => {
 
   it.each(["CHATGPT_NOT_CONNECTED", "CHATGPT_SELECTION_CHANGED"] as const)("keeps naming the plan for %s, which is about it", (reason) => {
     expect(describeTakeoffLaunchReason(reason)).toMatch(/reprenez avec votre forfait/i);
+  });
+
+  // Beside a gesture that reads « Reprendre avec ma clé API », the same reason does not tell the member to resume with a plan.
+  it.each([
+    ["CHATGPT_NOT_CONNECTED", "Métré non démarré — forfait ChatGPT non connecté. Reprenez la demande avec la source IA choisie."],
+    ["CHATGPT_SELECTION_CHANGED", "Métré non démarré — le compte, le modèle ou l’effort ChatGPT a changé depuis la confirmation. "
+      + "Reprenez la demande pour confirmer les réglages affichés."],
+  ] as const)("tells a member who chose their key to resume %s without naming a plan to resume with", (reason, message) => {
+    expect(describeTakeoffLaunchReasonWithKey(reason)).toBe(message);
+    expect(message).not.toMatch(/avec votre forfait/);
+  });
+
+  it("reads the same with either source for every other reason", () => {
+    for (const reason of ["MANDATE_REQUIRED", "LOCAL_RUNTIME_REQUIRED", "API_KEY_CONNECTION_CHANGED", "BUDGET_EXHAUSTED", null, "unknown"]) {
+      expect(describeTakeoffLaunchReasonWithKey(reason)).toBeNull();
+    }
   });
 });

@@ -422,5 +422,18 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
   }
 }
 
+/**
+ * A reason that tells the member to resume « avec votre forfait », for a member whose gesture reads « avec ma clé API »
+ * (the source chosen for it): the same reason, its instruction naming no plan to resume with. Null when the reason reads
+ * the same with either source: `describeTakeoffLaunchReason` then says it.
+ */
+export function describeTakeoffLaunchReasonWithKey(reason: string | null | undefined): string | null {
+  switch (reason) {
+    case "CHATGPT_NOT_CONNECTED": return "Métré non démarré — forfait ChatGPT non connecté. Reprenez la demande avec la source IA choisie.";
+    case "CHATGPT_SELECTION_CHANGED": return "Métré non démarré — le compte, le modèle ou l’effort ChatGPT a changé depuis la confirmation. Reprenez la demande pour confirmer les réglages affichés.";
+    default: return null;
+  }
+}
+
 /** The notice of who pays, told at the brief's confirmation to the member whose subscription the analysis will use. */
 export const TAKEOFF_AUTOMATIC_PAYER_NOTICE = "Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.";

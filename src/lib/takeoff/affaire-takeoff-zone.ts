@@ -2,6 +2,7 @@ import type { AffaireDossierState } from "@/lib/affaires/intake";
 import { formatTakeoffCompletionDate, TAKEOFF_COMPLETION_LABELS, type TakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
 import {
   describeTakeoffLaunchReason,
+  describeTakeoffLaunchReasonWithKey,
   TAKEOFF_LAUNCH_TRANSIENT_REASONS,
   type TakeoffLaunchPiece,
   type TakeoffLaunchReason,
@@ -133,6 +134,8 @@ export type AffaireTakeoffZoneModel = {
   /** The state in a few words. */
   status: string;
   message: string | null;
+  /** The message beside a gesture that reads « avec ma clé API », when it would tell the member to resume with a plan. */
+  messageWithKey?: string | null;
   facts: string[];
   /** Pieces named by a blocking: what every reader of the affaire already sees in its dossier. */
   pieces: TakeoffLaunchPiece[];
@@ -190,7 +193,7 @@ export function describeAffaireTakeoffJob(job: Pick<AffaireTakeoffZoneJob, "stat
   return job.status === "review_required" ? { tone: "warning", status: "Revue requise" } : { tone: "success", status: "Terminé" };
 }
 
-type RequestState = Pick<AffaireTakeoffZoneModel, "tone" | "status" | "message" | "facts">;
+type RequestState = Pick<AffaireTakeoffZoneModel, "tone" | "status" | "message" | "messageWithKey" | "facts">;
 
 export function describeAffaireTakeoffPlanProgress(units: Pick<AffaireTakeoffZoneRequest["units"], "expected" | "succeeded">) {
   return units.expected && units.expected > 1
@@ -213,7 +216,7 @@ export function describeAffaireTakeoffRequest(request: Pick<AffaireTakeoffZoneRe
     case "blocked":
       return request.reason && TRANSIENT_REASONS.has(request.reason)
         ? { tone: "progress", status: "En attente", message: reasonText, facts }
-        : { tone: "warning", status: "Non démarré", message: reasonText, facts };
+        : { tone: "warning", status: "Non démarré", message: reasonText, messageWithKey: describeTakeoffLaunchReasonWithKey(request.reason), facts };
     case "superseded":
       return { tone: "neutral", status: "Remplacé", message: describeTakeoffLaunchReason("SUPERSEDED"), facts };
     case "admitted": {

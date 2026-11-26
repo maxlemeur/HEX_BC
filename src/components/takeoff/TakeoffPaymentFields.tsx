@@ -4,7 +4,7 @@ import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
 import { Button } from "@/components/ui/button";
 import type { AiRequestSettingsValue } from "@/lib/ai/request-settings";
 import { TAKEOFF_NANO_USD_PER_CENT } from "@/lib/takeoff/payment-choice";
-import type { TakeoffPaymentSettings } from "./useTakeoffPaymentSettings";
+import { shownTakeoffPaymentSources, type TakeoffPaymentSettings } from "./useTakeoffPaymentSettings";
 
 export function TakeoffPaymentFields({ settings, disabled, stale, onReload, onChange, ceilingScope = "cette demande" }: {
   settings: TakeoffPaymentSettings;
@@ -15,10 +15,11 @@ export function TakeoffPaymentFields({ settings, disabled, stale, onReload, onCh
   ceilingScope?: string;
 }) {
   if (settings.loading) return <p role="status" className="text-sm text-muted-foreground">Lecture des réglages du métré…</p>;
+  const { sources, unlisted } = shownTakeoffPaymentSources(settings.sources, settings.pinnedSetting);
   return <>
     {settings.data && (settings.data.defaultSource !== "chatgpt_plan" || Object.values(settings.sources).some((source) => source?.available)) && (
       <AiRequestSettings
-        sources={settings.sources}
+        sources={sources}
         defaultSource={settings.data.defaultSource}
         value={settings.shown}
         keepUnofferedEffort={settings.pinned}
@@ -30,9 +31,17 @@ export function TakeoffPaymentFields({ settings, disabled, stale, onReload, onCh
           message: (amount) => `Plafond pour ${ceilingScope} avec votre clé API OpenAI : ${amount}.` }}
       />
     )}
+    {settings.defaultSourceChanged && <p role="status" className="text-sm text-muted-foreground">{settings.defaultSourceChanged}</p>}
+    {unlisted && (
+      <p role="status" className="text-sm text-muted-foreground">
+        Le modèle de Mon profil ({unlisted}) n’est plus dans le catalogue de votre forfait ChatGPT. La demande l’utilise tel quel tant que
+        vous n’en choisissez pas un autre.
+      </p>
+    )}
     {settings.error && <p role="alert" className="text-sm text-danger">{settings.error}</p>}
     {settings.notice && <p role="status" className="text-sm text-muted-foreground">{settings.notice}</p>}
-    {(stale || settings.error || settings.notice) && (
+    {/* The plan's catalogue may be stale: the member can read it from ChatGPT again. */}
+    {(stale || settings.error || settings.notice || unlisted) && (
       <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={onReload ?? (() => settings.reload({ live: true }))}>
         Recharger les réglages
       </Button>
