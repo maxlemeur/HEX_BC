@@ -35,9 +35,13 @@ export const measureReviewSchema = z.object({
   answer_id: uuid, item_id: uuid, plan_id: uuid, revision, quantity: z.number().nullable(), unit: z.string().nullable(),
   reference: z.number().nullable(), expected_unit: z.string().nullable(), gap: z.number().nullable(), confidence_threshold: z.number(),
   reason: measureReasonSchema.nullable(), gap_required: z.boolean(), rules_required: z.boolean(), proof_required: z.boolean(),
+  decision_revision: z.number().int().nonnegative(),
   previously_retained: z.boolean(),
+  retained: z.object({ quantity: z.number(), unit: z.string() }).strict().nullable(),
   rows: z.array(z.object({
     id: uuid.nullable(), observation_id: uuid, failures: z.array(z.string()), justification: z.array(z.string()),
+    page: z.number().int().nullable(), evidence: z.string().nullable(), quantity: z.number().nullable(),
+    unit: z.string().nullable(), confidence: z.number().nullable(),
     author: z.string().nullable(), needs_justification: z.boolean(), low_confidence: z.boolean(),
   }).strict()),
 }).strict();

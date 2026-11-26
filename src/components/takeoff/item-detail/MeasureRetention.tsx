@@ -11,18 +11,17 @@ import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
 
 type Props = {
-  observations: ReadonlyArray<{ observationId: string; page: number | null }>;
   projectId: string; jobId: string; label: string; planName: string;
   review: MeasureReview; undecided: boolean; acceptedMeasure: boolean; canReview: boolean; onRefresh: () => void; onRefused: (error: unknown) => boolean;
 };
 
-export function MeasureRetention({ observations, projectId, jobId, label, planName, review, undecided, acceptedMeasure, canReview, onRefresh, onRefused }: Props) {
+export function MeasureRetention({ projectId, jobId, label, planName, review, undecided, acceptedMeasure, canReview, onRefresh, onRefused }: Props) {
   const [intent, setIntent] = useState<string | null>(null);
   const [checks, setChecks] = useState({ gap_checked: false, rules_checked: false, proof_checked: false });
   const sending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const expired = review.previously_retained && undecided && review.reason !== "already_decided";
+  const expired = review.previously_retained && undecided;
   const requirements = [
     { key: "gap_checked", needed: review.gap_required, text: "J’ai vérifié l’écart à la DPGF." },
     { key: "rules_checked", needed: review.rules_required, text: "J’ai vérifié les justifications des contrôles en échec." },
@@ -30,14 +29,11 @@ export function MeasureRetention({ observations, projectId, jobId, label, planNa
   ] as const;
   const ready = !review.reason && requirements.every(({ key, needed }) => !needed || checks[key]);
   const actionable = canReview && (review.reason === null || review.reason === "justification_required");
-  function location(observationId: string) {
-    const page = observations.find(observation => observation.observationId === observationId)?.page;
-    return page ? ` · page ${page}` : "";
-  }
+  const location = (page: number | null) => page === null ? "" : ` · page ${page}`;
   const links = review.rows.filter(row => row.needs_justification && row.id).map(row => {
     const href = takeoffReviewHref({ projectId, jobId, targeted: true, line: row.id! });
     const params = new URLSearchParams({ reponse: review.answer_id, contribution: row.id! });
-    return <Link key={row.id} className="block underline" href={href + "&" + params}>Justifier la contribution{location(row.observation_id)}</Link>;
+    return <Link key={row.id} className="block underline" href={href + "&" + params}>Justifier la contribution{location(row.page)}</Link>;
   });
   const amount = (value: number | null, unit = review.unit) => value === null ? "Aucune" : formatItemQuantity(value, unit);
   const facts = <div className="space-y-2">
@@ -45,8 +41,11 @@ export function MeasureRetention({ observations, projectId, jobId, label, planNa
     <p>Référence DPGF · {amount(review.reference, review.expected_unit)}</p>
     {review.gap !== null && <p>Écart à la DPGF · {amount(review.gap)}</p>}
     {review.proof_required && <p>Confiance inférieure au seuil de {Math.round(review.confidence_threshold * 100)} %.</p>}
-    {review.rows.filter(row => row.failures.length > 0 || row.low_confidence).map(row => <div key={row.observation_id}>
-      <p className="font-medium">Contribution{location(row.observation_id)}</p>
+    {review.rows.map(row => <div key={row.observation_id}>
+      <p className="font-medium">Contribution{location(row.page)}</p>
+      <p>Quantité de la contribution · {amount(row.quantity, row.unit)}</p>
+      {row.evidence && <p>Preuve · {row.evidence}</p>}
+      {row.confidence !== null && <p>Confiance · {Math.round(row.confidence * 100)} %</p>}
       {row.low_confidence && <p>La preuve de cette contribution doit être vérifiée.</p>}
       {row.failures.map((failure, index) => <p key={index}>Contrôle en échec · {failure}</p>)}
       {row.justification.length > 0 && <p>Justification de {row.author ?? "l’auteur"} · {row.justification.join(" · ")}</p>}
@@ -69,7 +68,7 @@ export function MeasureRetention({ observations, projectId, jobId, label, planNa
   }
   return <div className="space-y-2">
     {expired && <><p role="status">Les éléments sur lesquels vous aviez retenu cette mesure ont changé. Vérifiez la mesure à nouveau.</p>{facts}</>}
-    {acceptedMeasure && review.previously_retained && <p>Retenu sur ce plan · {amount(review.quantity)}</p>}
+    {acceptedMeasure && review.retained && <p>Retenu sur ce plan · {amount(review.retained.quantity, review.retained.unit)}</p>}
     {review.reason && !(acceptedMeasure && review.reason === "already_decided") && <p>{measureRefusals[review.reason]}</p>}
     {canReview && review.reason === "justification_required" && links}
     {actionable && <Button variant="outline" size="sm" onClick={() => {

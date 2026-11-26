@@ -3,6 +3,10 @@
 import { ItemQuantityChoiceButtons } from "./ItemQuantityChoice";
 import type { ItemQuantityChoice } from "@/lib/takeoff/item-table";
 import Link from "next/link";
+import useSWR from "swr";
+import { useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { fetchMeasureReview } from "@/lib/takeoff/item-table-client";
 
 import type { ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
 import {
@@ -12,7 +16,7 @@ import {
   ITEM_UNIT_STATE_LABELS,
 } from "@/lib/takeoff/item-table-labels";
 import { QUANTITY_ENTRY_CATEGORIES } from "@/lib/takeoff/quantity-entry";
-import { takeoffReviewHref } from "@/lib/takeoff/review-href";
+import { takeoffReviewHref, takeoffItemDetailHref } from "@/lib/takeoff/review-href";
 import { describeItemUncertainty } from "@/lib/takeoff/item-uncertainty";
 import { Button } from "@/components/ui/button";
 import { ItemTableHistory } from "./ItemTableHistory";
@@ -35,14 +39,41 @@ function EntryFacts({ entry, names }: { entry: Entry; names: Record<string, stri
   );
 }
 
+type Reading = ItemTableResponseLine["readings"][number];
+type Answer = NonNullable<Reading["answer"]>;
+
+function ContributionReviewLink({ projectId, viewerKey, itemId, planKey, answer, version, onRefused }: {
+  projectId: string; viewerKey: string; itemId: string; planKey: string; answer: Answer;
+  version: number; onRefused: (error: unknown) => boolean;
+}) {
+  const query = useSearchParams();
+  const contributions = answer.observations.filter(row => row.role === "contribution" && row.takeoffItemId);
+  const failed = answer.anomalies.includes("rule_failed");
+  const multiple = failed && contributions.length > 1;
+  const review = useSWR(multiple ? ["poste-justifications", projectId, viewerKey, answer.answerId, version] : null,
+    () => fetchMeasureReview(projectId, answer.answerId), { shouldRetryOnError: false });
+  useEffect(() => { if (review.error) onRefused(review.error); }, [review.error, onRefused]);
+  const pending = review.data?.rows.filter(row => row.needs_justification && row.id);
+  if (multiple && pending?.length !== 1) {
+    const href = takeoffItemDetailHref({ projectId, itemId, planKey, jobId: answer.jobId, from: query.toString() });
+    return <Link className="underline" prefetch={false} href={href}>Vérifier les contributions dans le détail du poste</Link>;
+  }
+  const line = multiple ? pending?.[0].id : failed ? contributions[0]?.takeoffItemId
+    : answer.observations.find(row => row.takeoffItemId)?.takeoffItemId;
+  const href = takeoffReviewHref({ projectId, jobId: answer.jobId, targeted: true, line: line ?? undefined });
+  const context = failed && line ? "&" + new URLSearchParams({ reponse: answer.answerId, contribution: line }) : "";
+  return <Link className="underline" prefetch={false} href={href + context}>Voir la preuve et corriger dans la revue ciblée</Link>;
+}
+
 /**
  * The detail of an item: each plan it was asked about, the answer of that plan (the model's raw result, kept as read),
  * its pages, sources and reasons, its positive rows as they are once reviewed, the decision taken and who took it, the
  * quantity entered, and the review's history (who accepted, set aside or reinstated it, and why). The targeted proof and
  * correction of the existing review stays one link away.
  */
-export function ItemTableLineDetail({ line, projectId, names, canReview, busy, onIncludeEntry, onChooseQuantity, historyVersion, onRefused }: {
+export function ItemTableLineDetail({ line, projectId, viewerKey, names, canReview, busy, onIncludeEntry, onChooseQuantity, historyVersion, onRefused }: {
   line: ItemTableResponseLine;
+  viewerKey: string;
   projectId: string;
   names: Record<string, string>;
   canReview: boolean;
@@ -132,13 +163,8 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
                       </p>
                     ) : null}
                     {reading.entry ? <EntryFacts entry={reading.entry} names={names} /> : null}
-                    {uncertainty?.action !== "unavailable" ? <Link className="underline" prefetch={false}
-                      href={takeoffReviewHref({ projectId, jobId: answer.jobId, targeted: true,
-                        line: answer.observations.find(({ takeoffItemId }) => takeoffItemId)?.takeoffItemId ?? undefined })
-                        + (answer.anomalies.includes("rule_failed") && answer.observations.some(row => row.takeoffItemId)
-                          ? "&" + new URLSearchParams({ reponse: answer.answerId, contribution: answer.observations.find(row => row.takeoffItemId)!.takeoffItemId! }) : "")}>
-                      Voir la preuve et corriger dans la revue ciblée
-                    </Link> : null}
+                    {uncertainty?.action !== "unavailable" ? <ContributionReviewLink projectId={projectId} viewerKey={viewerKey}
+                      itemId={line.itemId} planKey={reading.planKey} answer={answer} version={historyVersion} onRefused={onRefused} /> : null}
                   </div>
                 ) : null}
               </li>
