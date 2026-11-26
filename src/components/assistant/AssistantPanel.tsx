@@ -427,7 +427,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
             sources={options.sources} defaultSource={options.defaultSource} value={settings} onChange={setChoice}
             sourcePicker={{ label: "Source IA" }} locked={sending}
             keyCeiling={{ nanoUsd: ASSISTANT_KEY_CEILING, message: (ceiling) =>
-              `Votre compte OpenAI sera facturé jusqu’à ${ceiling} par message, lectures comprises.` }}
+              `Votre compte OpenAI sera facturé jusqu’à ${ceiling} par envoi, relance comprise. Ce plafond couvre aussi les lectures.` }}
           />
         ) : ai.error || ai.data?.ok === false ? (
           <p className="text-xs text-muted-foreground">{ai.data?.ok === false ? ai.data.message : CONNECTION_FAILED}</p>

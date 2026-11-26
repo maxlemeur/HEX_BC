@@ -47,7 +47,7 @@ it("shows the profile selection and ceiling before sending a starter with the ed
 
   const source = await screen.findByLabelText("Source IA");
   expect(source).toHaveValue("personal_api_key");
-  expect(source).toHaveAccessibleDescription(/0,50 \$ US par message, lectures comprises/);
+  expect(source).toHaveAccessibleDescription(/0,50 \$ US par envoi, relance comprise/);
   expect(screen.getByLabelText("Modèle")).toHaveValue("fixture-key");
   await user.selectOptions(screen.getByLabelText("Effort de raisonnement"), "high");
   await user.click(screen.getByRole("button", { name: "Quels devis existent sur cette affaire ?" }));

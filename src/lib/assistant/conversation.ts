@@ -85,7 +85,8 @@ export async function prepareAssistantReply(threadId: string, payload: unknown, 
     if (!settings?.connectionId || !resolved.connection) {
       throw conflict("Rechargez l’assistant pour vérifier la clé API et le plafond avant l’envoi.", undefined, "ASSISTANT_AI_CONNECTION_CHANGED");
     }
-    access = { source: resolved.source, preferences: resolved.preferences, connectionVersion: resolved.connection.version };
+    access = { source: resolved.source, preferences: resolved.preferences,
+      connectionId: resolved.connection.id, connectionVersion: resolved.connection.version };
   } else {
     if (!planGrant) throw conflict("Connectez votre compte ChatGPT dans Mon profil.", undefined, "AI_AUTH_REQUIRED");
     const accessToken = await readAssistantPlanToken({ ...owner, connection: planGrant }).catch((error: unknown) => {

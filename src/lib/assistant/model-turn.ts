@@ -36,6 +36,7 @@ export function readAssistantModelTurn(
 
 export async function readAssistantTurnEvents(
   events: AsyncIterable<ChatGptStreamEvent>, onDelta: (delta: AssistantModelDelta) => void,
+  maskFallbackText?: (text: string) => string,
 ): Promise<AssistantModelTurn> {
   let completed: Record<string, unknown> | null = null;
   let streamedText = "";
@@ -72,8 +73,9 @@ export async function readAssistantTurnEvents(
       }
     }
   }
-  if (!streamedText && finalText) onDelta({ type: "text", delta: finalText });
-  const text = streamedText || finalText;
+  // A credential can span adjacent fallback parts even when each part was masked separately.
+  const text = streamedText || (maskFallbackText ? maskFallbackText(finalText) : finalText);
+  if (!streamedText && text) onDelta({ type: "text", delta: text });
   if (!text && toolCalls.length === 0) throw chatGptIncompleteError();
 
   const usage = usageSchema.parse(completed.usage ?? {});

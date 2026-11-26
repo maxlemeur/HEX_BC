@@ -574,12 +574,21 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
   }
 
   /** The resolver: the saved key of this member, for this adapter only. */
-  async function readKey(owner: AiAccessOwner, expectedVersion?: number) {
+  async function readKey(owner: AiAccessOwner, expectedVersion?: number, expectedConnectionId?: string) {
     const store = requireStore();
-    const connection = (await readAiAccessFile(deps.directory(), owner)).connections.openai;
-    if (!connection) throw new ApiKeyError("AI_KEY_MISSING");
-    if (expectedVersion !== undefined && connection.version !== expectedVersion) throw new ApiKeyError("AI_KEY_CHANGED");
+    const readConnection = async () => {
+      const connection = (await readAiAccessFile(deps.directory(), owner)).connections.openai;
+      if (!connection) throw new ApiKeyError("AI_KEY_MISSING");
+      if ((expectedVersion !== undefined && connection.version !== expectedVersion) ||
+          (expectedConnectionId !== undefined && connection.connection_id !== expectedConnectionId)) {
+        throw new ApiKeyError("AI_KEY_CHANGED");
+      }
+      return connection;
+    };
+    const connection = await readConnection();
     const secret = await store.read(await itemOf(owner, connection.version));
+    // Metadata recovery can reuse the item version while the Keychain read is in progress.
+    if (expectedConnectionId !== undefined) await readConnection();
     if (!secret) throw new ApiKeyError("AI_KEY_MISSING");
     if (secret.suffix !== connection.suffix) throw new ApiKeyError("AI_KEY_CHANGED");
     return { store, secret, connection };
@@ -622,11 +631,11 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
 
     /** A counted, capped Responses turn with only application function tools. No provider-hosted tools incur fees. */
     streamToolTurn: <T>(owner: AiAccessOwner, options: {
-      expectedVersion: number; model: string; reasoningEffort: AiReasoningEffort | null;
+      expectedVersion: number; expectedConnectionId: string; model: string; reasoningEffort: AiReasoningEffort | null;
       input: unknown[]; tools: Array<{ type: "function"; name: string; description: string; parameters: unknown; strict: false }>;
       toolChoice: "auto" | "none"; allotmentNanoUsd: number; outputCap: number; minOutputTokens: number;
       timeoutMs: number; signal: AbortSignal; onDispatch(): void;
-    }, read: (events: AsyncIterable<ChatGptStreamEvent>) => Promise<T>) => guarded(async () => {
+    }, read: (events: AsyncIterable<ChatGptStreamEvent>, maskFallbackText: (text: string) => string) => Promise<T>) => guarded(async () => {
       options.signal.throwIfAborted();
       const price = openAiQualifiedModel(options.model);
       if (!price) throw new ApiKeyError("AI_KEY_PRICE_UNKNOWN");
@@ -638,7 +647,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
         parallel_tool_calls: false,
         ...(options.reasoningEffort === null ? {} : { reasoning: { effort: options.reasoningEffort } }),
       }) };
-      const { secret } = await readKey(owner, options.expectedVersion);
+      const { secret } = await readKey(owner, options.expectedVersion, options.expectedConnectionId);
       const inputTokens = await countWith(deps, secret, request, options.signal);
       const maxOutputTokens = maxOutputWithin({ model: request.model, inputTokens, allotmentNanoUsd: options.allotmentNanoUsd, cap: options.outputCap });
       const bound = boundCountedCall({ model: request.model, inputTokens, maxOutputTokens });
@@ -646,7 +655,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
         throw new ApiKeyError("AI_KEY_CEILING");
       }
       // A change during the count cannot turn this generation into a charge on another key.
-      const active = await readKey(owner, options.expectedVersion);
+      const active = await readKey(owner, options.expectedVersion, options.expectedConnectionId);
       if (!active.secret.equals(secret)) throw new ApiKeyError("AI_KEY_CHANGED");
       options.signal.throwIfAborted();
       const dispatch = { body: generationBody(request, maxOutputTokens, true), timeoutMs: options.timeoutMs,
@@ -668,7 +677,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
         if (tier !== OPENAI_PRICE_TABLE.serviceTier || !model || !usage) return;
         const used = boundCountedCall({ model: request.model, inputTokens, maxOutputTokens: usage.output_tokens });
         if (used.status === "priced") reservedNanoUsd = used.nanoUsd;
-      })).catch((error: unknown) => {
+      }), (text) => maskAnswerString(text, secret)).catch((error: unknown) => {
         if (isApiKeyError(error)) throw error;
         throw new ApiKeyError((error as { truncated?: boolean } | null)?.truncated ? "AI_KEY_OUTPUT_LIMIT" : "AI_KEY_PROVIDER_FAILED");
       });

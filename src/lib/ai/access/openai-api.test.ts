@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { inspect } from "node:util";
@@ -12,6 +12,7 @@ import { writeAiAccessFile } from "@/lib/ai/access/api-key-store";
 import * as openAiApi from "@/lib/ai/access/openai-api";
 import { createOpenAiApiKeyAccess, strictOpenAiSchema, type OpenAiApiKeyDeps } from "@/lib/ai/access/openai-api";
 import { SecretStoreError, type SecretItem, type SecretStore } from "@/lib/ai/access/secret-store";
+import { ownerKey } from "@/lib/ai/chatgpt-local-store";
 import { runAssistantLoop, type AssistantEvent, type AssistantTool } from "@/lib/assistant/loop";
 import { createAssistantModel } from "@/lib/assistant/model";
 import { normalizeReportedError } from "@/lib/observability/error-reporter";
@@ -145,10 +146,11 @@ describe("streamed assistant requests with a personal key", () => {
 
   async function assistant(fetch: OpenAiApiKeyDeps["fetch"], tools: AssistantTool[] = []) {
     const { service } = access(fetch);
-    await service.save(OWNER, { key: fictionalKey() });
+    const saved = await service.save(OWNER, { key: fictionalKey() });
+    if (saved.outcome !== "saved" || saved.state.status !== "saved") throw new Error("Expected a saved key");
     vi.spyOn(openAiApi, "openAiApiKeyAccess").mockReturnValue(service);
     return createAssistantModel({ owner: OWNER, instructions: "Lire le devis.", access: {
-      source: "personal_api_key", connectionVersion: 1, preferences,
+      source: "personal_api_key", connectionVersion: saved.state.connection.version, connectionId: saved.state.connection.connectionId, preferences,
     }, tools });
   }
 
@@ -195,6 +197,60 @@ describe("streamed assistant requests with a personal key", () => {
       .rejects.toMatchObject({ code: "AI_KEY_COUNT_UNAVAILABLE" });
     expect(provider.sent).toHaveLength(2);
     expect(adapter.dispatched()).toBe(false);
+  });
+
+  it.each(["completed response", "finished items"])("masks a key split across terminal text parts from %s", async (source) => {
+    const provider = fakeOpenAi((key, endpoint) => {
+      if (endpoint === "/v1/models") return listed([model]);
+      if (endpoint === "/v1/responses/input_tokens") return counted(10_000);
+      const message = { type: "message", content: [
+        { type: "output_text", text: `Résultat ${key.slice(0, 10)}` },
+        { type: "output_text", text: `${key.slice(10)}.` },
+      ] };
+      return eventsResponse(source === "finished items"
+        ? [{ type: "response.output_item.done", output_index: 0, item: message }, terminal]
+        : [{ ...terminal, response: { ...terminal.response, output: [message] } }]);
+    });
+    const adapter = await assistant(provider.fetch);
+    const emit = vi.fn();
+    const result = await adapter.callModel({ input: [], toolsAllowed: false }, emit, new AbortController().signal);
+    expect(emit).toHaveBeenCalledExactlyOnceWith({ type: "text", delta: "Résultat [clé masquée]." });
+    expect(result.text).toBe("Résultat [clé masquée].");
+  });
+
+  it("stops an in-flight message when recovery assigns a different key the same numeric version", async () => {
+    const original = fictionalKey();
+    const replacement = fictionalKey();
+    const provider = fakeOpenAi((key, endpoint) => {
+      if (endpoint === "/v1/models") return listed([model]);
+      if (endpoint === "/v1/responses/input_tokens") return counted(10_000);
+      if (key === replacement) return eventsResponse([delta("Suite du devis."), terminal]);
+      return eventsResponse([delta("Total provisoire."), { type: "response.output_item.done", item: {
+        type: "function_call", name: tool.name, call_id: "read-1", arguments: "{}",
+      } }, terminal]);
+    });
+    const { service } = access(provider.fetch);
+    const saved = await service.save(OWNER, { key: original });
+    if (saved.outcome !== "saved" || saved.state.status !== "saved") throw new Error("Expected a saved key");
+    const { connectionId, version: connectionVersion } = saved.state.connection;
+    const read: AssistantTool = { ...tool, run: async () => {
+      await writeFile(path.join(directory, `${ownerKey(OWNER)}.json`), "{ unreadable");
+      const recovered = await service.save(OWNER, { key: replacement });
+      expect(recovered).toMatchObject({ outcome: "saved", state: {
+        connection: { version: connectionVersion, connectionId: expect.not.stringMatching(connectionId) },
+      } });
+      return { total: 10 };
+    } };
+    vi.spyOn(openAiApi, "openAiApiKeyAccess").mockReturnValue(service);
+    const pinned = { source: "personal_api_key", connectionVersion, connectionId, preferences } as const;
+    const adapter = createAssistantModel({ owner: OWNER, access: pinned, instructions: "Lire le devis.", tools: [read] });
+    const emit = vi.fn();
+    await expect(runAssistantLoop({
+      input: [{ role: "user", content: "Total ?" }], tools: [read], callModel: adapter.callModel, emit, signal: new AbortController().signal,
+    })).rejects.toMatchObject({ code: "AI_KEY_CHANGED", message: expect.stringContaining("La clé a été remplacée ou retirée") });
+    expect(emit).toHaveBeenCalledWith({ type: "text", delta: "Total provisoire." });
+    expect(provider.sent.filter((call) => call.method === "POST").map(({ authorization }) => authorization))
+      .toEqual([`Bearer ${original}`, `Bearer ${original}`]);
   });
 
   it.each(["count", "stream"] as const)("passes Stop through to the active %s and sends nothing afterwards", async (stage) => {

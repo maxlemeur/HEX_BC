@@ -37,7 +37,7 @@ export function assertAssistantRequest(host: string | null) {
 /** The payer and parameters resolved for this message, before its tool loop. */
 export type AssistantAccess = { preferences: ChatGptPreferences } & (
   | { source: "chatgpt_plan"; accessToken: string }
-  | { source: "personal_api_key"; connectionVersion: number }
+  | { source: "personal_api_key"; connectionVersion: number; connectionId: string }
 );
 
 export async function readAssistantPlanToken(owner: ChatGptOwner): Promise<string> {
@@ -78,10 +78,11 @@ export function createAssistantModel(options: {
       const toolChoice = request.toolsAllowed ? "auto" : "none";
       if (access.source === "personal_api_key") {
         const turn = await openAiApiKeyAccess().streamToolTurn(options.owner, {
-          expectedVersion: access.connectionVersion, model, reasoningEffort, input, tools, toolChoice,
+          expectedVersion: access.connectionVersion, expectedConnectionId: access.connectionId,
+          model, reasoningEffort, input, tools, toolChoice,
           allotmentNanoUsd: remainingNanoUsd, outputCap: 4096, minOutputTokens: 256,
           timeoutMs: MODEL_CALL_TIMEOUT_MS, signal, onDispatch: () => { dispatched = true; },
-        }, (events) => readAssistantTurnEvents(events, onDelta));
+        }, (events, maskFallbackText) => readAssistantTurnEvents(events, onDelta, maskFallbackText));
         remainingNanoUsd -= turn.spentBoundNanoUsd;
         return turn.result;
       }
