@@ -1,5 +1,9 @@
 import "server-only";
 
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { resolveTakeoffPayment, takeoffSelectionFingerprint } from "@/lib/takeoff/payment-server";
+import type { TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
+
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { getAuthenticatedContext, type AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
@@ -10,7 +14,7 @@ import { getTakeoffExecutionSelection } from "@/lib/ai/chatgpt-takeoff";
 import { renderPdfPages } from "@/lib/pdf/page-render-server";
 import {
   createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot, evaluateTakeoffPreparation,
-  takeoffExecutionSelectionSchema, takeoffPreparationSchema, type TakeoffExecutionSelection, type TakeoffPreparation, type TakeoffPreparationSnapshot,
+  takeoffExecutionSelectionSchema, takeoffPreparationSchema, type TakeoffPreparation, type TakeoffPreparationSnapshot,
   type TakeoffPreparationSource,
 } from "@/lib/takeoff/preparation";
 import {
@@ -62,22 +66,29 @@ const storedPreparationSnapshotSchema = z.object({
   }).strict(),
 }).strict();
 
-// The subscription a recap showed, its connection included: a reconnection with the same settings is another one.
-function executionFingerprint({ profileId, hostId, model, reasoningEffort, authorizationId }: TakeoffExecutionSelection) {
-  return createHash("sha256").update(JSON.stringify([profileId, hostId, model, reasoningEffort, authorizationId ?? null])).digest("hex");
-}
-
-export async function loadTakeoffExecutionPreview() {
+export async function loadTakeoffExecutionPreview(input?: { projectId: string; paymentChoice: TakeoffPaymentChoice }) {
   const context = await getAuthenticatedContext();
+  if (input) {
+    await assertPreparationProjectAccess(context, projectIdSchema.parse(input.projectId), true);
+    const { selection, preferences } = await resolveTakeoffPayment({ ...context, projectId: input.projectId },
+      input.paymentChoice, createServiceRoleClient(), false);
+    return { ...preferences, fingerprint: takeoffSelectionFingerprint(selection) };
+  }
   const selection = await getTakeoffExecutionSelection(context.supabase, context, "chatgpt");
-  return { model: selection.model, reasoningEffort: selection.reasoningEffort, fingerprint: executionFingerprint(selection) };
+  return { model: selection.model, reasoningEffort: selection.reasoningEffort, fingerprint: takeoffSelectionFingerprint(selection) };
 }
 
-async function selectionForConfirmation(context: AuthenticatedTenantContext, expectedFingerprint?: string) {
-  const selection = takeoffExecutionSelectionSchema.parse(await getTakeoffExecutionSelection(context.supabase, context, "chatgpt"));
-  if (executionFingerprint(selection) !== expectedFingerprint) {
+async function selectionForConfirmation(context: AuthenticatedTenantContext, input: {
+  projectId: string; expectedExecutionFingerprint?: string; paymentChoice?: TakeoffPaymentChoice;
+}) {
+  const selection = takeoffExecutionSelectionSchema.parse(input.paymentChoice
+    ? (await resolveTakeoffPayment({ ...context, projectId: input.projectId }, input.paymentChoice, createServiceRoleClient())).selection
+    : await getTakeoffExecutionSelection(context.supabase, context, "chatgpt"));
+  if (takeoffSelectionFingerprint(selection) !== input.expectedExecutionFingerprint) {
     throw new ApiError({ status: 409, code: "TAKEOFF_CHATGPT_SELECTION_CHANGED",
-      message: "Le compte, le modèle ou l’effort ChatGPT a changé. Vérifiez la sélection affichée et confirmez de nouveau." });
+      message: input.paymentChoice
+        ? "La connexion, le modèle, l’effort ou le budget du métré a changé. Vérifiez les réglages affichés et confirmez de nouveau."
+        : "Le compte, le modèle ou l’effort ChatGPT a changé. Vérifiez la sélection affichée et confirmez de nouveau." });
   }
   return selection;
 }
@@ -462,7 +473,7 @@ export async function saveTakeoffPreparation(input: {
 }
 
 export async function confirmTakeoffPreparation(input: {
-  projectId: string; expectedRevision: number; expectedExecutionFingerprint?: string; planFileIds?: string[];
+  projectId: string; expectedRevision: number; expectedExecutionFingerprint?: string; planFileIds?: string[]; paymentChoice?: TakeoffPaymentChoice;
 }) {
   projectIdSchema.parse(input.projectId);
   revisionSchema.parse(input.expectedRevision);
@@ -482,10 +493,10 @@ export async function confirmTakeoffPreparation(input: {
     assertDossierSourcesReviewed(confirmed, sources);
     validateCanonicalSources(confirmed, sources);
     if (confirmed.provenance) {
-      await selectionForConfirmation(context, input.expectedExecutionFingerprint);
+      await selectionForConfirmation(context, input);
       const stored = storedPreparationSnapshotSchema.parse(record.confirmed_snapshot);
       if (stored.confirmed_by !== context.userId || !stored.execution_selection ||
-          executionFingerprint(stored.execution_selection) !== input.expectedExecutionFingerprint) {
+          takeoffSelectionFingerprint(stored.execution_selection) !== input.expectedExecutionFingerprint) {
         preparationConflict("Cette confirmation utilise une autre sélection ChatGPT. Préparez une nouvelle analyse avec votre forfait.");
       }
     }
@@ -560,7 +571,7 @@ export async function confirmTakeoffPreparation(input: {
   }
   const confirmedAt = new Date().toISOString();
   const snapshot = createTakeoffPreparationSnapshot({ preparation: draft, confirmedBy: context.userId, confirmedAt, revision });
-  if (draft.provenance) snapshot.execution_selection = await selectionForConfirmation(context, input.expectedExecutionFingerprint);
+  if (draft.provenance) snapshot.execution_selection = await selectionForConfirmation(context, input);
   await persistPreparationRecord({
     context, projectId: input.projectId, expectedRevision: record.revision, revision,
     draft: snapshot.preparation as unknown as Json, snapshot: snapshot as unknown as Json, confirmedAt,

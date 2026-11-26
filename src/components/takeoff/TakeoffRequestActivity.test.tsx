@@ -70,6 +70,14 @@ describe("TakeoffRequestActivity", () => {
     expect(screen.queryByRole("button", { name: "Soumettre à nouveau" })).toBeNull();
   });
 
+  it("shows one unknown generation when the activity reports a missing receipt", () => {
+    const request = fixtureThreePlans();
+    const { rerenderWith } = renderActivity(fixtureActivityResponse(request));
+    expect(screen.queryByText(/Consommation indéterminée/)).toBeNull();
+    rerenderWith(fixtureActivityResponse({ ...request, units: { ...request.units!, unknownCalls: 1 } }));
+    expect(screen.getByText(/Consommation indéterminée/)).toHaveTextContent("1 appel envoyé sans réponse");
+  });
+
   it("keeps the focus where it is when another plan arrives in the background", () => {
     const { rerenderWith } = renderActivity(fixtureActivityResponse(fixtureThreePlans()));
     // The focus is on the very plan that arrives.

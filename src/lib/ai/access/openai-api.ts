@@ -94,6 +94,8 @@ export type ApiKeyPrepareInput<T> = {
   outputCap: number;
   /** Below this output budget the call cannot hold a useful answer: refused. */
   minOutputTokens: number;
+  /** An optional total token balance for this request, across its paid calls. */
+  maxTotalTokens?: number;
   /** Caller cancellation signal, combined with the counting timeout. */
   signal?: AbortSignal;
 };
@@ -116,6 +118,12 @@ type Answered = {
 export type ApiKeyStructuredResult<T> =
   | (Answered & { data: T; schemaError: null; refused: false })
   | (Answered & { data: null; schemaError: SyntaxError | z.ZodError; refused: boolean });
+
+type ApiKeyExecuteOptions = { timeoutMs: number; signal?: AbortSignal } & (
+  | { beforeSend?: () => Promise<void>; reserveBeforeSend?: never }
+  // The reservation can require a fresh bound. Preserve that decision for the caller.
+  | { beforeSend?: never; reserveBeforeSend: () => Promise<void> }
+);
 
 const STRICT_KEYWORDS = new Set(["type", "properties", "required", "additionalProperties", "items", "enum", "const", "anyOf", "description",
   "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "pattern", "format", "minItems", "maxItems", "multipleOf"]);
@@ -203,7 +211,7 @@ async function fetchWith(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, path: End
     });
   } catch (error) {
     if (request.signal?.aborted) throw abortReason(request.signal);
-    throw new ApiKeyError(notSent(error) ? "AI_KEY_UNREACHABLE" : request.lostCode);
+    throw notSent(error) ? new ApiKeyError("AI_KEY_UNREACHABLE", { costNanoUsd: 0 }) : new ApiKeyError(request.lostCode);
   }
 }
 
@@ -262,7 +270,7 @@ function retryAtOf(header: string | null, now: Date): string | null {
 
 function failureOf(reply: Reply, now: Date): ApiKeyError {
   const { type, code } = errorFields(reply.body);
-  const base = { providerStatus: reply.status, requestId: reply.requestId };
+  const base = { providerStatus: reply.status, requestId: reply.requestId, costNanoUsd: 0 };
   const refusal = authRefusal(reply);
   if (refusal === "permission") return new ApiKeyError("AI_KEY_MODEL_FORBIDDEN", base);
   if (refusal) return new ApiKeyError("AI_KEY_REFUSED", base);
@@ -272,7 +280,7 @@ function failureOf(reply: Reply, now: Date): ApiKeyError {
     return new ApiKeyError("AI_KEY_RATE_LIMITED", { ...base, retryAt: retryAtOf(reply.retryAfter, now) });
   }
   if ([400, 409, 413, 422].includes(reply.status)) return new ApiKeyError("AI_KEY_REQUEST_REJECTED", base);
-  return new ApiKeyError("AI_KEY_PROVIDER_FAILED", base);
+  return new ApiKeyError("AI_KEY_PROVIDER_FAILED", { ...base, costNanoUsd: null });
 }
 
 const modelsReply = z.looseObject({ data: z.array(z.looseObject({ id: z.string() })).max(5_000) });
@@ -405,7 +413,8 @@ async function generateWith(
   const model = safeField(answer.model, secret, MODEL_ID) ?? request.model;
   const serviceTier = safeField(answer.service_tier, secret, PROVIDER_CODE);
   const usage = answer.usage ? usageOf(answer.usage) : null;
-  const context = { providerStatus: reply.status, requestId: reply.requestId, usage, model, serviceTier };
+  const context = { providerStatus: reply.status, requestId: reply.requestId, usage, model, serviceTier,
+    costNanoUsd: usage ? costOfOpenAiUsage(model, usage, serviceTier) : null };
   if (answer.status === "incomplete") {
     throw new ApiKeyError(answer.incomplete_details?.reason === "max_output_tokens" ? "AI_KEY_OUTPUT_LIMIT" : "AI_KEY_PROVIDER_FAILED", context);
   }
@@ -492,6 +501,15 @@ async function guarded<T>(effect: () => Promise<T>, signal?: AbortSignal): Promi
         : error.reason === "unavailable" ? "AI_KEY_KEYCHAIN_UNAVAILABLE" : "AI_KEY_KEYCHAIN_FAILED");
     }
     throw new ApiKeyError("AI_KEY_UNEXPECTED");
+  }
+}
+
+async function unbilled<T>(effect: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  try {
+    return await guarded(effect, signal);
+  } catch (error) {
+    if (!isApiKeyError(error)) throw error;
+    throw new ApiKeyError(error.code, { costNanoUsd: 0 });
   }
 }
 
@@ -856,9 +874,13 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       if (input.beforeSend) {
         await input.beforeSend();
         await readConnection(owner, connection.version, connection.connection_id);
+      } else if (input.maxTotalTokens !== undefined && input.expectedConnectionId) {
+        await readConnection(owner, connection.version, connection.connection_id);
       }
       const inputTokens = await countWith(deps, secret, request, input.signal);
-      const maxOutputTokens = maxOutputWithin({ model: input.model, inputTokens, allotmentNanoUsd: input.allotmentNanoUsd, cap: input.outputCap });
+      const cap = input.maxTotalTokens === undefined ? input.outputCap
+        : Math.max(0, Math.min(input.outputCap, input.maxTotalTokens - inputTokens));
+      const maxOutputTokens = maxOutputWithin({ model: input.model, inputTokens, allotmentNanoUsd: input.allotmentNanoUsd, cap });
       if (maxOutputTokens < input.minOutputTokens) {
         const smallest = boundCountedCall({ model: input.model, inputTokens, maxOutputTokens: input.minOutputTokens });
         throw new ApiKeyError("AI_KEY_CEILING", { detail: { ceiling: formatUsdCeiling(input.allotmentNanoUsd),
@@ -881,20 +903,41 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     },
 
     /** Sends a prepared call, once, with the key still in service at that version. */
-    execute: <T>(owner: AiAccessOwner, prepared: PreparedApiKeyCall, options: { timeoutMs: number; signal?: AbortSignal; beforeSend?: () => Promise<void> }): Promise<ApiKeyStructuredResult<T>> =>
-      guarded(async () => {
+    execute: async <T>(owner: AiAccessOwner, prepared: PreparedApiKeyCall, options: ApiKeyExecuteOptions): Promise<ApiKeyStructuredResult<T>> => {
+      async function verifyPrepared(resolve: typeof resolveKey) {
         if (options.signal?.aborted) throw abortReason(options.signal);
         const held = preparedRequests.get(prepared);
         if (!held) throw new ApiKeyError("AI_KEY_UNEXPECTED");
         if (held.owner !== ownerScope(owner)) throw new ApiKeyError("AI_KEY_CHANGED");
         // Single use: a prepared call is sent at most once.
         preparedRequests.delete(prepared);
-        const { secret, connection } = await resolveKey(owner, prepared.connectionVersion, held.connectionId);
-        if (options.beforeSend) {
-          await options.beforeSend();
+        const key = await resolve(owner, prepared.connectionVersion, held.connectionId);
+        return { held, ...key };
+      }
+      const verified = options.reserveBeforeSend
+        ? await unbilled(() => verifyPrepared(readKey), options.signal) : null;
+      if (options.reserveBeforeSend) await options.reserveBeforeSend();
+      const { held, secret, connection } = verified ?? await unbilled(() => verifyPrepared(resolveKey), options.signal);
+      const beforeSend = options.beforeSend;
+      if (beforeSend) {
+        await guarded(async () => {
+          await beforeSend();
           await readConnection(owner, connection.version, connection.connection_id);
-        }
-        if (options.signal?.aborted) throw abortReason(options.signal);
+        }, options.signal);
+      }
+      if (verified) {
+        await unbilled(async () => {
+          const active = (await readAiAccessFile(deps.directory(), owner)).connections.openai;
+          if (active?.connection_id !== held.connectionId || active.version !== prepared.connectionVersion) {
+            throw new ApiKeyError("AI_KEY_CHANGED");
+          }
+        });
+      }
+      if (options.signal?.aborted) {
+        if (verified) throw new ApiKeyError("AI_KEY_UNEXPECTED", { costNanoUsd: 0 });
+        throw abortReason(options.signal);
+      }
+      return guarded(async () => {
         const startedAt = Date.now();
         let answer: Awaited<ReturnType<typeof generateWith>>;
         try {
@@ -921,7 +964,8 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
           if (error instanceof SyntaxError || error instanceof z.ZodError) return { ...answered, data: null, schemaError: error, refused: answer.refused };
           throw new ApiKeyError("AI_KEY_UNEXPECTED");
         }
-      }, options.signal),
+      }, options.signal);
+    },
   };
 }
 

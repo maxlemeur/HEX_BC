@@ -404,6 +404,7 @@ export type TakeoffPreparationSnapshot = {
 };
 
 export const takeoffExecutionSelectionSchema = chatGptPreferencesSchema.extend({
+  source: z.enum(["chatgpt_plan", "personal_api_key"]).optional(),
   profileId: textSchema,
   hostId: textSchema,
   /** The authorization of the connection a launch request's mandate was given under (launch-request.ts). */

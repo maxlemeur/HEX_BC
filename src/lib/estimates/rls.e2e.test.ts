@@ -2762,6 +2762,29 @@ async function cleanupTenantFeatureFlags() {
   }
 }
 
+async function assertTakeoffApiLedgerIsServiceOnly() {
+  const args = { p_id: seedContext.projectId, p_tenant_id: seedContext.tenantId,
+    p_project_id: seedContext.projectId, p_payer_id: users.admin.userId };
+  const call = { p_job_id: seedContext.projectId, p_tenant_id: args.p_tenant_id, p_project_id: args.p_project_id,
+    p_payer_id: args.p_payer_id, p_lease_token: seedContext.projectId };
+  for (const role of ROLES) {
+    const client = users[role].client;
+    const results = await Promise.all([
+      client.rpc("read_takeoff_api_mandate", args),
+      client.rpc("seal_takeoff_api_mandate", { ...args, p_settings: {} }),
+      client.rpc("reserve_takeoff_api_call", { ...call, p_module_default: false, p_branch: "pdf", p_bound: 1, p_tokens: 1 }),
+      client.rpc("settle_takeoff_api_call", { ...call, p_call_id: args.p_id, p_cost: 0, p_tokens: 0 }),
+      client.rpc("recover_takeoff_payment_jobs", { p_now: new Date().toISOString() }),
+      client.rpc("claim_explicit_takeoff_payment_job", { p_job_id: call.p_job_id, p_tenant_id: call.p_tenant_id,
+        p_lease_token: call.p_lease_token, p_host_id: "urn:uuid:" + args.p_id, p_started_at: new Date().toISOString(),
+        p_lease_expires_at: new Date().toISOString(), p_model: "fictif", p_prompt_version: "fixture",
+        p_observed_status: "pending", p_observed_retry_count: 0 }),
+      client.rpc("dispatch_next_takeoff_payment_job", { p_host_id: "urn:uuid:" + args.p_id, p_module_default: false }),
+    ]);
+    for (const result of results) expect(result.error?.code).toBe("42501");
+  }
+}
+
 describe.runIf(RLS_E2E_ENABLED)("EST-261 RLS matrix E2E", () => {
   beforeAll(async () => {
     runTag = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2919,6 +2942,7 @@ describe.runIf(RLS_E2E_ENABLED)("EST-261 RLS matrix E2E", () => {
       await assertViewerOwnerEstimateMutationsDenied();
       await assertGovernedEstimateProjectDeletes();
       await assertAuthenticatedTakeoffWorkflow();
+      await assertTakeoffApiLedgerIsServiceOnly();
       await assertInactiveTenantBoundaries();
 
       expect(mismatches).toEqual([]);

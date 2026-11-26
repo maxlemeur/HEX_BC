@@ -6,7 +6,7 @@ import { z } from "zod";
 import { ApiKeyError, apiKeyErrorMessage, isApiKeyError, type ApiKeyCallUsage, type ApiKeyErrorCode } from "@/lib/ai/access/api-key-errors";
 import { openAiApiKeyAccess, type PreparedApiKeyCall } from "@/lib/ai/access/openai-api";
 import {
-  costOfOpenAiUsage, formatUsd, formatUsdCeiling, LAB_API_KEY_CEILING_NANO_USD, LAB_MIN_USEFUL_OUTPUT_TOKENS, labMaxOutputTokens, OPENAI_PRICE_TABLE,
+  formatUsd, formatUsdCeiling, LAB_API_KEY_CEILING_NANO_USD, LAB_MIN_USEFUL_OUTPUT_TOKENS, labMaxOutputTokens, OPENAI_PRICE_TABLE,
   openAiQualifiedModel,
 } from "@/lib/ai/access/openai-pricing";
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
@@ -312,10 +312,6 @@ async function preflightApiKey(access: LabAccess, configs: readonly ApiKeyConfig
   return { version: state.connection.version, prepared };
 }
 
-/** Failures refused at OpenAI's door or before it: nothing was billed. */
-const NOT_BILLED = new Set<ApiKeyErrorCode>(["AI_KEY_REFUSED", "AI_KEY_MODEL_FORBIDDEN", "AI_KEY_SPEND_LIMIT", "AI_KEY_RATE_LIMITED",
-  "AI_KEY_REQUEST_REJECTED", "AI_KEY_UNREACHABLE", "AI_KEY_CEILING", "AI_KEY_PRICE_UNKNOWN", "AI_KEY_MISSING", "AI_KEY_CHANGED",
-  "AI_KEY_KEYCHAIN_LOCKED", "AI_KEY_KEYCHAIN_UNAVAILABLE", "AI_KEY_KEYCHAIN_FAILED", "AI_KEY_MODEL_NOT_OFFERED", "AI_KEY_BUSY", "AI_KEY_LOCAL_ONLY"]);
 /** Failures of this configuration only: the next one may run. Every other failure stops the essai. */
 const CONFIGURATION_ONLY = new Set<ApiKeyErrorCode>(["AI_KEY_OUTPUT_LIMIT", "AI_KEY_REQUEST_REJECTED", "AI_KEY_MODEL_FORBIDDEN"]);
 
@@ -474,7 +470,7 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
         runId, configId: id, clock, score: (items) => scoreLabExtraction(document.summary.id, truth, items),
       });
       const cost = result.config.billing?.cost_nano_usd ?? null;
-      if (cost === null && !NOT_BILLED.has((result.config.error_code ?? "") as ApiKeyErrorCode)) {
+      if (cost === null) {
         // A reply that may have been billed for an unknown amount: nothing more is sent on a guess.
         run.configs.push(result.config);
         run.stop = { reason: "api_key_failed", message: result.stop ?? new ApiKeyError("AI_KEY_COST_UNKNOWN").message };
@@ -567,7 +563,7 @@ async function runApiKeyConfig(access: LabAccess, base: LabConfigResult, input: 
     return { config: { ...result, status: "ok", score: essai.score(answer.data.items), elements: extractionElements(essai.runId, essai.configId, answer.data) }, stop: null };
   } catch (error) {
     const failure = isApiKeyError(error) ? error : new ApiKeyError("AI_KEY_UNEXPECTED");
-    const cost = failure.usage ? costOfOpenAiUsage(failure.model ?? input.model, failure.usage, failure.serviceTier) : NOT_BILLED.has(failure.code) ? 0 : null;
+    const cost = failure.costNanoUsd;
     return {
       config: { ...base, status: "failed", latency_ms: Math.round(essai.clock() - startedAt), message: failure.message, error_code: failure.code,
         usage: failure.usage ? apiKeyUsageOf(failure.usage) : null,

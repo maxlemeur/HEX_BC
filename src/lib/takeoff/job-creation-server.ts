@@ -1,3 +1,6 @@
+import type { TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
+import { assertTakeoffPaymentMatches } from "@/lib/takeoff/payment-server";
+import { usesTakeoffApiKey } from "@/lib/takeoff/payment-mandate-server";
 import "server-only";
 
 import { assertLocalTakeoffResumeReady, assertTakeoffJobStarter, getConfirmedTakeoffExecutionOwner, requireDetailedTakeoffProcessing } from "@/lib/ai/chatgpt-takeoff";
@@ -79,6 +82,7 @@ export type CreatePreparedPlanSetJobInput = {
   provider?: import("@/lib/takeoff/types").TakeoffProvider;
   preparationRevision?: number | null;
   sourceVersionId?: string;
+  paymentChoice?: TakeoffPaymentChoice;
 };
 
 export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSetJobInput, executionProvider?: "chatgpt_local") {
@@ -116,6 +120,7 @@ export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSe
   await assertTakeoffJobCreationRecorded(context.tenantId, existing);
   if (existing.status === "pending") {
     assertTakeoffJobStarter(existing, context.userId);
+    await assertTakeoffPaymentMatches(context, input.projectId, existing.preparation_snapshot, input.paymentChoice);
     await assertLocalTakeoffResumeReady(context.supabase, context.tenantId, existing);
   }
   return normalizeTakeoffJobRow(existing);
@@ -193,7 +198,9 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
     sourceVersionId: input.sourceVersionId,
     level, provider,
   });
-  const executionOwner = await getConfirmedTakeoffExecutionOwner(supabase, { userId, tenantId }, preparationSnapshot);
+  const executionOwner = await getConfirmedTakeoffExecutionOwner(supabase, { userId, tenantId }, preparationSnapshot,
+    usesTakeoffApiKey(preparationSnapshot) ? projectId : undefined);
+  if ("paymentChoice" in input) await assertTakeoffPaymentMatches(context, projectId, preparationSnapshot, input.paymentChoice);
   const planSetPageConfig = await getTakeoffLevelCProcessingConfigForTenant(tenantId, { supabase });
 
   await assertPlanSetAccessibleForCreation({

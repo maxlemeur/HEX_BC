@@ -37,6 +37,7 @@ it("reaches an accepted pending job beyond a page of due retries whose claims al
     const query = {
       select: () => query,
       eq: (column: string, value: string) => { if (column === "status") wanted = value; return query; },
+      in: () => query,
       is: () => query,
       or: () => query,
       gt: (column: string, value: string) => { if (column === "id") after = value; return query; },
@@ -61,7 +62,7 @@ it("takes an accepted pending job only once its creation record is written", asy
   vi.useFakeTimers();
   vi.stubEnv("E2E_ARMY_BLOCK_WORKERS", "0");
   processAttempt.mockReset();
-  const job = { id: "8f400000-0000-4000-8000-000000000031", tenant_id: "8f400000-0000-4000-8000-000000000010", status: "pending",
+  const job = { execution_host_id: "fixture-host", id: "8f400000-0000-4000-8000-000000000031", tenant_id: "8f400000-0000-4000-8000-000000000010", status: "pending",
     created_at: "2026-11-21T00:00:00+00:00" };
   const receipts: Array<{ tenant_id: string; record_id: string; table_name: string; action: string; created_at: string }> = [];
   client.from.mockImplementation((table: string) => {
@@ -102,7 +103,7 @@ it("does not take a job on the creation record of an earlier attempt that reused
   processAttempt.mockReset();
   // A first creation committed its record, lost its answer and withdrew its row; the retry of the same preparation
   // inserted the same identifier again, and its own record is still outstanding.
-  const job = { id: "8f400000-0000-4000-8000-000000000032", tenant_id: "8f400000-0000-4000-8000-000000000010",
+  const job = { execution_host_id: "fixture-host", id: "8f400000-0000-4000-8000-000000000032", tenant_id: "8f400000-0000-4000-8000-000000000010",
     status: "pending", created_at: "2026-11-21T00:10:00.000250+00:00" };
   const receipts = [{ tenant_id: job.tenant_id, record_id: job.id, table_name: "takeoff_jobs", action: "takeoff.job.created",
     created_at: "2026-11-21T00:10:00.000120+00:00" }];
