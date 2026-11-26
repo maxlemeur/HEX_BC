@@ -35,6 +35,7 @@ import { foldText } from "@/lib/text/fold";
 import { ArticleDuplicates, type DuplicateSearch } from "./ArticleDuplicates";
 import { ColumnsPanel } from "./ColumnsPanel";
 import { SupplyTypeGroups } from "./SupplyTypeGroups";
+import { useWorkbookPreviewColumns, WorkbookPreviewColumnPicker, WorkbookPreviewSourceCells, WorkbookPreviewSourceHeaders } from "./WorkbookPreviewColumns";
 import {
   boundedPage,
   DECISIONS_PER_PAGE,
@@ -122,6 +123,9 @@ export function ArticlePreview({
     [rows],
   );
   const articleByRow = useMemo(() => new Map(read.articles.map((article) => [article.row, article])), [read]);
+  const workbookColumns = useWorkbookPreviewColumns(rows, inspection);
+  const shown = workbookColumns.visibleStandard;
+  const resetPage = () => onReviewChange({ ...review, page: 0 });
   const columnOf = useMemo(() => new Map(inspection.found.map(({ column, index }) => [column, index])), [inspection]);
   const column = (name: CostingWorkbookColumn) => columnOf.get(name);
 
@@ -174,8 +178,8 @@ export function ArticlePreview({
   const familyRowSet = familyRows ? new Set(familyRows) : null;
   const familyArticles = familyRowSet ? proposedAll.filter(({ row }) => familyRowSet.has(row)) : proposedAll;
   const query = foldText(review.search.trim());
-  const matching = familyArticles.filter(({ article }) =>
-    !query || [article.reference, article.designation, article.material ?? "", article.dimensions ?? ""].some((text) => foldText(text).includes(query)));
+  const matching = workbookColumns.applyView(familyArticles.filter(({ article }) =>
+    !query || [article.reference, article.designation, article.material ?? "", article.dimensions ?? ""].some((text) => foldText(text).includes(query))));
   const findingCounts = new Map<ArticleFinding, number>();
   for (const { findings } of matching) {
     for (const finding of findings) findingCounts.set(finding, (findingCounts.get(finding) ?? 0) + 1);
@@ -287,6 +291,7 @@ export function ArticlePreview({
                   ? "Aucun nouvel article en brouillon"
                   : `${formatCount(newArticles)} ${plural(newArticles, "nouvel article", "nouveaux articles")} en brouillon`}
               </h3>
+              <WorkbookPreviewColumnPicker view={workbookColumns} disabled={editorDirty} onChange={resetPage} />
             </div>
             <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
               <li>{already === 0 ? "Aucun article déjà au catalogue" : `${formatCount(already)} déjà au catalogue (${plural(already, "inchangé", "inchangés")})`}</li>
@@ -411,13 +416,14 @@ export function ArticlePreview({
                       <tr className="[&>th]:px-3 [&>th]:py-2.5">
                         {onValidate ? <th scope="col">Valider</th> : null}
                         <th scope="col">Ligne Excel</th>
-                        <th scope="col">Référence</th>
-                        <th scope="col">Désignation</th>
-                        <th scope="col">Matière</th>
-                        <th scope="col">Unité</th>
-                        <th scope="col" className="text-right">Prix</th>
-                        <th scope="col">Type de fourniture</th>
-                        <th scope="col">À vérifier</th>
+                        {shown.has("reference") ? <th scope="col">Référence</th> : null}
+                        {shown.has("designation") ? <th scope="col">Désignation</th> : null}
+                        {shown.has("material") ? <th scope="col">Matière</th> : null}
+                        {shown.has("unit") ? <th scope="col">Unité</th> : null}
+                        {shown.has("price") ? <th scope="col" className="text-right">Prix</th> : null}
+                        {shown.has("supplyType") ? <th scope="col">Type de fourniture</th> : null}
+                        {shown.has("findings") ? <th scope="col">À vérifier</th> : null}
+                        <WorkbookPreviewSourceHeaders view={workbookColumns} disabled={editorDirty} onChange={resetPage} />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -448,36 +454,51 @@ export function ArticlePreview({
                               </td>
                             ) : null}
                             <td className="tabular-nums">{row}</td>
-                            <td><EditableValue row={row} column={column("ID")} mono display={article.reference} /></td>
-                            <td>{article.designation}</td>
-                            <td><EditableValue row={row} column={column("Matériau")} /></td>
-                            <td>
-                              <EditableValue row={row} column={column("Unité")} display={article.unit} />
-                            </td>
-                            <td className="text-right tabular-nums">
-                              <EditableValue
-                                row={row}
-                                column={column("PR. FO")}
-                                display={article.unit_price_cents === 0 ? "—" : formatEUR(article.unit_price_cents)}
-                              />
-                            </td>
-                            <td>{type ? type.name : <span className="text-warning">À choisir</span>}</td>
-                            <td>
-                              {findings.length > 0 ? (
-                                <span className="flex flex-wrap gap-1">
-                                  {findings.map((finding) => (
-                                    <Badge key={finding} variant="warning" size="sm" title={ARTICLE_FINDINGS[finding].label}>
-                                      {ARTICLE_FINDINGS[finding].short}
-                                    </Badge>
-                                  ))}
-                                </span>
-                              ) : null}
-                            </td>
+                            {shown.has("reference") ? (
+                              <td><EditableValue row={row} column={column("ID")} mono display={article.reference} /></td>
+                            ) : null}
+                            {shown.has("designation") ? (
+                              <td>{article.designation}</td>
+                            ) : null}
+                            {shown.has("material") ? (
+                              <td><EditableValue row={row} column={column("Matériau")} /></td>
+                            ) : null}
+                            {shown.has("unit") ? (
+                              <td>
+                                <EditableValue row={row} column={column("Unité")} display={article.unit} />
+                              </td>
+                            ) : null}
+                            {shown.has("price") ? (
+                              <td className="text-right tabular-nums">
+                                <EditableValue
+                                  row={row}
+                                  column={column("PR. FO")}
+                                  display={article.unit_price_cents === 0 ? "—" : formatEUR(article.unit_price_cents)}
+                                />
+                              </td>
+                            ) : null}
+                            {shown.has("supplyType") ? (
+                              <td>{type ? type.name : <span className="text-warning">À choisir</span>}</td>
+                            ) : null}
+                            {shown.has("findings") ? (
+                              <td>
+                                {findings.length > 0 ? (
+                                  <span className="flex flex-wrap gap-1">
+                                    {findings.map((finding) => (
+                                      <Badge key={finding} variant="warning" size="sm" title={ARTICLE_FINDINGS[finding].label}>
+                                        {ARTICLE_FINDINGS[finding].short}
+                                      </Badge>
+                                    ))}
+                                  </span>
+                                ) : null}
+                              </td>
+                            ) : null}
+                            <WorkbookPreviewSourceCells view={workbookColumns} rows={rows} row={row} />
                           </tr>
                         );
                       })}
                       {proposed.length === 0 ? (
-                        <tr><td colSpan={onValidate ? 9 : 8} className="px-3 py-4 text-muted-foreground">Aucun article ne correspond à la recherche.</td></tr>
+                        <tr><td colSpan={(onValidate ? 2 : 1) + shown.size + workbookColumns.visibleSource.length} className="px-3 py-4 text-muted-foreground">Aucun article ne correspond à la recherche.</td></tr>
                       ) : null}
                     </tbody>
                   </table>

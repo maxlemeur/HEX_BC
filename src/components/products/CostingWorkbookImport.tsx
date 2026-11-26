@@ -56,7 +56,6 @@ import { ArticlePreview, type SupplyTypeChoices } from "./costing-workbook/Artic
 import { AssistantProviderSelect, useWorkbookAssistantState, WorkbookAssistantProvider } from "./costing-workbook/assistant";
 import { ColumnsPanel } from "./costing-workbook/ColumnsPanel";
 import { CorrectionsJournal } from "./costing-workbook/CorrectionsJournal";
-import { ImportColumnsDialog } from "./costing-workbook/ImportColumnsDialog";
 import { RejectedWorkbookEdits } from "./costing-workbook/RejectedWorkbookEdits";
 import { boundedPage, DECISIONS_PER_PAGE, formatCount, plural, ReviewPager, WorkbookEditorProvider, type WorkbookReview } from "./costing-workbook/shared";
 import { SupplierReferenceReview } from "./costing-workbook/SupplierReferenceReview";
@@ -683,10 +682,6 @@ export function CostingWorkbookImport({
               >
                 {rows ? "Changer de fichier Excel" : "Choisir un fichier Excel"}
               </Button>
-              {rows && inspection ? (
-                <ImportColumnsDialog key={fileName} rows={rows} inspection={inspection}
-                  disabled={isBusy && phase !== "previewing"} />
-              ) : null}
               {rows ? (
                 <>
                   <Button
