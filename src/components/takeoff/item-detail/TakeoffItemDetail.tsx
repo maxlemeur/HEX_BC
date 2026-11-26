@@ -1,5 +1,8 @@
 "use client";
 
+import useSWR from "swr";
+import { fetchMeasureReview } from "@/lib/takeoff/item-table-client";
+import { MeasureRetention } from "./MeasureRetention";
 import type { ItemQuantityChoice } from "@/lib/takeoff/item-table";
 
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
@@ -90,6 +93,7 @@ type Props = {
    * is read again and its line kept, the journal shown read again; nothing moves.
    */
   refresh?: { version: number; itemId: string } | null;
+  onMeasureChanged?: (itemId: string) => void;
   /** Told what the detail shows each time it changes (another item, reading, line read again or right). */
   onShown?: (shown: ItemDetailShown | null) => void;
 };
@@ -130,7 +134,7 @@ const neverRefused = () => false;
 /** The detail's screen: one per member and scope (a new reader remounts it), so its own completions name it alone. */
 const DETAIL_SCREEN = "detail";
 
-function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onBack, onGesture, onAddressChange, onRefused = neverRefused,
+function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onBack, onGesture, onMeasureChanged, onAddressChange, onRefused = neverRefused,
   refresh = null, onShown }: Props) {
   const version = refresh?.version ?? 0;
   const queue = useMemo(() => new ItemDetailQueue(), []);
@@ -296,6 +300,22 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
     : request.current ? { state: "loading" } : { state: "none" };
   const view = resolution.state === "ready" ? resolution.view : null;
   const answer = choice.kind === "reading" && choice.current ? choice.reading.answer : null;
+  const reviewId = answer?.outcome === "measured" && !gone && onGesture ? answer.answerId : null;
+  // Returning from the targeted review starts a new reader. Wait for its review before offering a decision:
+  // a freshly justified row can still have exactly the same quantity, decision revision and plan.
+  const measure = useSWR(reviewId && choice.kind === "reading"
+    ? ["poste-measure", viewerKey, projectId, reviewId, readerIdentity(reader), choice.reading, line?.targets, version] : null,
+    () => fetchMeasureReview(projectId, reviewId!), { shouldRetryOnError: false });
+  useEffect(() => { if (isRightRefusal(measure.error)) onRefused(measure.error); }, [measure.error, onRefused]);
+  const review = !measure.isValidating && !measure.error && measure.data && measure.data.answer_id === reviewId && measure.data.item_id === itemId
+    && choice.kind === "reading" && measure.data.plan_id === choice.planKey ? measure.data : null;
+  const decision = choice.kind === "reading" ? choice.reading.decision : null;
+  const decisionDisagrees = !!review && (review.effective_decision !== (decision?.kind ?? null)
+    || (!!decision && decision.revision !== review.decision_revision));
+  useEffect(() => {
+    if (decisionDisagrees) rereadItem(itemId);
+  }, [decisionDisagrees, review?.revision, rereadItem, itemId]);
+  const canRetain = canReview && !!review && (!review.reason || review.reason === "justification_required");
   const opening = itemDetailOpeningPage({ requested: address.page, answer, pagesRead: view?.plan.pagesRead ?? [],
     pageCount: view?.plan.pageCount ?? null, observationId: choice.kind === "reading" ? choice.observationId : null });
   const pagesOfInterest = itemDetailPagesOfInterest(answer, view?.plan.pagesRead ?? []);
@@ -371,11 +391,13 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
     if (!line) return;
     const offered = offer(requested);
     if (!offered.offered) {
-      setNotice(itemDetailGestureRefusalLabel(requested, offered));
+      const mention = requested === "accept_measured" && canRetain && offered.reason === "ineligible"
+        && (offered.ineligibility === "anomaly" || offered.ineligibility === "dpgf_gap");
+      setNotice(itemDetailGestureRefusalLabel(requested, offered) + (mention ? " Ouvrez « Retenir cette mesure »." : ""));
       return;
     }
     onGesture!({ gesture: requested, line, initial, key, ...(quantityChoice ? { quantityChoice } : {}) });
-  }, [key, line, offer, onGesture]);
+  }, [canRetain, key, line, offer, onGesture]);
 
   // The journal of the item shown: a refusal of one of its reads withdraws the detail while that item is shown; a
   // refusal of the member's right, while this screen is the one that read it, whatever item is shown now.
@@ -568,6 +590,19 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
             className={cn("w-[24rem] shrink-0 border-l border-border max-lg:w-full max-lg:border-l-0 max-lg:border-t", !panels.evidence && "max-lg:hidden")}>
             {line ? (
               <ItemDetailEvidencePane ref={evidence} projectId={projectId} line={line} choice={choice} plan={view}
+                showPosteDecision={!reviewId || (!!review && !decisionDisagrees)}
+                measureRetention={choice.kind === "reading" && review && answer ? <MeasureRetention
+                  key={`${viewerKey}:${review.answer_id}:${review.revision}:${canReview}`} projectId={projectId}
+                  planName={choice.planName} jobId={choice.jobId} review={review} label={line.label}
+                  canReview={canReview} onRefused={historyRefused}
+                  onRefresh={() => {
+                    if (!begin({ screen: DETAIL_SCREEN, item: itemId }).ownScreen()) return;
+                    if (onMeasureChanged) onMeasureChanged(itemId);
+                    else { rereadItem(itemId); void measure.mutate(); }
+                  }} /> : reviewId && (measure.isValidating
+                    ? <p role="status">Vérification de la décision sur cette mesure…</p>
+                    : <><p role="alert">Impossible de vérifier la décision sur cette mesure.</p>
+                      <Button size="xs" variant="outline" onClick={() => void measure.mutate()}>Relire la mesure</Button></>)}
                 documentState={documentState} names={names} planNames={planNames} outsideFilter={!found && outside !== null}
                 historyVersion={version} onRefused={historyRefused} historyScope={`lecteur-${readerIdentity(reader)}`}
                 proof={chosen.kind === "reading" && !chosen.current ? resolution.state === "ready" ? "proven"

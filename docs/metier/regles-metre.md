@@ -536,6 +536,14 @@ liste `takeoff-item-list:<affaire>` au scellement, les lignes qu’elle écrit (
 analyses, son reçu), et en dernier la clé du dossier quand un démarrage automatique est
 ouvert. La relecture d’un reçu (`public.replay_takeoff_item_remeasure`) ne prend aucun verrou.
 
+**Retenir une mesure sur un plan**
+
+Dans le détail d’un poste mesuré, **Retenir cette mesure** ouvre les faits de la réponse du plan affiché. Le membre contrôle la quantité observée, l’unité, la référence DPGF et l’écart. Il confirme chaque écart à vérifier, les justifications des contrôles en échec et la vérification d’une preuve de faible confiance lorsque la lecture le demande.
+
+La revue ciblée permet de justifier chaque contribution qui le demande et de rouvrir une contribution déjà vérifiée pour renouveler son justificatif. **Revenir au poste** ramène à la mesure à retenir. Le raccourci V et l’acceptation de masse conservent leurs conditions habituelles.
+
+Une modification des éléments acquittés peut rendre la décision caduque. Le détail signale le retour à **À vérifier** et présente les faits actuels.
+
 - **Accepter les mesurés sans anomalie** : seulement les postes mesurés à couverture
   complète, sans hypothèse, contrôle en échec ou à recalculer, confiance sous le seuil du
   tenant, preuve localisée manquante, remarque de la lecture, ligne dans une autre unité
@@ -1547,6 +1555,8 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   rapprochée ensuite.
 
 ## Envoyer les postes d'un plan : l'aperçu et la confirmation (lot 4)
+
+Si le rapprochement du devis diffère lors de l’envoi, l’aperçu présente la référence, la quantité cumulée et l’écart de la destination. Le membre vérifie ces valeurs avant de confirmer l’écriture et son reçu.
 
 Une analyse lue contre la liste des postes donne une réponse par poste et par plan. Son envoi au
 devis part de ces réponses, pas des lignes du métré : l'aperçu

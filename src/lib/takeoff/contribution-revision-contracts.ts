@@ -24,7 +24,7 @@ const lineChoices = z
     Object.fromEntries(Object.entries(lines).map(([key, choice]) => [key.toLowerCase(), choice])),
   );
 
-const additionChoices = itemSendPreviewRequestSchema.omit({ destination: true }).overwrite((choices) => {
+const additionChoices = itemSendPreviewRequestSchema.omit({ destination: true, review_measures: true }).overwrite((choices) => {
   if (!choices.resolutions) return choices;
   return {
     ...choices,
@@ -254,7 +254,7 @@ export const revisionPreviewSchema = z.object({
     }),
   ),
   left_out: z.array(z.object({ item_id: id })),
-  addition_preview: itemSendPreviewResponseSchema.optional(),
+  addition_preview: itemSendPreviewResponseSchema.omit({ measure_reviews: true }).optional(),
 });
 export type RevisionPreview = z.infer<typeof revisionPreviewSchema>;
 export const revisionResponseSchema = z.discriminatedUnion("action", [

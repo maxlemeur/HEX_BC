@@ -60,7 +60,7 @@ export const ITEM_REVIEW_STALE = "TAKEOFF_ITEM_REVIEW_STALE";
 
 const FORBIDDEN = "Seul un opérateur du métré de l’affaire peut revoir les postes.";
 
-async function requireReviewer(projectId: string): Promise<AffaireAccess> {
+export async function requireReviewer(projectId: string): Promise<AffaireAccess> {
   const access = await requireAffaireAccess(projectId, "read");
   if (!await itemReviewerRight(access)) throw forbidden(FORBIDDEN, undefined, "TAKEOFF_ITEM_REVIEW_FORBIDDEN");
   return access;
@@ -100,7 +100,7 @@ function staleRefusal(stale: Array<{ itemId: string; label: string | null }>): n
 }
 
 /** The refusals of public.review_takeoff_items, by their own code: a fixed French answer, never the database's text. */
-function reviewFailure(error: { message?: string }): never {
+export function reviewFailure(error: { message?: string }): never {
   switch (error.message?.trim()) {
     case "TAKEOFF_ITEM_REVIEW_FORBIDDEN": throw forbidden(FORBIDDEN, undefined, "TAKEOFF_ITEM_REVIEW_FORBIDDEN");
     case "TAKEOFF_ITEM_REVIEW_INVALID": throw unprocessableEntity("Commande de revue invalide.", undefined, "VALIDATION_ERROR");

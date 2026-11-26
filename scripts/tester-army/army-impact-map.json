@@ -1073,6 +1073,26 @@
       ]
     },
     {
+      "id": "takeoff-retain-measure",
+      "note": "POSTE-RETENIR01 à 04 couvrent la justification des contributions, la décision individuelle sur un plan et le rapprochement avec la ligne du devis à l’envoi.",
+      "paths": [
+        "src/components/takeoff/item-detail/**",
+        "src/components/takeoff/item-table/**",
+        "src/components/takeoff/item-send/**",
+        "src/components/takeoff/review/TakeoffTargetedReview.tsx",
+        "src/lib/takeoff/measure-review*.ts",
+        "src/lib/takeoff/item-review-commands-server.ts",
+        "src/lib/takeoff/item-table*.ts",
+        "src/lib/takeoff/item-send*.ts",
+        "src/app/api/affaires/[projectId]/takeoff/items/measures/**",
+        "supabase/migrations/*_takeoff_retain_measure.sql",
+        "e2e/army/takeoff/poste-send-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/poste-retain.e2e.ts"
+      ]
+    },
+    {
       "id": "takeoff-item-verified-count",
       "note": "POSTE-COMPTAGE01 accepte un comptage vérifié sur le plan, confirme son envoi et relit la quantité dans le devis.",
       "paths": [

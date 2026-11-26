@@ -813,7 +813,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                           {open ? (
                             <tr id={`poste-detail-ligne-${line.itemId}`}>
                               <td colSpan={columns} className="whitespace-normal">
-                                <ItemTableLineDetail line={line} projectId={projectId} names={data.names} canReview={canReview} busy={busy}
+                                <ItemTableLineDetail line={line} projectId={projectId} viewerKey={viewerKey} names={data.names} canReview={canReview} busy={busy}
                                   historyVersion={historyVersion} onRefused={withdrawOnRefusal}
                                   onChooseQuantity={(choice) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION,
                                     intent_key: newIntent(), scope: address.scope, gesture: "accept_measured", quantity_choice: choice, targets: [line.targets] }, "accepté")}
