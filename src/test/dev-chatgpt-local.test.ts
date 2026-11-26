@@ -25,6 +25,7 @@ const hostedSettings = [
   "NEXT_PUBLIC_SUPABASE_ANON_KEY=fixture-public-production",
   "SUPABASE_SERVICE_ROLE_KEY=fixture-service-production",
 ].join("\n");
+const productionConfigFile = ".env.supabase.production.local";
 
 async function launchWithNextOutput(output: string, waitForSignal: boolean, args: string[] = []) {
   const cwd = await mkdtemp(join(tmpdir(), "mergeone-dev-chatgpt-"));
@@ -32,6 +33,7 @@ async function launchWithNextOutput(output: string, waitForSignal: boolean, args
     const nextDir = join(cwd, "node_modules/next/dist/bin");
     await mkdir(nextDir, { recursive: true });
     await writeFile(join(cwd, ".env.local"), hostedSettings);
+    await writeFile(join(cwd, productionConfigFile), hostedSettings);
     await writeFile(join(nextDir, "next"), `
       process.on("SIGTERM", () => {
         console.log("Next received SIGTERM");
@@ -125,8 +127,8 @@ describe("dev:chatgpt reload-loop guard", () => {
     });
   });
 
-  it("stops the full production launcher after twenty hosted renders without a compile", async () => {
-    const result = await launchWithNextOutput(request("/dashboard/affaires").repeat(20), true, ["--supabase=production-full"]);
+  it.each(["production", "production-full"])("stops the %s launcher after twenty hosted renders without a compile", async (target) => {
+    const result = await launchWithNextOutput(request("/dashboard/affaires").repeat(20), true, [`--supabase=${target}`]);
     expect(result.code).toBe(1);
     expect(result.stdout).toContain("Next received SIGTERM");
     expect(result.stderr).toContain("Possible reload loop. Next rendered /dashboard/affaires 20 times");
@@ -258,6 +260,7 @@ describe("dev:chatgpt Turbopack cache reuse", () => {
   it("keeps a separate Turbopack cache stamp for each of the three targets", async () => {
     await withCacheFixture(async ({ cwd, cacheDir, start }) => {
       await writeFile(join(cwd, ".env.local"), hostedSettings);
+      await writeFile(join(cwd, productionConfigFile), hostedSettings);
       const stamps = new Set();
       for (const args of [[], ["--supabase=production"], ["--supabase=production-full"]]) {
         expect((await start(undefined, args)).stdout).toContain("cold cache");

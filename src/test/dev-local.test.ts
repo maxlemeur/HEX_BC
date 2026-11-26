@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -11,16 +12,23 @@ const launcher = fileURLToPath(new URL("../../scripts/dev-local.mjs", import.met
 const chatgpt = fileURLToPath(new URL("../../scripts/dev-chatgpt-local.mjs", import.meta.url));
 const packageJson = new URL("../../package.json", import.meta.url);
 const scripts = fileURLToPath(new URL("../../scripts", import.meta.url));
-const production = [
+const productionPublic = [
   "NEXT_PUBLIC_SUPABASE_URL=https://project-fixture.supabase.co",
   "NEXT_PUBLIC_SUPABASE_ANON_KEY=fixture-public-production",
-  "SUPABASE_SERVICE_ROLE_KEY=fixture-service-production",
 ].join("\n");
+const production = `${productionPublic}\nSUPABASE_SERVICE_ROLE_KEY=fixture-service-production`;
 const local = [
   "NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321",
   "NEXT_PUBLIC_SUPABASE_ANON_KEY=fixture-public-local",
 ].join("\n");
 const fullTarget = "--supabase=production-full";
+const restrictedTarget = "--supabase=production";
+const productionConfigFile = ".env.supabase.production.local";
+const nextEnv = createRequire(import.meta.url).resolve("@next/env");
+const nonLoopbackHostOptions = [
+  ["--hostname", "0.0.0.0"], ["--hostname=0.0.0.0"],
+  ["-H", "0.0.0.0"], ["-H0.0.0.0"], ["-H=0.0.0.0"],
+];
 
 async function withDevFixture(
   run: (start: (args?: string[], options?: { script?: string; npmScript?: string; env?: Partial<NodeJS.ProcessEnv> }) => Promise<{
@@ -142,13 +150,18 @@ describe("development Supabase target", () => {
     });
   });
 
-  it("refuses a non-loopback Next listener in production mode", async () => {
-    await withDevFixture(async (start) => {
-      const result = await start(["--supabase=production", "--hostname", "127.0.0.1", "-H0.0.0.0"]);
-      expect(result.code).toBe(1);
-      expect(result.stdout).toBe("");
-      expect(result.stderr).toMatch(/loopback/i);
-    });
+  describe.each([restrictedTarget, fullTarget])("binding for %s", (target) => {
+    it.each(nonLoopbackHostOptions.map((args) => ({ spelling: args.join(" "), args })))(
+      "refuses $spelling even after an explicit loopback binding",
+      async ({ args }) => {
+        await withDevFixture(async (start) => {
+          const result = await start([target, "--hostname", "127.0.0.1", ...args]);
+          expect(result.code).toBe(1);
+          expect(result.stdout).toBe("");
+          expect(result.stderr).toMatch(/loopback/i);
+        });
+      },
+    );
   });
 
   it("preserves the owned TesterArmy setup for the ChatGPT launcher", async () => {
@@ -180,15 +193,69 @@ describe("development Supabase target", () => {
       expect(childSettings(result.stdout)).toMatchObject({ args: ["dev", "--hostname", "127.0.0.1", "--help"] });
     });
   });
+
+  describe.each([
+    { mode: "local", target: [] },
+    { mode: "production", target: [restrictedTarget] },
+    { mode: "production-full", target: [fullTarget] },
+  ])("legacy service key warning for $mode", ({ target }) => {
+    it.each([".env.local", ".env"])("warns once when %s would give direct Next production service rights", async (file) => {
+      await withDevFixture(async (start, cwd) => {
+        await writeFile(join(cwd, ".env.supabase.local"), local);
+        await writeFile(join(cwd, productionConfigFile), production);
+        await rm(join(cwd, ".env.local"));
+        await writeFile(join(cwd, file), production);
+        if (file === ".env.local") await writeFile(join(cwd, ".env"), production);
+
+        const result = await start(target);
+        expect(result.code, result.stderr).toBe(0);
+        const warnings = result.stderr.split("\n").filter((line) => line.includes("Direct next dev"));
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toContain("would hold production's service rights");
+        expect(warnings[0]).toContain(`from ${file}.`);
+        expect(warnings[0]).toContain(productionConfigFile);
+        expect(result.stderr).not.toContain("fixture-service-production");
+        expect(result.stderr).not.toContain("project-fixture.supabase.co");
+      });
+    });
+  });
 });
 
 describe("full production Supabase target", () => {
+  it.each(["development", "production"] as const)("keeps the full service key out of Next's direct %s environment", async (nodeEnv) => {
+    await withDevFixture(async (start, cwd) => {
+      await writeFile(join(cwd, productionConfigFile), production);
+      await writeFile(join(cwd, ".env.local"), productionPublic);
+      const launched = await start([fullTarget]);
+      expect(launched.code, launched.stderr).toBe(0);
+      expect(childSettings(launched.stdout)).toMatchObject({ serviceKey: "fixture-service-production" });
+      expect(launched.stderr).not.toContain("Direct next dev");
+
+      const direct = await launch(process.execPath, ["-e", `
+        require(${JSON.stringify(nextEnv)}).loadEnvConfig(process.cwd(), process.env.NODE_ENV === "development");
+        console.log(JSON.stringify({
+          url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+          publicKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+          hasServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY !== undefined,
+        }));
+      `], { cwd, env: { NODE_ENV: nodeEnv }, timeout: 4000 });
+      expect(childSettings(direct.stdout)).toEqual({
+        url: "https://project-fixture.supabase.co",
+        publicKey: "fixture-public-production",
+        hasServiceKey: false,
+      });
+    });
+  });
+
   it.each([
     ["dev:prod:full", []],
     ["dev", [fullTarget]],
     ["dev:chatgpt", [fullTarget]],
   ])("starts through npm run %s with the file's service rights and enables local ChatGPT", async (npmScript, targetArgs) => {
     await withDevFixture(async (start, cwd) => {
+      await writeFile(join(cwd, productionConfigFile), production);
+      await writeFile(join(cwd, ".env.local"), productionPublic.replace("project-fixture", "other-fixture")
+        .replace("fixture-public-production", "fixture-public-other"));
       await writeFile(join(cwd, ".env.supabase.local"), local);
       await writeFile(join(cwd, ".env.development.local"), local);
       await writeFile(join(cwd, ".env"), local);
@@ -214,51 +281,61 @@ describe("full production Supabase target", () => {
     });
   });
 
-  it("falls back to .env for all settings when .env.local has no public settings", async () => {
+  it("falls back to .env for restricted public settings when .env.local has no public settings", async () => {
     await withDevFixture(async (start, cwd) => {
       await writeFile(join(cwd, ".env.local"), "SUPABASE_SERVICE_ROLE_KEY=fixture-service-other");
       await writeFile(join(cwd, ".env"), production);
-      const result = await start([fullTarget]);
+      const result = await start([restrictedTarget]);
       expect(result.code, result.stderr).toBe(0);
       expect(childSettings(result.stdout)).toMatchObject({
         args: ["dev", "--hostname", "127.0.0.1"],
         url: "https://project-fixture.supabase.co",
         publicKey: "fixture-public-production",
-        serviceKey: "fixture-service-production",
+        serviceKey: "",
       });
     });
   });
 
-  it("requires a service key in .env.local when its public settings select that file", async () => {
+  it("requires a service key alongside the public settings in the dedicated production file", async () => {
     await withDevFixture(async (start, cwd) => {
-      await writeFile(join(cwd, ".env.local"), production.split("\n").slice(0, 2).join("\n"));
+      await writeFile(join(cwd, productionConfigFile), productionPublic);
       await writeFile(join(cwd, ".env"), production);
       const result = await start([fullTarget], { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-service-shell" } });
       expect(result.code).toBe(1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("SUPABASE_SERVICE_ROLE_KEY in .env.local");
+      expect(result.stderr).toContain(`SUPABASE_SERVICE_ROLE_KEY in ${productionConfigFile}.`);
     });
   });
 
-  it("names .env when the fallback file lacks a service key", async () => {
+  it("names the dedicated file when its service key is blank", async () => {
     await withDevFixture(async (start, cwd) => {
-      await rm(join(cwd, ".env.local"));
-      await writeFile(join(cwd, ".env"), production.replace("fixture-service-production", '"  "'));
+      await writeFile(join(cwd, productionConfigFile), production.replace("fixture-service-production", '"  "'));
       const result = await start([fullTarget]);
       expect(result.code).toBe(1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("SUPABASE_SERVICE_ROLE_KEY in .env.");
+      expect(result.stderr).toContain(`SUPABASE_SERVICE_ROLE_KEY in ${productionConfigFile}.`);
     });
   });
 
-  it("requires public settings together in the same file", async () => {
+  it.each(["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"])("refuses when %s is absent from the dedicated file even with a complete .env", async (missing) => {
     await withDevFixture(async (start, cwd) => {
-      await writeFile(join(cwd, ".env.local"), "NEXT_PUBLIC_SUPABASE_URL=https://project-fixture.supabase.co");
+      await writeFile(join(cwd, productionConfigFile), production.split("\n").filter((line) => !line.startsWith(`${missing}=`)).join("\n"));
       await writeFile(join(cwd, ".env"), production);
       const result = await start([fullTarget]);
       expect(result.code).toBe(1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY together in .env.local");
+      expect(result.stderr).toContain(`NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY together in ${productionConfigFile}.`);
+    });
+  });
+
+  it.each([".env.local", ".env"])("refuses to use %s in place of the missing dedicated file", async (file) => {
+    await withDevFixture(async (start, cwd) => {
+      await rm(join(cwd, ".env.local"));
+      await writeFile(join(cwd, file), production);
+      const result = await start([fullTarget]);
+      expect(result.code).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(productionConfigFile);
     });
   });
 
@@ -273,13 +350,13 @@ describe("full production Supabase target", () => {
       } });
       expect(result.code).toBe(1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY together in .env.local");
+      expect(result.stderr).toContain(`NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY together in ${productionConfigFile}.`);
     });
   });
 
   it.each(["http://project-fixture.supabase.co", "https://localhost:54321"])("refuses the full target URL %s", async (url) => {
     await withDevFixture(async (start, cwd) => {
-      await writeFile(join(cwd, ".env.local"), production.replace("https://project-fixture.supabase.co", url));
+      await writeFile(join(cwd, productionConfigFile), production.replace("https://project-fixture.supabase.co", url));
       const result = await start([fullTarget]);
       expect(result.code).toBe(1);
       expect(result.stdout).toBe("");
@@ -293,21 +370,12 @@ describe("full production Supabase target", () => {
     "fixture-service-production",
   ])("refuses a privileged key in the public slot (%s)", async (publicKey) => {
     await withDevFixture(async (start, cwd) => {
-      await writeFile(join(cwd, ".env.local"), production.replace("fixture-public-production", publicKey));
+      await writeFile(join(cwd, productionConfigFile), production.replace("fixture-public-production", publicKey));
       const result = await start([fullTarget]);
       expect(result.code).toBe(1);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("must be a public Supabase key");
       expect(result.stderr).not.toContain(publicKey);
-    });
-  });
-
-  it("refuses a non-loopback binding even after an explicit loopback binding", async () => {
-    await withDevFixture(async (start) => {
-      const result = await start([fullTarget, "--hostname", "127.0.0.1", "-H0.0.0.0"]);
-      expect(result.code).toBe(1);
-      expect(result.stdout).toBe("");
-      expect(result.stderr).toMatch(/loopback/i);
     });
   });
 

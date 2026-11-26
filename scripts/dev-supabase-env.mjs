@@ -1,10 +1,14 @@
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 
-const localConfigFile = ".env.supabase.local";
+const defaultSettingsFile = {
+  local: ".env.supabase.local",
+  production: ".env.local",
+  "production-full": ".env.supabase.production.local",
+};
 const developmentFiles = [".env.development.local", ".env.local", ".env.development", ".env"];
-const productionFiles = [".env.local", ".env"];
-const modes = ["local", "production", "production-full"];
+const productionFiles = [defaultSettingsFile.production, ".env"];
+const modes = Object.keys(defaultSettingsFile);
 
 function readConfig(file) {
   try {
@@ -40,20 +44,41 @@ export function parseDevArguments(args) {
 }
 
 function readSupabaseSettings(mode, environment) {
+  if (mode === "production-full") {
+    return readConfig(defaultSettingsFile[mode]) ?? {};
+  }
   if (mode === "local") {
-    if (environment.E2E_ARMY === "1") return { config: environment };
-    const dedicated = readConfig(localConfigFile);
-    if (dedicated) return { config: dedicated };
-    if (hasPublicSettings(environment)) return { config: environment };
+    if (environment.E2E_ARMY === "1") return environment;
+    const dedicated = readConfig(defaultSettingsFile[mode]);
+    if (dedicated) return dedicated;
+    if (hasPublicSettings(environment)) return environment;
   }
   // Keep the project URL and key from the same source. Production uses the
   // existing shared .env.local independently of a .env.development.local override.
   const files = mode === "local" ? developmentFiles : productionFiles;
   for (const file of files) {
     const config = readConfig(file);
-    if (hasPublicSettings(config)) return { config, file };
+    if (hasPublicSettings(config)) return config;
   }
-  return { config: mode === "production-full" ? {} : environment };
+  return environment;
+}
+
+export function warnIfDirectNextLoadsServiceKey() {
+  for (const file of productionFiles) {
+    let config;
+    try {
+      config = readConfig(file);
+    } catch {
+      // This advisory check must not block a launch using another file.
+      continue;
+    }
+    if (!config?.SUPABASE_SERVICE_ROLE_KEY?.trim()) continue;
+    const url = URL.parse(config.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "");
+    if (url && ["http:", "https:"].includes(url.protocol) && !isLoopback(url.hostname)) {
+      console.warn(`Direct next dev would hold production's service rights from ${file}. Move the full configuration to ${defaultSettingsFile["production-full"]}.`);
+      return;
+    }
+  }
 }
 
 function isPrivilegedKey(key) {
@@ -72,12 +97,12 @@ export function supabaseDevEnvironment(mode, hostnames, environment) {
   if (hosted && (environment.E2E_ARMY === "1" || hostnames.some((host) => !isLoopback(host)))) {
     throw new Error("Production Supabase is available only in a loopback development server outside TesterArmy.");
   }
-  const { config, file } = readSupabaseSettings(mode, environment);
+  const config = readSupabaseSettings(mode, environment);
   const url = config.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = config.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   const service = config.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
   if (!url || !key) {
-    throw new Error(`Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY together in ${mode === "local" ? localConfigFile : ".env.local"}.`);
+    throw new Error(`Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY together in ${defaultSettingsFile[mode]}.`);
   }
   let backend;
   try {
@@ -90,7 +115,7 @@ export function supabaseDevEnvironment(mode, hostnames, environment) {
     throw new Error("NEXT_PUBLIC_SUPABASE_URL must be a valid Supabase origin.");
   }
   if (mode === "local" && !isLoopback(backend.hostname)) {
-    throw new Error(`Local Supabase requires a loopback URL. Set ${localConfigFile} or explicitly select --supabase=production.`);
+    throw new Error(`Local Supabase requires a loopback URL. Set ${defaultSettingsFile.local} or explicitly select --supabase=production.`);
   }
   if (hosted && (isLoopback(backend.hostname) || backend.protocol !== "https:")) {
     throw new Error("Production Supabase requires a hosted HTTPS URL.");
@@ -99,7 +124,7 @@ export function supabaseDevEnvironment(mode, hostnames, environment) {
     throw new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY must be a public Supabase key.");
   }
   if (mode === "production-full" && !service) {
-    throw new Error(`Set SUPABASE_SERVICE_ROLE_KEY in ${file}.`);
+    throw new Error(`Set SUPABASE_SERVICE_ROLE_KEY in ${defaultSettingsFile[mode]}.`);
   }
   return {
     MERGEONE_DEV_SUPABASE_TARGET: mode,

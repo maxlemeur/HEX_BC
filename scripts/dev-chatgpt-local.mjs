@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { extname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { stripVTControlCharacters } from "node:util";
-import { parseDevArguments, supabaseDevEnvironment } from "./dev-supabase-env.mjs";
+import { parseDevArguments, supabaseDevEnvironment, warnIfDirectNextLoadsServiceKey } from "./dev-supabase-env.mjs";
 
 const fastWindowMs = 15_000;
 const fastCompileThreshold = 12;
@@ -204,8 +204,11 @@ export async function startDevServer({ chatgpt = false } = {}) {
       console.warn(`Could not prepare the Turbopack dev cache. ${reason}. Starting Next.`);
     }
   }
-  if (!informational) console.log(`Supabase target: ${mode}`);
-  if (mode === "production-full" && !informational) console.log("This server holds production's service rights.");
+  if (!informational) {
+    warnIfDirectNextLoadsServiceKey();
+    console.log(`Supabase target: ${mode}`);
+    if (mode === "production-full") console.log("This server holds production's service rights.");
+  }
   const child = spawn(process.execPath, [
     "node_modules/next/dist/bin/next", "dev",
     ...(hostnames.length ? [] : ["--hostname", "127.0.0.1"]),
