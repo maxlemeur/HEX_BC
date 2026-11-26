@@ -8,6 +8,38 @@ create function pg_temp.retain_sql(intent integer) returns text language sql sta
   pg_temp.tenant(),pg_temp.f(20),(select id from public.takeoff_item_answers where job_id=pg_temp.job(20) and item_id=pg_temp.f(300)),
   pg_temp.f(intent))
 $$;
+-- Both RPCs are called by the same administrator. Pause the default transaction
+-- at its first membership lock, then observe the row available to its next step.
+select is(extensions.dblink_exec('race_setup',format('update public.tenant_memberships set role=''admin''
+  where user_id=%L and tenant_id=%L',pg_temp.f(1),pg_temp.tenant())),'UPDATE 1','fixture member can choose a default');
+select id as membership_id from public.tenant_memberships where tenant_id=pg_temp.tenant() and user_id=pg_temp.f(1) \gset
+select is(extensions.dblink_exec('race_c','begin; set local role postgres'),'SET','open default transaction');
+select is((select id from extensions.dblink('race_c',format(
+  'select id from public.tenant_memberships where id=%L for update', :'membership_id')) x(id uuid)),
+  :'membership_id'::uuid,'hold the first row needed to set this default');
+select is(extensions.dblink_exec('race_c','set local role authenticated'),'SET','resume as the signed-in administrator');
+select is(extensions.dblink_exec('race_a','begin'),'BEGIN','open retention transaction');
+select is(extensions.dblink_send_query('race_a',pg_temp.retain_sql(618)),1,'submit public retention');
+select ok(pg_temp.waits_for('race_a','race_c'),'retention waits for the default transaction on membership');
+
+-- A nonblocking observation in its own autocommit transaction releases the row
+-- immediately. If the invariant fails, unwind before continuing the fixture.
+select exists(select 1 from extensions.dblink('race_setup',format(
+  'select id from public.tenants where id=%L for update skip locked',pg_temp.tenant())) x(id uuid)) as tenant_free \gset
+select ok(:'tenant_free'::boolean,'the tenant row is still free while retention waits on membership');
+\if :tenant_free
+select is((select id from extensions.dblink('race_c',format(
+  'select public.set_active_tenant_membership_default(%L)', :'membership_id')) x(id uuid)),
+  :'membership_id'::uuid,'default RPC completes while retention is pending');
+\endif
+select is(extensions.dblink_exec('race_c','commit'),'COMMIT','release the default transaction');
+select is((select result->>'outcome' from extensions.dblink_get_result('race_a') x(result jsonb)),
+  'applied','retention succeeds after setting the active organisation as default');
+select is((select count(*)::integer from extensions.dblink_get_result('race_a') x(result jsonb)),0,'retention drained');
+select is(extensions.dblink_exec('race_a','rollback'),'ROLLBACK','restore the undecided answer');
+select is(extensions.dblink_exec('race_setup',format('update public.tenant_memberships set role=''engineer''
+  where user_id=%L and tenant_id=%L',pg_temp.f(1),pg_temp.tenant())),'UPDATE 1','restore the reviewer role');
+
 select is((select x.result->>'outcome' from extensions.dblink('race_a',pg_temp.retain_sql(619)) x(result jsonb)),
   'applied','first retention supplies an ordinary v1 preview');
 insert into plans values ('before-retention',pg_temp.plan(20,null,300,2,pg_temp.payload(720)),pg_temp.payload(720));

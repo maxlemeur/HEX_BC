@@ -13,7 +13,16 @@ $$;
 select is(extensions.dblink_exec('race_setup',format('update public.takeoff_items set rules_stale=false,rule_results=''[]''
   where job_id=%L',pg_temp.job(1))),'UPDATE 1','rule evaluation finished for the current answer');
 select is(extensions.dblink_exec('race_a',pg_temp.member_begin()),'SET','member opens the individual review');
-select is((select outcome from extensions.dblink('race_a',pg_temp.retain_for_remeasure()) x(outcome text)),'applied','retention first');
+select is(extensions.dblink_exec('race_b','begin'),'BEGIN','hold the review key at admission');
+select is((select held from extensions.dblink('race_b',pg_temp.hold_review_key_sql()) x(held text)),'','review key held');
+select is(extensions.dblink_send_query('race_a',pg_temp.retain_for_remeasure()),1,'submit retention before sealing');
+select ok(pg_temp.waits_for('race_a','race_b'),'retention is waiting for review');
+select ok((select available from extensions.dblink('race_setup',format(
+  'select pg_try_advisory_xact_lock(hashtextextended(%L,0))','takeoff-item-list:' || pg_temp.f(20))) x(available boolean)),
+  'the list key is still free while retention waits for review');
+select is(extensions.dblink_exec('race_b','rollback'),'ROLLBACK','release the review key');
+select is((select outcome from extensions.dblink_get_result('race_a') x(outcome text)),'applied','retention first');
+select is((select count(*)::integer from extensions.dblink_get_result('race_a') x(result text)),0,'retention drained');
 select is(extensions.dblink_exec('race_b','begin'),'BEGIN','another session opens the admission');
 select is(extensions.dblink_send_query('race_b',pg_temp.remeasure_sql(6092,array[300],2,pg_temp.job(1),confirmation=>pg_temp.tile_confirmation())),1,
   'submit the remeasure');

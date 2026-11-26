@@ -257,11 +257,12 @@ $$;
 
 -- Serialize the final permission decision with committed edits to the member and tenant.
 -- The project row is already held FOR SHARE, including its owner and archived state.
+-- Membership before tenant, in two statements: the order set_active_tenant_membership_default takes them.
 create function private.lock_takeoff_measure_reviewer(p_tenant uuid,p_project uuid,p_actor uuid)
 returns boolean language plpgsql set search_path='' as $$
 begin
-  perform 1 from public.tenants t join public.tenant_memberships m on m.tenant_id=t.id
-    where t.id=p_tenant and m.user_id=p_actor for share of t,m;
+  perform 1 from public.tenant_memberships m where m.tenant_id=p_tenant and m.user_id=p_actor for share;
+  perform 1 from public.tenants t where t.id=p_tenant for share;
   return p_actor=auth.uid() and p_tenant=public.current_tenant_id()
     and coalesce(private.can_access_takeoff_scope(p_tenant,p_project,null,false),false)
     and coalesce(private.takeoff_item_list_writer(p_tenant,p_project,p_actor),false);
