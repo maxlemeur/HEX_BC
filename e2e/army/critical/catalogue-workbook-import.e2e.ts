@@ -108,6 +108,13 @@ armyTest(
     const dialog = workbookColumnDialog(screen);
     await expect(dialog).toBeVisible({ timeout: 30_000 });
     await expect(table).toBeHidden();
+    await dialog.getByRole("button", "Tout sélectionner", { exact: true }).tap();
+    await expect(dialog.getByRole("checkbox", /^Commentaire · /)).toBeChecked();
+    await dialog.getByRole("button", "Tout désélectionner", { exact: true }).tap();
+    await expect(dialog.getByRole("checkbox", /^Référence · /)).not.toBeChecked();
+    await expect(dialog.getByRole("checkbox", /^Commentaire · /)).not.toBeChecked();
+    await expect(dialog.getByRole("button", "Afficher l’aperçu", { exact: true })).toBeDisabled();
+    await dialog.getByRole("button", "Rétablir", { exact: true }).tap();
     await dialog.getByRole("checkbox", /^Commentaire · /).tap();
     await dialog.getByRole("checkbox", /^Prix · /).tap();
     await dialog.getByRole("checkbox", "Fiabilité (/10) · A", { exact: true }).tap();
