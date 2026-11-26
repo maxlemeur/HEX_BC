@@ -12,16 +12,17 @@ import { isTakeoffApiError } from "@/lib/takeoff/client-http";
 
 type Props = {
   projectId: string; jobId: string; label: string; planName: string;
-  review: MeasureReview; undecided: boolean; acceptedMeasure: boolean; canReview: boolean; onRefresh: () => void; onRefused: (error: unknown) => boolean;
+  review: MeasureReview; canReview: boolean; onRefresh: () => void; onRefused: (error: unknown) => boolean;
 };
 
-export function MeasureRetention({ projectId, jobId, label, planName, review, undecided, acceptedMeasure, canReview, onRefresh, onRefused }: Props) {
+export function MeasureRetention({ projectId, jobId, label, planName, review, canReview, onRefresh, onRefused }: Props) {
   const [intent, setIntent] = useState<string | null>(null);
   const [checks, setChecks] = useState({ gap_checked: false, rules_checked: false, proof_checked: false });
   const sending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const expired = review.previously_retained && undecided;
+  const expired = review.previously_retained && review.effective_decision === null;
+  const settledAcceptance = review.effective_decision === "accepted" && (review.reason === "already_decided" || review.reason === "quantity_choice");
   const requirements = [
     { key: "gap_checked", needed: review.gap_required, text: "J’ai vérifié l’écart à la DPGF." },
     { key: "rules_checked", needed: review.rules_required, text: "J’ai vérifié les justifications des contrôles en échec." },
@@ -68,8 +69,8 @@ export function MeasureRetention({ projectId, jobId, label, planName, review, un
   }
   return <div className="space-y-2">
     {expired && <><p role="status">Les éléments sur lesquels vous aviez retenu cette mesure ont changé. Vérifiez la mesure à nouveau.</p>{facts}</>}
-    {acceptedMeasure && review.retained && <p>Retenu sur ce plan · {amount(review.retained.quantity, review.retained.unit)}</p>}
-    {review.reason && !(acceptedMeasure && review.reason === "already_decided") && <p>{measureRefusals[review.reason]}</p>}
+    {review.retained && <p>Retenu sur ce plan · {amount(review.retained.quantity, review.retained.unit)}</p>}
+    {review.reason && !settledAcceptance && <p>{measureRefusals[review.reason]}</p>}
     {canReview && review.reason === "justification_required" && links}
     {actionable && <Button variant="outline" size="sm" onClick={() => {
       setChecks({ gap_checked: false, rules_checked: false, proof_checked: false }); setError(""); setIntent(crypto.randomUUID());

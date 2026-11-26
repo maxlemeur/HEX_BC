@@ -36,6 +36,7 @@ export const measureReviewSchema = z.object({
   reference: z.number().nullable(), expected_unit: z.string().nullable(), gap: z.number().nullable(), confidence_threshold: z.number(),
   reason: measureReasonSchema.nullable(), gap_required: z.boolean(), rules_required: z.boolean(), proof_required: z.boolean(),
   decision_revision: z.number().int().nonnegative(),
+  effective_decision: z.enum(["accepted", "set_aside"]).nullable(),
   previously_retained: z.boolean(),
   retained: z.object({ quantity: z.number(), unit: z.string() }).strict().nullable(),
   rows: z.array(z.object({

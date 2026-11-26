@@ -16,9 +16,17 @@ const rowSchema = z.object({ id: uuid.nullable(), observation_id: uuid, updated_
   verified_by: uuid.nullable(), justification: verificationJustificationReadSchema.nullable(),
   rule_results: z.array(z.object({ status: z.string(), reason: z.string() })).nullable() });
 
-const rawReview = measureReviewSchema.omit({ rows: true, previously_retained: true, retained: true }).extend({
+const rawReview = measureReviewSchema.omit({ rows: true, previously_retained: true, retained: true, effective_decision: true }).extend({
   rows: z.array(rowSchema), rows_to_justify: z.array(uuid),
 }).strip();
+
+// These reasons precede the effective decision in read_takeoff_measure_review. For a recorded
+// decision the released table RPC exposes the effective pair, scoped to this one item and plan.
+const guardsBeforeDecision = new Set(["sent", "coverage_incomplete", "not_measured", "entered", "quantity_choice"]);
+const reviewedPair = z.object({
+  plan_logical_id: uuid, answer: z.object({ answer_id: uuid }).nullable(), decision_revision: z.number().int(),
+  decision: z.object({ kind: z.enum(["accepted", "set_aside"]), revision: z.number().int() }).nullable(),
+});
 
 function label(labels: Readonly<Record<string, string>>, code?: string) {
   return code ? labels[code] : undefined;
@@ -58,10 +66,22 @@ export async function readMeasureReview(projectId: string, answerId: string) {
   if ((decision.data?.revision ?? 0) !== review.decision_revision) throw conflict(measureRefusals.answer_changed);
   const names = new Map(profiles.data.map(profile => [profile.id, profile.full_name]));
   const currentRows = new Map(details.data.map(row => [row.id, row]));
-  const recorded = review.reason === "already_decided" && decision.data?.kind === "accepted"
+  let effective = review.reason === "already_decided" ? decision.data?.kind ?? null : null;
+  if (decision.data && decision.data.kind !== "none" && review.reason && guardsBeforeDecision.has(review.reason)) {
+    const pair = await client.rpc("read_takeoff_item_table", {
+      p_tenant_id: context.tenantId, p_project_id: projectId, p_plan_logical_id: review.plan_id,
+      p_item_ids: [review.item_id], p_limit: 1,
+    });
+    if (pair.error) throw mapSupabaseError(pair.error, "Impossible de vérifier la décision sur cette mesure.");
+    const [reading] = z.array(reviewedPair).max(1).parse(pair.data?.[0]?.readings ?? []);
+    if (reading?.answer?.answer_id === answerId && reading.plan_logical_id === review.plan_id
+      && reading.decision_revision === review.decision_revision && reading.decision?.revision === review.decision_revision
+      && reading.decision.kind === decision.data.kind) effective = reading.decision.kind;
+  }
+  const recorded = effective === "accepted" && decision.data
     && history.data && decision.data.command_id === history.data.command_id ? history.data.after : null;
   const retained = recorded ? z.object({ quantity: z.number(), unit: z.string() }).parse(recorded) : null;
-  return measureReviewSchema.parse({ ...review, previously_retained: !!history.data, retained,
+  return measureReviewSchema.parse({ ...review, effective_decision: effective, previously_retained: !!history.data, retained,
     rows: rows.map(row => {
       const current = row.id ? currentRows.get(row.id) : null;
       // The RPC includes the row edit token in the acknowledgement revision. Rule-only writes have a separate

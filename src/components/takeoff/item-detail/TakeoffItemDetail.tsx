@@ -303,22 +303,18 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
   const reviewId = answer?.outcome === "measured" && !gone && onGesture ? answer.answerId : null;
   // Returning from the targeted review starts a new reader. Wait for its review before offering a decision:
   // a freshly justified row can still have exactly the same quantity, decision revision and plan.
-  const measure = useSWR(reviewId ? ["poste-measure", viewerKey, projectId, reviewId, readerIdentity(reader), fresh[itemId]?.line?.targets, version] : null,
+  const measure = useSWR(reviewId && choice.kind === "reading"
+    ? ["poste-measure", viewerKey, projectId, reviewId, readerIdentity(reader), choice.reading, line?.targets, version] : null,
     () => fetchMeasureReview(projectId, reviewId!), { shouldRetryOnError: false });
   useEffect(() => { if (isRightRefusal(measure.error)) onRefused(measure.error); }, [measure.error, onRefused]);
-  const review = measure.data && measure.data.answer_id === reviewId && measure.data.item_id === itemId
+  const review = !measure.isValidating && !measure.error && measure.data && measure.data.answer_id === reviewId && measure.data.item_id === itemId
     && choice.kind === "reading" && measure.data.plan_id === choice.planKey ? measure.data : null;
   const decision = choice.kind === "reading" ? choice.reading.decision : null;
-  // These guards precede the effective decision in the SQL review. They do not imply a decision expired.
-  const decisionUnknown = review?.reason && ["sent", "coverage_incomplete", "not_measured", "entered", "quantity_choice"].includes(review.reason);
-  const decisionDisagrees = !!review && !decisionUnknown && (
-    (review.reason === "already_decided") !== !!decision || (!!decision && decision.revision !== review.decision_revision));
+  const decisionDisagrees = !!review && (review.effective_decision !== (decision?.kind ?? null)
+    || (!!decision && decision.revision !== review.decision_revision));
   useEffect(() => {
     if (decisionDisagrees) rereadItem(itemId);
   }, [decisionDisagrees, review?.revision, rereadItem, itemId]);
-  const displayedLine = line && decisionDisagrees ? { ...line, decision: "pending" as const, retained: null } : line;
-  const displayedChoice = choice.kind === "reading" && decisionDisagrees
-    ? { ...choice, reading: { ...choice.reading, decision: null } } : choice;
   const canRetain = canReview && !!review && (!review.reason || review.reason === "justification_required");
   const opening = itemDetailOpeningPage({ requested: address.page, answer, pagesRead: view?.plan.pagesRead ?? [],
     pageCount: view?.plan.pageCount ?? null, observationId: choice.kind === "reading" ? choice.observationId : null });
@@ -592,19 +588,21 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
           {/* Escape comes back to the table from the evidence too (its heading takes the focus with Enter). */}
           <div data-testid="poste-detail-evidence-panel" data-narrow-collapsed={String(!panels.evidence)} onKeyDown={onEvidenceKey}
             className={cn("w-[24rem] shrink-0 border-l border-border max-lg:w-full max-lg:border-l-0 max-lg:border-t", !panels.evidence && "max-lg:hidden")}>
-            {displayedLine && line ? (
-              <ItemDetailEvidencePane ref={evidence} projectId={projectId} line={displayedLine} choice={displayedChoice} plan={view}
+            {line ? (
+              <ItemDetailEvidencePane ref={evidence} projectId={projectId} line={line} choice={choice} plan={view}
+                showPosteDecision={!reviewId || (!!review && !decisionDisagrees)}
                 measureRetention={choice.kind === "reading" && review && answer ? <MeasureRetention
                   key={`${viewerKey}:${review.answer_id}:${review.revision}:${canReview}`} projectId={projectId}
                   planName={choice.planName} jobId={choice.jobId} review={review} label={line.label}
-                  undecided={decisionDisagrees || !decision} acceptedMeasure={!decisionDisagrees && decision?.kind === "accepted"
-                    && !choice.reading.quantityDecision} canReview={canReview} onRefused={historyRefused}
+                  canReview={canReview} onRefused={historyRefused}
                   onRefresh={() => {
                     if (!begin({ screen: DETAIL_SCREEN, item: itemId }).ownScreen()) return;
                     if (onMeasureChanged) onMeasureChanged(itemId);
                     else { rereadItem(itemId); void measure.mutate(); }
-                  }} /> : reviewId && measure.error ?
-                    <Button size="xs" variant="outline" onClick={() => void measure.mutate()}>Relire la mesure</Button> : null}
+                  }} /> : reviewId && (measure.isValidating
+                    ? <p role="status">Vérification de la décision sur cette mesure…</p>
+                    : <><p role="alert">Impossible de vérifier la décision sur cette mesure.</p>
+                      <Button size="xs" variant="outline" onClick={() => void measure.mutate()}>Relire la mesure</Button></>)}
                 documentState={documentState} names={names} planNames={planNames} outsideFilter={!found && outside !== null}
                 historyVersion={version} onRefused={historyRefused} historyScope={`lecteur-${readerIdentity(reader)}`}
                 proof={chosen.kind === "reading" && !chosen.current ? resolution.state === "ready" ? "proven"

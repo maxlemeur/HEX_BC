@@ -30,7 +30,7 @@ import { ItemDetailPlanError } from "@/lib/takeoff/item-detail-client";
 import { TakeoffApiError } from "@/lib/takeoff/client-http";
 import {
   COPY_RDC, DETAIL_ITEMS, DETAIL_PROJECT, DETAIL_READINGS, ITEMS, JOB_EARLIER, JOB_R1, JOB_RDC, JOB_SCAN, MEMBER, MEMBER_NAME, PLAN_R1,
-  PLAN_RDC, PLAN_SCAN, OUTSIDE_ITEM, basinLine, fixtureItemDetailReader, notFoundLine, planViews,
+  PLAN_RDC, PLAN_SCAN, OUTSIDE_ITEM, basinLine, fixtureItemDetailReader, fixtureMeasureReview, notFoundLine, planViews,
 } from "@/lib/takeoff/item-detail.test-fixtures";
 import { fixturePoste, fixtureReading } from "@/lib/takeoff/item-table.test-fixtures";
 
@@ -130,6 +130,9 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
     fetches.push(String(input));
     if (String(input).includes("/items/remeasure?")) return Response.json({ ok: true, data: null });
+    if (String(input).includes("/items/measures/")) {
+      return Response.json({ ok: true, data: fixtureMeasureReview(String(input).split("/").at(-1)!) });
+    }
     const item = /\/items\/([^/]+)\/history/.exec(String(input))?.[1] ?? null;
     const events = item === ITEMS.basin ? [{ id: 1, event: "accepted", planKey: PLAN_RDC, takeoffItemId: null, before: null,
       after: { kind: "accepted" }, actorId: MEMBER, at: "2026-11-21T10:00:00.000Z" }] : [];
@@ -786,6 +789,11 @@ describe("the counted marks of the item", () => {
           summaries: Object.fromEntries(named.map((answerId) => [answerId, summary(answerId)])) });
       }
       const read = new URL(String(url), "https://app.test");
+      if (read.pathname.includes("/items/measures/")) {
+        const id = read.pathname.split("/").at(-1)!;
+        const review = fixtureMeasureReview(id);
+        return ok(revisions[id] ? { ...review, effective_decision: null, reason: null } : review);
+      }
       const answerId = read.searchParams.get("reponse") ?? "";
       // The other items of the reading, served by their own route.
       if (read.pathname.endsWith("/count-marks/targets")) return ok({ answerId, targets: targetsOf(answerId) });

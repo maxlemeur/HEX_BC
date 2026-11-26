@@ -57,6 +57,7 @@ type Props = {
   /** Moves with each change of the item the detail made: the journal is read again with it. */
   historyVersion: number;
   measureRetention?: React.ReactNode;
+  showPosteDecision: boolean;
   onRefused: (caught: unknown) => boolean;
   /** The member and scope reading the journal (the detail's reader): a new reader reads its own. */
   historyScope?: string;
@@ -161,7 +162,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(function ItemDetailEvidencePane(
   { projectId, line, choice, plan, documentState, names, planNames, outsideFilter, historyVersion, onRefused, historyScope, onObservation, onPage, onPlan,
-    decide, measureRetention, proof = null }, heading) {
+    decide, measureRetention, showPosteDecision, proof = null }, heading) {
   // An earlier reading (an old bookmark) shows nothing of the current one: its answer, decision and entry are not its own.
   const earlier = choice.kind === "reading" && !choice.current;
   const reading = !earlier && (choice.kind === "reading" || choice.kind === "dossier") ? choice.reading : null;
@@ -185,7 +186,7 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
           <Badge size="sm" variant={line.state === "measured" ? "success" : line.state === "to_measure" ? "neutral" : "warning"}>
             {ITEM_STATE_LABELS[line.state]}
           </Badge>
-          {line.decision === "none" ? null : <span>{ITEM_DECISION_LABELS[line.decision]}</span>}
+          {showPosteDecision && line.decision !== "none" && <span>{ITEM_DECISION_LABELS[line.decision]}</span>}
           {line.expectedUnit ? <span>· unité {line.expectedUnit}</span> : null}
           {line.family ? <span>· {line.family}</span> : null}
           {outsideFilter ? <Badge size="sm" variant="outline">Hors du filtre</Badge> : null}
@@ -288,10 +289,10 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
           {line.coverage.inFlight ? ` · ${line.coverage.inFlight} en lecture` : ""}</p>
         <p>Observé : {line.observed ? `${formatItemQuantity(line.observed.quantity, line.observed.unit)}${line.observed.partial ? " (partiel)" : ""}` : "—"}</p>
         {reading?.verifiedMarks?.verified ? <p>{reading.verifiedMarks.quantity === null ? "Repères vérifiés, sans quantité" :
-          `Comptage vérifié${reading.quantityDecision?.source === "verified_count" && reading.decision?.kind === "accepted" ? " retenu" : ""} · ${formatItemQuantity(reading.verifiedMarks.quantity, reading.verifiedMarks.unit)}`}</p> : null}
+          `Comptage vérifié${showPosteDecision && reading.quantityDecision?.source === "verified_count" && reading.decision?.kind === "accepted" ? " retenu" : ""} · ${formatItemQuantity(reading.verifiedMarks.quantity, reading.verifiedMarks.unit)}`}</p> : null}
         {line.wholeEntry ? <p>Total saisi pour toute l’affaire · {formatItemQuantity(line.wholeEntry.quantity, line.wholeEntry.unit)}.
           {" "}{line.wholeEntry.included ? "Ce total va au devis." : "Cette hypothèse attend son inclusion."} Pour le modifier, ouvrez le total de l’affaire.</p> : null}
-        <p>Retenu : {line.retained ? `${formatItemQuantity(line.retained.quantity, line.retained.unit)}${line.retained.partial ? " (partiel)" : ""}` : "—"}</p>
+        {showPosteDecision && <p>Retenu : {line.retained ? `${formatItemQuantity(line.retained.quantity, line.retained.unit)}${line.retained.partial ? " (partiel)" : ""}` : "—"}</p>}
         {line.reasons.length ? <p className="text-xs">{[...new Set(line.reasons.map(itemReasonLabel))].join(" · ")}</p> : null}
       </Section>
 
@@ -307,11 +308,11 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
       <Section title="Décisions">
         {earlier ? <p className="text-muted-foreground">Les décisions portent sur la lecture actuelle de ce plan.</p> : (
           <>
-            {reading?.decision ? (
+            {showPosteDecision && (reading?.decision ? (
               <p>{reading.decision.kind === "accepted" ? "Accepté"
                 : `Écarté (${ITEM_SET_ASIDE_REASON_LABELS[reading.decision.reason]}${reading.decision.note ? ` — ${reading.decision.note}` : ""})`}
               {" "}par {who(names, reading.decision.actorId)}, le {formatItemDetailDate(reading.decision.at)}</p>
-            ) : <p className="text-muted-foreground">Aucune décision sur ce plan.</p>}
+            ) : <p className="text-muted-foreground">Aucune décision sur ce plan.</p>)}
             {reading?.entry ? <p>Saisi sur ce plan : <EntryText entry={reading.entry} names={names} /></p> : null}
             {line.entry ? <p>Saisi pour le poste : <EntryText entry={line.entry} names={names} /></p> : null}
             <DecisionButtons line={line} decide={decide} />

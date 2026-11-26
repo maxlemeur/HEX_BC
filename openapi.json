@@ -54224,6 +54224,20 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
+              "effective_decision": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "accepted",
+                      "set_aside"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "previously_retained": {
                 "type": "boolean"
               },
@@ -54367,6 +54381,7 @@
               "rules_required",
               "proof_required",
               "decision_revision",
+              "effective_decision",
               "previously_retained",
               "retained",
               "rows"
