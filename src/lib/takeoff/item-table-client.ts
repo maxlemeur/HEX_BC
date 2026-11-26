@@ -1,4 +1,5 @@
 import { measureReviewSchema, retainedMeasureSchema, type retainCommandSchema } from "./measure-review-contracts";
+import type { TakeoffPaymentChoice } from "./payment-choice";
 import { findReceiptSchema, findsViewSchema, type FindCommand } from "./unlisted-finds";
 import type { z } from "zod";
 
@@ -95,9 +96,10 @@ export function sendItemReviewCommand(projectId: string, command: ItemReviewComm
 }
 
 /** The preview of a new measure of the selection, with what the member saw of it (the list revision, each line's readings). */
-export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[], seen: ItemRemeasureSeen, detail?: import("./item-table-contracts").ItemMeasureScope, fromFinds?: true) {
+export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[], seen: ItemRemeasureSeen, detail?: import("./item-table-contracts").ItemMeasureScope, fromFinds?: true,
+  paymentChoice?: TakeoffPaymentChoice) {
   return call(`${base(projectId)}/remeasure/preview`, { method: "POST", body: JSON.stringify({
-    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds, seen, detail, from_finds: fromFinds,
+    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds, seen, detail, from_finds: fromFinds, payment_choice: paymentChoice,
   }) }, itemRemeasurePreviewSchema, "Impossible de préparer la nouvelle mesure.", TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
 

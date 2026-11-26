@@ -140,3 +140,17 @@ export function readLocalModelAnswer(evidence: Pick<PageEvidence, "mode">, group
 }
 
 export type { NetworkCode };
+
+/** A stop for the remaining vector groups, with the rest of the métré still available. */
+export class LocalGroupsStop extends Error {
+  constructor(readonly reason: "local_quota" | "local_access" | "local_model_unavailable", message: string) {
+    super(message);
+  }
+}
+
+/** A request whose answer could not be read: its groups follow the rules, the tokens it consumed are kept. */
+export class LocalGroupsRequestError extends Error {
+  constructor(message: string, readonly totalTokens: number) {
+    super(message);
+  }
+}

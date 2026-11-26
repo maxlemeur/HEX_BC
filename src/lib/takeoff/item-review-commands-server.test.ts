@@ -6,11 +6,14 @@ vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }
 vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ readLocalChatGptSubscription: vi.fn() }));
 vi.mock("./launch-request-server", () => ({ readAffaireTakeoffLaunchState: vi.fn() }));
 vi.mock("./item-measure-catalogue-server", () => ({ readMeasureCatalogue: vi.fn() }));
+vi.mock("./payment-server", () => ({ resolveTakeoffPayment: vi.fn() }));
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("./item-remeasure-server", () => ({ planTakeoffItemRemeasure: vi.fn(), launchTakeoffItemRemeasure: vi.fn(),
   replayTakeoffItemRemeasure: vi.fn() }));
 vi.mock("./item-table-server", () => ({ loadItemLines: vi.fn(), itemReviewerRight: vi.fn() }));
 vi.mock("@/lib/takeoff/rules/recompute-server", () => ({ recomputeTakeoffRulesQuietly: vi.fn(async () => ({ lines: 1, skipped: 0 })) }));
 
+import { resolveTakeoffPayment } from "./payment-server";
 import { readMeasureCatalogue } from "./item-measure-catalogue-server";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { readLocalChatGptSubscription } from "@/lib/ai/chatgpt-takeoff";
@@ -228,6 +231,28 @@ describe("remeasure of a selection", () => {
     return { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" }, item_ids: shown.items.map(({ itemId }) => itemId),
       plan_keys: shown.plans.map(({ key }) => key), setting: null, preview_digest: shown.previewDigest, seen: seen(ids), ...extra };
   };
+  it("binds the remeasure preview and confirmation to the selected key and its ceiling", async () => {
+    const selection = { profileId: "fixture", authorizationId: "fixture", model: "personal_api_key",
+      source: "personal_api_key", hostId: "api-host", reasoningEffort: null } as const;
+    const preferences = { model: "gpt-6.1-terra", reasoningEffort: "high" } as const;
+    const paymentChoice = { source: "personal_api_key", model: preferences.model, effort: preferences.reasoningEffort,
+      expectedConnectionId: "fictional-connection" } as const;
+    const apiMandate = { ...preferences, connectionId: paymentChoice.expectedConnectionId, connectionVersion: 1,
+      hostId: selection.hostId, maxTokens: 400_000, maxNanoUsd: 25_000_000_000 };
+    vi.mocked(resolveTakeoffPayment).mockResolvedValue({ selection, preferences, apiMandate });
+    const scope = { kind: "affaire" } as const;
+    const shown = await previewItemRemeasure(PROJECT, { scope, itemIds: [fixtureItemId(3)], seen: seen([3]), paymentChoice });
+    expect(shown).toMatchObject({ payer: { memberId: MEMBER }, payment: { source: "personal_api_key", maxCostCents: 2500 },
+      subscription: { state: "ready", ...preferences } });
+    const command = { ...(await confirmation([3])), preview_digest: shown.previewDigest, payment_choice: paymentChoice };
+    vi.mocked(resolveTakeoffPayment).mockResolvedValueOnce({ selection: { ...selection, authorizationId: "updated-budget" },
+      preferences, apiMandate: { ...apiMandate, maxNanoUsd: 24_000_000_000 } });
+    await expect(runItemRemeasure(PROJECT, command)).rejects.toMatchObject({ status: 409 });
+    expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
+    await expect(runItemRemeasure(PROJECT, command)).resolves.toMatchObject({ outcome: "admitted" });
+    expect(launchTakeoffItemRemeasure).toHaveBeenCalledWith(access.context, expect.objectContaining({ selection }));
+  });
+
   it("requires the same Mac and an available model and effort for the measure on a plan", async () => {
     const scope = { kind: "plan" as const, planKey: "plan-rdc" };
     const detail = { fileId: JOB, generation: "B", contentSha256: "a".repeat(64), page: null };

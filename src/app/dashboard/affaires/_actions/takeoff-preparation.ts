@@ -1,5 +1,7 @@
 "use server";
 
+import type { TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
+
 import {
   loadTakeoffPreparation, saveTakeoffPreparation, confirmTakeoffPreparation, assistTakeoffPreparation, getTakeoffPreparationSourcePreview,
   getTakeoffPageTriageAvailability, loadTakeoffExecutionPreview, proposeTakeoffPageTriage,
@@ -31,12 +33,12 @@ export async function saveTakeoffPreparationAction(input: {
   return runSafeTakeoffAction(() => saveTakeoffPreparation(input));
 }
 
-export async function loadTakeoffExecutionPreviewAction() {
-  return runSafeTakeoffAction(loadTakeoffExecutionPreview);
+export async function loadTakeoffExecutionPreviewAction(input?: { projectId: string; paymentChoice: TakeoffPaymentChoice }) {
+  return runSafeTakeoffAction(() => loadTakeoffExecutionPreview(input));
 }
 
 export async function confirmTakeoffPreparationAction(input: {
-  projectId: string; expectedRevision: number; expectedExecutionFingerprint?: string; planFileIds?: string[];
+  projectId: string; expectedRevision: number; expectedExecutionFingerprint?: string; planFileIds?: string[]; paymentChoice?: TakeoffPaymentChoice;
 }) {
   return runSafeTakeoffAction(() => confirmTakeoffPreparation(input));
 }

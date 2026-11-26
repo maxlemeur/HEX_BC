@@ -1,5 +1,7 @@
 "use server";
 
+import { takeoffPaymentChoiceSchema, type TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
+
 import { after } from "next/server";
 import { createIntakeAiRunner, intakeAiScopeArgs, readIntakeAiBatch, readIntakeAiOptions, resolveIntakeAiSelection, IntakeAiBudgetStopped } from "@/lib/affaires/intake-ai-server";
 import { intakeAiChoiceSchema, type IntakeAiChoice } from "@/lib/affaires/intake-ai-settings";
@@ -68,6 +70,7 @@ const confirmAffaireBriefInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   expectedUpdatedAt: z.string().datetime({ offset: true }),
   plans: briefPlanSelectionSchema,
+  paymentChoice: takeoffPaymentChoiceSchema.optional(),
   /** The digest of the payer notice the confirmation dialog showed, if it showed one. */
   payerNotice: z.string().regex(/^[0-9a-f]{64}$/, "Mention du forfait invalide.").nullable(),
 }).refine((input) => input.plans.length > 0 || input.payerNotice === null, "Aucun forfait pour une confirmation sans analyse.");
@@ -78,6 +81,7 @@ export type ConfirmAffaireBriefInput = z.infer<
 
 const readAffaireBriefChoicesInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
+  paymentChoice: takeoffPaymentChoiceSchema.optional(),
 });
 
 const launchOutcome = z.discriminatedUnion("outcome", [
@@ -334,7 +338,7 @@ export async function updateAffaireBrief(input: UpdateAffaireBriefInput) {
 }
 
 /** The payer notice the brief's confirmation dialog shows, read when it opens; it changes nothing. */
-export async function readAffaireBriefChoices(input: { projectId: string }) {
+export async function readAffaireBriefChoices(input: { projectId: string; paymentChoice?: TakeoffPaymentChoice }) {
   const parsed = readAffaireBriefChoicesInputSchema.parse(input);
   return readAffaireBriefChoicesServer(parsed);
 }

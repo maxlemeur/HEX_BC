@@ -1,3 +1,7 @@
+import { TAKEOFF_NANO_USD_PER_CENT } from "@/lib/takeoff/payment-choice";
+import { readTakeoffApiMandate, usesTakeoffApiKey } from "@/lib/takeoff/payment-mandate-server";
+import { takeoffExecutionSelectionSchema } from "@/lib/takeoff/preparation";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { boundTakeoffAttemptByRequest, readTakeoffRequestBudget } from "@/lib/takeoff/launch-request-budget";
 import type { StructuredCall, TokenUsage } from "@/lib/ai/structured-call";
 import {
@@ -116,8 +120,12 @@ export async function prepareLevelCReading(input: {
       supabase: input.supabase,
     }
   );
-  const requestBudget = await readTakeoffRequestBudget(input.job);
-  const config = boundTakeoffAttemptByRequest({ ...tenantConfig, ...input.chunking }, requestBudget, input.job.id);
+  const viaKey = usesTakeoffApiKey(input.job.preparation_snapshot);
+  const requestBudget = viaKey ? await readSealedApiBudget(input.job) : await readTakeoffRequestBudget(input.job);
+  const currentConfig = { ...tenantConfig, ...input.chunking };
+  const config = viaKey && requestBudget
+    ? { ...currentConfig, maxTotalTokens: requestBudget.remainingTokens, maxCostCents: requestBudget.remainingCostCents }
+    : boundTakeoffAttemptByRequest(currentConfig, requestBudget, input.job.id);
 
   if (pageCount > config.maxPdfPages) {
     throw new TakeoffError({
@@ -142,6 +150,15 @@ export async function prepareLevelCReading(input: {
     fallbackPageCount: pageCount,
   });
   return { pageCount, config, requestBudget };
+}
+
+async function readSealedApiBudget(job: TakeoffJobProcessingRow) {
+  const parsed = takeoffExecutionSelectionSchema.parse((job.preparation_snapshot as { execution_selection: unknown }).execution_selection);
+  const mandate = await readTakeoffApiMandate(createServiceRoleClient(), {
+    tenantId: job.tenant_id, projectId: job.project_id ?? "", userId: job.created_by ?? "",
+  }, parsed);
+  // The exact remaining balance is read before every call. The reader still uses the sealed envelope for its bounds.
+  return { remainingTokens: mandate.maxTokens, remainingCostCents: mandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT };
 }
 
 export async function processLevelCChunks(input: {

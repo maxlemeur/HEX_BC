@@ -1,3 +1,4 @@
+import { usesTakeoffApiKey } from "@/lib/takeoff/payment-mandate-server";
 import "server-only";
 
 import type { resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
@@ -5,6 +6,7 @@ import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
+import { resolveTakeoffApiProvider } from "@/lib/takeoff/payment-worker";
 import { createTakeoffCallLedger, takeoffPaymentRefusal } from "@/lib/takeoff/launch-call-ledger";
 
 /**
@@ -33,6 +35,9 @@ export async function resolveTakeoffExecutionProvider(
   resolveProvider: typeof resolveLocalTakeoffProvider,
   lease?: () => string | null,
 ): ReturnType<typeof resolveLocalTakeoffProvider> {
+  if (usesTakeoffApiKey(job.preparation_snapshot)) {
+    return resolveTakeoffApiProvider(job, lease ?? (() => job.processing_lease_token ?? null));
+  }
   await assertTakeoffJobMayPay(job);
   const ledger = createTakeoffCallLedger(job, lease ?? (() => job.processing_lease_token ?? null));
   return resolveProvider(supabase, job, { lease, ledger });

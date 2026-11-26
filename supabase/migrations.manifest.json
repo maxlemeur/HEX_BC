@@ -410,6 +410,9 @@
     "20261126173222_intake_ai_request_settings.sql": "2f86d7f712b1b3f6af51f30e961e4f32a21005cc93f64c36ac4bae1887922bc8",
     "20261126173223_validate_intake_transcription_ai_source.sql": "99988082697173a27fdcfe40fe9f24c50c12c9ffc8c8a743f266343f80b3202f",
     "20261126184348_catalogue_product_reference_naming.sql": "5948a722fd5f2551f7f4969817610e6ff5fbbbf934580fc612d0e6a2aa5400eb",
+    "20261126190635_takeoff_personal_api_mandate.sql": "f2fe5aac578f95e34c42d07b58a0ba89568eb6825bcba45f2ac539109294ff90",
+    "20261126190636_validate_takeoff_personal_api_mandate.sql": "852fdfff9e91ff20eaa578f54baf9bc667a06e8aed5f5665058d28b92f0ee0a9",
+    "20261126190637_takeoff_personal_api_mark_publication.sql": "440569a5ca3239d2b97eedd811dffdcf15c8188a274d19a83c89bd21b410cc90",
     "20261126193541_takeoff_entry_scope.sql": "6a7fb15590debfa30f7c2d35ad867526855fd03324ec51cb98723645e39fa4dc"
   }
 }

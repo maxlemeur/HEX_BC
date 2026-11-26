@@ -1,3 +1,4 @@
+import { takeoffPaymentChoiceSchema } from "./payment-choice";
 import { markCoverageSchema, countMarkScheduleSchema } from "./count-mark-schedule";
 import { z } from "zod";
 
@@ -326,6 +327,7 @@ export const itemRemeasurePreviewRequestSchema = z.object({
   seen: itemRemeasureSeenSchema,
   detail: detailScope.optional(),
   from_finds: z.literal(true).optional(),
+  payment_choice: takeoffPaymentChoiceSchema.optional(),
 }).strict();
 
 export const itemRemeasurePreviewSchema = z.object({
@@ -335,7 +337,11 @@ export const itemRemeasurePreviewSchema = z.object({
     markSchedule: countMarkScheduleSchema.optional(), previousPages: z.array(page), effect: z.enum(["first", "replace", "compare"]) }).strict().optional(),
   models: z.array(z.object({ id: z.string(), name: z.string(), reasoningEfforts: z.array(chatGptReasoningEffortSchema) }).strict()).optional(),
   payer: z.object({ memberId: uuid, name: z.string().nullable() }).strict()
-    .describe("Le membre qui confirme : la demande utilise son propre forfait ChatGPT, jamais celui du signataire du dossier."),
+    .describe("Le membre qui confirme : la demande utilise la source de paiement qu’il confirme."),
+  payment: z.object({
+    source: z.enum(["chatgpt_plan", "personal_api_key"]),
+    maxCostCents: z.number().int().positive().optional(),
+  }).strict().optional(),
   subscription: z.discriminatedUnion("state", [
     z.object({ state: z.literal("ready"), model: z.string(), reasoningEffort: chatGptReasoningEffortSchema.nullable() }).strict(),
     z.object({ state: z.literal("unavailable"), reason: z.string() }).strict(),
@@ -361,6 +367,7 @@ export const itemRemeasureCommandSchema = z.object({
   plan_keys: z.array(planKey).min(1).max(200),
   detail: detailScope.optional(),
   from_finds: z.literal(true).optional(),
+  payment_choice: takeoffPaymentChoiceSchema.optional(),
   mark_schedule: countMarkScheduleSchema.optional(),
   host_proof: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   setting: z.object({ model: z.string().trim().min(1).max(200).optional(), reasoning_effort: chatGptReasoningEffortSchema.nullable() }).strict().nullable()

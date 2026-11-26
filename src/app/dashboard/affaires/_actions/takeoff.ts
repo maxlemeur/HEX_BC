@@ -19,6 +19,9 @@ import {
   stopTakeoffLaunchRequest,
 } from "@/lib/takeoff/launch-request-server";
 import { readAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone-server";
+import { takeoffPaymentChoiceSchema } from "@/lib/takeoff/payment-choice";
+import { assertTakeoffPaymentMatches, readTakeoffPaymentOptions } from "@/lib/takeoff/payment-server";
+import { usesTakeoffApiKey } from "@/lib/takeoff/payment-mandate-server";
 import { readRelaunchPlanChoice } from "@/lib/takeoff/relaunch-plan-choice-server";
 
 // Identifiers are compared as text by the replay of a launch (its copy receipt is JSON): one spelling, lower case.
@@ -31,6 +34,7 @@ const launchTakeoffFromPlanSetSchema = z.object({
   level: z.enum(["B", "C"]).optional(),
   provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
   preparationRevision: z.number().int().positive().optional(),
+  paymentChoice: takeoffPaymentChoiceSchema.optional(),
   sourceVersionId: uuidSchema.optional(),
 });
 
@@ -45,6 +49,7 @@ const launchTakeoffFromSourceVersionPlanSetSchema = z.object({
   level: z.enum(["B", "C"]).optional(),
   provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
   preparationRevision: z.number().int().positive().optional(),
+  paymentChoice: takeoffPaymentChoiceSchema.optional(),
 });
 
 export type LaunchTakeoffFromSourceVersionPlanSetInput = z.input<
@@ -78,6 +83,7 @@ export async function launchTakeoffFromPlanSet(
     preparationRevision: parsed.preparationRevision,
     sourceVersionId: parsed.sourceVersionId,
     ...(parsed.provider ? { provider: parsed.provider } : {}),
+    ...(parsed.paymentChoice ? { paymentChoice: parsed.paymentChoice } : {}),
   });
 
   return dispatchCreatedTakeoffJob(job, parsed.projectId);
@@ -135,7 +141,8 @@ export async function launchTakeoffFromSourceVersionPlanSet(
     ...processing,
   });
   // Check the local provider before creating a new business version.
-  await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot);
+  await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot, usesTakeoffApiKey(snapshot) ? parsed.projectId : undefined);
+  await assertTakeoffPaymentMatches(context, parsed.projectId, snapshot, parsed.paymentChoice);
   const copyScope = {
     context, projectId: parsed.projectId, sourceVersionId: parsed.sourceVersionId, preparationRevision: parsed.preparationRevision!,
   };
@@ -150,6 +157,7 @@ export async function launchTakeoffFromSourceVersionPlanSet(
   const job = await createTakeoffJobFromPlanSet({
     projectId: parsed.projectId, planSetId: parsed.planSetId, estimateVersionId: targetVersionId,
     ...processing, preparationRevision: parsed.preparationRevision, sourceVersionId: parsed.sourceVersionId,
+    ...(parsed.paymentChoice ? { paymentChoice: parsed.paymentChoice } : {}),
   });
   const launchResult = await dispatchCreatedTakeoffJob(job, parsed.projectId);
   return { ...launchResult, versionId: launchResult.versionId ?? targetVersionId };
@@ -171,7 +179,7 @@ export async function launchPreparedTakeoffFromSourceVersionPlanSetAction(input:
 const takeoffLaunchStateSchema = z.object({ projectId: uuidSchema });
 /** The request, the revision of its mandate and the action its options showed: a gesture is refused when either moved. */
 const assumeTakeoffLaunchSchema = z.object({ projectId: uuidSchema, requestId: uuidSchema, seenRevision: z.number().int().nonnegative(),
-  action: z.enum(["take_on", "resume"]) });
+  action: z.enum(["take_on", "resume"]), paymentChoice: takeoffPaymentChoiceSchema.optional() });
 const relaunchTakeoffSchema = z.object({
   projectId: uuidSchema,
   planSetId: uuidSchema,
@@ -185,7 +193,15 @@ const relaunchTakeoffSchema = z.object({
   predecessorJobId: uuidSchema.nullable(),
   /** One analysis per plan (lot 3): the plans it reads; by default the plans of the analysis it replaces. */
   planFileIds: z.array(uuidSchema).min(1).max(20).nullish(),
+  paymentChoice: takeoffPaymentChoiceSchema.optional(),
 });
+export async function readTakeoffPaymentOptionsAction(input: { projectId: string }) {
+  return runSafeTakeoffAction(async () => {
+    const context = await getAuthenticatedContext();
+    return readTakeoffPaymentOptions({ ...context, projectId: uuidSchema.parse(input.projectId) });
+  });
+}
+
 const stopTakeoffSchema = z.object({ projectId: uuidSchema, requestId: uuidSchema });
 const relaunchPlanChoiceSchema = z.object({ projectId: uuidSchema, predecessorJobId: uuidSchema, singlePlan: z.boolean(),
   planSetId: uuidSchema.optional() });

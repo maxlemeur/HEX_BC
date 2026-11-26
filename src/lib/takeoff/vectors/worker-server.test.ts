@@ -630,6 +630,22 @@ describe("the worker's local plan opt-in (takeoffVectorLocalGroupsHook)", () => 
   const selection = { profileId: "profile-fixture", model: "fixture-profile-model", reasoningEffort: null };
   const job = { jobId: "job-fixture", tenantId: "tenant-fixture", userId: "user-fixture", provider: { selection, assertOwnerActive: async () => {} } };
 
+  it("uses the job’s shared API balance for vector groups", async () => {
+    vi.stubEnv("CI", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("MERGEONE_CHATGPT_LOCAL", "1");
+    for (const [name, value] of Object.entries(on)) vi.stubEnv(name, value);
+    const callApiVectorGroup = vi.fn().mockResolvedValue({
+      data: { groupes: [{ groupe: "G01", classe: "EU", probabilite: 0.9 }] }, tokenCount: 42,
+    });
+    const access = takeoffVectorLocalGroupsHook({ ...job, provider: { ...job.provider, callApiVectorGroup } });
+    const run = await access!.local!.call!();
+    await expect(run({ prompt: "Classe G01", images: [] })).resolves.toMatchObject({
+      data: { groupes: [{ groupe: "G01", classe: "EU", probabilite: 0.9 }] }, totalTokens: 42,
+    });
+    expect(callApiVectorGroup).toHaveBeenCalledOnce();
+  });
+
   it("is on wherever the local plan is (development since #293, or the explicit opt-in), for the job's creator and pinned profile; never in production", () => {
     vi.stubEnv("CI", "");
     vi.stubEnv("VERCEL", "");
