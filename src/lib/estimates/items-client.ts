@@ -1,4 +1,5 @@
 import type { EstimateVersionToken, BulkUpdateEstimateVersionPatch } from "@/lib/estimates/client-version";
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import type { EstimateItem } from "@/lib/estimates/editor-read-client";
 import { parseEstimateItemWriteResponse, parseBulkUpdateEstimateItemsResponse } from "@/lib/estimates/write-response-contracts";
@@ -142,13 +143,7 @@ export async function createEstimateItem(
 
   const payload = await requestJson(
     `/api/estimates/${versionId}/items`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    },
+    jsonRequest("POST", body),
     "Impossible d'ajouter la ligne.",
     value => parseEstimateItemWriteResponse(value, versionId),
     { mutation: { versionId: versionId, structural: true },
@@ -174,16 +169,10 @@ export async function updateEstimateItem(
 ): Promise<void> {
   await requestJson(
     `/api/estimates/${versionId}/items`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        id: itemId,
-        ...updates,
-      }),
-    },
+    jsonRequest("PATCH", {
+      id: itemId,
+      ...updates,
+    }),
     "Impossible de mettre à jour la ligne.",
     value => parseEstimateItemWriteResponse(value, versionId, itemId),
     { mutation: { versionId: versionId, structural: true } }
@@ -196,15 +185,9 @@ export async function deleteEstimateItem(
 ): Promise<{ versionToken: EstimateVersionToken; deletedIds: string[] }> {
   const receipt = await requestJson(
     `/api/estimates/${versionId}/items`,
-    {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        id: itemId,
-      }),
-    },
+    jsonRequest("DELETE", {
+      id: itemId,
+    }),
     "Impossible de supprimer la ligne.",
     (data) => parseEstimateItemDeleteResponse(data, versionId, itemId),
     { mutation: { versionId: versionId, structural: true } }
@@ -219,16 +202,10 @@ export async function reorderEstimateItems(
 ): Promise<{ versionToken: EstimateVersionToken }> {
   const receipt = await requestJson(
     `/api/estimates/${versionId}/items/reorder`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        parent_id: parentId,
-        ordered_ids: orderedIds,
-      }),
-    },
+    jsonRequest("POST", {
+      parent_id: parentId,
+      ordered_ids: orderedIds,
+    }),
     "Impossible de reordonner les lignes.",
     (data) => parseEstimateItemsReorderResponse(data, { versionId, parentId, orderedIds }),
     { mutation: { versionId: versionId, structural: true } }
@@ -242,13 +219,7 @@ export async function moveEstimateItem(
 ): Promise<{ versionToken: EstimateVersionToken }> {
   const receipt = await requestJson(
     `/api/estimates/${versionId}/items/move`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    },
+    jsonRequest("POST", payload),
     "Impossible de déplacer l'élément.",
     (data) => parseEstimateItemsMoveResponse(data, versionId, payload),
     { mutation: { versionId: versionId, structural: true } }

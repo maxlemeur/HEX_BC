@@ -1,3 +1,4 @@
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import { toAffaireLinkedDpgfSourceClient, toImportLinkedDpgfSourceClient, type AffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-contracts";
 import { parseLinkedDpgfSourceResponse, parseImportLinkedDpgfResponse } from "@/lib/estimates/section-copy-response";
@@ -30,15 +31,9 @@ export async function importLinkedDpgfSource(
 ): Promise<ImportLinkedDpgfSourceResult> {
   const payload = await requestJson(
     `/api/estimates/${targetVersionId}/import-linked-dpgf`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sectionTitle: input.sectionTitle ?? null,
-      }),
-    },
+    jsonRequest("POST", {
+      sectionTitle: input.sectionTitle ?? null,
+    }),
     "Impossible d'importer la source DPGF liée.",
     value => parseImportLinkedDpgfResponse(value, targetVersionId),
     { mutation: { versionId: targetVersionId, structural: true } }

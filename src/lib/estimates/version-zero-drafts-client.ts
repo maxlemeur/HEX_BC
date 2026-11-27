@@ -1,4 +1,5 @@
 import { getRootPayload } from "@/lib/estimates/client-json";
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import type { EstimateDraftAiRequest } from "@/lib/estimates/schemas";
@@ -133,17 +134,11 @@ export async function generateVersionZeroDraft(
 ): Promise<VersionZeroReview> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/version-zero-drafts`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        briefId: input.briefId ?? null,
-        selectedLots: input.selectedLots ?? [],
-        ai: input.ai,
-      }),
-    },
+    jsonRequest("POST", {
+      briefId: input.briefId ?? null,
+      selectedLots: input.selectedLots ?? [],
+      ai: input.ai,
+    }),
     "Impossible de générer la V0."
   );
 
@@ -181,16 +176,10 @@ export async function reviewVersionZeroLine(
 ): Promise<VersionZeroReview> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/version-zero-drafts/${draftId}/lines/${lineDraftId}`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        reviewStatus: input.reviewStatus,
-        editedValues: input.editedValues ?? null,
-      }),
-    },
+    jsonRequest("PATCH", {
+      reviewStatus: input.reviewStatus,
+      editedValues: input.editedValues ?? null,
+    }),
     "Impossible de mettre à jour la ligne V0."
   );
 

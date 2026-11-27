@@ -8,6 +8,7 @@ import {
   type PriceExplanationGeneration,
 } from "@/lib/estimates/explanation-schemas";
 import { EstimateApiError } from "@/lib/estimates/client-errors";
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 async function requestExplanation<T>(
@@ -83,7 +84,7 @@ export function refreshEstimateLineExplanationSettings(versionId: string, lineId
 export function generateEstimateLineExplanation(versionId: string, lineId: string, settings: PriceExplanationGeneration) {
   return requestExplanation(
     priceExplanationUrl(versionId, lineId),
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) },
+    jsonRequest("POST", settings),
     priceExplanationGeneratedResponseSchema,
     "Impossible de générer l’explication de prix."
   );

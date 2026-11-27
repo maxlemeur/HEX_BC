@@ -27,6 +27,11 @@ export function withEstimateDraftLockSessionHeader(
   };
 }
 
+/** The init of a JSON write: its method and its serialized body. */
+export function jsonRequest(method: string, body: unknown): RequestInit {
+  return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+}
+
 export async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();

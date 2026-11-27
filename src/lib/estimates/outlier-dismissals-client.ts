@@ -1,4 +1,5 @@
 import { getRootPayload } from "@/lib/estimates/client-json";
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import type { EstimateOutlierFlagKey, EstimateOutlierFlagsByItemId } from "@/lib/estimates/outlier-detection";
 import { isRecord, toNonEmptyString } from "@/lib/value-guards";
@@ -77,17 +78,11 @@ export async function toggleEstimateOutlierDismissedFlag(
 ): Promise<EstimateOutlierFlagsByItemId> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/outliers`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        item_id: input.itemId,
-        flag_key: input.flagKey,
-        dismissed: input.dismissed,
-      }),
-    },
+    jsonRequest("POST", {
+      item_id: input.itemId,
+      flag_key: input.flagKey,
+      dismissed: input.dismissed,
+    }),
     "Impossible de mettre à jour le statut d'acceptation de l'outlier."
   );
 

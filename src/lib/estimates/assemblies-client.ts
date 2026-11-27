@@ -1,4 +1,13 @@
-import { type JsonRecord, toNumber, getRootPayload, extractEntity } from "@/lib/estimates/client-json";
+import {
+  type JsonRecord,
+  toNumber,
+  getRootPayload,
+  extractEntity,
+  libraryListPath,
+  parseLibraryList,
+  pickRecordArray,
+} from "@/lib/estimates/client-json";
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import { assemblyTargetPriceCents } from "@/lib/estimates/assembly-target-price";
 import { type EstimateItem, parseEstimateItems } from "@/lib/estimates/editor-read-client";
@@ -80,34 +89,7 @@ export type CreateEstimateAssemblyPayload = {
   }>;
 };
 
-export type UpdateEstimateAssemblyPayload = {
-  name?: string;
-  description?: string | null;
-  referenceCode?: string | null;
-  unit?: string | null;
-  items?: Array<{
-    title: string;
-    unit?: string | null;
-    kFo?: number;
-    kMo?: number;
-    laborRoleId?: string | null;
-    supplyTypeId?: string | null;
-    defaultQuantity?: number | null;
-    laborHours?: number;
-    position: number;
-    costType?: EstimateAssemblyItem["cost_type"];
-    unitCostHtCents?: number;
-    lossCoeffBp?: number;
-    yieldValue?: number | null;
-    yieldUnit?: string | null;
-    sourceMetadata?: unknown;
-  }>;
-  members?: Array<{
-    childAssemblyId: string;
-    quantity: number;
-    position: number;
-  }>;
-};
+export type UpdateEstimateAssemblyPayload = Partial<CreateEstimateAssemblyPayload>;
 
 function parseEstimateAssemblySummaryEntity(
   value: unknown
@@ -142,34 +124,6 @@ function parseEstimateAssemblySummaryEntity(
   };
 }
 
-function parseEstimateAssemblyItems(value: unknown): EstimateAssemblyItem[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((entry) => isRecord(entry)) as EstimateAssemblyItem[];
-}
-
-function parseEstimateAssemblyMembers(
-  value: unknown
-): EstimateAssemblyMember[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((entry) => isRecord(entry)) as EstimateAssemblyMember[];
-}
-
-function parseEstimateAssemblySummaryList(
-  payload: unknown
-): EstimateAssemblySummary[] {
-  const root = getRootPayload(payload);
-  if (!isRecord(root)) return [];
-  const rawItems = Array.isArray(root.assemblies)
-    ? root.assemblies
-    : Array.isArray(root.items)
-      ? root.items
-      : [];
-
-  return rawItems
-    .map((item) => parseEstimateAssemblySummaryEntity(item))
-    .filter((item): item is EstimateAssemblySummary => Boolean(item));
-}
-
 function parseEstimateAssemblyDetail(payload: unknown): EstimateAssemblyDetail {
   const root = getRootPayload(payload);
   const assemblyEntity = extractEntity(root, ["assembly"]);
@@ -178,11 +132,11 @@ function parseEstimateAssemblyDetail(payload: unknown): EstimateAssemblyDetail {
     throw new Error("Impossible de récupérer l'ouvrage.");
   }
 
-  const items = parseEstimateAssemblyItems(
+  const items = pickRecordArray<EstimateAssemblyItem>(
     (assemblyEntity as JsonRecord | null)?.items ??
       (isRecord(root) ? root.items : null)
   );
-  const members = parseEstimateAssemblyMembers(
+  const members = pickRecordArray<EstimateAssemblyMember>(
     (assemblyEntity as JsonRecord | null)?.members ??
       (isRecord(root) ? root.members : null)
   );
@@ -231,31 +185,15 @@ export async function fetchEstimateAssemblies(options?: {
   limit?: number;
   order?: "recent" | "oldest";
 }): Promise<EstimateAssemblySummary[]> {
-  const params = new URLSearchParams();
-  if (options?.search?.trim()) {
-    params.set("search", options.search.trim());
-  }
-  if (options?.limit && Number.isFinite(options.limit) && options.limit > 0) {
-    params.set("limit", String(Math.floor(options.limit)));
-  }
-  if (options?.order) {
-    params.set("order", options.order);
-  }
-
-  const query = params.toString();
-  const path = query.length > 0
-    ? `/api/estimates/assemblies?${query}`
-    : "/api/estimates/assemblies";
-
   const payload = await requestJson<unknown>(
-    path,
+    libraryListPath("/api/estimates/assemblies", options),
     {
       method: "GET",
     },
     "Impossible de charger les ouvrages."
   );
 
-  return parseEstimateAssemblySummaryList(payload);
+  return parseLibraryList(payload, "assemblies", parseEstimateAssemblySummaryEntity);
 }
 
 export async function fetchEstimateAssemblyOptions(): Promise<{
@@ -276,13 +214,9 @@ export async function fetchEstimateAssemblyOptions(): Promise<{
   }
 
   return {
-    assemblies: parseEstimateAssemblySummaryList(payload),
-    laborRoles: Array.isArray(root.labor_roles)
-      ? (root.labor_roles.filter((entry) => isRecord(entry)) as EstimateAssemblyLaborRole[])
-      : [],
-    supplyTypes: Array.isArray(root.supply_types)
-      ? (root.supply_types.filter((entry) => isRecord(entry)) as EstimateAssemblySupplyType[])
-      : [],
+    assemblies: parseLibraryList(payload, "assemblies", parseEstimateAssemblySummaryEntity),
+    laborRoles: pickRecordArray<EstimateAssemblyLaborRole>(root.labor_roles),
+    supplyTypes: pickRecordArray<EstimateAssemblySupplyType>(root.supply_types),
   };
 }
 export async function fetchEstimateAssembly(
@@ -304,21 +238,15 @@ export async function createEstimateAssembly(
 ): Promise<EstimateAssemblyDetail> {
   const payload = await requestJson<unknown>(
     "/api/estimates/assemblies",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: input.name,
-        description: input.description ?? null,
-        reference_code: input.referenceCode ?? null,
-        unit: input.unit ?? null,
-        items: input.items.map((item) => toAssemblyItemRequestPayload(item)),
-        members: (input.members ?? []).map((member) =>
-          toAssemblyMemberRequestPayload(member)),
-      }),
-    },
+    jsonRequest("POST", {
+      name: input.name,
+      description: input.description ?? null,
+      reference_code: input.referenceCode ?? null,
+      unit: input.unit ?? null,
+      items: input.items.map((item) => toAssemblyItemRequestPayload(item)),
+      members: (input.members ?? []).map((member) =>
+        toAssemblyMemberRequestPayload(member)),
+    }),
     "Impossible de créer l'ouvrage."
   );
 
@@ -354,13 +282,7 @@ export async function updateEstimateAssembly(
 
   const payload = await requestJson<unknown>(
     `/api/estimates/assemblies/${assemblyId}`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    },
+    jsonRequest("PATCH", body),
     "Impossible de mettre à jour l'ouvrage."
   );
 
@@ -424,15 +346,9 @@ export async function insertAssemblyIntoVersion(
 
   const payload = await requestJson<unknown>(
     `/api/estimates/assemblies/${assemblyId}/insert?${params.toString()}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        afterItemId: input.afterItemId ?? null,
-      }),
-    },
+    jsonRequest("POST", {
+      afterItemId: input.afterItemId ?? null,
+    }),
     "Impossible d'insérer l'ouvrage.",
     undefined,
     { mutation: { versionId: input.versionId, structural: true, requireAssemblyTotals: true } }

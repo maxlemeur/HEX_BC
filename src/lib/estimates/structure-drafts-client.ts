@@ -1,5 +1,6 @@
 import { toNumber, toBooleanValue, getRootPayload, pickRecord, pickArray, parseOptionalNullableStringProperty } from "@/lib/estimates/client-json";
 import { type EstimateVersionToken, parseVersionToken } from "@/lib/estimates/client-version";
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import type { EstimateDraftAiRequest } from "@/lib/estimates/schemas";
 import { isRecord, toNonEmptyString } from "@/lib/value-guards";
@@ -379,16 +380,10 @@ export async function generateEstimateStructureDraft(
 ): Promise<EstimateStructureDraft> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${targetVersionId}/structure-drafts`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        strategy: input.strategy ?? "hybrid",
-        ai: input.ai,
-      }),
-    },
+    jsonRequest("POST", {
+      strategy: input.strategy ?? "hybrid",
+      ai: input.ai,
+    }),
     "Impossible de générer la prévisualisation de structure."
   );
 
@@ -427,22 +422,16 @@ export async function applyEstimateStructureDraft(
 ): Promise<ApplyEstimateStructureDraftResult> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${targetVersionId}/structure-drafts/${draftId}/apply`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        mode: input.mode,
-        selectedRootNodeIds: input.selectedRootNodeIds,
-        overrides: (input.overrides ?? []).map((override) => ({
-          nodeId: override.nodeId,
-          action: override.action,
-          renameTo: override.renameTo ?? null,
-          mergeIntoItemId: override.mergeIntoItemId ?? null,
-        })),
-      }),
-    },
+    jsonRequest("POST", {
+      mode: input.mode,
+      selectedRootNodeIds: input.selectedRootNodeIds,
+      overrides: (input.overrides ?? []).map((override) => ({
+        nodeId: override.nodeId,
+        action: override.action,
+        renameTo: override.renameTo ?? null,
+        mergeIntoItemId: override.mergeIntoItemId ?? null,
+      })),
+    }),
     "Impossible d'appliquer la preview de structure.",
     undefined,
     { mutation: { versionId: targetVersionId, structural: true } }

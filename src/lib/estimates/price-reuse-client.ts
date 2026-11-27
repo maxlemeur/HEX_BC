@@ -1,3 +1,4 @@
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import { priceReuseApplySchema, priceReuseArbitrationSchema, priceReusePreviewSchema, type PriceReuseApplyInput, type PriceReuseApplyResult, type PriceReuseArbitration, type PriceReuseArbitrationInput, type PriceReusePreview } from "@/lib/estimates/price-reuse-contracts";
 
@@ -5,7 +6,7 @@ import { priceReuseApplySchema, priceReuseArbitrationSchema, priceReusePreviewSc
 export async function previewEstimatePriceReuse(targetVersionId: string, referenceVersionId: string): Promise<PriceReusePreview> {
   return requestJson(
     `/api/estimates/${targetVersionId}/price-reuse/preview`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reference_version_id: referenceVersionId }) },
+    jsonRequest("POST", { reference_version_id: referenceVersionId }),
     "Impossible de comparer avec le devis de référence.",
     (value) => priceReusePreviewSchema.parse(value)
   );
@@ -15,7 +16,7 @@ export async function previewEstimatePriceReuse(targetVersionId: string, referen
 export async function arbitrateEstimatePriceReuse(targetVersionId: string, input: PriceReuseArbitrationInput): Promise<PriceReuseArbitration> {
   return requestJson(
     `/api/estimates/${targetVersionId}/price-reuse/arbitration`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
+    jsonRequest("POST", input),
     "L’arbitrage n’a pas abouti. Choisissez les articles manuellement.",
     (value) => priceReuseArbitrationSchema.parse(value)
   );
