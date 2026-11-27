@@ -626,6 +626,10 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     // The request says that its screen may offer the reading: the member's plan is connected on this instance.
     expect((await read()).photoAnalysis).toMatchObject({ status: "available" });
 
+    // On first open the editor starts its background reads while the photo upload needs its own routes.
+    // Compile them together on this server before measuring the upload and reading back its persisted file.
+    await compileChatGptRoutes(localOrigin, fixtureEmail, "material-request-original");
+
     const openOriginal = async () => {
       await ui.app.open(`/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}`);
       await screen.getByRole("button", "Voir l’original", { exact: true }).click(DEV_SERVER_WORK);

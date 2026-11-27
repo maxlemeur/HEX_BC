@@ -158,7 +158,8 @@ export async function prepareChatGptServerWorkspace() {
  * "takeoff-activity" warms the browser reads that start when the decisions journeys open the activity center.
  * "takeoff-launch-panel" warms the dashboard's deferred poll and the dev error bundle before LOCAL01.
  */
-export type ChatGptCompileWave = "profile" | "journeys" | "intake" | "intake-dpgf" | "takeoff-activity" | "takeoff-launch-panel" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
+export type ChatGptCompileWave = "profile" | "journeys" | "intake" | "intake-dpgf" | "takeoff-activity" | "takeoff-launch-panel"
+  | "material-request-original" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
 
 /**
  * In the order Next compiles them when they are asked together (run 43073132489): the pages with the estimate
@@ -177,6 +178,15 @@ export function chatGptCompileRequests(wave: ChatGptCompileWave): CompileRequest
   // Next answers OPTIONS from the compiled module's exports (204, Allow), without running a handler.
   const route = (path: string): CompileRequest => ({ path, method: "OPTIONS", expected: [204] });
   const callback: CompileRequest = { path: "/auth/chatgpt/callback", expected: [302, 303, 307] };
+  if (wave === "material-request-original") {
+    const request = `/api/affaires/${absent}/material-requests/${absent}`;
+    return [
+      page(`/dashboard/affaires/${absent}/demandes-materiel/${absent}`),
+      route("/api/material-request-technicians"), route("/api/consultation-message-templates"),
+      ...["candidates", "supplier-proposals", "orders", "quotes", "files", "files/complete", `files/${absent}`]
+        .map(suffix => route(`${request}/${suffix}`)),
+    ];
+  }
   if (wave === "profile") {
     return [{ path: "/dashboard", expected: [200] }, { path: "/dashboard/profile", expected: [200] }, callback];
   }
