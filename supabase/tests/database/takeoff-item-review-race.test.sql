@@ -356,6 +356,78 @@ select is((select count(*)::integer from public.takeoff_item_answer_decisions wh
 select is((select count(*)::integer from public.takeoff_item_answer_decisions d join public.takeoff_item_answers a on a.id = d.answer_id
   where a.job_id = pg_temp.f(1121)), 0, 'the replacement inherits no decision');
 
+-- Transfer compares the committed whole entry after the released writer gives up the review lock.
+create function pg_temp.write_total(intent integer, quantity numeric) returns text language sql stable as $$
+  select pg_temp.review_sql(20,pg_temp.cmd('enter_quantity',intent,array[301],jsonb_build_object(
+    'values',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(301),'quantity',quantity,'unit','u')),
+    'entry',jsonb_build_object('category','site_survey'))))
+$$;
+select is((select r->>'outcome' from extensions.dblink('race_a',pg_temp.write_total(681,4)) as x(r jsonb)),
+  'applied','enter four on the affaire');
+select is(extensions.dblink_exec('race_a','begin'),'BEGIN','hold a replacement entry');
+select is((select r->>'outcome' from extensions.dblink('race_a',pg_temp.write_total(682,6)) as x(r jsonb)),
+  'applied','six replaces four in the uncommitted transaction');
+select is(extensions.dblink_send_query('race_b',format(
+  'select public.change_takeoff_entry_scope(%L,%L,%L,%L,''attach'',p_plan_id=>%L,p_entry_revision=>1,p_plan_entry_revision=>0)',
+  pg_temp.tenant(),pg_temp.f(20),pg_temp.f(301),pg_temp.f(683),pg_temp.f(100))),1,'attach the version read at four');
+select ok(pg_temp.waits_for('race_b','race_a'),'transfer waits for the actual entry command');
+select is(extensions.dblink_exec('race_a','commit'),'COMMIT','the replacement commits');
+select is((select r->>'outcome' from extensions.dblink_get_result('race_b',false) as x(r jsonb)),
+  'stale','the waiting transfer refuses the earlier revision');
+select is((select count(*)::int from extensions.dblink_get_result('race_b',false) as x(r jsonb)),0,'transfer completed');
+select results_eq($$select plan_logical_id,quantity from public.takeoff_item_entries where item_id=pg_temp.f(301)$$,
+  $$values (null::uuid,6::numeric)$$,'six remains solely on the affaire');
+select is((select count(*)::int from public.takeoff_item_review_commands where intent_key=pg_temp.f(683)),0,
+  'the refused transfer wrote no receipt');
+
+-- The member confirms an empty plan while the other tab is entering a value on it.
+create function pg_temp.confirm_scope(intent integer, action text, destination_revision integer) returns text language sql as $$
+  select format('select public.change_takeoff_entry_scope(%L,%L,%L,%L,%L,2,%s,%L)',
+    pg_temp.tenant(),pg_temp.f(20),pg_temp.f(301),pg_temp.f(intent),action,destination_revision,pg_temp.f(100))
+$$;
+select is(extensions.dblink_exec('race_a','begin'),'BEGIN','open the destination edit');
+select is((select r->>'outcome' from extensions.dblink('race_a',pg_temp.review_sql(20,
+  jsonb_set(jsonb_set(pg_temp.cmd('enter_quantity',684,array[301],jsonb_build_object(
+    'values',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(301),'quantity',2,'unit','u')),
+    'entry',jsonb_build_object('category','site_survey'))),'{scope}',
+    jsonb_build_object('kind','plan','plan_logical_id',pg_temp.f(100))),'{targets,0,entry_revision}','0'))) as x(r jsonb)),
+  'applied','a colleague entered two on the destination');
+select is(extensions.dblink_send_query('race_b',pg_temp.confirm_scope(685,'attach',0)),1,'attach to the previously empty plan');
+select ok(pg_temp.waits_for('race_b','race_a'),'the transfer waits for the destination writer');
+select is(extensions.dblink_exec('race_a','commit'),'COMMIT','publish the plan entry');
+select is((select r->>'outcome' from extensions.dblink_get_result('race_b',false) as x(r jsonb)),
+  'stale','the old destination revision wins over collision');
+select is((select count(*)::int from extensions.dblink_get_result('race_b',false) as x(r jsonb)),0,'drain the destination race');
+select results_eq($$select quantity from public.takeoff_item_entries where item_id=pg_temp.f(301) order by plan_logical_id nulls first$$,
+  $$values (6::numeric),(2::numeric)$$,'both scopes survive the stale request');
+
+-- The direct upload is removed while the member confirms a replacement.
+insert into race_pids select 'race_setup', pid from extensions.dblink('race_setup','select pg_backend_pid()') x(pid integer);
+select is(extensions.dblink_exec('race_setup','begin'),'BEGIN','open the dossier deletion');
+select is(extensions.dblink_exec('race_setup',format('delete from public.plan_files where id=%L',pg_temp.f(100))),
+  'DELETE 1','delete the direct upload without committing yet');
+select is(extensions.dblink_send_query('race_b',pg_temp.confirm_scope(687,'replace',1)),1,'confirm the previously read destination');
+select ok(pg_temp.waits_for('race_b','race_setup'),'destination validation waits for deletion of the upload');
+select is(extensions.dblink_exec('race_setup','commit'),'COMMIT','the deletion takes effect first');
+select is((select r->>'outcome' from extensions.dblink_get_result('race_b',false) as x(r jsonb)),
+  'ineligible','the attachment cannot write to the removed plan');
+select is((select count(*)::int from extensions.dblink_get_result('race_b',false) as x(r jsonb)),0,'drain deletion race');
+select results_eq($$select quantity from public.takeoff_item_entries where item_id=pg_temp.f(301) order by plan_logical_id nulls first$$,
+  $$values (6::numeric),(2::numeric)$$,'losing the destination preserves both quantities');
+
+-- Hold the member row in the administration transaction. The public command
+-- sees the old committed role on entry and must wait for its locked recheck.
+select is(extensions.dblink_exec('race_setup','begin'),'BEGIN','open membership change');
+select is(extensions.dblink_exec('race_setup',format('update public.tenant_memberships set role=''director''
+  where tenant_id=%L and user_id=%L',pg_temp.tenant(),pg_temp.f(1))),'UPDATE 1','stage the withdrawal of review rights');
+select is(extensions.dblink_send_query('race_b',pg_temp.confirm_scope(686,'attach',1)),1,'submit the public scope command');
+select ok(pg_temp.waits_for('race_b','race_setup'),'the scope command checks membership under lock');
+select is(extensions.dblink_exec('race_setup','commit'),'COMMIT','commit the role change');
+select is((select count(*)::int from extensions.dblink_get_result('race_b',false) x(r jsonb)),0,'no result after demotion');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_REVIEW_FORBIDDEN%','the public command reports the lost right');
+select is((select count(*)::int from extensions.dblink_get_result('race_b',false) x(r jsonb)),0,'drain the denied command');
+select is((select count(*)::int from public.takeoff_item_review_commands where intent_key=pg_temp.f(686)),0,'no receipt after demotion');
+
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;
 set local session_replication_role = replica;

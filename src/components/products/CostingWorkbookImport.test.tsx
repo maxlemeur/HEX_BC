@@ -11,7 +11,7 @@ import { CostingWorkbookImport } from "./CostingWorkbookImport";
  * Failure modes, written before the code (TI-690, lot 1: the office imports its costing workbook into
  * catalogue drafts from the catalogue page). The workbook rows are invented; the network is the only stub.
  *  1. Something is written before the office has seen what the import will do: the first request after
- *     choosing a file is not a preview (`confirm: false`), or the preview's counts are not said in words.
+ *     choosing a file and its preview columns is not a preview (`confirm: false`), or the preview's counts are not said in words.
  *  2. Confirming sends `confirm: true` more than once, or other rows than the previewed ones; the import can be
  *     started again while a request is running.
  *  3. With nothing new to import, the import button stays enabled (an empty import that says « terminé »).
@@ -99,6 +99,10 @@ function renderImport() {
   return { ...view, props };
 }
 
+async function showWorkbookPreview(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Afficher l’aperçu" }));
+}
+
 const fileInput = () => screen.getByLabelText("Fichier Excel") as HTMLInputElement;
 const importPage = () => screen.getByRole("region", { name: "Importer le classeur de chiffrage" });
 
@@ -128,6 +132,9 @@ describe("CostingWorkbookImport", () => {
     renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
+    expect(await screen.findByRole("dialog", { name: "Colonnes à afficher" })).toBeVisible();
+    expect(fetchMock).not.toHaveBeenCalled();
+    await showWorkbookPreview(user);
 
     const preview = await within(importPage()).findByRole("region", { name: "Aperçu de l’import" });
     expect(sentBodies()).toEqual([{ rows: SHEET_ROWS, confirm: false }]);
@@ -160,6 +167,7 @@ describe("CostingWorkbookImport", () => {
     const { props } = renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     const importButton = await screen.findByRole("button", { name: IMPORT_1842 });
     await user.click(importButton);
     await user.click(importButton);
@@ -196,6 +204,7 @@ describe("CostingWorkbookImport", () => {
     renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
 
     expect(await within(importPage()).findByText("Aucun nouvel article en brouillon")).toBeInTheDocument();
     expect(within(importPage()).getByText("2 621 déjà au catalogue (inchangés)")).toBeInTheDocument();
@@ -237,6 +246,7 @@ describe("CostingWorkbookImport", () => {
     renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
 
     expect(await within(importPage()).findByRole("alert")).toHaveTextContent(sentence);
     expect(fileInput().files?.[0]?.name).toBe("bible-chiffrage.xlsm");
@@ -250,6 +260,7 @@ describe("CostingWorkbookImport", () => {
     renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     expect(await within(importPage()).findByRole("alert")).toHaveTextContent(
       "Le serveur n’a pas répondu. Vérifiez la connexion, puis réessayez.",
     );
@@ -269,6 +280,7 @@ describe("CostingWorkbookImport", () => {
     const { props } = renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     await user.click(await screen.findByRole("button", { name: IMPORT_1842 }));
 
     expect(await within(importPage()).findByRole("alert")).toHaveTextContent("La gestion du catalogue est réservée aux administrateurs.");
@@ -291,6 +303,7 @@ describe("CostingWorkbookImport", () => {
     const { props } = renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     await user.click(await screen.findByRole("button", { name: IMPORT_1842 }));
 
     expect(await within(importPage()).findByRole("alert")).toHaveTextContent(stopped);
@@ -316,6 +329,7 @@ describe("CostingWorkbookImport", () => {
     const { props } = renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     await user.click(await screen.findByRole("button", { name: IMPORT_1842 }));
 
     expect(await within(importPage()).findByRole("alert")).toHaveTextContent(conflict);
@@ -334,6 +348,7 @@ describe("CostingWorkbookImport", () => {
     const { rerender, props } = renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     expect(await within(importPage()).findByText("1 842 nouveaux articles en brouillon")).toBeInTheDocument();
 
     rerender(<></>);
@@ -344,6 +359,7 @@ describe("CostingWorkbookImport", () => {
     const late = deferred<Response>();
     fetchMock.mockImplementationOnce(() => late.promise);
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     expect(await within(importPage()).findByText("Comparaison avec le catalogue…")).toBeInTheDocument();
     rerender(<></>);
     rerender(<CostingWorkbookImport {...props} />);

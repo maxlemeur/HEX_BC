@@ -778,6 +778,31 @@ select is(pg_temp.claim(pg_temp.job(22, 1), 981), 1, 'its copy is claimed');
 select is((select answer_count from pg_temp.publish(pg_temp.job(22, 1), 981,
   jsonb_build_array(jsonb_set(pg_temp.valid() -> 2, '{item_id}', to_jsonb(pg_temp.f(320)))), '[]', null)), 1,
   'the publication records a finding on the dossier plan');
+-- Exercise the sealed reading against the live dossier, even after its copy changes.
+savepoint original_dossier;
+insert into public.takeoff_item_review_commands(id,tenant_id,project_id,intent_key,actor_id,gesture,command_sha256,outcome)
+  values(pg_temp.f(990),pg_temp.f(10),pg_temp.f(22),pg_temp.f(990),pg_temp.f(1),'enter_quantity',repeat('a',64),'{}');
+insert into public.takeoff_item_entries(tenant_id,project_id,item_id,quantity,unit,category,included,revision,actor_id,entered_at,command_id)
+  values(pg_temp.f(10),pg_temp.f(22),pg_temp.f(320),4,'u','site_survey',true,1,pg_temp.f(1),now(),pg_temp.f(990));
+create function pg_temp.attach_to_piece(dest_revision integer) returns text language sql as $$
+  select public.change_takeoff_entry_scope(pg_temp.f(10),pg_temp.f(22),pg_temp.f(320),pg_temp.f(991),
+    'attach',1,dest_revision,pg_temp.f(70))->>'outcome'
+$$;
+select pg_temp.sign_in(1);
+savepoint live_piece;
+update public.affaire_intake_documents set deleted_at=now(),storage_path=null,upload_status='rejected' where id=pg_temp.f(70);
+set local role authenticated;
+select is(pg_temp.attach_to_piece(1),'stale','an outdated destination revision precedes dossier eligibility');
+select is(pg_temp.attach_to_piece(0),'ineligible','the sealed reading cannot restore a deleted dossier plan');
+rollback to live_piece;
+update public.affaire_intake_documents set deletion_token=gen_random_uuid() where id=pg_temp.f(70);
+set local role authenticated;
+select is(pg_temp.attach_to_piece(0),'ineligible','a piece reserved for deletion is unavailable');
+rollback to live_piece;
+update public.affaire_intake_documents set plan_copy_generation=gen_random_uuid() where id=pg_temp.f(70);
+set local role authenticated;
+select is(pg_temp.attach_to_piece(0),'applied','a new copy generation preserves the logical destination');
+rollback to original_dossier;
 set local role service_role;
 select is(public.dismiss_takeoff_find(pg_temp.f(10), pg_temp.f(22), pg_temp.f(1), pg_temp.job(22, 1), 0,
   pg_temp.f(982), 'outside_scope'), pg_temp.f(982), 'the owner dismisses the dossier finding');

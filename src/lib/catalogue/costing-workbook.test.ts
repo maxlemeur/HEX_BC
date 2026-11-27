@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   CostingWorkbookFormatError,
   inspectCostingWorkbookColumns,
-  omitCostingWorkbookColumns,
   readCostingWorkbookRows,
   workbookReferenceKey,
 } from "./costing-workbook";
@@ -82,21 +81,6 @@ function article(values: Record<string, Cell>): Cell[] {
 function read(...rows: Cell[][]) {
   return readCostingWorkbookRows([HEADERS, ...rows]);
 }
-
-it("omits every matching header and its values without shifting Excel addresses or changing the source", () => {
-  const source = [
-    ["Classeur fictif"],
-    ["ID", "Caractéristique", "Matériau", "Type_ligne", "PR. FO", "pr. fo", "F1_nom", "F1_ref", "F1_URL"],
-    ["TUBE-20", "Tube", "Inox", "Art", 12.50, 99, "Fournisseur fictif", "0012", "https://fournisseur.example/tube"],
-  ];
-  const projected = omitCostingWorkbookColumns(source, 2, new Set(["PR. FO", "F1_URL"]));
-  expect(projected[1]).toEqual(["ID", "Caractéristique", "Matériau", "Type_ligne", null, null, "F1_nom", "F1_ref", null]);
-  expect(projected[2]).toEqual(["TUBE-20", "Tube", "Inox", "Art", null, null, "Fournisseur fictif", "0012", null]);
-  const read = readCostingWorkbookRows(projected);
-  expect(read.articles).toMatchObject([{ row: 3, unit_price_cents: 0 }]);
-  expect(read.supplierReferenceOccurrences).toMatchObject([{ row: 3, column: 7, supplier_sku: "0012", product_url: null }]);
-  expect(readCostingWorkbookRows(source).articles).toMatchObject([{ unit_price_cents: 1250 }]);
-});
 
 describe("readCostingWorkbookRows", () => {
   it("reads articles only, and reports a row that cannot be one (1)", () => {

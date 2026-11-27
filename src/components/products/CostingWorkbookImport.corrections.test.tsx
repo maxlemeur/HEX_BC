@@ -151,11 +151,16 @@ function renderImport() {
   );
 }
 
+async function showWorkbookPreview(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Afficher l’aperçu" }));
+}
+
 const fileInput = () => screen.getByLabelText("Fichier Excel") as HTMLInputElement;
 const view = (name: string) => screen.getByRole("button", { name, pressed: false });
 
 async function openSupplierReferences(user: ReturnType<typeof userEvent.setup>) {
   await user.upload(fileInput(), costingWorkbook());
+  await showWorkbookPreview(user);
   await screen.findByRole("table", { name: "Articles proposés en brouillon" });
   await user.click(screen.getByRole("tab", { name: "Références fournisseur" }));
   await waitFor(() => expect(supplierPreviews()).toHaveLength(1));
@@ -179,6 +184,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     expect(fileInput().files).toHaveLength(1);
     expect(screen.getByText("bible-chiffrage.xlsm · 3 lignes lues dans l’onglet « All_data »")).toBeVisible();
@@ -189,6 +195,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     // A dialog closed without a choice keeps the workbook in hand.
     expect(screen.getByRole("table", { name: "Articles proposés en brouillon" })).toBeVisible();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     await waitFor(() => expect(previews()).toHaveLength(2));
 
     await user.click(screen.getByRole("button", { name: "Actualiser l’aperçu" }));
@@ -201,6 +208,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     expect(within(table).getByText("sans prix")).toBeVisible();
 
@@ -226,6 +234,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     const findings = within(await screen.findByRole("group", { name: "Articles à vérifier" }));
     const price = findings.getByRole("button", { name: "Sans prix (0 €) · 1", pressed: false });
     const table = within(screen.getByRole("table", { name: "Articles proposés en brouillon" }));
@@ -243,6 +252,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     await user.click(within(table).getByRole("button", { name: "Corriger la cellule D3" }));
     await user.type(screen.getByLabelText("Nouvelle valeur de la cellule D3"), "ml{Enter}");
@@ -269,6 +279,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const missing = within(screen.getByRole("list", { name: "Colonnes absentes du classeur" }));
     expect(missing.getByText("obligatoire")).toBeVisible();
     await user.selectOptions(missing.getByLabelText("En-tête du classeur à lire comme ID"), "A · Réf");
+    await showWorkbookPreview(user);
 
     await waitFor(() => expect(previews()).toHaveLength(2));
     expect(previews()[1].body?.rows?.[0]?.[0]).toBe("ID");
@@ -287,6 +298,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     renderImport();
     await user.upload(fileInput(), costingWorkbook(renamed));
     await user.selectOptions(await screen.findByLabelText("En-tête du classeur à lire comme ID"), "A · Réf");
+    await showWorkbookPreview(user);
     expect(await screen.findByRole("table", { name: "Articles proposés en brouillon" })).toBeVisible();
 
     const journal = screen.getByRole("region", { name: "Corrections appliquées à l’aperçu" });
@@ -307,15 +319,36 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     renderImport();
     await user.upload(fileInput(), xlsxFile("classeur.xlsx", { All_data: rows }, { A2: "000000" }));
     await user.selectOptions(await screen.findByLabelText("En-tête du classeur à lire comme ID"), "A · Réf");
+    await showWorkbookPreview(user);
     await user.click(await screen.findByRole("button", { name: "Importer 2 brouillons" }));
     await waitFor(() => expect(previews()).toHaveLength(3));
     expect(previews().slice(1).map((entry) => [entry.body?.confirm, entry.body?.rows?.[1][0]])).toEqual([[false, "000042"], [true, "000042"]]);
+  });
+
+  it("waits for the column choice when a corrections file restores a required header", async () => {
+    const user = userEvent.setup();
+    answers.articles = () => previews().length === 1
+      ? respond(422, { ok: false, error: { code: "COSTING_WORKBOOK_FORMAT", message: "ID manquant" } })
+      : respond(200, { ok: true, data: articleReport() });
+    renderImport();
+    await user.upload(fileInput(), costingWorkbook([["Réf", ...HEADERS.slice(1)], ...SHEET_ROWS.slice(1)]));
+    await screen.findByLabelText("En-tête du classeur à lire comme ID");
+    await user.upload(screen.getByLabelText("Fichier de corrections"), xlsxFile("en-tete.xlsx", { Corrections: [
+      ["Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article", "Ligne d’en-tête"],
+      ["A1", "Réf", "ID", "Réf", "", "Oui"],
+    ] }));
+    expect(await screen.findByRole("dialog", { name: "Colonnes à afficher" })).toBeVisible();
+    expect(previews()).toHaveLength(1);
+    await showWorkbookPreview(user);
+    expect(await screen.findByRole("table", { name: "Articles proposés en brouillon" })).toBeVisible();
+    expect(previews()[1].body?.rows?.[0]?.[0]).toBe("ID");
   });
 
   it("refuses an oversized corrections file before reading it", async () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     const file = new File([], "corrections.xlsx");
     Object.defineProperty(file, "size", { value: 20 * 1024 * 1024 + 1 });
@@ -332,6 +365,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     renderImport();
     const rows = SHEET_ROWS.map((row, index) => index === 1 ? row.map((cell, column) => column === 6 ? name : cell) : row);
     await user.upload(fileInput(), costingWorkbook(rows));
+    await showWorkbookPreview(user);
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     await user.click(screen.getByRole("tab", { name: "Références fournisseur" }));
     await user.click(await screen.findByRole("button", { name: "Fournisseur actif introuvable" }));
@@ -344,6 +378,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     expect(screen.getByText("À choisir")).toBeVisible();
 
@@ -426,6 +461,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     await user.upload(fileInput(), xlsxFile("corrections.xlsx", { Corrections: [["Cellule à vérifier"]] }));
     await screen.findByText(/Ce classeur n’a pas d’onglet/);
@@ -436,6 +472,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     await user.click(within(table).getByRole("button", { name: "Corriger la cellule E3" }));
     await user.type(screen.getByLabelText("Nouvelle valeur de la cellule E3"), "9,90");
@@ -462,6 +499,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
       SHEET_ROWS[2],
     ];
     await user.upload(fileInput(), costingWorkbook(rows));
+    await showWorkbookPreview(user);
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     await user.click(screen.getByRole("tab", { name: "Références fournisseur" }));
     const conflict = within(await screen.findByRole("list", { name: "Références produit à départager" }));
@@ -480,6 +518,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
       ({ row: index + 2, slot: 1, reason: "article_to_create" })) }) });
     renderImport();
     await user.upload(fileInput(), costingWorkbook([HEADERS, ...data]));
+    await showWorkbookPreview(user);
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     await user.click(screen.getByRole("tab", { name: "Références fournisseur" }));
     const list = within(await screen.findByRole("list", { name: "Articles à créer d’abord" }));
@@ -492,6 +531,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     const corrections = xlsxFile("corrections.xlsx", { Corrections: [
       ["Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article", "Identifiant unique à l’export"],
@@ -517,6 +557,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     await user.click(within(table).getByRole("button", { name: "Corriger la cellule E3" }));
     await user.type(screen.getByLabelText("Nouvelle valeur de la cellule E3"), "9,90{Enter}");
@@ -525,6 +566,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const dialog = await screen.findByRole("alertdialog", { name: "Changer de classeur ?" });
     expect(previews()).toHaveLength(2);
     await user.click(within(dialog).getByRole("button", { name: "Reprendre les corrections" }));
+    await showWorkbookPreview(user);
     await waitFor(() => expect(previews()).toHaveLength(3));
     expect(previews()[2].body?.rows?.[2][4]).toBe("9,90");
     expect(screen.getByText(/1 correction.*reprise/)).toBeVisible();
@@ -559,6 +601,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     await user.click(within(table).getByRole("button", { name: "Corriger la cellule E3" }));
     await user.type(screen.getByLabelText("Nouvelle valeur de la cellule E3"), "9,90{Enter}");
@@ -571,6 +614,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     expect(dialog.getByText(/E3.*9,90.*la valeur d’origine a changé/)).toBeVisible();
     expect(previews()).toHaveLength(2);
     await user.click(dialog.getByRole("button", { name: "Reprendre les corrections" }));
+    await showWorkbookPreview(user);
     await waitFor(() => expect(previews()[2].body?.rows?.[2][4]).toBe(13));
     expect(screen.getByText(/E3.*9,90.*la valeur d’origine a changé/)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Exporter les corrections écartées" }));
@@ -606,6 +650,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
 
     const corrections = xlsxFile("corrections.xlsx", { Corrections: [
@@ -630,6 +675,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     const user = userEvent.setup();
     renderImport();
     await user.upload(fileInput(), costingWorkbook());
+    await showWorkbookPreview(user);
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
 
     const corrections = xlsxFile("anciennes-corrections.xlsx", { Corrections: [
