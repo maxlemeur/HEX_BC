@@ -121,11 +121,16 @@ export function RowExclusions({ rows, originalRows, inspection, disabled, visibl
 
   useEffect(() => () => pending.current?.abort(), [rows]);
 
-  function resetProposal() {
+  const resetProposal = useCallback(() => {
     setProposal(null);
     setPage(0);
     setSelected(new Set());
-  }
+  }, []);
+
+  const changeCriterion = useCallback((value: string) => {
+    setCriterion(value);
+    resetProposal();
+  }, [resetProposal]);
 
   const previewReliabilityZero = useCallback((rowNumbers: readonly number[]) => {
     if (!visible || disabled || settingsLocked || pending.current) return false;
@@ -216,9 +221,9 @@ export function RowExclusions({ rows, originalRows, inspection, disabled, visibl
   const resultAvailable = answer !== null && !loading;
   const statusLabel = answer ? triggerLabel : "Écarter des lignes";
   useEffect(() => {
-    publish?.({ running: loading, result: resultAvailable, label: statusLabel, snapshot, prepare: setCriterion,
+    publish?.({ running: loading, result: resultAvailable, label: statusLabel, snapshot, prepare: changeCriterion,
       previewReliabilityZero: previewAllReliabilityZero });
-  }, [publish, loading, resultAvailable, statusLabel, snapshot, previewAllReliabilityZero]);
+  }, [publish, loading, resultAvailable, statusLabel, snapshot, changeCriterion, previewAllReliabilityZero]);
   useEffect(() => () => publish?.(null), [publish]);
   useEffect(() => { if (!visible) setOpen(false); }, [visible]);
   const workbookActive = dock?.workbookActive;
@@ -251,7 +256,7 @@ export function RowExclusions({ rows, originalRows, inspection, disabled, visibl
             placeholder="Décrivez les lignes à écarter de l’import…"
             className="min-h-16 max-h-40 resize-none border-0 bg-transparent px-3 py-2 leading-relaxed text-(--workbook-composer-text) placeholder:text-(--workbook-composer-muted) focus-visible:ring-0 disabled:bg-transparent sm:min-h-20 sm:px-4"
             disabled={loading}
-            onChange={(event) => { setCriterion(event.target.value); resetProposal(); }}
+            onChange={(event) => changeCriterion(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
