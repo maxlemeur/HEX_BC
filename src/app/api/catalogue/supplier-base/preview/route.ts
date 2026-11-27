@@ -1,7 +1,7 @@
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { canAddToCatalogue } from "@/lib/catalogue/access";
 import {
-  SUPPLIER_BASE_FILE_TOO_LARGE, SUPPLIER_BASE_MAX_FILE_BYTES, supplierBaseUploadSchema,
+  SUPPLIER_BASE_FILE_TOO_LARGE, SUPPLIER_BASE_MAX_FILE_BYTES, SUPPLIER_BASE_MAX_PREVIEW_BYTES, supplierBaseUploadSchema,
 } from "@/lib/catalogue/supplier-base-contract";
 import { buildSupplierBasePreview } from "@/lib/catalogue/supplier-base-plan-server";
 import { readSupplierBaseWorkbook } from "@/lib/catalogue/supplier-base-workbook";
@@ -49,8 +49,12 @@ export async function POST(request: Request) {
     request.signal.throwIfAborted();
     const data = await buildSupplierBasePreview(context, workbook);
     const json = JSON.stringify({ ok: true, data });
-    if (Buffer.byteLength(json) > SUPPLIER_BASE_MAX_FILE_BYTES) {
-      throw payloadTooLarge("L’aperçu est trop volumineux. Répartissez les feuilles fournisseurs entre plusieurs classeurs.");
+    if (Buffer.byteLength(json) > SUPPLIER_BASE_MAX_PREVIEW_BYTES) {
+      throw payloadTooLarge(
+        "L’aperçu dépasse la limite de 4 Mo. Répartissez les feuilles fournisseurs entre plusieurs classeurs.",
+        undefined,
+        "SUPPLIER_BASE_PREVIEW_SIZE_LIMIT",
+      );
     }
     return new Response(json, {
       headers: { "Content-Type": "application/json", "Cache-Control": "private, no-store" },

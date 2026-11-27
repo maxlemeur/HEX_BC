@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const SUPPLIER_BASE_MAX_FILE_BYTES = 4 * 1024 * 1024;
+export const SUPPLIER_BASE_MAX_PREVIEW_BYTES = 4 * 1024 * 1024;
 export const SUPPLIER_BASE_FILE_TOO_LARGE = "Choisissez un classeur Excel de 4 Mo au plus.";
 
 export const supplierBaseUploadSchema = z.object({
@@ -9,23 +10,33 @@ export const supplierBaseUploadSchema = z.object({
 
 const rowIssueSchema = z.enum([
   "missing_supplier", "missing_designation", "missing_reference", "duplicate_reference",
-  "invalid_price", "missing_price_date", "invalid_price_date", "unknown_price_unit",
-  "invalid_packaging_quantity",
+  "invalid_price", "inexact_price", "price_cents_overflow", "missing_price_date", "invalid_price_date", "future_price_date",
+  "inactive_price_same_date", "unknown_price_unit", "invalid_packaging_quantity",
+  "invalid_packaging_price", "packaging_price_mismatch",
 ]);
 
 const sourcePositionSchema = z.object({ sheet: z.string(), row: z.number().int().positive() });
 const priceDateSchema = z.iso.date();
+const centsSchema = z.number().int().nonnegative().max(2147483647);
 const workbookRowSchema = sourcePositionSchema.extend({
   supplier_name: z.string().nullable(),
   designation: z.string().nullable(),
   supplier_reference: z.string().nullable(),
-  unit_price_cents: z.number().int().nonnegative().max(2147483647).nullable(),
+  price: z.object({
+    decimal: z.string().describe("Montant décimal exact, en euros HT, pour le nombre d’unités indiqué par per."),
+    per: z.union([z.literal(1), z.literal(100)]),
+    unit_price_cents: centsSchema.nullable(),
+    lot_price: z.object({
+      units: z.literal(100),
+      amount_cents: centsSchema,
+    }).nullable().describe("Prix équivalent pour 100 unités lorsque le montant est exact en centimes."),
+  }).nullable(),
   price_unit: z.string().nullable(),
   price_unit_code: z.string().nullable(),
   packaging_label: z.string().nullable(),
   packaging_quantity: z.number().positive().nullable(),
   price_date: priceDateSchema.nullable(),
-  document: z.object({ text: z.string(), kind: z.string().nullable(), number: z.string().nullable() }).nullable(),
+  document: z.union([z.object({ kind: z.string(), number: z.string() }), z.object({ text: z.string() })]).nullable(),
   observations: z.string().nullable(),
   source_file_text: z.string().nullable(),
   fragile: z.boolean(),
@@ -38,25 +49,27 @@ const articleSchema = z.object({
   designation: z.string(),
   reference: z.string().nullable(),
 });
-const proposalDetails = {
-  designation: z.string(),
-  gaps: z.array(z.string()),
-};
+const gapSchema = z.enum([
+  "dimension_unknown", "material_unknown", "unit_unknown", "unit_mismatch", "type_unknown", "precision_check",
+  "draft_article", "missing_article", "pending_reference", "archived_article_or_reference",
+  "article_not_editable", "ambiguous_reference", "supplier_reference_exists", "supplier_reference_inactive",
+  "packaging_differs", "same_supplier_same_article",
+]);
 const proposalSchema = z.discriminatedUnion("source", [
-  articleSchema.extend({ ...proposalDetails, source: z.literal("catalogue") }),
-  sourcePositionSchema.extend({ ...proposalDetails, source: z.literal("workbook"), supplier_name: z.string() }),
+  z.object({ source: z.literal("catalogue"), article_id: articleSchema.shape.id, gaps: z.array(gapSchema) }),
+  sourcePositionSchema.extend({ source: z.literal("workbook"), gaps: z.array(gapSchema) }),
 ]);
 const plannedRowSchema = z.object({
   row: workbookRowSchema,
   known_reference: z.object({
     id: z.string().uuid(),
-    article: articleSchema,
+    article_id: articleSchema.shape.id,
     state: z.enum(["active", "pending_review", "archived"]),
     latest_price_date: priceDateSchema.nullable(),
   }).nullable(),
-  price_action: z.enum(["none", "add", "skip", "review"]),
+  price_action: z.enum(["none", "add", "skip", "review", "per_lot"]),
   proposals: z.array(proposalSchema),
-  gaps: z.array(z.string()),
+  gaps: z.array(gapSchema),
 });
 
 const supplierSchema = z.object({
@@ -69,7 +82,11 @@ const supplierSchema = z.object({
 });
 export const supplierBasePreviewSchema = z.object({
   row_count: z.number().int().nonnegative(),
-  skipped_sheets: z.array(z.string()),
+  skipped_sheets: z.array(z.object({
+    name: z.string(), reason: z.enum(["index", "summary", "rental", "hidden"]),
+  })),
+  sheet_warnings: z.array(z.object({ sheet: z.string(), missing_optional_columns: z.array(z.string()) })),
+  articles: z.array(articleSchema).describe("Articles visés par les références connues et les propositions, listés une seule fois."),
   suppliers: z.array(supplierSchema.extend({
     known: z.array(plannedRowSchema),
     proposed: z.array(plannedRowSchema),
@@ -82,3 +99,5 @@ export type SupplierBasePreview = z.infer<typeof supplierBasePreviewSchema>;
 export type SupplierBaseGroup = SupplierBasePreview["suppliers"][number];
 export type SupplierBasePlannedRow = z.infer<typeof plannedRowSchema>;
 export type SupplierBaseProposal = z.infer<typeof proposalSchema>;
+export type SupplierBaseGap = z.infer<typeof gapSchema>;
+export type SupplierBaseWorkbook = Pick<SupplierBasePreview, "skipped_sheets" | "sheet_warnings"> & { rows: SupplierBaseRow[] };

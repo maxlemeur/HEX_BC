@@ -9,32 +9,37 @@ import path from "node:path";
 const root = process.cwd();
 const distDir = process.env.PERFORMANCE_BUILD_DIR?.trim() || (process.env.E2E_ARMY === "1" ? ".build/tester-army/next" : ".next");
 const routes = [
-  "api/imports/route.js.nft.json",
-  "api/affaires/[projectId]/intake/files/[documentId]/route.js.nft.json",
+  { manifest: "api/imports/route.js.nft.json", usesExcelJs: true },
+  { manifest: "api/affaires/[projectId]/intake/files/[documentId]/route.js.nft.json", usesExcelJs: true },
+  { manifest: "api/catalogue/supplier-base/preview/route.js.nft.json", usesExcelJs: false },
 ];
 const temporary = await mkdtemp(path.join(os.tmpdir(), "mergeone-xlsx-runtime-"));
 const probe = `
 const { Worker } = require("node:worker_threads");
 const worker = new Worker(\`
   const fs = require("node:fs");
-  const { parentPort } = require("node:worker_threads");
+  const { parentPort, workerData } = require("node:worker_threads");
   const XLSX = require("xlsx");
-  const ExcelJS = require("exceljs");
   (async () => {
     const bytes = fs.readFileSync("sample.xlsx");
     const workbook = XLSX.read(bytes, { type: "buffer" });
     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
-    const styled = new ExcelJS.Workbook();
-    await styled.xlsx.load(bytes);
-    parentPort.postMessage({ rows: rows.length, sheets: styled.worksheets.length });
+    let sheets = workbook.SheetNames.length;
+    if (workerData.usesExcelJs) {
+      const ExcelJS = require("exceljs");
+      const styled = new ExcelJS.Workbook();
+      await styled.xlsx.load(bytes);
+      sheets = styled.worksheets.length;
+    }
+    parentPort.postMessage({ rows: rows.length, sheets });
   })().catch(error => { throw error; });
-\`, { eval: true });
+\`, { eval: true, workerData: { usesExcelJs: process.argv[2] === "xlsx-and-exceljs" } });
 worker.once("message", result => { console.log(JSON.stringify(result)); });
 worker.once("error", error => { console.error(error.message); process.exitCode = 1; });
 `;
 
 try {
-  for (const [index, route] of routes.entries()) {
+  for (const [index, { manifest: route, usesExcelJs }] of routes.entries()) {
     const trace = path.join(root, distDir, "server/app", route);
     const manifest = JSON.parse(await readFile(trace, "utf8"));
     const isolated = path.join(temporary, String(index));
@@ -53,7 +58,7 @@ try {
     await copyFile(path.join(root, "public/exemple-dpgf.xlsx"), path.join(isolated, "sample.xlsx"));
     await writeFile(path.join(isolated, "probe.cjs"), probe);
     const output = await new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, ["probe.cjs"], {
+      const child = spawn(process.execPath, ["probe.cjs", usesExcelJs ? "xlsx-and-exceljs" : "xlsx"], {
         cwd: isolated, env: { PATH: process.env.PATH ?? "", TMPDIR: os.tmpdir() },
         stdio: ["ignore", "pipe", "pipe"], timeout: 30_000,
       });

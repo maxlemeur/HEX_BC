@@ -2,6 +2,8 @@ import { aliasKey, matchLine, prepareCatalogue, unitsDiffer, type MatchArticle }
 import { compareSizes, readSize } from "@/lib/material-requests/size-keys";
 import { foldText, foldWords } from "@/lib/text/fold";
 
+import type { SupplierBaseGap } from "./supplier-base-contract";
+
 const MAX_MATCHES = 3;
 const MAX_RANKED_CANDIDATES = 160;
 const MATERIAL_WORDS = /\b(?:acier galvanise|acier carbone|acier inoxydable|inox|acier|cuivre|laiton|bronze|fonte|aluminium|multicouche|pvc|pehd|ppr|per|polyethylene|polypropylene|caoutchouc|epdm|ptfe)\b/u;
@@ -9,6 +11,15 @@ const PRECISION_WORDS = /\b(?:[1234]\d{2}l?|a[24]|pn\s*\d+|(?:en|iso|din)\s*\d{3
 const SIZE_EXPRESSION = /\b\d+(?:[.,]\d+)?(?:\s*[x×/]\s*\d+(?:[.,]\d+)?){1,3}(?:\s*mm)?\b/u;
 
 const wordingKey = (text: string) => foldText(text).trim().replace(/\s+/gu, " ");
+
+function dimensionKey(value: string) {
+  return wordingKey(value).replace(/\s|mm$/gu, "").replace(/×/gu, "x").replace(/,/gu, ".")
+    .replace(/\d+(?:\.\d+)?/gu, (part) => {
+      const [whole, fraction] = part.split(".");
+      const normalized = fraction?.replace(/0+$/u, "");
+      return whole.replace(/^0+(?=\d)/u, "") + (normalized ? `.${normalized}` : "");
+    });
+}
 
 function materialOf(text: string): string | null {
   const found = MATERIAL_WORDS.exec(foldWords(text))?.[0] ?? null;
@@ -35,7 +46,7 @@ function describe(article: MatchArticle) {
     material,
     dimension,
     size: readSize(dimension, material),
-    dimensions: dimensions ? wordingKey(dimensions).replace(/\s|mm$/gu, "").replace(/×/gu, "x").replace(/,/gu, ".") : null,
+    dimensions: dimensions ? dimensionKey(dimensions) : null,
     precision: [article.grade, article.standard].filter(Boolean).join(" ")
       || [...foldWords(article.designation).matchAll(PRECISION_WORDS)].map(([word]) => word).join(" ") || null,
     wording: wordingKey(article.designation),
@@ -51,8 +62,31 @@ function compare(left: Description, right: Description) {
   let size = compareSizes(left.size, right.size);
   // The common size reader compares diameters. Keep additional dimensions such as wall thickness here.
   if (left.dimensions && right.dimensions) size = left.dimensions === right.dimensions ? "same" : "different";
+  else if (left.size?.od != null && right.size?.od != null && left.size.od !== right.size.od) size = "different";
+  else if (size === "same" && Boolean(left.size?.reduce ?? left.size?.reduceOd) !== Boolean(right.size?.reduce ?? right.size?.reduceOd)) size = "unknown";
   const material = !left.material || !right.material ? "unknown" : left.material === right.material ? "same" : "different";
   return { sameWording, size, material } as const;
+}
+
+function proposalGaps(left: Description, right: Description, comparison: ReturnType<typeof compare>): SupplierBaseGap[] {
+  const gaps: SupplierBaseGap[] = [];
+  if (comparison.size === "unknown") gaps.push("dimension_unknown");
+  if (comparison.material === "unknown") gaps.push("material_unknown");
+  if (!left.article.unit || !right.article.unit) gaps.push("unit_unknown");
+  else if (unitsDiffer(left.article.unit, right.article.unit)) gaps.push("unit_mismatch");
+  if (![...left.heads].some((head) => right.heads.has(head))) gaps.push("type_unknown");
+  if (foldWords(left.precision ?? "") !== foldWords(right.precision ?? "")) gaps.push("precision_check");
+  if (right.article.catalogue_status === "draft") gaps.push("draft_article");
+  return gaps;
+}
+
+/** Check the actual target as well when a workbook peer already has a catalogue reference. */
+export function supplierBaseLinkedArticleGaps(line: MatchArticle, article: MatchArticle): SupplierBaseGap[] | null {
+  const left = describe(line);
+  const right = describe(article);
+  const comparison = compare(left, right);
+  if (comparison.size === "different" || comparison.material === "different") return null;
+  return proposalGaps(left, right, comparison);
 }
 
 export function createSupplierBaseMatcher<T extends MatchArticle>(articles: readonly T[]) {
@@ -91,10 +125,9 @@ export function createSupplierBaseMatcher<T extends MatchArticle>(articles: read
       const comparison = compare(left, right);
       const alias = right.aliases.has(lineAliasKey);
       const { sameWording, size, material } = comparison;
+      if (size === "different" || material === "different") return [];
       if (workbook && !sameWording && (size !== "same" || material !== "same")) return [];
-      if (!sameWording && !alias && (size === "different" || material === "different") && size !== "same" && material !== "same") return [];
-      const rank = 8 * Number(sameWording || alias) + 4 * Number(size === "same") + 2 * Number(material === "same")
-        - Number(size === "different") - Number(material === "different");
+      const rank = 8 * Number(sameWording || alias) + 4 * Number(size === "same") + 2 * Number(material === "same");
       return [{ article, right, comparison, rank }];
     }).sort((a, b) => b.rank - a.rank).slice(0, MAX_RANKED_CANDIDATES);
 
@@ -105,22 +138,13 @@ export function createSupplierBaseMatcher<T extends MatchArticle>(articles: read
       material_precision: left.precision,
       dimension: left.dimension,
       unit: line.unit,
-    }, candidates.map(({ article }) => prepared.get(article.id)!), { byHand: true, limit: candidates.length });
+    }, candidates.map(({ article }) => prepared.get(article.id)!), { limit: candidates.length });
     const byId = new Map(matched.map((candidate) => [candidate.product_id, candidate]));
 
     return candidates.flatMap(({ article, right, comparison, rank }) => {
       const match = byId.get(article.id);
       if (!match && !comparison.sameWording) return [];
-      const gaps = [];
-      if (comparison.size === "different") gaps.push("Dimensions différentes.");
-      if (comparison.size === "unknown") gaps.push("Dimension à confirmer.");
-      if (comparison.material === "different") gaps.push("Matières différentes.");
-      if (comparison.material === "unknown") gaps.push("Matière à confirmer.");
-      if (!line.unit || !right.article.unit) gaps.push("Unité à confirmer.");
-      else if (!match && unitsDiffer(line.unit, right.article.unit)) gaps.push("Unités différentes.");
-      if (!comparison.sameWording && left.precision !== right.precision) gaps.push("Nuance ou norme à confirmer.");
-      gaps.push(...(match?.warnings ?? []));
-      return [{ article, gaps: [...new Set(gaps)], rank, score: match?.score ?? 0 }];
+      return { article, gaps: proposalGaps(left, right, comparison), rank, score: match?.score ?? 0 };
     }).sort((a, b) => b.rank - a.rank || b.score - a.score).slice(0, MAX_MATCHES);
   };
 }

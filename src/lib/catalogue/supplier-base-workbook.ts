@@ -6,25 +6,35 @@ import { SSF } from "xlsx";
 
 import { readXlsxArchiveWithinBudget } from "@/lib/affaires/intake-office-archive";
 import { workbookSupplierNameKey } from "@/lib/catalogue/costing-workbook";
-import { ApiError, badRequest } from "@/lib/http/api-error";
-import { formatDecimalInput, parseAmountCents, parseDecimalInput } from "@/lib/numeric-input/parsers";
+import { ApiError, badRequest, payloadTooLarge } from "@/lib/http/api-error";
+import { formatDecimalInput, parseDecimalInput } from "@/lib/numeric-input/parsers";
+import { acquireWorkbookParseSlot } from "@/lib/spreadsheet-workbook-parse-pool";
 import { foldWords } from "@/lib/text/fold";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 
-import type { SupplierBaseRow } from "./supplier-base-contract";
+import type { SupplierBaseRow, SupplierBaseWorkbook } from "./supplier-base-contract";
+import { packagingPriceIssue, readSupplierBasePrice } from "./supplier-base-prices";
 
 const PARSE_TIMEOUT_MS = 10_000;
-const MAX_CONCURRENT_PREVIEWS = 2;
-let activePreviews = 0;
-
 const limits = { sheets: 48, rowsPerSheet: 1000, columns: 60, cells: 120_000, text: 4000, textTotal: 4_000_000 };
 const HEADER_SCAN_ROWS = 12;
 const HEADER_ROW = 4;
-const SKIPPED = ["sommaire", "recap", "location"];
+const SKIPPED = { sommaire: "index", recap: "summary", location: "rental" };
+const WORKER_LIMITS = {
+  sheets: "Le classeur dépasse la limite de 48 feuilles.",
+  rows: "Une feuille dépasse la limite de 1 000 lignes.",
+  columns: "Une feuille dépasse la limite de 60 colonnes.",
+  cells: "Le classeur dépasse la limite de 120 000 cellules.",
+  cell_text: "Une cellule dépasse la limite de 4 000 caractères.",
+  total_text: "Le texte du classeur dépasse la limite de 4 000 000 de caractères.",
+  time: "Le délai de lecture du classeur a dépassé 10 secondes.",
+  memory: "Le classeur dépasse le budget mémoire de lecture.",
+} as const;
 
 type Cell = { value: string | number | null; display?: string };
 type RawSheet = { name: string; rows: Array<[number, Array<[number, Cell]>]> };
-type WorkbookRead = { sheets: RawSheet[]; skipped: string[]; date1904: boolean };
+type WorkbookRead = { sheets: RawSheet[]; skipped: SupplierBaseWorkbook["skipped_sheets"]; date1904: boolean };
+type WorkerResult = WorkbookRead | { limit: keyof typeof WORKER_LIMITS };
 
 // Project only bounded cell values across the worker boundary. Links, styles and formulas stay in the worker.
 const WORKER_SCRIPT = String.raw`
@@ -32,18 +42,22 @@ const { parentPort, workerData } = require("node:worker_threads");
 const { bytes, limits, skipped } = workerData;
 const xlsx = require("xlsx");
 try {
-  const options = { type: "array", cellHTML: false, cellDates: false };
+  const options = { type: "array", cellHTML: false, cellDates: false, cellNF: true };
   const names = xlsx.read(bytes, { ...options, bookSheets: true }).SheetNames;
-  if (names.length > limits.sheets) throw new Error("sheet limit");
-  const skipName = (name) => skipped.includes(name.normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase());
-  const selected = names.flatMap((name, index) => skipName(name) ? [] : [index]);
+  if (names.length > limits.sheets) throw "sheets";
+  const skipReason = (name) => {
+    const key = name.normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase();
+    return Object.hasOwn(skipped, key) ? skipped[key] : undefined;
+  };
+  const selected = names.flatMap((name, index) => skipReason(name) ? [] : [index]);
   const workbook = xlsx.read(bytes, { ...options, sheets: selected, sheetStubs: true });
   const result = { sheets: [], skipped: [], date1904: Boolean(workbook.Workbook?.WBProps?.date1904) };
   let cellCount = 0;
   let textCount = 0;
   names.forEach((name, index) => {
-    if (skipName(name) || workbook.Workbook?.Sheets?.[index]?.Hidden) {
-      result.skipped.push(name);
+    const reason = skipReason(name) ?? (workbook.Workbook?.Sheets?.[index]?.Hidden ? "hidden" : undefined);
+    if (reason) {
+      result.skipped.push({ name, reason });
       return;
     }
     const sheet = workbook.Sheets?.[name];
@@ -56,13 +70,22 @@ try {
       const value = typeof cell.v === "number" && cell.t === "n" || typeof cell.v === "string" && cell.t === "s" ? cell.v : null;
       if (typeof value === "string" && !value.trim()) continue;
       const { r, c } = xlsx.utils.decode_cell(address);
-      if (r >= limits.rowsPerSheet || c >= limits.columns || ++cellCount > limits.cells) throw new Error("cell limit");
+      if (r >= limits.rowsPerSheet) throw "rows";
+      if (c >= limits.columns) throw "columns";
+      if (++cellCount > limits.cells) throw "cells";
       const projected = { value };
       if (typeof value === "string") {
-        if (value.length > limits.text || (textCount += value.length) > limits.textTotal) throw new Error("text limit");
+        if (value.length > limits.text) throw "cell_text";
+        if ((textCount += value.length) > limits.textTotal) throw "total_text";
       }
-      if (typeof value === "number" && typeof cell.w === "string" && /^0\d+$/.test(cell.w) && cell.w.length <= 64) {
-        projected.display = cell.w;
+      if (typeof value === "number" && cell.z && cell.z !== "General" && typeof cell.w === "string") {
+        const display = cell.w.trim();
+        // Numeric identifiers saved in scientific format still use their full digits.
+        if (display && !/^[+-]?\d+(?:[.,]\d+)?e[+-]?\d+$/i.test(display)) {
+          if (display.length > limits.text) throw "cell_text";
+          if ((textCount += display.length) > limits.textTotal) throw "total_text";
+          projected.display = display;
+        }
       }
       if (!rows.has(r + 1)) rows.set(r + 1, []);
       rows.get(r + 1).push([c, projected]);
@@ -70,15 +93,24 @@ try {
     result.sheets.push({ name, rows: [...rows].sort(([a], [b]) => a - b) });
   });
   parentPort.postMessage(result);
-} catch {
-  parentPort.postMessage(null);
+} catch (error) {
+  parentPort.postMessage(typeof error === "string" ? { limit: error } : null);
 }
 `;
 
 async function readWorkbook(bytes: Buffer, signal?: AbortSignal): Promise<WorkbookRead> {
   signal?.throwIfAborted();
   // Repack validated archive members so the parser sees the same headers as the archive budget check.
-  const archive = zipSync(readXlsxArchiveWithinBudget(bytes), { level: 0 });
+  let archive: Uint8Array;
+  try {
+    archive = zipSync(readXlsxArchiveWithinBudget(bytes), { level: 0 });
+  } catch (error) {
+    // The archive reader names its budgets and emits fixed messages for malformed entries.
+    if (error instanceof Error && /depasse|dépasse/u.test(error.message)) {
+      throw payloadTooLarge(error.message, undefined, "SUPPLIER_BASE_ARCHIVE_LIMIT");
+    }
+    throw badRequest("Ce classeur Excel est illisible.", undefined, "SUPPLIER_BASE_INVALID_WORKBOOK");
+  }
   return new Promise((resolve, reject) => {
     const worker = new Worker(WORKER_SCRIPT, {
       eval: true,
@@ -88,21 +120,25 @@ async function readWorkbook(bytes: Buffer, signal?: AbortSignal): Promise<Workbo
     });
     let settled = false;
     const fail = () => finish(null);
-    const timer = setTimeout(fail, PARSE_TIMEOUT_MS);
-    function finish(result: WorkbookRead | null) {
+    const timer = setTimeout(() => finish({ limit: "time" }), PARSE_TIMEOUT_MS);
+    function finish(result: WorkerResult | null) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       signal?.removeEventListener("abort", fail);
       void worker.terminate().then(() => {
-        if (result) resolve(result);
-        else reject(new Error("Workbook parsing failed."));
+        if (result && "sheets" in result) resolve(result);
+        else if (result && Object.hasOwn(WORKER_LIMITS, result.limit)) {
+          reject(payloadTooLarge(WORKER_LIMITS[result.limit], undefined, `SUPPLIER_BASE_${result.limit.toUpperCase()}_LIMIT`));
+        } else reject(badRequest("Ce classeur Excel est illisible.", undefined, "SUPPLIER_BASE_INVALID_WORKBOOK"));
       }, reject);
     }
     signal?.addEventListener("abort", fail, { once: true });
     worker.once("message", finish);
     worker.once("messageerror", fail);
-    worker.once("error", fail);
+    worker.once("error", (error: NodeJS.ErrnoException) => {
+      finish(error.code === "ERR_WORKER_OUT_OF_MEMORY" ? { limit: "memory" } : null);
+    });
     worker.once("exit", fail);
   });
 }
@@ -115,6 +151,7 @@ const HEADERS = {
   unit: "Unité de prix",
   packaging: "Conditionnement",
   quantity: "Qté par cond.",
+  packPrice: "Prix du cond.",
   date: "Date du prix",
   document: "Document",
   observations: "Observations",
@@ -122,6 +159,8 @@ const HEADERS = {
 } as const;
 
 type Field = keyof typeof HEADERS;
+const REQUIRED_FIELDS = ["designation", "reference", "price", "unit", "date"] as const satisfies readonly Field[];
+const OPTIONAL_FIELDS = ["packaging", "quantity", "packPrice", "document", "observations", "source"] as const satisfies readonly Field[];
 const FIELD_BY_HEADER = new Map(Object.entries(HEADERS).map(([key, label]) => [foldWords(label), key as Field]));
 
 function cellText(cell: Cell | undefined): string | null {
@@ -130,7 +169,7 @@ function cellText(cell: Cell | undefined): string | null {
   return null;
 }
 
-function findHeader(sheet: RawSheet, grouped: boolean) {
+function findHeader(sheet: RawSheet) {
   const candidates = sheet.rows.filter(([row]) => row <= HEADER_SCAN_ROWS)
     .sort(([a], [b]) => Math.abs(a - HEADER_ROW) - Math.abs(b - HEADER_ROW));
   for (const [row, cells] of candidates) {
@@ -145,11 +184,15 @@ function findHeader(sheet: RawSheet, grouped: boolean) {
       }
       fields.set(field, column);
     }
-    if (!repeated && fields.size === Object.keys(HEADERS).length - (grouped ? 0 : 1) && fields.has("supplier") === grouped) {
+    if (!repeated && REQUIRED_FIELDS.every((field) => fields.has(field))) {
       return { row, fields };
     }
   }
-  throw badRequest(`Vérifiez les en-têtes de la feuille « ${sheet.name} ». Ils sont attendus près de la ligne 4.`);
+  throw badRequest(
+    `En-têtes introuvables ou en double dans « ${sheet.name} ». Les ${HEADER_SCAN_ROWS} premières lignes doivent contenir : ${REQUIRED_FIELDS.map((field) => HEADERS[field]).join(", ")}.`,
+    undefined,
+    "SUPPLIER_BASE_HEADER_NOT_FOUND",
+  );
 }
 
 function excelDate(cell: Cell | undefined, date1904: boolean) {
@@ -162,7 +205,8 @@ function excelDate(cell: Cell | undefined, date1904: boolean) {
 function readDocument(text: string | null): SupplierBaseRow["document"] {
   if (!text) return null;
   const match = /^(bon\s+de\s+livraison|accusé\s+de\s+réception|devis|facture|commande|a\.?r\.?|b\.?l\.?)(?:\s*[:#]\s*|\s+)(.+)$/iu.exec(text);
-  return { text, kind: match?.[1] ?? null, number: match?.[2]?.trim() || null };
+  const number = match?.[2]?.trim();
+  return match && number ? { kind: match[1], number } : { text };
 }
 
 function fragileReasons(observations: string | null): SupplierBaseRow["fragile_reasons"] {
@@ -178,11 +222,12 @@ function fragileReasons(observations: string | null): SupplierBaseRow["fragile_r
   return reasons;
 }
 
-function readSheet(sheet: RawSheet, date1904: boolean): SupplierBaseRow[] {
-  const grouped = foldWords(sheet.name) === "divers";
-  const header = findHeader(sheet, grouped);
+function readSheet(sheet: RawSheet, date1904: boolean, today: string) {
+  const header = findHeader(sheet);
+  const grouped = header.fields.has("supplier");
+  const missingOptionalColumns = OPTIONAL_FIELDS.filter((field) => !header.fields.has(field)).map((field) => HEADERS[field]);
   const readColumns = new Set(header.fields.values());
-  return sheet.rows.flatMap(([row, entries]) => {
+  const rows = sheet.rows.flatMap(([row, entries]): SupplierBaseRow[] => {
     if (row <= header.row || !entries.some(([column]) => readColumns.has(column))) return [];
     const cells = new Map(entries);
     const cell = (field: Field) => cells.get(header.fields.get(field) ?? -1);
@@ -190,9 +235,7 @@ function readSheet(sheet: RawSheet, date1904: boolean): SupplierBaseRow[] {
     const supplier = grouped ? value("supplier") : sheet.name.trim();
     const designation = value("designation");
     const reference = value("reference");
-    const price = cell("price");
-    const cents = parseAmountCents(price?.value);
-    const unitPriceCents = cents !== null && cents >= 0 && cents <= 2147483647 && !(typeof price?.value === "number" && price.value < 0) ? cents : null;
+    const priceCell = cell("price");
     const date = excelDate(cell("date"), date1904);
     const priceUnit = value("unit");
     const priceUnitCode = normalizeMeasurementUnit(priceUnit).unitCode;
@@ -200,26 +243,38 @@ function readSheet(sheet: RawSheet, date1904: boolean): SupplierBaseRow[] {
     const packagingQuantity = quantity !== null && quantity > 0 ? quantity : null;
     const observations = value("observations");
     const fragile = fragileReasons(observations);
+    const parsedPrice = readSupplierBasePrice(priceCell?.value, fragile.includes("price_per_100") ? 100 : 1);
+    const packPrice = cell("packPrice");
     const issues: SupplierBaseRow["issues"] = [];
     if (!supplier) issues.push("missing_supplier");
     if (!designation) issues.push("missing_designation");
     if (!reference) issues.push("missing_reference");
-    if (price && unitPriceCents === null) issues.push("invalid_price");
-    if (price && !cell("date")) issues.push("missing_price_date");
+    if (priceCell && !parsedPrice) issues.push("invalid_price");
+    if (parsedPrice?.issue) issues.push(parsedPrice.issue);
+    if (priceCell && !cell("date")) issues.push("missing_price_date");
     if (cell("date") && !date) issues.push("invalid_price_date");
-    if ((price || cell("unit")) && !priceUnitCode) issues.push("unknown_price_unit");
+    if (date && date > today) issues.push("future_price_date");
+    if ((priceCell || cell("unit")) && !priceUnitCode) issues.push("unknown_price_unit");
     if (cell("quantity") && packagingQuantity === null) issues.push("invalid_packaging_quantity");
+    if (parsedPrice && packagingQuantity !== null && packPrice) {
+      const issue = packagingPriceIssue(parsedPrice.decimal, parsedPrice.per, packagingQuantity, packPrice.value);
+      if (issue) issues.push(issue);
+    }
+    const price = parsedPrice ? {
+      decimal: parsedPrice.decimal, per: parsedPrice.per, unit_price_cents: parsedPrice.unit_price_cents, lot_price: parsedPrice.lot_price,
+    } : null;
     return [{
       sheet: sheet.name, row, supplier_name: supplier || null, designation, supplier_reference: reference,
-      unit_price_cents: unitPriceCents, price_unit: priceUnit, price_unit_code: priceUnitCode,
+      price, price_unit: priceUnit, price_unit_code: priceUnitCode,
       packaging_label: value("packaging"), packaging_quantity: packagingQuantity, price_date: date,
       document: readDocument(value("document")), observations, source_file_text: value("source"),
       fragile: fragile.length > 0, fragile_reasons: fragile, issues,
     }];
   });
+  return { rows, missingOptionalColumns };
 }
 
-export const supplierBaseReferenceKey = (reference: string) => reference.trim().toLocaleLowerCase("fr-FR");
+export const supplierBaseReferenceKey = (reference: string) => reference.trim().replace(/\s+/gu, " ").toLocaleLowerCase("fr-FR");
 
 export function flagDuplicateSupplierReferences(rows: SupplierBaseRow[], supplierKey: (name: string) => string) {
   const keys = rows.map(({ supplier_name, supplier_reference }) => supplier_name && supplier_reference
@@ -234,23 +289,27 @@ export function flagDuplicateSupplierReferences(rows: SupplierBaseRow[], supplie
   });
 }
 
-export async function readSupplierBaseWorkbook(bytes: Buffer, signal?: AbortSignal) {
-  if (activePreviews >= MAX_CONCURRENT_PREVIEWS) {
+export async function readSupplierBaseWorkbook(bytes: Buffer, signal?: AbortSignal): Promise<SupplierBaseWorkbook> {
+  const release = acquireWorkbookParseSlot();
+  if (!release) {
     throw new ApiError({ status: 503, code: "SUPPLIER_BASE_BUSY", message: "D’autres classeurs sont en cours de lecture. Réessayez dans un instant." });
   }
-  activePreviews += 1;
   try {
-    let workbook: WorkbookRead;
-    try {
-      workbook = await readWorkbook(bytes, signal);
-    } catch {
-      throw badRequest("Ce classeur Excel est illisible ou dépasse les limites de l’aperçu.");
+    const workbook = await readWorkbook(bytes, signal);
+    const today = new Date().toISOString().slice(0, 10);
+    const rows: SupplierBaseRow[] = [];
+    const sheet_warnings: SupplierBaseWorkbook["sheet_warnings"] = [];
+    for (const sheet of workbook.sheets) {
+      const parsed = readSheet(sheet, workbook.date1904, today);
+      rows.push(...parsed.rows);
+      if (parsed.missingOptionalColumns.length > 0) {
+        sheet_warnings.push({ sheet: sheet.name, missing_optional_columns: parsed.missingOptionalColumns });
+      }
     }
-    const rows = workbook.sheets.flatMap((sheet) => readSheet(sheet, workbook.date1904));
-    if (rows.length > 4000) throw badRequest("Le classeur dépasse les 4 000 lignes de l’aperçu.");
+    if (rows.length > 4000) throw payloadTooLarge("Le classeur dépasse les 4 000 lignes utiles de l’aperçu.", undefined, "SUPPLIER_BASE_ROW_LIMIT");
     if (rows.length === 0) throw badRequest("Aucun article à lire dans ce classeur.");
-    return { rows: flagDuplicateSupplierReferences(rows, workbookSupplierNameKey), skipped_sheets: workbook.skipped };
+    return { rows: flagDuplicateSupplierReferences(rows, workbookSupplierNameKey), skipped_sheets: workbook.skipped, sheet_warnings };
   } finally {
-    activePreviews -= 1;
+    release();
   }
 }

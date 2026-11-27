@@ -10,9 +10,9 @@ import { unitsDiffer, type MatchArticle } from "@/lib/material-requests/matching
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 
 import type {
-  SupplierBaseGroup, SupplierBasePlannedRow, SupplierBasePreview, SupplierBaseProposal, SupplierBaseRow,
+  SupplierBaseGap, SupplierBaseGroup, SupplierBasePlannedRow, SupplierBasePreview, SupplierBaseProposal, SupplierBaseRow, SupplierBaseWorkbook,
 } from "./supplier-base-contract";
-import { createSupplierBaseMatcher } from "./supplier-base-matching";
+import { createSupplierBaseMatcher, supplierBaseLinkedArticleGaps } from "./supplier-base-matching";
 import { flagDuplicateSupplierReferences, supplierBaseReferenceKey } from "./supplier-base-workbook";
 
 const ARTICLE_FIELDS = "id, reference, designation, product_type, material, grade, dimensions, standard, unit, catalogue_status, is_active, created_by";
@@ -96,16 +96,23 @@ async function loadCatalogue(context: AuthenticatedTenantContext, supplierIds: s
   };
 }
 
-async function loadLatestDates({ supabase, tenantId }: AuthenticatedTenantContext, ids: string[]) {
-  const prices = await readAllRowsInChunks([...new Set(ids)], (chunk) => supabase.from("supplier_pricebook")
-    .select("id, supplier_catalog_item_id, valid_from", { count: "exact" })
-    .eq("tenant_id", tenantId).in("supplier_catalog_item_id", chunk));
+async function loadPriceDates({ supabase, tenantId }: AuthenticatedTenantContext, ids: string[], today: string) {
+  // The catalogue migration backfilled this FK on every price. sync_supplier_price_catalog_item maintains it.
+  const prices = await readAllRowsInChunks(ids, (chunk) => supabase.from("supplier_pricebook")
+    .select("id, supplier_catalog_item_id, valid_from, is_active", { count: "exact" })
+    .eq("tenant_id", tenantId).eq("currency", "EUR").in("supplier_catalog_item_id", chunk));
   if (prices.error) throw mapSupabaseError(prices.error, "Impossible de lire les dates des prix existants.");
-  const latest = new Map<string, string>();
-  for (const { supplier_catalog_item_id, valid_from } of prices.data ?? []) {
-    if (valid_from > (latest.get(supplier_catalog_item_id) ?? "")) latest.set(supplier_catalog_item_id, valid_from);
+  const latestActive = new Map<string, string>();
+  const inactiveDates = new Set<string>();
+  for (const { supplier_catalog_item_id, valid_from, is_active } of prices.data ?? []) {
+    if (!is_active) {
+      inactiveDates.add(pairKey(supplier_catalog_item_id, valid_from));
+    } else if (valid_from <= today && valid_from > (latestActive.get(supplier_catalog_item_id) ?? "")) {
+      // Expiry is separate from deactivation. An expired offer still records the price observed that day.
+      latestActive.set(supplier_catalog_item_id, valid_from);
+    }
   }
-  return latest;
+  return { latestActive, inactiveDates };
 }
 
 function asArticle({ id, reference, designation }: MatchArticle) {
@@ -117,15 +124,29 @@ function priceAction(
   known: SupplierBasePlannedRow["known_reference"],
   hasGaps: boolean,
 ): SupplierBasePlannedRow["price_action"] {
-  if (row.unit_price_cents === null) return row.issues.includes("invalid_price") ? "review" : "none";
+  if (row.issues.includes("future_price_date") || row.issues.includes("inexact_price")
+    || row.issues.includes("price_cents_overflow")) return "review";
+  if (!row.price) return row.issues.includes("invalid_price") ? "review" : "none";
   if (row.price_date && known?.latest_price_date && row.price_date <= known.latest_price_date) return "skip";
-  if (hasGaps || row.fragile || row.unit_price_cents === 0 || !row.price_date || !row.price_unit_code || row.issues.length > 0) return "review";
+  if (row.issues.includes("inactive_price_same_date")) return "review";
+  if (row.price.lot_price) return "per_lot";
+  if (hasGaps || row.fragile || !row.price.unit_price_cents || !row.price_date || !row.price_unit_code || row.issues.length > 0) return "review";
   return "add";
+}
+
+function flagSharedProposals(group: SupplierBaseGroup) {
+  const byTarget = groupBy(group.proposed.flatMap(({ proposals }) => proposals), (proposal) =>
+    proposal.source === "catalogue" ? proposal.article_id : pairKey(proposal.sheet, String(proposal.row)));
+  for (const proposals of byTarget.values()) {
+    if (proposals.length > 1) {
+      for (const proposal of proposals) proposal.gaps.push("same_supplier_same_article");
+    }
+  }
 }
 
 export async function buildSupplierBasePreview(
   context: AuthenticatedTenantContext,
-  workbook: { rows: SupplierBaseRow[]; skipped_sheets: string[] },
+  workbook: SupplierBaseWorkbook,
 ): Promise<SupplierBasePreview> {
   const resolve = await loadSupplierDirectory(context);
   const names = new Set(workbook.rows.map(({ supplier_name }) => supplier_name));
@@ -133,6 +154,11 @@ export async function buildSupplierBasePreview(
   const supplierIds = [...new Set([...entries.values()].flatMap(({ supplier_id }) => supplier_id ? [supplier_id] : []))];
   const catalogue = await loadCatalogue(context, supplierIds);
   const groups = new Map<string, SupplierBaseGroup>();
+  const articles = new Map<string, ReturnType<typeof asArticle>>();
+  function remember(article: MatchArticle) {
+    if (!articles.has(article.id)) articles.set(article.id, asArticle(article));
+    return article.id;
+  }
 
   const normalizedRows = flagDuplicateSupplierReferences(workbook.rows, (name) => entries.get(name)!.key);
   const rows = normalizedRows.map((row, index) => {
@@ -141,7 +167,8 @@ export async function buildSupplierBasePreview(
       ? catalogue.bySupplierSku.get(pairKey(supplier.supplier_id, supplierBaseReferenceKey(row.supplier_reference))) ?? [] : [];
     return { id: String(index), row, supplier, saved };
   });
-  const latestDates = await loadLatestDates(context, rows.flatMap(({ saved }) => saved.length === 1 ? [saved[0].id] : []));
+  const today = new Date().toISOString().slice(0, 10);
+  const priceDates = await loadPriceDates(context, rows.flatMap(({ saved }) => saved.length === 1 ? [saved[0].id] : []), today);
 
   const peers = new Map(rows.map((entry) => [entry.id, entry]));
   const workbookArticles = rows.flatMap(({ id, row }): MatchArticle[] => row.designation && row.supplier_name ? [{
@@ -159,7 +186,7 @@ export async function buildSupplierBasePreview(
     groups.set(supplier.key, group);
     if (row.supplier_name && !group.workbook_names.includes(row.supplier_name)) group.workbook_names.push(row.supplier_name);
 
-    const gaps: string[] = [];
+    const gaps: SupplierBaseGap[] = [];
     const proposals: SupplierBaseProposal[] = [];
     let known: SupplierBasePlannedRow["known_reference"] = null;
 
@@ -168,54 +195,86 @@ export async function buildSupplierBasePreview(
     if (saved.length === 1 && item) {
       const article = catalogue.byId.get(item.product_id);
       if (!article) {
-        gaps.push("Article de la référence introuvable.");
+        gaps.push("missing_article");
       } else {
         const state = item.reference_needs_review ? "pending_review" : !item.is_active || !article.is_active ? "archived" : "active";
-        known = { id: item.id, article: asArticle(article), state, latest_price_date: latestDates.get(item.id) ?? null };
-        if (state === "pending_review") gaps.push("Référence déjà à vérifier.");
-        if (state === "archived") gaps.push("Article ou référence archivé.");
-        if (unitsDiffer(row.price_unit_code ?? row.price_unit, article.unit)) gaps.push(`Unité de l’article : ${article.unit}.`);
-        if (!canEditCatalogueRecord(catalogue.access, article.created_by)) gaps.push("Article hors de vos droits de modification.");
+        known = { id: item.id, article_id: remember(article), state, latest_price_date: priceDates.latestActive.get(item.id) ?? null };
+        if (state === "pending_review") gaps.push("pending_reference");
+        if (state === "archived") gaps.push("archived_article_or_reference");
+        if (unitsDiffer(row.price_unit_code ?? row.price_unit, article.unit)) gaps.push("unit_mismatch");
+        if (!canEditCatalogueRecord(catalogue.access, article.created_by)) gaps.push("article_not_editable");
       }
     } else if (saved.length > 1) {
-      gaps.push("Plusieurs articles portent déjà cette référence chez ce fournisseur.");
-      for (const item of saved.slice(0, 3)) {
+      gaps.push("ambiguous_reference");
+      for (const item of saved) {
         const article = catalogue.byId.get(item.product_id);
-        if (article) proposals.push({ source: "catalogue", ...asArticle(article), gaps: [] });
+        if (!article) continue;
+        const candidateGaps = line ? supplierBaseLinkedArticleGaps(line, article) : [];
+        if (candidateGaps === null) continue;
+        if (!article.is_active || !item.is_active) candidateGaps.push("archived_article_or_reference");
+        proposals.push({ source: "catalogue", article_id: remember(article), gaps: candidateGaps });
+        if (proposals.length === 3) break;
       }
     } else if (line) {
-      for (const match of catalogue.match(line, () => true)) {
-        const article = match.article;
-        const item = supplier.supplier_id ? catalogue.byPair.get(pairKey(supplier.supplier_id, article.id)) : undefined;
-        const candidateGaps = [...match.gaps];
-        if (item?.supplier_sku) candidateGaps.push(`Ce fournisseur a déjà une référence pour cet article (${item.supplier_sku}).`);
-        else if (item && !item.is_active) candidateGaps.push("La référence de ce fournisseur est inactive.");
-        if (!canEditCatalogueRecord(catalogue.access, article.created_by)) candidateGaps.push("Article hors de vos droits de modification.");
-        proposals.push({ source: "catalogue", ...asArticle(article), gaps: candidateGaps });
+      const byArticle = new Map<string, Extract<SupplierBaseProposal, { source: "catalogue" }>>();
+      function proposeArticle(article: NonNullable<ReturnType<typeof catalogue.byId.get>>, candidateGaps: SupplierBaseGap[]) {
+        const candidate = byArticle.get(article.id);
+        if (candidate) {
+          candidate.gaps = [...new Set([...candidate.gaps, ...candidateGaps])];
+          return;
+        }
+        const existing = supplier.supplier_id ? catalogue.byPair.get(pairKey(supplier.supplier_id, article.id)) : undefined;
+        if (existing?.supplier_sku) candidateGaps.push("supplier_reference_exists");
+        if (existing && !existing.is_active) candidateGaps.push("supplier_reference_inactive");
+        if (!article.is_active) candidateGaps.push("archived_article_or_reference");
+        if (!canEditCatalogueRecord(catalogue.access, article.created_by)) candidateGaps.push("article_not_editable");
+        byArticle.set(article.id, { source: "catalogue", article_id: remember(article), gaps: candidateGaps });
       }
+
+      for (const { article, gaps } of catalogue.match(line, () => true)) {
+        proposeArticle(article, gaps);
+      }
+      const workbookProposals: SupplierBaseProposal[] = [];
       for (const match of matchWorkbook(line, (candidate) => peers.get(candidate.id)!.supplier.key !== supplier.key, true)) {
         const peer = peers.get(match.article.id)!;
-        const candidateGaps = [...match.gaps];
-        if (row.packaging_label && peer.row.packaging_label
+        const packagingDiffers = row.packaging_label && peer.row.packaging_label
           && (workbookSupplierNameKey(row.packaging_label) !== workbookSupplierNameKey(peer.row.packaging_label)
-            || row.packaging_quantity !== peer.row.packaging_quantity)) {
-          candidateGaps.push("Conditionnements différents. Le conditionnement habituel sera à choisir.");
+            || row.packaging_quantity !== peer.row.packaging_quantity);
+        if (peer.saved.length > 0) {
+          // A known peer can anchor an article, but its identity is never inherited through another proposal.
+          if (peer.saved.length !== 1) continue;
+          const [peerItem] = peer.saved;
+          const target = catalogue.byId.get(peerItem.product_id);
+          const targetGaps = target && supplierBaseLinkedArticleGaps(line, target);
+          if (!target || !targetGaps) continue;
+          if (packagingDiffers) targetGaps.push("packaging_differs");
+          if (peerItem.reference_needs_review) targetGaps.push("pending_reference");
+          else if (!peerItem.is_active && target.is_active) targetGaps.push("archived_article_or_reference");
+          proposeArticle(target, targetGaps);
+        } else {
+          const candidateGaps = [...match.gaps];
+          if (packagingDiffers) candidateGaps.push("packaging_differs");
+          workbookProposals.push({ source: "workbook", sheet: peer.row.sheet, row: peer.row.row, gaps: candidateGaps });
         }
-        proposals.push({
-          source: "workbook", sheet: peer.row.sheet, row: peer.row.row, supplier_name: peer.row.supplier_name!,
-          designation: match.article.designation, gaps: candidateGaps,
-        });
       }
+      proposals.push(...byArticle.values(), ...workbookProposals);
     }
 
+    const inactivePriceOnDate = known && row.price && row.price_date && priceDates.inactiveDates.has(pairKey(known.id, row.price_date));
+    const normalizedRow: SupplierBaseRow = inactivePriceOnDate
+      ? { ...row, issues: [...row.issues, "inactive_price_same_date"] } : row;
     const planned = {
-      row, known_reference: known, proposals, gaps,
-      price_action: priceAction(row, known, gaps.length > 0 || proposals.length > 0 || !supplier.supplier_id),
+      row: normalizedRow, known_reference: known, proposals, gaps,
+      price_action: priceAction(normalizedRow, known, gaps.length > 0 || proposals.length > 0 || !supplier.supplier_id),
     };
     if (saved.length === 1) group.known.push(planned);
-    else if (saved.length > 1 || proposals.length > 0) group.proposed.push(planned);
+    else if (proposals.length > 0) group.proposed.push(planned);
     else group.new.push(planned);
   }
 
-  return { row_count: rows.length, skipped_sheets: workbook.skipped_sheets, suppliers: [...groups.values()] };
+  for (const group of groups.values()) flagSharedProposals(group);
+  return {
+    row_count: rows.length, skipped_sheets: workbook.skipped_sheets, sheet_warnings: workbook.sheet_warnings,
+    articles: [...articles.values()], suppliers: [...groups.values()],
+  };
 }
