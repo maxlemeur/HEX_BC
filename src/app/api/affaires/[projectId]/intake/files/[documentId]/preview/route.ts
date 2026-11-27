@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-preview";
 import { toErrorResponse } from "@/lib/http/api-response";
+import { withPrivateNoStore } from "@/lib/http/response";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -40,7 +41,6 @@ export async function GET(
     });
   } catch (error) {
     const response = toErrorResponse(error);
-    response.headers.set("Cache-Control", "private, no-store");
-    return response;
+    return withPrivateNoStore(response);
   }
 }

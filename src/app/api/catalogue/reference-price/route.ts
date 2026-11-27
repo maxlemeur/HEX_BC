@@ -1,10 +1,11 @@
 import { referencePriceActionSchema, referencePriceQuerySchema } from "@/lib/catalogue/reference-price-schemas";
 import { actOnReferencePrice, getReferencePriceProposal } from "@/lib/catalogue/reference-price-server";
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
+import { searchParamsObject } from "@/lib/http/request";
 
 export async function GET(request: Request) {
   try {
-    const query = referencePriceQuerySchema.parse(Object.fromEntries(new URL(request.url).searchParams));
+    const query = referencePriceQuerySchema.parse(searchParamsObject(request));
     return ok(await getReferencePriceProposal(query));
   } catch (error) { return toErrorResponse(error); }
 }

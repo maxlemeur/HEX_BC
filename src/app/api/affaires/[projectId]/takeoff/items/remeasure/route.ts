@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse, unprocessableEntity } from "@/lib/http/api-response";
-import { parseJsonBody, uuidRouteParamsOr404 } from "@/lib/http/request";
+import { parseJsonBody, searchParamsObject, uuidRouteParamsOr404 } from "@/lib/http/request";
 import { itemRemeasureCommandSchema } from "@/lib/takeoff/item-table-contracts";
 import { runItemRemeasure } from "@/lib/takeoff/item-review-commands-server";
 
@@ -27,7 +27,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ proj
   try {
     const scope = paramsSchema.safeParse(await params);
     const query = z.object({ item: z.uuid(), plan: z.uuid(), jobId: z.uuid().optional(), requestId: z.uuid().optional() })
-      .refine(({ jobId, requestId }) => Boolean(jobId) === Boolean(requestId)).safeParse(Object.fromEntries(new URL(request.url).searchParams));
+      .refine(({ jobId, requestId }) => Boolean(jobId) === Boolean(requestId)).safeParse(searchParamsObject(request));
     if (!scope.success || !query.success) throw badRequest("Poste ou plan invalide.");
     const { item, plan, jobId, requestId } = query.data;
     return ok(await readItemMeasureReadings(scope.data.projectId, item, plan, jobId && requestId ? { jobId, requestId } : undefined));

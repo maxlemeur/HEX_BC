@@ -1,5 +1,6 @@
 import { executeEstimateBatch } from "@/lib/estimates/batch";
 import { ApiError, badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
+import { withPrivateNoStore } from "@/lib/http/response";
 import { batchOperationsSchema } from "@/lib/estimates/schemas";
 import { resolveConcurrencyToken, uuidRouteParam } from "@/lib/http/request";
 
@@ -70,11 +71,9 @@ export async function POST(
     });
 
     const response = ok(data);
-    response.headers.set("Cache-Control", "private, no-store");
-    return response;
+    return withPrivateNoStore(response);
   } catch (error) {
     const response = toErrorResponse(error);
-    response.headers.set("Cache-Control", "private, no-store");
-    return response;
+    return withPrivateNoStore(response);
   }
 }
