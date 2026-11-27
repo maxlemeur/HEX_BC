@@ -580,8 +580,8 @@ export async function readMaterialRequestFile(
 }
 
 /** A stored XLSX original that the caller may turn into draft lines on this request. */
-export async function readMaterialRequestWorkbookOriginal(projectId: string, requestId: string, fileId: string): Promise<Blob> {
-  const access = await requireProjectAccess(projectId, "write");
+/** `access` is the caller's write access to the affaire: the import that follows the preview writes lines. */
+export async function readMaterialRequestWorkbookOriginal(access: MaterialRequestAccess, requestId: string, fileId: string): Promise<Blob> {
   const file = await requireFile(access, requestId, fileId);
   if (file.quote_id !== null || file.mime_type !== MATERIAL_REQUEST_WORKBOOK_MIME_TYPE) {
     throw notFound("Classeur Excel introuvable dans les originaux de cette demande.");

@@ -1149,7 +1149,7 @@ describe("material requests of an affaire: originals", () => {
     const preview = await call(workbookRoute.GET, "GET", { ...inRequest, fileId: FILE });
     expect(preview.status).toBe(200);
     expect(preview.response.headers.get("cache-control")).toBe("private, no-store");
-    expect(preview.data).toMatchObject({ sheet_name: "Matériel", rows: [{ row_number: 2, line: { product_type: "Tube fictif", quantity: 2.5 } }] });
+    expect(preview.data).toMatchObject({ sheet_name: "Matériel", rows: [{ row_number: 2, line: { product_type: "Tube fictif", quantity: 3 } }] });
     expect(fake.writes).toEqual([]);
   });
 

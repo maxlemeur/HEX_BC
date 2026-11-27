@@ -391,8 +391,11 @@ armyTest(
     const beforeImport = (await read()).lines;
     await original.getByRole("button", "Prévisualiser les lignes", { exact: true }).tap();
     const workbookPreview = screen.getByRole("dialog", "Importer les lignes Excel", { exact: true });
+    // Step « Onglet et colonnes »: the recognized columns are prefilled, the preview follows.
+    await expect(workbookPreview.getByRole("combobox", "Désignation", { exact: true })).toHaveValue("A");
+    await workbookPreview.getByRole("button", "Continuer", { exact: true }).tap();
     await expect(workbookPreview.getByText("Tube fictif Excel", { exact: true })).toBeVisible();
-    await expect(workbookPreview.getByText("12,5", { exact: true })).toBeVisible();
+    await expect(workbookPreview.getByText("Arrondi de 12,5", { exact: true })).toBeVisible();
     await expect(workbookPreview.getByText("Coude fictif Excel", { exact: true })).toBeVisible();
     expect((await read()).lines).toEqual(beforeImport);
     await workbookPreview.getByRole("checkbox", "Sélectionner la ligne 5", { exact: true }).uncheck();
@@ -402,7 +405,7 @@ armyTest(
     const afterImport = (await read()).lines;
     expect(afterImport.slice(0, beforeImport.length)).toEqual(beforeImport);
     expect(afterImport.slice(beforeImport.length)).toEqual([expect.objectContaining({
-      original_text: "Tube fictif Excel", product_type: "Tube fictif Excel", quantity: 12.5, unit: "m",
+      original_text: "Tube fictif Excel", product_type: "Tube fictif Excel", quantity: 13, unit: "m",
       dimension: "DN 28", reference: "EXCEL-01", status: "draft",
     })]);
 

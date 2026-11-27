@@ -55,6 +55,7 @@ import {
 import type { MaterialRequestQuoteComparison, QuoteComparisonSettings } from "./quote-comparison";
 import type { AffaireSupplyCost } from "./supply-cost-contracts";
 import type { ConsultationTemplateRecord, ConsultationTemplates } from "./consultation-template-contracts";
+import { formatWorkbookMapping, type WorkbookMapping } from "./workbook-mapping";
 import type { MaterialRequestWorkbookPreview } from "./workbook-preview-contract";
 
 /**
@@ -303,15 +304,24 @@ export async function deleteMaterialRequestFile(projectId: string, requestId: st
   );
 }
 
+/**
+ * Without `mapping`, the server recognizes the columns itself; with it, it reads those columns and no other. Without
+ * `headerRow`, it looks for the header row; with it, it reads that row as the header.
+ */
 export function fetchMaterialRequestWorkbookPreview(
   projectId: string,
   requestId: string,
   fileId: string,
-  sheet: string | undefined,
+  options: { sheet?: string; headerRow?: number; mapping?: WorkbookMapping; splitDimension?: boolean },
   signal: AbortSignal,
 ): Promise<MaterialRequestWorkbookPreview> {
   const path = requestsPath(projectId, requestId, "files", fileId, "workbook-preview");
-  return read(sheet === undefined ? path : `${path}?${new URLSearchParams({ sheet })}`, "L’aperçu du classeur n’a pas pu être affiché.", signal);
+  const query = new URLSearchParams();
+  if (options.sheet !== undefined) query.set("sheet", options.sheet);
+  if (options.headerRow !== undefined) query.set("header_row", String(options.headerRow));
+  if (options.mapping) query.set("columns", formatWorkbookMapping(options.mapping));
+  if (options.splitDimension !== undefined) query.set("split_dimension", String(options.splitDimension));
+  return read(query.size ? `${path}?${query}` : path, "L’aperçu du classeur n’a pas pu être affiché.", signal);
 }
 
 /**

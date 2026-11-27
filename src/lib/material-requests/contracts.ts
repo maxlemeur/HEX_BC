@@ -263,12 +263,15 @@ function optionalText(max: number) {
     });
 }
 
+/** The largest quantity a line holds. */
+export const MATERIAL_REQUEST_QUANTITY_MAX = 1_000_000;
+
 const quantity = z
   .union([
     z
       .number()
       .positive("La quantité doit être supérieure à zéro.")
-      .max(1_000_000, "Quantité trop grande.")
+      .max(MATERIAL_REQUEST_QUANTITY_MAX, "Quantité trop grande.")
       .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-6, {
         message: "Trois décimales au plus.",
       }),
@@ -330,8 +333,11 @@ export const updateMaterialRequestSchema = z
 export type UpdateMaterialRequestInput = z.input<typeof updateMaterialRequestSchema>;
 export type UpdateMaterialRequestData = z.output<typeof updateMaterialRequestSchema>;
 
+/** The longest original text of a line. */
+export const MATERIAL_REQUEST_ORIGINAL_TEXT_MAX = 500;
+
 const lineFields = {
-  original_text: optionalText(500),
+  original_text: optionalText(MATERIAL_REQUEST_ORIGINAL_TEXT_MAX),
   quantity,
   quantity_doubtful: z.boolean().optional(),
   unit: optionalText(20),
