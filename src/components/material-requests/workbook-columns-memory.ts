@@ -1,4 +1,4 @@
-import { WORKBOOK_COLUMN_LETTER, WORKBOOK_ROLES, type WorkbookMapping } from "@/lib/material-requests/workbook-mapping";
+import { WORKBOOK_COLUMN_LETTER, WORKBOOK_ROLES, distinctWorkbookMapping, type WorkbookMapping } from "@/lib/material-requests/workbook-mapping";
 
 /**
  * The columns a person confirmed for a layout of headers, kept in their browser only (owner's decision of
@@ -25,7 +25,8 @@ function readAll(profileId: string | undefined): Array<[string, WorkbookMapping]
         const letter = (entry[1] as Record<string, unknown>)[role];
         if (typeof letter === "string" && WORKBOOK_COLUMN_LETTER.test(letter)) mapping[role] = letter;
       }
-      return [[entry[0], mapping] as [string, WorkbookMapping]];
+      // Storage may hold one column for two roles (edited by hand, older version): the first role keeps it.
+      return [[entry[0], distinctWorkbookMapping(mapping)] as [string, WorkbookMapping]];
     });
   } catch {
     // Storage unavailable or unreadable: recognition fills the columns.

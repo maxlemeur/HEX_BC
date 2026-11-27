@@ -11,7 +11,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { workbookSupplierNameKey } from "@/lib/catalogue/costing-workbook";
 import { rememberSupplierAlias } from "@/lib/catalogue/import-review-client";
-import { fetchMaterialRequestWorkbookPreview, materialRequestErrorMessage } from "@/lib/material-requests/client";
+import { fetchSupplierDirectory } from "@/lib/catalogue/supplier-items-client";
+import {
+  fetchMaterialRequestWorkbookPreview,
+  materialRequestErrorMessage,
+  type MaterialRequestSupplierOption,
+} from "@/lib/material-requests/client";
 import { MATERIAL_REQUEST_MAX_LINES, type MaterialRequestFile } from "@/lib/material-requests/contracts";
 import {
   WORKBOOK_ROLES,
@@ -41,7 +46,7 @@ function toMapping(columns: ColumnLetters): WorkbookMapping {
   return Object.fromEntries(WORKBOOK_ROLES.flatMap((role) => (columns[role] ? [[role, columns[role]]] : [])));
 }
 
-/** A remembered mapping applies only while each of its columns still has a header in the sheet. */
+/** A remembered mapping applies only while each of its columns is still offered for the sheet. */
 function usableMapping(mapping: WorkbookMapping | null, preview: MaterialRequestWorkbookPreview): WorkbookMapping | null {
   if (!mapping?.designation) return null;
   const letters = new Set(preview.columns.map((column) => column.column));
@@ -59,6 +64,10 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("columns");
   const [sheet, setSheet] = useState<string>();
+  /** The header row chosen by hand; undefined lets the server recognize it. */
+  const [headerRow, setHeaderRow] = useState<number>();
+  /** Bumped to read the chosen sheet again after a failure. */
+  const [attempt, setAttempt] = useState(0);
   /** The automatic reading of the chosen sheet: its columns, examples and recognized mapping. */
   const [detection, setDetection] = useState<MaterialRequestWorkbookPreview | null>(null);
   const [mapping, setMapping] = useState<WorkbookMapping>({});
@@ -68,6 +77,10 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
   const [choices, setChoices] = useState<ReadonlyMap<string, WorkbookSupplierChoice>>(() => new Map());
   /** Supplier names linked or created in this dialog, to the supplier they now stand for. */
   const [applied, setApplied] = useState<ReadonlyMap<string, string>>(() => new Map());
+  /** Suppliers created in this dialog by name, kept even when the association that follows fails: a retry never creates twice. */
+  const [created, setCreated] = useState<ReadonlyMap<string, string>>(() => new Map());
+  /** Suppliers found under a name about to be created, offered for linking although the page's list predates them. */
+  const [foundOptions, setFoundOptions] = useState<readonly MaterialRequestSupplierOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -77,7 +90,7 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
   useEffect(() => {
     if (!open) return;
     const abort = new AbortController();
-    void fetchMaterialRequestWorkbookPreview(projectId, requestId, file.id, { sheet }, abort.signal)
+    void fetchMaterialRequestWorkbookPreview(projectId, requestId, file.id, { sheet, headerRow }, abort.signal)
       .then((data) => {
         if (abort.signal.aborted) return;
         setDetection(data);
@@ -91,7 +104,7 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
         setReading(false);
       });
     return () => abort.abort();
-  }, [file.id, open, profileId, projectId, requestId, sheet]);
+  }, [attempt, file.id, headerRow, open, profileId, projectId, requestId, sheet]);
 
   useEffect(() => () => readAbort.current?.abort(), []);
 
@@ -101,13 +114,22 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
     setOpen(next);
     setStep("columns");
     setSheet(undefined);
+    setHeaderRow(undefined);
     setDetection(null);
     setPreview(null);
     setMapping({});
     setChoices(new Map());
     setApplied(new Map());
+    setCreated(new Map());
+    setFoundOptions([]);
     setError(null);
     setReading(next);
+  };
+
+  const retryReading = () => {
+    setError(null);
+    setReading(true);
+    setAttempt((count) => count + 1);
   };
 
   const unresolved = useMemo(() => (preview?.suppliers ?? []).filter((entry) => entry.status !== "recognized"), [preview]);
@@ -115,7 +137,15 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
     () => new Map((preview?.suppliers ?? []).map((entry) => [workbookSupplierNameKey(entry.name), entry.name])),
     [preview],
   );
-  const labelById = useMemo(() => new Map(editor.data.supplierOptions.map((option) => [option.id, option.label])), [editor.data.supplierOptions]);
+  const supplierOptions = useMemo(() => {
+    const known = new Set(editor.data.supplierOptions.map((option) => option.id));
+    return [...editor.data.supplierOptions, ...foundOptions.filter((option) => !known.has(option.id))];
+  }, [editor.data.supplierOptions, foundOptions]);
+  const labelById = useMemo(() => new Map(supplierOptions.map((option) => [option.id, option.label])), [supplierOptions]);
+  /** The reading on screen is the one of the sheet and header row chosen (not one still loading or that failed). */
+  const readingCurrent = detection !== null
+    && (sheet === undefined || sheet === detection.sheet_name)
+    && (headerRow === undefined || headerRow === detection.header_row);
 
   const showPreview = (data: MaterialRequestWorkbookPreview) => {
     setPreview(data);
@@ -125,7 +155,7 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
   };
 
   const confirmColumns = async () => {
-    if (!detection || !mapping.designation || busy.current) return;
+    if (!detection || detection.header_row === null || !mapping.designation || busy.current) return;
     rememberWorkbookColumns(profileId, workbookHeaderSignature(detection.columns), mapping);
     setError(null);
     if (sameWorkbookMapping(mapping, toMapping(detection.mapped_columns))) {
@@ -137,7 +167,7 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
     readAbort.current = abort;
     setReading(true);
     try {
-      const data = await fetchMaterialRequestWorkbookPreview(projectId, requestId, file.id, { sheet: detection.sheet_name, mapping }, abort.signal);
+      const data = await fetchMaterialRequestWorkbookPreview(projectId, requestId, file.id, { sheet: detection.sheet_name, headerRow: detection.header_row, mapping }, abort.signal);
       if (!abort.signal.aborted) showPreview(data);
     } catch (cause) {
       if (!abort.signal.aborted) setError(materialRequestErrorMessage(cause, "L’aperçu du classeur n’a pas pu être affiché."));
@@ -146,16 +176,22 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
     }
   };
 
-  /** Links and creates what the user chose, one name after the other; a name done stays done if a later one fails. */
+  /**
+   * Links and creates what the user chose, one name after the other; a name done stays done if a later one fails.
+   * Before creating a supplier for an unknown name, the active suppliers are read again: one of that name created
+   * meanwhile (by another import, for instance) is offered for linking instead.
+   */
   const confirmSuppliers = async () => {
     if (busy.current) return;
     busy.current = true;
     setSaving(true);
     setError(null);
     const done = new Map(applied);
+    const made = new Map(created);
+    let directory: Awaited<ReturnType<typeof fetchSupplierDirectory>> | null = null;
     let failure: string | null = null;
     for (const entry of unresolved) {
-      if (done.has(entry.name)) continue;
+      if (done.has(entry.name) || entry.status === "inactive_alias") continue;
       const choice = choices.get(entry.name);
       if (!choice || choice.kind === "leave") continue;
       try {
@@ -166,22 +202,41 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
           }
           await rememberSupplierAlias(choice.supplierId, entry.name);
           done.set(entry.name, choice.supplierId);
-        } else {
-          const created = await editor.createSupplier(entry.name);
-          if (!created.ok) {
-            failure = created.message;
+          continue;
+        }
+        let supplierId = made.get(entry.name);
+        if (!supplierId) {
+          if (entry.status === "unknown") {
+            directory ??= await fetchSupplierDirectory(undefined, "active");
+            const key = workbookSupplierNameKey(entry.name);
+            const existing = directory.find((supplier) => workbookSupplierNameKey(supplier.name) === key);
+            if (existing) {
+              setFoundOptions((current) => (current.some((option) => option.id === existing.id) ? current : [...current, existing]));
+              setChoices((current) => new Map(current).set(entry.name, { kind: "link", supplierId: existing.id }));
+              failure = `Le fournisseur « ${existing.label} » existe déjà. Il est proposé à l’association avec « ${entry.name} » : vérifiez, puis continuez.`;
+              break;
+            }
+          }
+          const answer = await editor.createSupplier(entry.name);
+          if (!answer.ok) {
+            failure = answer.message;
             break;
           }
-          // A homonym already exists: the spelling is associated with the new supplier so the next import is certain.
-          if (entry.status === "ambiguous") await rememberSupplierAlias(created.id, entry.name);
-          done.set(entry.name, created.id);
+          supplierId = answer.id;
+          made.set(entry.name, supplierId);
         }
+        // A homonym already exists: the spelling is associated with the new supplier so the next import is certain.
+        if (entry.status === "ambiguous") await rememberSupplierAlias(supplierId, entry.name);
+        done.set(entry.name, supplierId);
       } catch (cause) {
-        failure = materialRequestErrorMessage(cause, `« ${entry.name} » n’a pas pu être associé.`);
+        failure = made.has(entry.name)
+          ? materialRequestErrorMessage(cause, `Le fournisseur « ${entry.name} » est créé, mais ce nom n’a pas pu lui être associé. Continuez pour réessayer.`)
+          : materialRequestErrorMessage(cause, `« ${entry.name} » n’a pas pu être associé.`);
         break;
       }
     }
     setApplied(done);
+    setCreated(made);
     busy.current = false;
     setSaving(false);
     if (failure) {
@@ -241,7 +296,13 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
             onSheetChange={(next) => {
               setError(null);
               setReading(true);
+              setHeaderRow(undefined);
               setSheet(next);
+            }}
+            onHeaderRowChange={(row) => {
+              setError(null);
+              setReading(true);
+              setHeaderRow(row);
             }}
             onMappingChange={setMapping}
           />
@@ -250,7 +311,7 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
           <MaterialRequestWorkbookSuppliers
             names={unresolved}
             rights={preview.supplier_rights}
-            options={editor.data.supplierOptions}
+            options={supplierOptions}
             choices={choices}
             applied={applied}
             disabled={saving}
@@ -332,7 +393,14 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
             )}
           </div>
         )}
-        {error && <Alert variant="danger" role="alert"><AlertDescription>{error}</AlertDescription></Alert>}
+        {error && (
+          <Alert variant="danger" role="alert"><AlertDescription>
+            {error}
+            {step === "columns" && !reading && !readingCurrent && (
+              <Button type="button" variant="outline" size="sm" className="mt-2 block" onClick={retryReading}>Réessayer</Button>
+            )}
+          </AlertDescription></Alert>
+        )}
         <DialogFooter>
           <Button type="button" variant="ghost" disabled={saving} onClick={() => changeOpen(false)}>Annuler</Button>
           {step !== "columns" && (
@@ -342,7 +410,7 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
             </Button>
           )}
           {step === "columns" && (
-            <Button type="button" disabled={!detection || !mapping.designation || reading || (sheet !== undefined && sheet !== detection.sheet_name)} loading={reading && !!detection} onClick={() => void confirmColumns()}>
+            <Button type="button" disabled={!readingCurrent || detection.header_row === null || !mapping.designation || reading} loading={reading && !!detection} onClick={() => void confirmColumns()}>
               Continuer
             </Button>
           )}

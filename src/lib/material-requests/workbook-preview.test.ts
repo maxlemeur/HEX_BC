@@ -38,7 +38,7 @@ describe("material request workbook preview", () => {
     const input = workbook({ Notes: [["Désignation"], ["Brève description"]], Tube: [["Article", "Qté"], ["Tube", 1]],
       Raccords: [["Libellé", "Qty", "Unité"], ["Coude", "4,1234", "pièce"], [null, 3, "pièce"], ["Té", null, "pièce"]] });
     const preview = await previewMaterialRequestWorkbook(input, { sheet: "Raccords" });
-    expect(preview.sheet_names).toEqual(["Tube", "Raccords"]);
+    expect(preview.sheet_names).toEqual(["Notes", "Tube", "Raccords"]);
     expect(preview.rows.map(({ row_number, line, selected }) => [row_number, line.quantity, selected])).toEqual([[2, 5, true], [4, undefined, false]]);
     expect(preview.rows[1]?.remarks).toEqual([{ code: "no_quantity", message: "Sans quantité" }]);
     expect(preview.issues).toEqual([
@@ -56,12 +56,14 @@ describe("material request workbook preview", () => {
     expect(preview.issues).toEqual([]);
   });
 
-  it("reports rows beyond the request limit and rejects workbooks without a recognizable table", async () => {
+  it("reports rows beyond the request limit and lets the header row of an unrecognized table be chosen", async () => {
     const input = workbook({ Matériel: [["Article", "Quantité"], ...Array.from({ length: 302 }, (_, i) => ["Tube " + i, 1])] });
     const preview = await previewMaterialRequestWorkbook(input);
     expect(preview.rows).toHaveLength(300);
     expect(preview.omitted_rows).toBe(2);
-    await expect(previewMaterialRequestWorkbook(workbook({ Notes: [["Titre"], ["abc"]] }))).rejects.toThrow(/Désignation/);
+    await expect(previewMaterialRequestWorkbook(workbook({ Notes: [["Titre"], ["abc"]] }))).resolves.toMatchObject({
+      sheet_name: "Notes", header_row: null, columns: [], rows: [], first_rows: [{ row_number: 1 }, { row_number: 2 }],
+    });
   });
 
   it("limits concurrent readers and releases the slot after the work completes", async () => {

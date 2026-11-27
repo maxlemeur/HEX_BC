@@ -11,7 +11,10 @@ import { plural } from "@/lib/text/plural";
 /** What the user decided for a name: nothing is linked or created until the step is confirmed. */
 export type WorkbookSupplierChoice = { kind: "leave" } | { kind: "link"; supplierId: string } | { kind: "create" };
 
-/** Step « Fournisseurs à reconnaître »: for each unknown or ambiguous name, link it, create it, or leave it. */
+/**
+ * Step « Fournisseurs à reconnaître »: for each unknown or ambiguous name, link it, create it, or leave it. A name
+ * associated with a deactivated supplier only says so: the catalogue settles it.
+ */
 export function MaterialRequestWorkbookSuppliers({ names, rights, options, choices, applied, disabled, onChoiceChange }: Readonly<{
   names: readonly MaterialRequestWorkbookSupplier[];
   rights: MaterialRequestWorkbookPreview["supplier_rights"];
@@ -47,9 +50,10 @@ export function MaterialRequestWorkbookSuppliers({ names, rights, options, choic
                   {entry.status === "ambiguous" && ` · ${plural(entry.candidates.length, "fournisseur porte", "fournisseurs portent")} ce nom`}
                 </p>
               </div>
+              {entry.remark && <p className="text-sm">{entry.remark}</p>}
               {done ? (
                 <p className="text-sm">Associé à {labelById.get(done) ?? "un fournisseur"}.</p>
-              ) : (
+              ) : entry.status === "inactive_alias" ? null : (
                 <>
                   <div>
                     <label htmlFor={actionId} className="sr-only">Que faire de « {entry.name} »</label>
