@@ -291,7 +291,7 @@ const productTemplateRowSchema = z.object({
   dimensions: z.string().trim().max(255).nullable(),
   standard: z.string().trim().max(255).nullable(),
   unit: z.string().trim().min(1).max(50),
-  unit_price_cents: z.number().int().min(0),
+  unit_price_cents: z.number().int().min(0).max(2_147_483_647),
   is_active: z.literal(true),
 });
 const supplierPriceTemplateRowSchema = z.object({

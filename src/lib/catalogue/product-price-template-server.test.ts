@@ -135,6 +135,23 @@ describe("product price template server", () => {
     );
   });
 
+  it("refuses a price the database cannot hold before any write, so that no part of the file is applied", async () => {
+    const writes = { upsert: vi.fn(), insert: vi.fn() };
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(catalogueClient(writes) as never);
+
+    await expect(
+      importProductPriceTemplate({
+        products: [
+          { ...productRow, reference: "COU-15", unit: "u", family: null },
+          { ...productRow, family: "Tube", unit_price_cents: 3_000_000_000 },
+        ],
+        prices: [],
+      }),
+    ).rejects.toThrow();
+    expect(writes.insert).not.toHaveBeenCalled();
+    expect(writes.upsert).not.toHaveBeenCalled();
+  });
+
   it("refuses the whole file, before any write, when a row names a family the catalogue does not have", async () => {
     const writes = { upsert: vi.fn(), insert: vi.fn() };
     vi.mocked(createSupabaseServerClient).mockResolvedValue(catalogueClient(writes) as never);

@@ -27,7 +27,9 @@ const productTemplateRowSchema = z.object({
   dimensions: nullableTextSchema(255),
   standard: nullableTextSchema(255),
   unit: z.string().trim().min(1).max(50),
-  unit_price_cents: z.number().int().min(0),
+  // products.unit_price_cents is a PostgreSQL integer: a larger price is refused here, before any write, rather
+  // than by the database once part of the file is written.
+  unit_price_cents: z.number().int().min(0).max(2_147_483_647),
   is_active: z.literal(true),
 });
 

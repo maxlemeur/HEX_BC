@@ -29,8 +29,10 @@ const UNACCENT_LETTERS: Record<string, string> = {
  * import matches the family it reads with it.
  */
 export function supplyTypeNameKey(name: string): string {
-  // PostgreSQL's unaccent spells out the letters Unicode does not decompose: « Œillets » is « Oeillets ».
-  const key = supplyTypeCodeFromName(name.replace(/[œŒæÆßøØłŁđĐ]/g, (letter) => UNACCENT_LETTERS[letter])) ?? "";
+  // PostgreSQL's unaccent spells out what Unicode's canonical forms keep whole: the compatibility ligatures a
+  // spreadsheet may hold (« ﬁxations ») and the letters below (« Œillets » is « Oeillets »).
+  const spelled = name.normalize("NFKC").replace(/[œŒæÆßøØłŁđĐ]/g, (letter) => UNACCENT_LETTERS[letter]);
+  const key = supplyTypeCodeFromName(spelled) ?? "";
   return key.length > 1 && key.endsWith("s") ? key.slice(0, -1) : key;
 }
 
