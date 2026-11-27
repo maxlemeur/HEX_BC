@@ -176,12 +176,21 @@ export function explainProductReference(rule: ProductReferenceNaming, article: P
   // The dimensions field is read as given. A designation gives a size only when it writes one (DN50, Ø28, 16x2):
   // « longueur 3000 mm » is not a diameter.
   const stated = statedSizePattern.exec(article.designation ?? "")?.[0];
-  const size = referenceSize({ ...article, designation: stated ? `${family} ${stated}` : family });
+  // A bare number is a DN in steel and an outside diameter in copper or plastics: the material read in the
+  // designation counts as the one of its own field.
+  const size = referenceSize({
+    ...article,
+    material: article.material?.trim() ? article.material : referenceMaterial(article),
+    designation: stated ? `${family} ${stated}` : family,
+  });
   const pair = (primary: number, secondary: number | null) => `${primary}${secondary === null ? "" : `X${secondary}`}`;
-  // A reduction names both of its ends. Sizes given by outside diameter keep that notation even when a DN can be inferred.
+  // A reduction names both of its ends. Sizes given by outside diameter keep that notation even when a DN can be
+  // inferred; a thread written in inches (1/2") is a nominal size, whatever outside diameter its material gives it.
+  const inInches = /["”]|''|\bpouces?\b/i.test(`${article.dimensions ?? ""} ${stated ?? ""}`);
+  const byOutsideDiameter = size !== null && size.od !== null && !(inInches && size.dn !== null);
   const dimension = !size || (family === "reduction" && size.reduce === null && size.reduceOd === null) ? null
     : size.metric !== null ? `M${size.metric}`
-    : size.od !== null ? `D${pair(size.od, size.reduceOd)}`
+    : byOutsideDiameter && size.od !== null ? `D${pair(size.od, size.reduceOd)}`
     : size.dn !== null ? `DN${pair(size.dn, size.reduce)}` : null;
   const valveType = referenceValveType(article);
   const valve = family !== "vanne" ? null

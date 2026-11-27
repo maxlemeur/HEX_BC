@@ -95,6 +95,18 @@ describe("company product reference naming", () => {
     expect(storedProductReferenceNamingSchema.safeParse({ ...legacy, abbreviations: { multicouche: "mec" } }).success).toBe(false);
   });
 
+  it("reads a bare size by the material, wherever the sheet states it", () => {
+    const coude = { ...ENABLED, patterns: { ...DEFAULT_PRODUCT_REFERENCE_PATTERNS, coude: "COU-{angle}-{matiere}-{dimension}" } };
+    // Copper is named by its outside diameter: the same sheet gives one reference, material typed or not.
+    expect(proposeProductReference(coude, { designation: "Coude cuivre 90°", dimensions: "22", material: "Cuivre" })).toBe("COU-90-CUIVRE-D22");
+    expect(proposeProductReference(coude, { designation: "Coude cuivre 90°", dimensions: "22", material: null })).toBe("COU-90-CUIVRE-D22");
+    expect(proposeProductReference(coude, { designation: "Coude cuivre 90°", dimensions: "22", material: "  " })).toBe("COU-90-CUIVRE-D22");
+    expect(proposeProductReference(coude, { designation: "Coude acier 90°", dimensions: "50" })).toBe("COU-90-ACIER-DN50");
+    // A thread written in inches stays a nominal size, material typed or read in the designation.
+    expect(proposeProductReference(withTube("TUB-{dimension}"), { designation: "Tube acier", material: "Acier", dimensions: "1/2\"" })).toBe("TUB-DN15");
+    expect(proposeProductReference(withTube("TUB-{dimension}"), { designation: "Tube acier", dimensions: "1\"1/4" })).toBe("TUB-DN32");
+  });
+
   it("asks only for what the company's format names", () => {
     expect(proposeProductReference(withTube("TUB-{matiere}-{dimension}"), { designation: "Tube Inox 316L", dimensions: "DN50" }))
       .toBe("TUB-316L-DN50");
