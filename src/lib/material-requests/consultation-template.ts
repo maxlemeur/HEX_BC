@@ -5,6 +5,7 @@ import {
   consultationDeliveryText,
   consultationLineParts,
   consultationText,
+  sumConsultationLines,
   type ConsultationLine,
 } from "./consultation-message";
 import { usualPackagingConditionnement } from "./usual-packaging";
@@ -21,7 +22,7 @@ import { usualPackagingConditionnement } from "./usual-packaging";
  *    packaging, in that packaging's unit; empty otherwise, see usual-packaging.ts). With or without accents, in any
  *    case. Anything else between braces is left as typed (the editor flags it).
  *  - `[ … ]` on one line is an optional part: it disappears when one of its fields is empty, else it is written
- *    without its brackets (« [ — réf. {référence}] »). Brackets around no known field are left as typed.
+ *    without its brackets (« [ (réf. {référence})] »). Brackets around no known field are left as typed.
  *  - A line of the template whose fields outside brackets are all empty disappears (« {livraison} » when the place is
  *    unknown, « Chantier : {affaire} » without an affaire). In a line that writes a field, runs of spaces are folded
  *    and the line's ends are trimmed (its own indentation kept), so an empty field leaves no double space. Lines
@@ -29,11 +30,8 @@ import { usualPackagingConditionnement } from "./usual-packaging";
  *
  * The competition rule holds whatever the template says: without references, {référence} is always empty and
  * {désignation} is the reference-free designation (« Article à préciser (ligne N) » when nothing else names the
- * article). Only what the member typed in the template can say anything else. {conditionnement} names no reference:
- * it is written in both variants. With references, {désignation} is
- * the short name only on a line that actually writes its reference (today's rule: the reference names the article):
- * {référence} outside brackets, or in an optional part whose fields are all filled on that line. Otherwise it is the
- * full designation, size and material included.
+ * article). In both variants, {désignation} includes the size, material and precision when present. Identical
+ * lines share one item in their first line's position. {conditionnement} uses the item's total quantity.
  *
  * Fields may be written more than once (« Bonjour {fournisseur} … pour {fournisseur} »), except {lignes}: once at
  * most. The text written is checked against the recorded bound, never cut.
@@ -41,9 +39,12 @@ import { usualPackagingConditionnement } from "./usual-packaging";
 
 export type ConsultationTemplate = { message: string; line: string };
 
+const DEFAULT_DESIGNATION = "{désignation}[ (réf. {référence})]";
+const DEFAULT_LINE_WITHOUT_QUANTITY_NUMBER = `- {quantité} ${DEFAULT_DESIGNATION}`;
+
 export const DEFAULT_CONSULTATION_TEMPLATE: ConsultationTemplate = {
   message: "Bonjour, pouvez-vous me faire un prix[ pour l’affaire {affaire}] :\n{lignes}\n{livraison}\nMerci !",
-  line: "- {quantité} {désignation}[ — réf. {référence}]",
+  line: `- [{quantité} x ]${DEFAULT_DESIGNATION}`,
 };
 
 /**
@@ -160,24 +161,6 @@ function renderTemplate(source: string, kind: TemplateKind, values: ReadonlyMap<
     .join("\n");
 }
 
-/**
- * Whether a template writes a field with these values: outside brackets on a line that stays, or in an optional
- * part whose fields are all filled.
- */
-function rendersField(source: string, kind: TemplateKind, values: ReadonlyMap<string, string>, field: string): boolean {
-  if (!values.get(field)) return false;
-  return source.replace(/\r\n?/g, "\n").split("\n").some((line) => {
-    const segments = lineSegments(line, kind);
-    const outer = segments.flatMap((segment) => (segment.kind === "field" ? [segment.field] : []));
-    if (outer.length > 0 && outer.every((name) => !values.get(name))) return false;
-    return segments.some((segment) =>
-      segment.kind === "field"
-        ? segment.field === field
-        : segment.kind === "optional" && segment.fields.includes(field) && segment.fields.every((name) => values.get(name)),
-    );
-  });
-}
-
 /** The message a member's template writes. The lines are written in the order given. */
 export function renderConsultationMessage(input: {
   template: ConsultationTemplate;
@@ -187,22 +170,20 @@ export function renderConsultationMessage(input: {
   withReferences: boolean;
   deliveryPlace: MaterialRequestDeliveryPlace | null;
 }): string {
-  const items = input.lines
+  const items = sumConsultationLines(input.lines, input.withReferences)
     .map((line) => {
-      const valuesOf = (writesReference: boolean) => {
-        const parts = consultationLineParts(line, { withReferences: input.withReferences, writesReference });
-        return new Map([
-          ["quantité", parts.quantity ?? ""],
-          ["désignation", parts.designation],
-          ["référence", parts.reference ?? ""],
-          ["ligne", String(line.position)],
-          ["conditionnement", usualPackagingConditionnement(line, line.usualPackaging) ?? ""],
-        ]);
-      };
-      // The full designation first; the short one only where this very line writes the reference.
-      const full = valuesOf(false);
-      const values = rendersField(input.template.line, "line", full, "référence") ? valuesOf(true) : full;
-      return renderTemplate(input.template.line, "line", values);
+      const parts = consultationLineParts(line, input.withReferences);
+      // {quantité} can hold a unit alone. The default keeps it without the separator.
+      const lineTemplate = input.template.line === DEFAULT_CONSULTATION_TEMPLATE.line && !parts.hasQuantityNumber
+        ? DEFAULT_LINE_WITHOUT_QUANTITY_NUMBER
+        : input.template.line;
+      return renderTemplate(lineTemplate, "line", new Map([
+        ["quantité", parts.quantity ?? ""],
+        ["désignation", parts.designation],
+        ["référence", parts.reference ?? ""],
+        ["ligne", String(line.position)],
+        ["conditionnement", usualPackagingConditionnement(line, line.usualPackaging) ?? ""],
+      ]));
     })
     .filter((item) => item.trim().length > 0);
   return renderTemplate(

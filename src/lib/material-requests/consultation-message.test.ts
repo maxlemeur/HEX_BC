@@ -77,7 +77,7 @@ type Presumptions = Pick<MaterialRequest, "presumed_material" | "material_confir
 const NO_PRESUMPTION: Presumptions = { presumed_material: null, material_confirmed: false };
 
 describe("consultation message", () => {
-  it("asks the usual supplier with its references, short, and the full designation when one is unknown (1, 2)", () => {
+  it("asks the usual supplier with full designations and known references (1, 2)", () => {
     const message = buildConsultationMessage({
       affaireName: "Résidence des Tilleuls",
       withReferences: true,
@@ -91,8 +91,8 @@ describe("consultation message", () => {
     expect(message).toBe(
       [
         "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :",
-        "- 10 u Coude 90° — réf. NA-4471",
-        "- 4 u Té égal, DN 50, Inox 316L",
+        "- 10 u x Coude 90°, DN 50, Inox 316L (réf. NA-4471)",
+        "- 4 u x Té égal, DN 50, Inox 316L",
         "Livraison : chantier",
         "Merci !",
       ].join("\n"),
@@ -113,8 +113,8 @@ describe("consultation message", () => {
     expect(message).toBe(
       [
         "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :",
-        "- 10 u Coude 90°, DN 50, Inox 316L, PN16",
-        "- 4 u Té égal, DN 50, Inox 316L",
+        "- 10 u x Coude 90°, DN 50, Inox 316L, PN16",
+        "- 4 u x Té égal, DN 50, Inox 316L",
         "Livraison : bureau",
         "Merci !",
       ].join("\n"),
@@ -137,8 +137,7 @@ describe("consultation message", () => {
     expect(competition).not.toMatch(/471205|NA-4471|CD-I316|réf/i);
     expect(competition.split("\n")).toEqual([
       "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :",
-      "- 10 u Coude 90°, DN 50, Inox 316L",
-      "- 10 u Coude 90°, DN 50, Inox 316L",
+      "- 20 u x Coude 90°, DN 50, Inox 316L",
       "Merci !",
     ]);
   });
@@ -157,9 +156,9 @@ describe("consultation message", () => {
 
     expect(message.split("\n")).toEqual([
       "Bonjour, pouvez-vous me faire un prix pour l’affaire Atelier Nord :",
-      "- 2,5 ml Tube cuivre, Ø 22",
+      "- 2,5 ml x Tube cuivre, Ø 22",
       "- Collier isophonique",
-      "- 6 Vanne d’arrêt",
+      "- 6 x Vanne d’arrêt",
       "Merci !",
     ]);
     expect(message).not.toMatch(/null|undefined|, ,|,\n| 0 /);
@@ -190,9 +189,9 @@ describe("consultation message", () => {
 
     expect(message.split("\n")).toEqual([
       "Bonjour, pouvez-vous me faire un prix pour l’affaire Atelier Nord :",
-      "- 150 u goujons M12 galva",
-      "- 10 u Coude inox 316L DN 50",
-      "- 3 u Sans désignation",
+      "- 150 u x goujons M12 galva",
+      "- 10 u x Coude inox 316L DN 50",
+      "- 3 u x Sans désignation",
       "Merci !",
     ]);
   });
@@ -213,6 +212,7 @@ describe("consultation message", () => {
       position: 4,
       quantity: 10,
       unit: "u",
+      productId: "article-1",
       designation: "Coude 90°",
       dimension: "DN 50",
       material: "Inox 316L",
@@ -238,11 +238,11 @@ describe("consultation message", () => {
 
     expect(message.split("\n")).toEqual([
       "Bonjour, pouvez-vous me faire un prix pour l’affaire Atelier Nord :",
-      "- 4 u Article à préciser (ligne 1)",
-      "- 150 u goujon M12 x 150",
-      "- 10 u Coude 90°, DN 50, Inox 316L",
-      "- 2 u vanne 1/4 tour",
-      "- 3 u manchon inox",
+      "- 4 u x Article à préciser (ligne 1)",
+      "- 150 u x goujon M12 x 150",
+      "- 10 u x Coude 90°, DN 50, Inox 316L",
+      "- 2 u x vanne 1/4 tour",
+      "- 3 u x manchon inox",
       "Merci !",
     ]);
     expect(message).not.toMatch(/NA-4471|471205|CD-50|AB-12|ZX-9|r[ée]f/i);
@@ -270,11 +270,11 @@ describe("consultation message", () => {
     const bare = item({ position: 7, quantity: 3, designation: null, dimension: "DN 20", material: null, originalText: null });
     const message = buildConsultationMessage({ affaireName: "Atelier Nord", withReferences: false, deliveryPlace: null, lines: [bare] });
 
-    expect(message.split("\n")[1]).toBe("- 3 u Article à préciser (ligne 7)");
+    expect(message.split("\n")[1]).toBe("- 3 u x Article à préciser (ligne 7)");
     expect(competitionNeedsType(bare)).toBe(true);
   });
 
-  it("leaves the usual supplier's message as it was, the technician's words included (2, 8)", () => {
+  it("keeps the technician's words for the usual supplier when there is no designation (2, 8)", () => {
     const words = item({ quantity: 4, designation: null, dimension: null, material: null, originalText: "réf NA-4471 x4", reference: "NA-4471" });
     const message = buildConsultationMessage({
       affaireName: "Atelier Nord",
@@ -284,9 +284,9 @@ describe("consultation message", () => {
     });
 
     expect(message.split("\n").slice(1, 4)).toEqual([
-      "- 4 u réf NA-4471 x4 — réf. SKU-1",
-      "- 4 u réf NA-4471 x4",
-      "- 10 u Sans désignation",
+      "- 4 u x réf NA-4471 x4 (réf. SKU-1)",
+      "- 4 u x réf NA-4471 x4",
+      "- 10 u x Sans désignation",
     ]);
   });
 
@@ -298,7 +298,7 @@ describe("consultation message", () => {
       lines: [item({ designation: "Bride" }), item({ designation: "Joint" }), item({ designation: "Boulon" })],
     });
 
-    expect(message.split("\n").slice(1, 4).map((entry) => entry.split(" ")[3].replace(",", ""))).toEqual([
+    expect(message.split("\n").slice(1, 4).map((entry) => entry.split(" ")[4].replace(",", ""))).toEqual([
       "Bride",
       "Joint",
       "Boulon",

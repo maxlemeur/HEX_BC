@@ -194,17 +194,17 @@ export function ConsultationTemplateEditor({
 
       <div id={`${ids}-syntax`} className="space-y-1 rounded-md bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
         <p>
-          Un champ entre accolades est remplacé par sa valeur ; {"{lignes}"} s’écrit une fois. Entre crochets, une partie
-          disparaît quand son champ est vide : <code className="text-foreground">[ — réf. {"{référence}"}]</code>.
+          Un champ entre accolades est remplacé par sa valeur. {"{lignes}"} s’écrit une fois. Le texte entre crochets
+          disparaît quand son champ est vide, comme <code className="text-foreground">[ (réf. {"{référence}"})]</code>.
         </p>
         <p>
           Une ligne dont les champs sont vides disparaît (la livraison quand elle n’est pas connue). En concurrence, la
           référence reste toujours vide.
         </p>
         <p>
-          {"{conditionnement}"} écrit les conditionnements usuels de l’article quand la quantité en est un nombre entier
-          (« 3 barres de 6 ml »), en concurrence aussi ; sinon il est vide :{" "}
-          <code className="text-foreground">[ ({"{conditionnement}"})]</code>.
+          {"{conditionnement}"} indique les conditionnements usuels si la quantité totale correspond à un nombre entier
+          de colis ou de barres (« 3 barres de 6 ml »). Utilisez{" "}
+          <code className="text-foreground">[ ({"{conditionnement}"})]</code> pour masquer ce champ quand il est vide.
         </p>
       </div>
 
