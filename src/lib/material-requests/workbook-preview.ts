@@ -228,13 +228,13 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
   if (!table) throw new MaterialRequestWorkbookError("Cette feuille n’existe pas ou est masquée.");
 
   const scanned = collectRows(table.sheet, (r, c) => r < HEADER_SCAN_ROWS && c < MAX_COLUMNS);
-  const first_rows = scanned.flatMap(([row, cells]) => {
+  const nonEmptyRows = scanned.flatMap(([row, cells]) => {
     const texts = [...cells].sort(([a], [b]) => a - b).flatMap(([column, cell]) => {
       const text = cellText(cell);
       return text ? [{ column: workbookColumnLetter(column), text: shorten(text) }] : [];
     });
     return texts.length ? [{ row_number: row + 1, cells: texts }] : [];
-  }).slice(0, MATERIAL_REQUEST_WORKBOOK_FIRST_ROWS);
+  });
 
   // The header row: the one chosen by hand, else the one recognized; without either, the user chooses it.
   const chosenRow = options.headerRow === undefined ? undefined : options.headerRow - 1;
@@ -244,6 +244,13 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
       const headers = headersOf(scanned.find(([row]) => row === chosenRow)?.[1] ?? new Map());
       return { row: chosenRow, headers, columns: detectWorkbookColumns(headers) };
     })();
+
+  // The rows offered as header: the first ones, and always the header row in use, even below them.
+  let first_rows = nonEmptyRows.slice(0, MATERIAL_REQUEST_WORKBOOK_FIRST_ROWS);
+  const headerEntry = header ? nonEmptyRows.find((entry) => entry.row_number === header.row + 1) : undefined;
+  if (headerEntry && !first_rows.includes(headerEntry)) {
+    first_rows = [...first_rows.slice(0, MATERIAL_REQUEST_WORKBOOK_FIRST_ROWS - 1), headerEntry];
+  }
 
   const preview: MaterialRequestWorkbookReading = {
     sheet_name: table.name,
@@ -278,7 +285,7 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
     }
   }
   preview.columns = [...examples.keys()].sort((a, b) => a - b)
-    .map((column) => ({ column: workbookColumnLetter(column), header: headerByColumn.get(column) ?? "", examples: examples.get(column) ?? [] }));
+    .map((column) => ({ column: workbookColumnLetter(column), header: shorten(headerByColumn.get(column) ?? ""), examples: examples.get(column) ?? [] }));
   if (columns.designation === undefined) return preview;
   const included = new Set(Object.values(columns));
 

@@ -88,7 +88,7 @@ const ROLE_PAIR = new RegExp(`^(${WORKBOOK_ROLES.join("|")}):([A-Z]{1,3})$`);
  * The `columns` query parameter: `designation:B,quantity:E,supplier:K`. A role left out is not read; the
  * designation is required and a column serves one role at most.
  */
-export const materialRequestWorkbookColumnsParamSchema = z.string().max(400).transform((value, context): WorkbookMapping => {
+export const materialRequestWorkbookColumnsParamSchema = z.string().max(400, "Le paramètre columns dépasse 400 caractères.").transform((value, context): WorkbookMapping => {
   const mapping: WorkbookMapping = {};
   const used = new Set<string>();
   for (const part of value.split(",").map((entry) => entry.trim()).filter(Boolean)) {

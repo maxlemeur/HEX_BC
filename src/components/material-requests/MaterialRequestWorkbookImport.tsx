@@ -300,6 +300,11 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
               setSheet(next);
             }}
             onHeaderRowChange={(row) => {
+              // The same row again (after a failed reading) reads it again: the error is never cleared without a load.
+              if (row === headerRow) {
+                retryReading();
+                return;
+              }
               setError(null);
               setReading(true);
               setHeaderRow(row);
