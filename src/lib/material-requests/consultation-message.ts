@@ -21,6 +21,8 @@ export type ConsultationLine = {
   position: number;
   quantity: number | null;
   unit: string | null;
+  /** The linked catalogue article, used to keep distinct articles separate in competition. */
+  productId?: string;
   /** The line's type words (filled from its article when it has one). */
   designation: string | null;
   dimension: string | null;
@@ -29,7 +31,7 @@ export type ConsultationLine = {
   precision: string | null;
   /** The technician's own words: what the line is called when it has no type words. */
   originalText: string | null;
-  /** The reference the technician wrote: removed from fallback wording and from competition messages. */
+  /** The reference the technician wrote: stripped from competition messages. */
   reference: string | null;
   /** The article's reference at the supplier the message is for. Never written without references. */
   supplierSku: string | null;
@@ -98,30 +100,15 @@ export function competitionNeedsType(line: ConsultationLine): boolean {
   return competitionName(line) === null;
 }
 
-function supplierDesignationName(line: ConsultationLine): string | null {
-  const designation = text(line.designation);
-  if (designation) return designation;
-  const original = text(line.originalText);
-  if (!text(line.reference)) return original;
-  const words = withoutReferences(original, line.reference);
-  return words && (words === original || NAMES_SOMETHING.test(words)) ? words : null;
-}
-
-function designationParts(line: ConsultationLine, withReferences: boolean) {
-  return {
-    head: withReferences ? supplierDesignationName(line) : competitionName(line),
-    details: [line.dimension, line.material, line.precision]
-      .map((part) => withReferences ? text(part) : withoutReferences(part, line.reference)),
-  };
-}
-
 /** The name, then the size, material and precision it does not already say. */
-function fullDesignation(line: ConsultationLine, withReferences: boolean): string {
-  const { head, details } = designationParts(line, withReferences);
-  if (!head && !withReferences) return `Article à préciser (ligne ${line.position})`;
+function fullDesignation(line: ConsultationLine, withReferences: boolean) {
+  const head = withReferences ? text(line.designation) ?? text(line.originalText) : competitionName(line);
+  if (!head && !withReferences) return { head, designation: `Article à préciser (ligne ${line.position})` };
   const said = foldText(head ?? "");
-  const extras = details.filter((part): part is string => part !== null && !said.includes(foldText(part)));
-  return [head ?? "Sans désignation", ...extras].join(", ");
+  const details = [line.dimension, line.material, line.precision]
+    .map((part) => withReferences ? text(part) : withoutReferences(part, line.reference))
+    .filter((part): part is string => part !== null && !said.includes(foldText(part)));
+  return { head, designation: [head ?? "Sans désignation", ...details].join(", ") };
 }
 
 function supplierSkuOf(line: ConsultationLine, withReferences: boolean): string | null {
@@ -137,36 +124,54 @@ function sharedPackaging(
     : null;
 }
 
+type ConsultationLineGroup = {
+  firstIndex: number;
+  count: number;
+  quantityThousandths: number;
+  usualPackaging: ConsultationLine["usualPackaging"];
+};
+
+// The quote comparison accepts requested quantities up to 1,000,000.
+const MAX_SUMMED_QUANTITY_THOUSANDTHS = 1_000_000 * 1000;
+
 /** Consolidate the message only. Each item keeps its first line's place and spelling. */
 export function sumConsultationLines(lines: readonly ConsultationLine[], withReferences: boolean): ConsultationLine[] {
-  const items: ConsultationLine[] = [];
-  const byDesignation = new Map<string, number>();
-  for (const line of lines) {
-    const { head, details } = designationParts(line, withReferences);
-    if (!head) {
-      items.push(line);
-      continue;
-    }
+  const groups = new Map<string, ConsultationLineGroup>();
+  const groupOfLine = lines.map((line, index) => {
+    if (line.quantity === null) return null;
+    const { head, designation } = fullDesignation(line, withReferences);
+    if (!head) return null;
+
+    // Stripping references can make different articles look identical.
+    const competitionIdentity = withReferences
+      ? null
+      : line.productId ?? [foldText(fullDesignation(line, true).designation), text(line.reference)];
     const key = JSON.stringify([
-      foldText(head),
-      ...details.map((part) => part === null ? null : foldText(part)),
+      foldText(designation),
       text(line.unit),
       supplierSkuOf(line, withReferences),
+      competitionIdentity,
     ]);
-    const index = byDesignation.get(key);
-    if (index === undefined) {
-      byDesignation.set(key, items.length);
-      items.push(line);
-      continue;
+    const quantityThousandths = Math.round(line.quantity * 1000);
+    const group = groups.get(key);
+    if (group) {
+      group.count++;
+      group.quantityThousandths += quantityThousandths;
+      group.usualPackaging = sharedPackaging(group.usualPackaging, line.usualPackaging);
+      return group;
     }
-    const first = items[index];
-    // Sum exact thousandths. A missing quantity makes the total unknown.
-    const quantity = first.quantity === null || line.quantity === null
-      ? null
-      : (Math.round(first.quantity * 1000) + Math.round(line.quantity * 1000)) / 1000;
-    items[index] = { ...first, quantity, usualPackaging: sharedPackaging(first.usualPackaging, line.usualPackaging) };
-  }
-  return items;
+
+    const first = { firstIndex: index, count: 1, quantityThousandths, usualPackaging: line.usualPackaging };
+    groups.set(key, first);
+    return first;
+  });
+
+  return lines.flatMap((line, index) => {
+    const group = groupOfLine[index];
+    if (!group || group.count === 1 || group.quantityThousandths > MAX_SUMMED_QUANTITY_THOUSANDTHS) return [line];
+    if (group.firstIndex !== index) return [];
+    return [{ ...line, quantity: group.quantityThousandths / 1000, usualPackaging: group.usualPackaging }];
+  });
 }
 
 /** What a delivery place says in the message, or null when it is unknown. */
@@ -186,7 +191,7 @@ export function consultationLineParts(
 ): { quantity: string | null; designation: string; reference: string | null } {
   return {
     quantity: quantityOf(line),
-    designation: fullDesignation(line, withReferences),
+    designation: fullDesignation(line, withReferences).designation,
     reference: supplierSkuOf(line, withReferences),
   };
 }
@@ -212,7 +217,7 @@ export function buildConsultationMessage(input: {
     ...sumConsultationLines(input.lines, input.withReferences).map((line) => itemOf(line, input.withReferences)),
     ...(input.deliveryPlace ? [DELIVERY[input.deliveryPlace]] : []),
     "Merci !",
-  ].join("\n").replaceAll("—", "–");
+  ].join("\n");
 }
 
 /**
@@ -236,6 +241,7 @@ export function consultationLineOf(
     position: line.position,
     quantity: line.quantity,
     unit: text(line.unit),
+    ...(line.product_id ? { productId: line.product_id } : {}),
     designation: text(line.product_type),
     dimension: text(line.dimension),
     material: own ?? presumed,

@@ -212,6 +212,7 @@ describe("consultation message", () => {
       position: 4,
       quantity: 10,
       unit: "u",
+      productId: "article-1",
       designation: "Coude 90°",
       dimension: "DN 50",
       material: "Inox 316L",
@@ -273,7 +274,7 @@ describe("consultation message", () => {
     expect(competitionNeedsType(bare)).toBe(true);
   });
 
-  it("keeps only the supplier's reference when the technician's wording provides no designation (2, 8)", () => {
+  it("keeps the technician's words for the usual supplier when there is no designation (2, 8)", () => {
     const words = item({ quantity: 4, designation: null, dimension: null, material: null, originalText: "réf NA-4471 x4", reference: "NA-4471" });
     const message = buildConsultationMessage({
       affaireName: "Atelier Nord",
@@ -283,8 +284,8 @@ describe("consultation message", () => {
     });
 
     expect(message.split("\n").slice(1, 4)).toEqual([
-      "- 4 u Sans désignation (réf. SKU-1)",
-      "- 4 u Sans désignation",
+      "- 4 u réf NA-4471 x4 (réf. SKU-1)",
+      "- 4 u réf NA-4471 x4",
       "- 10 u Sans désignation",
     ]);
   });

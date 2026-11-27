@@ -179,7 +179,7 @@ export function renderConsultationMessage(input: {
       ]));
     })
     .filter((item) => item.trim().length > 0);
-  const message = renderTemplate(
+  return renderTemplate(
     input.template.message,
     "message",
     new Map([
@@ -191,9 +191,6 @@ export function renderConsultationMessage(input: {
   )
     .replace(/^(?:[ \t]*\n)+/, "")
     .trimEnd();
-  const isDefault = input.template.message === DEFAULT_CONSULTATION_TEMPLATE.message
-    && input.template.line === DEFAULT_CONSULTATION_TEMPLATE.line;
-  return isDefault ? message.replaceAll("—", "–") : message;
 }
 
 /** The message for one supplier: the member's template when they have one, today's message otherwise. */

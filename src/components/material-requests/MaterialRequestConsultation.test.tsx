@@ -601,9 +601,9 @@ describe("consultation of suppliers", () => {
       [`GET ${QUOTES}`]: { data: { items: [] } },
     });
 
-    // The usual supplier sees its catalogue reference and a placeholder for the unnamed line.
+    // The usual supplier still sees the technician's own words when the line has no type.
     expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(
-      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90°, DN 50, Inox 316L (réf. NA-4471)\n- 4 u Sans désignation\nMerci !",
+      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90°, DN 50, Inox 316L (réf. NA-4471)\n- 4 u réf NA-4471 x4\nMerci !",
     );
     await addCompetitor(user, "Comptoir Bêta");
     // Said beside the competitor's message, where the line would be named.
