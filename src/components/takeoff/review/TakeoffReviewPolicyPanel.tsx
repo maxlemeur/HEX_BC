@@ -8,9 +8,9 @@ import { takeoffReviewContextResponseSchema, type TakeoffReviewContext } from "@
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 import { TAKEOFF_COMPARISON_DEFERRED } from "@/lib/takeoff/apply-readiness";
 import { Button } from "@/components/ui/button";
+import { formatEUR } from "@/lib/money";
 
-const money = (value: number | null) => value === null ? "Montant inconnu" :
-  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(value / 100);
+const money = (value: number | null) => value === null ? "Montant inconnu" : formatEUR(value);
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
   ? value as Record<string, unknown> : {};
 

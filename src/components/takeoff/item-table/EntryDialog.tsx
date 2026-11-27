@@ -16,9 +16,9 @@ import { noteText } from "@/lib/takeoff/rules/verification";
 import { HYPOTHESIS_NOTE, QUANTITY_ENTRY_CATEGORIES, quantityEntryError, type QuantityEntryCategory } from "@/lib/takeoff/quantity-entry";
 import { EntryBatchResult, type EntryBatch } from "./EntryBatchResult";
 import { confirmOnEnter } from "./ItemTableGestureDialogs";
+import { PARIS_DATE_TIME_FORMAT as date } from "@/lib/format/fr";
 
 const CATEGORIES = Object.keys(QUANTITY_ENTRY_CATEGORIES) as QuantityEntryCategory[];
-const date = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Paris" });
 type Value = { line: ItemTableResponseLine; quantity: number; unit: string };
 
 export function EntryDialog({ projectId, viewScope, values, resume, onClose, onRefused, onFinished }: {

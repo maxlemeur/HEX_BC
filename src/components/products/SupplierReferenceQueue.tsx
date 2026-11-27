@@ -30,6 +30,7 @@ import {
   safeProductUrl,
   type SupplierDirectoryEntry,
 } from "@/lib/catalogue/supplier-items-client";
+import { PARIS_DAY_FORMAT as DAY } from "@/lib/format/fr";
 
 /**
  * The supplier references an import left « à vérifier » (TI-711), in one list. Until it is checked, a reference
@@ -42,7 +43,6 @@ type Filter = Pick<PendingReferencesQuery, "supplier_id" | "import_batch_id" | "
 
 const count = (value: number) => value.toLocaleString("fr-FR");
 const plural = (value: number, one: string, many: string) => (value === 1 ? one : many);
-const DAY = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric" });
 
 export function SupplierReferenceQueue({ initialImportBatchId }: Readonly<{ initialImportBatchId: string | null }>) {
   const confirm = useConfirm();

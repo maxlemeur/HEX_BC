@@ -36,8 +36,7 @@ import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-sta
 import type { PriceReuseApplyInput, PriceReuseApplyResult } from "@/lib/estimates/price-reuse-contracts";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 import { describeV3ConvertedLines } from "@/lib/estimates/v3-converted-lines";
-
-const euros = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+import { formatEUR } from "@/lib/money";
 
 /** Résumé de l'éditeur : les PU de vente différents de la référence (coefficients, taux horaires) sont nommés. */
 function describePriceReuseResult(result: PriceReuseApplyResult) {
@@ -47,7 +46,7 @@ function describePriceReuseResult(result: PriceReuseApplyResult) {
     line.reference_pu_ht_cents !== line.pu_ht_cents);
   if (different.length === 0) return applied + unchanged;
   const listed = different.slice(0, 5).map((line) =>
-    `« ${line.title} » ${euros.format(line.pu_ht_cents! / 100)} au lieu de ${euros.format(line.reference_pu_ht_cents! / 100)}`).join(" ; ");
+    `« ${line.title} » ${formatEUR(line.pu_ht_cents!)} au lieu de ${formatEUR(line.reference_pu_ht_cents!)}`).join(" ; ");
   return `${applied}${unchanged} PU de vente différent de la référence (coefficients ou taux horaires de ce devis) : ${listed}` +
     `${different.length > 5 ? ` et ${different.length - 5} autre(s)` : ""}.`;
 }

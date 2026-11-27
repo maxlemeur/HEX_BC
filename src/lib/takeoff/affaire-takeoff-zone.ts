@@ -12,6 +12,7 @@ import {
 import { describeTakeoffLaunchAction, type TakeoffLaunchAction } from "@/lib/takeoff/operator-state";
 import type { PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
 import { isTakeoffVisibleJobInFlight, type TakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
+import { plural } from "@/lib/text/plural";
 
 /**
  * The takeoff's zone on the affaire's page: the state of its latest launch request (or, without one, of its latest
@@ -165,10 +166,6 @@ const TRANSIENT_REASONS = new Set<string>(TAKEOFF_LAUNCH_TRANSIENT_REASONS);
 const DOSSIER_WAIT: Partial<Record<AffaireDossierState, TakeoffLaunchReason>> = {
   processing: "DOSSIER_PROCESSING", to_review: "DOSSIER_TO_REVIEW", brief_to_confirm: "BRIEF_NOT_CONFIRMED",
 };
-
-function plural(count: number, one: string, many: string) {
-  return `${count} ${count > 1 ? many : one}`;
-}
 
 function reasonLinks(reason: TakeoffLaunchReason | null, canOperate: boolean): AffaireTakeoffZoneLink[] {
   switch (reason) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { DEFAULT_LOW_CONFIDENCE_THRESHOLD, MEDIUM_CONFIDENCE_CEILING } from "@/lib/takeoff/guards";
+import { COUNT_FORMAT } from "@/lib/format/fr";
 
 export function formatDurationMs(ms: number | null): string {
   if (ms == null || ms <= 0) return "-";
@@ -56,7 +57,7 @@ export function formatDate(value: string): string {
 }
 
 export function formatNumber(value: number): string {
-  return new Intl.NumberFormat("fr-FR").format(value);
+  return COUNT_FORMAT.format(value);
 }
 
 export function formatDecimal(value: number, maxFractionDigits = 2): string {

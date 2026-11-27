@@ -1,3 +1,5 @@
+import { QUANTITY_FORMAT } from "@/lib/format/fr";
+
 export const MAX_ORDER_QUANTITY = 2_147_483_647;
 
 // Inspect the decimal representation rather than quantity * 1000: values such
@@ -18,7 +20,7 @@ export function parseOrderQuantityInput(input: string): number | null {
 }
 
 export function formatOrderQuantity(quantity: number): string {
-  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(quantity);
+  return QUANTITY_FORMAT.format(quantity);
 }
 
 export function orderQuantityToMilliunits(quantity: number): bigint {

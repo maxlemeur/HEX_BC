@@ -1,4 +1,5 @@
 import { foldText } from "@/lib/text/fold";
+import { PARIS_DAY_FORMAT as DAY } from "@/lib/format/fr";
 
 /** What a picker may read of a supplier to tell it from another of the same name. */
 export type SupplierIdentity = {
@@ -10,7 +11,6 @@ export type SupplierIdentity = {
   created_at?: string | null;
 };
 
-const DAY = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric" });
 const TIME = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" });
 
 function sameName(name: string): string {

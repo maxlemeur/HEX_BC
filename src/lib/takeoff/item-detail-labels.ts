@@ -4,6 +4,7 @@ import { ITEM_INELIGIBILITY_LABELS } from "@/lib/takeoff/item-table-labels";
 import type { ItemIneligibility } from "@/lib/takeoff/item-table";
 import type { PdfPageFailure } from "@/lib/takeoff/pdf-page-geometry";
 import { QUANTITY_ENTRY_CATEGORIES } from "@/lib/takeoff/quantity-entry";
+import { PARIS_DATE_TIME_FORMAT as dateFormat } from "@/lib/format/fr";
 
 /**
  * The words of the detail of an item, in French, that the table of items has no word for: the outcome of one plan's
@@ -67,6 +68,5 @@ export function itemDetailPlanErrorLabel(code: string | null, status: number | n
   }
 }
 
-const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Paris" });
 export const formatItemDetailDate = (value: string) => dateFormat.format(new Date(value));
 export const formatItemDetailPages = (pages: readonly number[]) => (pages.length ? pages.join(", ") : "—");

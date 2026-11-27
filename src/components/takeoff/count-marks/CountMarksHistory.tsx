@@ -8,14 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { COUNT_MARKS_HISTORY_LIMIT, type CountMarkHistoryEvent } from "@/lib/takeoff/count-marks-contracts";
 import { countMarkEventActor, countMarkEventLabel } from "@/lib/takeoff/count-marks-view";
+import { PARIS_DATE_TIME_FORMAT as dateFormat } from "@/lib/format/fr";
 
 /**
  * The journal of the answer's marks (lot 5): who (the analysis or a member), when, what, the page, before and after, the
  * reason, and what supported a retained mark as the journal kept it, in order, page after page. Read again after each
  * save; a refused read withdraws the marks, this history with them. No gesture here.
  */
-
-const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Paris" });
 
 type Read = { events: CountMarkHistoryEvent[]; next: { revision: number; ordinal: number } | null; names: Record<string, string>;
   viewerId: string | null };

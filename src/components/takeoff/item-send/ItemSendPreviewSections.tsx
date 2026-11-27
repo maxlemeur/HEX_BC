@@ -8,6 +8,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import type { ItemSendPreviewResponse } from "@/lib/takeoff/item-send-contracts";
 import { ITEM_SEND_BREAKDOWN_LABELS, ITEM_SEND_BREAKDOWNS, type ItemSendBreakdown } from "@/lib/takeoff/item-send-plan";
 import { plural } from "@/lib/text/plural";
+import { QUANTITY_FORMAT as quantity } from "@/lib/format/fr";
 
 // Lot 4, PR 5c: what the preview of the send of one plan by item shows, read only: the draft created or fed, the
 // breakdown, the sections, the lines created and fed with their quantities before and after (what other analyses already
@@ -19,7 +20,6 @@ type Preview = ItemSendPreviewResponse;
 type Destination = NonNullable<Preview["destination"]>;
 
 const sourceLabels = { verified_count: "Comptage vérifié", measured: "Mesure retenue", entered: "Saisie du plan" } as const;
-const quantity = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 export const formatItemSendQuantity = (value: number | null, unit?: string | null) =>
   value === null ? "" : `${quantity.format(value)}${unit ? ` ${unit}` : ""}`;
 

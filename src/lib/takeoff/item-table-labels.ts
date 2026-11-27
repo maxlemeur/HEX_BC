@@ -2,6 +2,7 @@ import { ITEM_AGGREGATE_STATES, type ItemAggregateState } from "./item-answer-ag
 import type { ItemAnswerAnomaly, ItemIneligibility, ItemLineDecision, ItemSetAsideReason } from "./item-table";
 import type { TakeoffUnitState } from "./launch-request-coverage";
 import { describePosteStatus, describeStoredPosteReason } from "./poste-aggregation";
+import { COUNT_FORMAT, QUANTITY_FORMAT as quantityFormat } from "@/lib/format/fr";
 
 /** The words of the table of items, in French: every code its contract carries has its label here, never on screen as is. */
 
@@ -86,7 +87,6 @@ export function itemReasonBlocks(reason: string): boolean {
   return reason.startsWith("anomaly:") || reason === "dpgf_gap" || reason === "unit_conflict";
 }
 
-const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 export const formatItemQuantity = (quantity: number, unit: string | null) =>
   `${quantityFormat.format(quantity)}${unit ? ` ${unit}` : ""}`;
 
@@ -98,4 +98,4 @@ const percentFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2,
 export const formatItemPercent = (percent: number) => `${percentFormat.format(percent)} %`;
 
 export const formatItemCount = (count: number, one: string, many: string) =>
-  `${new Intl.NumberFormat("fr-FR").format(count)} ${count > 1 ? many : one}`;
+  `${COUNT_FORMAT.format(count)} ${count > 1 ? many : one}`;

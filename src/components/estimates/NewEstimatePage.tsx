@@ -10,8 +10,8 @@ import type { EstimateCreationEngine } from "@/components/estimates/estimate-cre
 import { JourneyPageHeader } from "@/components/journey/JourneyPage";
 import { useToast } from "@/components/feedback/toast-provider";
 import type { InstantiateEstimateTemplateConversion } from "@/lib/estimates/templates-client";
+import { QUANTITY_FORMAT as HOURS_FORMAT } from "@/lib/format/fr";
 
-const HOURS_FORMAT = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 const LISTED_CONVERTED_LINES = 5;
 
 /**

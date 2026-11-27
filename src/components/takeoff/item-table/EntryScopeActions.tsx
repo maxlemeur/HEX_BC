@@ -12,6 +12,7 @@ import { fetchItemLine, sendEntryScope } from "@/lib/takeoff/item-table-client";
 import type { ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
 import { formatEntryQuantity } from "@/lib/takeoff/item-table-labels";
 import { QUANTITY_ENTRY_CATEGORIES } from "@/lib/takeoff/quantity-entry";
+import { PARIS_DATE_TIME_FORMAT as date } from "@/lib/format/fr";
 
 const titles = { attach: "Rattacher cette saisie à un plan", withdraw: "Retirer la saisie de l’affaire" };
 const messages = {
@@ -19,7 +20,6 @@ const messages = {
   sent: "Une part de ce poste est déjà au devis. La saisie reste en place.",
   ineligible: "Ce plan ne peut plus recevoir la saisie. Vérifiez sa présence dans l’affaire et la lecture du poste.",
 };
-const date = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Paris" });
 type Entry = NonNullable<ItemTableResponseLine["entry"]>;
 type Snapshot = { action: keyof typeof titles; source: Entry; plans: Array<{ key: string; name: string; revision: number; unavailable: string | null }> };
 

@@ -12,6 +12,7 @@ import {
 import { itemListChangedFacts } from "@/lib/takeoff/item-list-change-facts";
 import type { ItemListPrepareReason } from "@/lib/takeoff/item-list-sources-server";
 import { workbookRowLabel } from "@/lib/imports/row-location";
+import { PARIS_DATE_TIME_FORMAT as dateFormat } from "@/lib/format/fr";
 
 const PAGE_SIZE = 25;
 const ISSUE_LABELS = {
@@ -42,7 +43,6 @@ const PREPARE_LABELS: Record<ItemListPrepareReason, string> = {
 };
 const CAUSE_LABELS = { initial: "Première liste", proposal: "Révision acceptée", item_added: "Poste ajouté" };
 const referenceFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 6 });
-const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Paris" });
 type Query = Record<string, string | string[] | undefined>;
 
 /**

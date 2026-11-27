@@ -11,6 +11,7 @@ import { zoomedBy } from "@/lib/takeoff/pdf-page-geometry";
 import { CLASS_SOURCE_LABELS, isLocalModelPromptVersion, isModelSource, type ClassSource } from "@/lib/takeoff/vectors/classify";
 import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
 import { formatDenominator } from "@/lib/takeoff/vectors/scale";
+import { COUNT_FORMAT } from "@/lib/format/fr";
 
 // Viewer of a takeoff job's vector reading (TI-662), in the takeoff review:
 // the plan page rendered by pdfjs in the browser, the centrelines of its
@@ -56,7 +57,7 @@ function withView(views: ReadonlyMap<string, View>, pageId: string, change: (vie
 }
 
 const percent = (value: number) => `${Math.round(value * 100)} %`;
-const plural = (count: number, word: string) => `${new Intl.NumberFormat("fr-FR").format(count)} ${word}${count > 1 ? "s" : ""}`;
+const plural = (count: number, word: string) => `${COUNT_FORMAT.format(count)} ${word}${count > 1 ? "s" : ""}`;
 
 /**
  * How each network's class was read, from the groups its items measure: sources in order, a model's (Decisions, the

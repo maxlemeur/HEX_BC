@@ -10,6 +10,7 @@ import {
   TAKEOFF_VISIBLE_JOB_STATUSES,
 } from "@/lib/takeoff/visible-status";
 import { Card } from "@/components/ui/card";
+import { COUNT_FORMAT } from "@/lib/format/fr";
 
 export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
@@ -63,7 +64,7 @@ export function formatTimestamp(value: string | null) {
 export function formatCount(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value))
     return "-";
-  return new Intl.NumberFormat("fr-FR").format(value);
+  return COUNT_FORMAT.format(value);
 }
 
 export function formatActivityPlan({ name, pages }: TakeoffActivityPlan) {

@@ -1,5 +1,6 @@
 import type { TakeoffCorrectionMetricsEventType, TakeoffMetricsPeriod } from "@/lib/takeoff/metrics-types";
 import { isRecord } from "@/lib/value-guards";
+import { COUNT_FORMAT } from "@/lib/format/fr";
 
 export type TakeoffMetricsAuditLogRow = {
   action: string;
@@ -27,7 +28,7 @@ export function getTrendWindowStart(
 }
 
 export function formatPilotCount(value: number): string {
-  return new Intl.NumberFormat("fr-FR").format(value);
+  return COUNT_FORMAT.format(value);
 }
 
 export function formatPilotPercent(value: number): string {

@@ -1,4 +1,5 @@
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
+import { QUANTITY_FORMAT } from "@/lib/format/fr";
 
 // TI-682, lot C, PR 5: the « quantité provisionnelle » sentence of a priced line whose quantity rests on a takeoff
 // hypothesis. An administrator declares what the quantity is established on and what will confirm it
@@ -41,7 +42,6 @@ export function provisionalTextError(value: string): string | null {
   return FORBIDDEN_CHARACTER.test(value) ? "character" : null;
 }
 
-const QUANTITY_FORMAT = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 const UNIT_SYMBOL_BY_CODE = new Map(MEASUREMENT_UNITS.map((unit) => [unit.code, unit.symbol]));
 
 /**
