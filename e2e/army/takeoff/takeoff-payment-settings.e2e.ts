@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, test, type Browser } from "@e2e-dev/web";
@@ -8,9 +9,9 @@ import { apiRequest, createEstimateViaWizard, recordEvidence } from "../critical
 import { hydratedUi, waitForHydration } from "../critical/hydration-support";
 import { createPlanSet, ownedTakeoffJobs, uploadSamplePlan } from "../critical/plans-support";
 import { takeoffZone } from "../critical/preparation-support";
-import { activateOwnedPlanDispatch, deactivateOwnedPlanDispatch, fictionalPlanPdf } from "./plan-dispatch-support";
+import { activateOwnedPlanDispatch, deactivateOwnedPlanDispatch, fictionalPlanPdf, releaseOwnedHost } from "./plan-dispatch-support";
 import { activateOwnedItemListOrder, deactivateOwnedItemListOrder, publishOwnedItemTemplate } from "./poste-reading-support";
-import type { WorkerOwner } from "./worker-support";
+import { ownedWorkerHostId, type WorkerOwner } from "./worker-support";
 import { ownedPlanChoices, readOwnedAffaireJobs, readOwnedBrief, readOwnedLaunchRequests } from "../local/automatic-start-support";
 import { querySql } from "../local/calculation-gate-support";
 import { chatGptLocalServer, writeDecisionsControl, writePlanFixture, type ChatGptLocalServer } from "../local/chatgpt-local-journey-support";
@@ -64,6 +65,8 @@ async function saveProfileKey(ui: ReturnType<typeof hydratedUi>) {
 }
 
 async function prepareAffaire(fixtures: Parameters<typeof hydratedUi>[0], label: string) {
+  // This file's server reads the stack's one Mac: what an earlier journey, or an attempt of this one, left on it goes first.
+  await releaseOwnedHost();
   const owner = await createLocalChatGptOwner();
   await dossier.signInAs(fixtures, owner.email);
   const ui = hydratedUi(fixtures, local.origin);
@@ -105,6 +108,43 @@ describe("Paid takeoff request settings", () => {
   afterAll(() => server.stop());
 
   const options = { tags: ["critical", "local", "chatgpt", "premetre"], session: "army", trace: "off", timeout: 300_000 } as const;
+
+  test("PAIDMETRE00 a Mac another journey left reading and waiting is given back before a paid reading", options, async ({ app, screen, browser }) => {
+    const { ids } = await prepareAffaire({ app, screen, browser }, "mac-libre");
+    const host = await ownedWorkerHostId();
+    const [planSet, reading, waiting, lease] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    // What the stack's other journeys leave on the Mac (an admission never run, a worker stopped while it read): seeded
+    // as their end left it, the reading one holding the Mac's slot under a lease no process renews.
+    const job = (id: string, name: string, columns: string, values: string) => `insert into public.takeoff_jobs (id, tenant_id, project_id,
+  plan_set_id, created_by, level, execution_provider, execution_host_id, processing_strategy, source_file_name, preparation_snapshot, created_at, ${columns})
+select '${id}', p.tenant_id, p.id, '${planSet}', p.user_id, 'C', 'chatgpt_local', '${host}', 'sync', '${name}', '{}'::jsonb,
+  clock_timestamp() - interval '5 minutes', ${values} from public.estimate_projects p where p.id = '${ids.projectId}';`;
+    await querySql(`begin;
+set local session_replication_role = replica;
+insert into public.plan_sets (id, tenant_id, project_id, name) select '${planSet}', p.tenant_id, p.id, 'Plans fictifs laissés'
+  from public.estimate_projects p where p.id = '${ids.projectId}';
+${job(reading, "Plan laissé en lecture.pdf", "status, started_at, processing_lease_token, processing_lease_expires_at",
+    `'processing', clock_timestamp(), '${lease}', clock_timestamp() + interval '30 minutes'`)}
+${job(waiting, "Plan laissé en attente.pdf", "status", "'pending'")}
+insert into private.takeoff_host_slots (host_id, job_id, holder_token, acquired_at, expires_at)
+  values ('${host}', '${reading}', '${lease}', clock_timestamp(), clock_timestamp() + interval '30 minutes')
+  on conflict (host_id) do update set job_id = excluded.job_id, holder_token = excluded.holder_token, acquired_at = excluded.acquired_at,
+    expires_at = excluded.expires_at;
+commit;`);
+    // Busy for the key's queue as for the forfait's, whose readings share the Mac; and the waiting analysis is first in line.
+    const mac = () => querySql(`select private.takeoff_host_busy('${host}', null), private.takeoff_host_busy(private.takeoff_payment_queue_id('${host}'), null),
+  (select count(*) from public.takeoff_jobs j where j.execution_provider = 'chatgpt_local'
+    and j.execution_host_id in ('${host}', private.takeoff_payment_queue_id('${host}')) and j.analysis_outcome is null
+    and (j.status in ('pending', 'processing') or (j.status = 'failed' and j.next_retry_at is not null))),
+  (select count(*) from private.takeoff_host_slots s where s.host_id = '${host}' and s.holder_token is not null);`);
+    expect(await mac()).toEqual(["t|t|2|1"]);
+
+    await releaseOwnedHost();
+
+    expect(await mac()).toEqual(["f|f|0|0"]);
+    expect(await querySql(`select status from public.takeoff_jobs where id in ('${reading}', '${waiting}') order by source_file_name;`))
+      .toEqual(["canceled", "canceled"]);
+  });
 
   test("PAIDMETRE01 a draft's preparation sends the chosen key model under the cap shown at 375 px", options, async ({ app, screen, browser }) => {
     const { ui, army, ids } = await prepareAffaire({ app, screen, browser }, "lancement");
