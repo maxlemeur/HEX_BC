@@ -43,7 +43,8 @@
 -- 15. (Codex review of #279) a project line without a material of its own, quoted in the request's confirmed presumed
 --     material, is retained with no material: changing and confirming the header material afterwards turns a line
 --     priced for Inox into Cuivre at its Inox price; or a line quoted while that material was not confirmed takes it
---     anyway (it was consulted without a material, and the material is optional since 2026-11-27); or a missing or
+--     anyway, or one changed and confirmed again after the consultation (it was not the one priced; the material is
+--     optional since 2026-11-27); or a missing or
 --     unconfirmed material stops a validation or a retaining; or an overhead line takes the request's material; or a
 --     validated line returns to draft when the retaining writes its material.
 -- 16. (Codex review of #279) a quote whose lines are not all validated (a quantity, unit, type or dimension may still
@@ -894,6 +895,13 @@ select is((select material from public.material_request_lines where id = 'a93000
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$update public.material_request_lines set status = 'validated' where id = 'a9300000-0000-4000-8000-000000000714'$$),
   'ok 1', '15 and validates line 4 in it');
+-- requested_at is now() and material_confirmed_at clock_timestamp(): in this one test transaction every confirmation
+-- would follow every consultation. The confirmation is dated back so that it precedes the consultation below, as it
+-- does across two real requests.
+set local session_replication_role = replica;
+update public.material_requests set material_confirmed_at = material_confirmed_at - interval '1 day'
+where id = 'a9300000-0000-4000-8000-000000000604';
+set local session_replication_role = origin;
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$select public.create_material_request_quote('a9300000-0000-4000-8000-000000000604', 'a9300000-0000-4000-8000-000000000305', false,
     'Bonjour, prix pour 1 bouchon inox 304L DN 40 ?', array['a9300000-0000-4000-8000-000000000714']::uuid[])$$),
@@ -911,7 +919,7 @@ select is((select jsonb_agg(jsonb_build_array(position, material, status, unit_p
   jsonb_build_array(
     jsonb_build_array(1, null, 'validated', 2150),
     jsonb_build_array(4, 'Inox 304L', 'validated', 980)),
-  '15 the retaining writes the confirmed presumed material on the project line priced without one, which stays validated');
+  '15 the retaining writes the presumed material confirmed before the consultation on the project line priced without one, which stays validated');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$update public.material_requests set presumed_material = 'Cuivre' where id = 'a9300000-0000-4000-8000-000000000604'$$),
   'ok 1', '15 the owner changes the header material to Cuivre');

@@ -15,8 +15,11 @@
 --    line validated.
 -- 3. public.retain_material_request_quote: its body (20261112173255) without the backstop that refused a quote while a
 --    project line without material met an unconfirmed presumed material (MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED is
---    no longer raised). The retaining writes the presumed material on such a line only when it is confirmed, which is
---    what the consultation message wrote; otherwise the line is priced, and frozen, without a material.
+--    no longer raised). The retaining writes the presumed material on such a line only when it was confirmed before the
+--    quote was requested and has not changed since (material_confirmed_at <= requested_at: changing or un-confirming
+--    the material clears material_confirmed_at, a new confirmation stamps it again), which is what the consultation
+--    message wrote; otherwise the line is priced, and frozen, without a material. The dropped reopen trigger used to
+--    force a new validation when the material changed between the consultation and the retaining.
 -- 4. public.create_material_request_purchase_orders: its latest body (20261122194343_affaire_site_contacts.sql) with the
 --    designation built from the line's own material only. It used to fall back on the request's material when it was
 --    confirmed at order time, which could now order a line priced without material in a material confirmed after its
@@ -211,7 +214,7 @@ begin
   order by q.id
   for update;
   -- Read again under the locks: a competing retaining that committed meanwhile has closed it.
-  select q.id, q.request_id, q.supplier_id, q.status into target
+  select q.id, q.request_id, q.supplier_id, q.status, q.requested_at into target
   from public.material_request_quotes q where q.id = p_quote_id for update;
   if not found then
     raise exception using errcode = '42501', message = 'MATERIAL_REQUEST_QUOTE_WRITERS_ONLY';
@@ -233,9 +236,9 @@ begin
       detail = pg_catalog.array_to_json(positions)::text;
   end if;
 
-  -- The request first (before its lines, like a change of its header): its presumed material and its confirmation
-  -- stay as read here until this retaining commits.
-  select request.presumed_material, request.material_confirmed into presumed
+  -- The request first (before its lines, like a change of its header): its presumed material, its confirmation and
+  -- the time of that confirmation stay as read here until this retaining commits.
+  select request.presumed_material, request.material_confirmed, request.material_confirmed_at into presumed
   from public.material_requests request where request.id = target.request_id for share;
   perform 1 from public.material_request_lines line
   where line.id in (
@@ -266,8 +269,12 @@ begin
       unit_price_ht_cents = quote_line.unit_price_ht_cents,
       price_per = quote_line.price_per,
       price_quote_id = target.id,
+      -- optional material: the presumed material the supplier was consulted in, i.e. confirmed before the quote was
+      -- requested and unchanged since; a material confirmed (or changed and confirmed again) later was not the one
+      -- priced, and the line is then priced without a material.
       material = case when line.imputation = 'project' and pg_catalog.btrim(coalesce(line.material, '')) = ''
           and presumed.material_confirmed and pg_catalog.btrim(coalesce(presumed.presumed_material, '')) <> ''
+          and presumed.material_confirmed_at <= target.requested_at
         then presumed.presumed_material else line.material end
   from public.material_request_quote_lines quote_line
   where quote_line.quote_id = target.id and line.id = quote_line.line_id and line.price_quote_id is null;
@@ -299,7 +306,7 @@ end;
 $$;
 
 comment on function public.retain_material_request_quote(uuid) is
-  'TI-691: retains a received quote whose lines are all priced and validated, in one transaction, as the caller (RLS): it becomes retained, its lines take its supplier, price, price quantity and id, and a project line without its own material takes the request''s presumed material when it is confirmed, else stays without one (a validated line stays validated), and every other requested or received quote of the request sharing a line is closed; returns their ids. Refusals: MATERIAL_REQUEST_QUOTE_NOT_FOUND, _WRITERS_ONLY, _NOT_RECEIVED (DETAIL: status), _WITHOUT_LINES, _LINES_UNPRICED, _LINES_ALREADY_RETAINED, _LINES_NOT_VALIDATED (DETAIL: JSON array of line positions), _LINES_CHANGED.';
+  'TI-691: retains a received quote whose lines are all priced and validated, in one transaction, as the caller (RLS): it becomes retained, its lines take its supplier, price, price quantity and id, and a project line without its own material takes the request''s presumed material when it was confirmed before the quote was requested and has not changed since, else stays without one (a validated line stays validated), and every other requested or received quote of the request sharing a line is closed; returns their ids. Refusals: MATERIAL_REQUEST_QUOTE_NOT_FOUND, _WRITERS_ONLY, _NOT_RECEIVED (DETAIL: status), _WITHOUT_LINES, _LINES_UNPRICED, _LINES_ALREADY_RETAINED, _LINES_NOT_VALIDATED (DETAIL: JSON array of line positions), _LINES_CHANGED.';
 
 
 -- ---------------------------------------------------------------------------
@@ -411,7 +418,7 @@ begin
     select tenant_value, order_id, wanted.ordinal, line.product_id,
       coalesce(nullif(pg_catalog.btrim(item.supplier_sku), ''), nullif(pg_catalog.btrim(product.reference), '')),
       -- optional material: the line's own material only. A ready line is priced, and its retaining wrote on it the
-      -- request's material if that was confirmed then; a material confirmed later was not the one priced.
+      -- request's material if the supplier was consulted in it; a material confirmed later was not the one priced.
       private.material_request_line_designation(line.product_type, line.original_text, line.dimension,
         nullif(pg_catalog.btrim(line.material), ''), line.material_precision),
       line.quantity, pg_catalog.btrim(line.unit), line.unit_price_ht_cents, line.price_per, 2000, 0, 0, 0,

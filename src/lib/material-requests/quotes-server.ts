@@ -429,7 +429,8 @@ async function retainRefusal(access: MaterialRequestAccess, request: MaterialReq
     );
   }
   // The material is optional (owner decision of 2026-11-27): a project line without its own material is retained
-  // as it is. The retaining writes on it the request's presumed material only when the office has confirmed it.
+  // as it is. The retaining writes on it the request's presumed material only when that material was confirmed before
+  // the quote was requested and has not changed since (the database decides).
   return null;
 }
 
