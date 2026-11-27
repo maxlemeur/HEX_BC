@@ -379,7 +379,8 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
                           </td>
                           <th scope="row" className="px-3 py-2 text-right font-normal tabular-nums">{number}</th>
                           <td className="max-w-60 break-words px-3 py-2">
-                            {line?.original_text}
+                            {/* The designation alone: with a split dimension, the original text also carries the whole cell. */}
+                            {line && <span className="block">{line.product_type ?? line.original_text}</span>}
                             {issues.has(number) && <p className="text-xs text-warning">{issues.get(number)}</p>}
                             {row?.remarks.map((remark) => (
                               <p key={remark.code} className={remark.code === "rounded" ? "text-xs text-muted-foreground" : "text-xs text-warning"}>{remark.message}</p>
