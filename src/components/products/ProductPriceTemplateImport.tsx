@@ -277,6 +277,13 @@ function TemplatePreview({ result }: Readonly<{ result: ProductPriceTemplatePars
       {result.version ? (
         <p className="text-xs text-muted-foreground">Version du modèle détectée : {result.version}</p>
       ) : null}
+      {result.ignoredExampleRows > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {result.ignoredExampleRows === 1
+            ? "1 ligne d’exemple du modèle (référence EXEMPLE-) est ignorée."
+            : `${result.ignoredExampleRows} lignes d’exemple du modèle (référence EXEMPLE-) sont ignorées.`}
+        </p>
+      ) : null}
 
       {result.products.length > 0 ? <ProductsPreview products={result.products} /> : null}
       {result.prices.length > 0 ? <PricesPreview prices={result.prices} /> : null}
@@ -310,6 +317,7 @@ function ProductsPreview({ products }: Readonly<{ products: ProductTemplateRow[]
               <th scope="col" className="px-3 py-2 font-semibold">Référence</th>
               <th scope="col" className="px-3 py-2 font-semibold">Désignation</th>
               <th scope="col" className="px-3 py-2 font-semibold">Famille</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Type</th>
               <th scope="col" className="px-3 py-2 font-semibold">Unité</th>
               <th scope="col" className="px-3 py-2 text-right font-semibold">Prix HT</th>
             </tr>
@@ -319,7 +327,8 @@ function ProductsPreview({ products }: Readonly<{ products: ProductTemplateRow[]
               <tr key={product.reference}>
                 <td className="px-3 py-2 font-mono text-xs text-foreground-secondary">{product.reference}</td>
                 <td className="px-3 py-2 font-medium text-foreground">{product.designation}</td>
-                <td className="px-3 py-2 text-foreground-secondary">{product.category ?? "—"}</td>
+                <td className="px-3 py-2 text-foreground-secondary">{product.family ?? "—"}</td>
+                <td className="px-3 py-2 text-foreground-secondary">{product.product_type ?? "—"}</td>
                 <td className="px-3 py-2 text-foreground-secondary">{product.unit}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-foreground-secondary">
                   {formatEuro(product.unit_price_cents)}

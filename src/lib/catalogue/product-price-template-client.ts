@@ -1,10 +1,18 @@
-export const TEMPLATE_VERSION = "2.0";
+export const TEMPLATE_VERSION = "3.0";
 /**
- * Le gabarit v1 portait une colonne "tva" par produit, aujourd'hui sans usage.
- * Il reste accepte a l'import pour ne pas invalider les fichiers deja remplis.
+ * Le gabarit v1 portait une colonne "tva" par produit, aujourd'hui sans usage. Les gabarits v1 et v2 portaient
+ * une famille en texte libre et une colonne "type_produit" : depuis le v3, "famille" nomme une famille du
+ * catalogue de l'entreprise et la colonne s'appelle "type". Ils restent acceptes a l'import pour ne pas
+ * invalider les fichiers deja remplis ; leur famille n'est plus reprise.
  */
-export const SUPPORTED_TEMPLATE_VERSIONS = ["1.0", "2.0"] as const;
-export const TEMPLATE_FILE_URL = "/templates/hex-bc-produits-tarifs-v2.xlsx";
+export const SUPPORTED_TEMPLATE_VERSIONS = ["1.0", "2.0", "3.0"] as const;
+export const TEMPLATE_FILE_URL = "/templates/hex-bc-produits-tarifs-v3.xlsx";
+/** Les lignes d'exemple du gabarit : leur reference commence ainsi, et l'import les ignore. */
+export const TEMPLATE_EXAMPLE_PREFIX = "EXEMPLE-";
+
+export function isTemplateExampleReference(reference: string): boolean {
+  return reference.trim().toUpperCase().startsWith(TEMPLATE_EXAMPLE_PREFIX);
+}
 
 export type ProductPriceTemplateSheet =
   | "Mode d'emploi"
@@ -14,7 +22,8 @@ export type ProductPriceTemplateSheet =
 export type ProductTemplateRow = {
   reference: string;
   designation: string;
-  category: string | null;
+  /** Nom d'une famille du catalogue de l'entreprise (un type de fourniture), tel que saisi. */
+  family: string | null;
   product_type: string | null;
   material: string | null;
   grade: string | null;
@@ -53,6 +62,8 @@ export type ProductPriceTemplateParseResult = {
   issues: ProductPriceTemplateIssue[];
   hasBlockingIssues: boolean;
   version: string | null;
+  /** Lignes d'exemple du gabarit laissees dans le fichier, ignorees. */
+  ignoredExampleRows: number;
 };
 
 /** The key that matches a product reference of the template with a catalogue product: trimmed, lower case (fr-FR). */

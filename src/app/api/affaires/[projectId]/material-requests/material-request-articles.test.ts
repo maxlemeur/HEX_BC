@@ -692,7 +692,7 @@ describe("creating an article from a line", () => {
     expect((await call(lineArticleRoute.POST, "POST", onLine(LINE_TEE), withoutSupplyType)).status).toBe(400);
     const foreign = await call(lineArticleRoute.POST, "POST", onLine(LINE_TEE), { ...NEW_TEE, supply_type_id: FOREIGN_SUPPLY_TYPE });
     expect(foreign.status).toBe(400);
-    expect(foreign.error?.message).toBe("Ce type de fourniture n’existe pas dans votre référentiel.");
+    expect(foreign.error?.message).toBe("Cette famille n’existe pas dans votre référentiel.");
     expect(fake.writes).toEqual([]);
   });
 
@@ -774,7 +774,8 @@ describe("catalogue page", () => {
     const fake = seed(OWNER, "engineer");
     const rows = [TEE, ELBOW].map((id, index) => ({
       id, designation: `Article ${index}`, reference: null, unit_price_cents: 0, is_active: true, catalogue_status: "draft",
-      price_status: "none", supplier_price_count: 0, total_count: 2,
+      // The database function still returns the former free-text family, for the clients deployed before.
+      category: "Ancienne famille", price_status: "none", supplier_price_count: 0, total_count: 2,
     }));
     const original = fake.supabase.rpc;
     fake.supabase.rpc = (async (name: string) =>
@@ -783,5 +784,7 @@ describe("catalogue page", () => {
     const payload = (await page.json()) as { data: { items: Array<{ id: string; created_from_material_request: boolean }> } };
     expect(page.status).toBe(200);
     expect(payload.data.items.map((item) => [item.id, item.created_from_material_request])).toEqual([[TEE, true], [ELBOW, false]]);
+    // It is not answered any more.
+    for (const item of payload.data.items) expect(item).not.toHaveProperty("category");
   });
 });

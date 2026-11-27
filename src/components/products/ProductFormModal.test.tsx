@@ -30,6 +30,7 @@ describe("ProductFormModal", () => {
         product={null}
         isSaving={false}
         error={null}
+        supplyTypes={[{ id: "11111111-1111-4111-8111-111111111111", code: "tube", name: "Tube" }]}
         onOpenChange={vi.fn()}
         onSubmit={onSubmit}
       />
@@ -37,14 +38,15 @@ describe("ProductFormModal", () => {
 
     await fill("Référence", "Tub.I4S.50");
     await fill("Désignation *", "Tube inox 304L DN50");
-    await fill("Famille", "Tuyauterie");
+    // The family is one of the company's supply types; the type, free text, sits beside it.
+    await user.selectOptions(screen.getByLabelText("Famille"), "Tube");
+    await fill("Type", "Tube");
     await fill("Matière", "Inox");
     await user.selectOptions(screen.getByLabelText("Unité"), "ml");
     await user.type(screen.getByLabelText("Prix de référence HT"), "9,90");
 
     // Les attributs secondaires vivent derriere le repli "Details techniques".
     await user.click(screen.getByText(TECHNICAL_DETAILS_SUMMARY));
-    await fill("Type d’article", "Tube");
     await fill("Nuance", "304L");
     await fill("Dimensions", "DN50 · 60,3 × 2");
     await fill("Norme", "EN 10217-7");
@@ -55,7 +57,6 @@ describe("ProductFormModal", () => {
       expect(onSubmit).toHaveBeenCalledWith({
         reference: "Tub.I4S.50",
         designation: "Tube inox 304L DN50",
-        category: "Tuyauterie",
         product_type: "Tube",
         material: "Inox",
         grade: "304L",
@@ -64,9 +65,8 @@ describe("ProductFormModal", () => {
         unit: "ml",
         unit_price_cents: 990,
         is_active: true,
-        // TI-690: the form now carries the supply type; untouched, it is "Non classé".
-        // Still no catalogue_status: a creation never sends one.
-        supply_type_id: null,
+        // The family chosen above. Still no catalogue_status: a creation never sends one.
+        supply_type_id: "11111111-1111-4111-8111-111111111111",
       });
     });
   });

@@ -24,7 +24,6 @@ function buildProduct(overrides: Partial<ProductView>): ProductView {
     updated_at: "2026-11-10T08:00:00.000Z",
     reference: "TE-RED-54",
     designation: "Té réduit inox serti 54-28",
-    category: "Raccords",
     product_type: "Té réduit",
     material: "Inox 304L",
     grade: null,
@@ -122,8 +121,9 @@ describe("ProductsTable, drafts", () => {
     renderTable();
 
     expect(rowOf(VALIDATED).queryByText("Brouillon")).not.toBeInTheDocument();
-    expect(rowOf(VALIDATED).getByText("Fourniture : Tuyauterie inox")).toBeInTheDocument();
-    expect(rowOf(DRAFT).queryByText(/Fourniture :/)).not.toBeInTheDocument();
+    // The family (the supply type) opens the line of characteristics; a draft without one shows none.
+    expect(rowOf(VALIDATED).getByText(/^Tuyauterie inox( ·|$)/)).toBeInTheDocument();
+    expect(rowOf(DRAFT).queryByText(/Tuyauterie inox/)).not.toBeInTheDocument();
 
     const menu = await openActions(user, VALIDATED);
     // The menu is the article's own: its other actions are there, the validation is not.

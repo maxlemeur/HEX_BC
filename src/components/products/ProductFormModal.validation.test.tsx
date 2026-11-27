@@ -18,14 +18,14 @@ import {
  *  4. the plain save of a draft, or Enter in one of its fields, validates it or sends a status at all;
  *  5. a draft without a unit is saved with a made-up "u", which hides the gap from the next review;
  *  6. a validated article shows the draft controls, or its save sends a status;
- *  7. the chosen supply type is not sent, or "Non classé" is sent as an empty string, which the API
+ *  7. the chosen supply type is not sent, or "Non classée" is sent as an empty string, which the API
  *     refuses (it expects a uuid or null);
  *  8. a tenant without any supply type cannot validate anything: the form says nothing and offers no
  *     way to create one;
  *  9. a created supply type is not selected, or the next save does not send its id;
  * 10. a refused creation (name already taken) hides the server's sentence or wipes what was typed;
  * 11. creating a supply type submits or closes the article form, or resets its other fields;
- * 12. a member who is not an administrator is offered « Nouveau type », which the server refuses
+ * 12. a member who is not an administrator is offered « Nouvelle famille », which the server refuses
  *     (`createSupplyType` is admin-only), or is told to use it when the tenant has no type yet; a form
  *     opened without the flag offers it too.
  */
@@ -47,7 +47,6 @@ function buildProduct(overrides: Partial<ProductRecord> = {}): ProductRecord {
     created_at: "2026-11-10T08:00:00.000Z",
     reference: "TE-RED-54",
     designation: "Té réduit inox serti 54-28",
-    category: "Raccords",
     product_type: "Té réduit",
     material: "Inox 304L",
     grade: null,
@@ -142,12 +141,12 @@ describe("ProductFormModal, draft review", () => {
     // The reason travels with the button, and each blocking field carries its own hint.
     expect(validateButton()).toHaveAttribute("aria-disabled", "true");
     expect(validateButton()).toHaveAccessibleDescription(
-      expect.stringContaining("renseignez : le type d’article, le type de fourniture."),
+      expect.stringContaining("renseignez : le type, la famille."),
     );
-    expect(screen.getByLabelText("Type d’article")).toHaveAccessibleDescription(
+    expect(screen.getByLabelText("Type")).toHaveAccessibleDescription(
       "À renseigner pour valider l’article.",
     );
-    expect(screen.getByLabelText("Type de fourniture")).toHaveAccessibleDescription(
+    expect(screen.getByLabelText("Famille")).toHaveAccessibleDescription(
       "À renseigner pour valider l’article.",
     );
     // What is filled in is left alone, as are the fields validation never asks for.
@@ -165,13 +164,13 @@ describe("ProductFormModal, draft review", () => {
       product: buildProduct({ product_type: null, supply_type_id: null }),
     });
 
-    await user.click(screen.getByLabelText("Type d’article"));
+    await user.click(screen.getByLabelText("Type"));
     await user.paste("Té réduit");
     expect(validateButton()).toHaveAttribute("aria-disabled", "true");
-    await user.selectOptions(screen.getByLabelText("Type de fourniture"), "Robinetterie");
+    await user.selectOptions(screen.getByLabelText("Famille"), "Robinetterie");
 
     expect(validateButton()).not.toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByLabelText("Type d’article")).not.toHaveAccessibleDescription();
+    expect(screen.getByLabelText("Type")).not.toHaveAccessibleDescription();
     await user.click(validateButton());
 
     expect(await submittedPayload(onSubmit)).toMatchObject({
@@ -226,7 +225,7 @@ describe("ProductFormModal, draft review", () => {
 
     expect(screen.queryByRole("button", { name: "Enregistrer et valider" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Brouillon/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Type de fourniture")).not.toHaveAccessibleDescription();
+    expect(screen.getByLabelText("Famille")).not.toHaveAccessibleDescription();
 
     await user.click(saveButton());
 
@@ -247,12 +246,12 @@ describe("ProductFormModal, supply type", () => {
     vi.unstubAllGlobals();
   });
 
-  it("sends the chosen supply type, and null for « Non classé »", async () => {
+  it("sends the chosen supply type, and null for « Non classée »", async () => {
     const user = userEvent.setup({ delay: null });
     const { onSubmit } = renderForm({
       product: buildProduct({ catalogue_status: "validated" }),
     });
-    const select = screen.getByLabelText("Type de fourniture");
+    const select = screen.getByLabelText("Famille");
     expect(select).toHaveValue(SUPPLY_TYPES[1].id);
 
     await user.selectOptions(select, "Robinetterie");
@@ -260,7 +259,7 @@ describe("ProductFormModal, supply type", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit.mock.calls[0][0].supply_type_id).toBe(SUPPLY_TYPES[0].id);
 
-    await user.selectOptions(select, "Non classé");
+    await user.selectOptions(select, "Non classée");
     await user.click(saveButton());
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
     expect(onSubmit.mock.calls[1][0].supply_type_id).toBeNull();
@@ -273,20 +272,20 @@ describe("ProductFormModal, supply type", () => {
       product: buildProduct({ supply_type_id: null }),
       supplyTypes: [],
     });
-    const select = screen.getByLabelText("Type de fourniture");
+    const select = screen.getByLabelText("Famille");
     expect(select).toHaveAccessibleDescription(
-      expect.stringContaining("Aucun type de fourniture n’existe encore."),
+      expect.stringContaining("Aucune famille n’existe encore."),
     );
 
-    await user.click(screen.getByRole("button", { name: "Nouveau type" }));
-    await user.click(screen.getByLabelText("Nom du nouveau type de fourniture"));
+    await user.click(screen.getByRole("button", { name: "Nouvelle famille" }));
+    await user.click(screen.getByLabelText("Nom de la nouvelle famille"));
     await user.paste("  Supportage ");
     await user.click(screen.getByRole("button", { name: "Créer" }));
 
     await waitFor(() => expect(select).toHaveValue(CREATED_SUPPLY_TYPE.id));
     expect(select).toHaveDisplayValue("Supportage");
     expect(select).toHaveFocus();
-    expect(screen.queryByLabelText("Nom du nouveau type de fourniture")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Nom de la nouvelle famille")).not.toBeInTheDocument();
     expect(supplyTypeCreationCalls()).toHaveLength(1);
     const [, init] = supplyTypeCreationCalls()[0];
     expect(init.method).toBe("POST");
@@ -306,20 +305,20 @@ describe("ProductFormModal, supply type", () => {
     const user = userEvent.setup({ delay: null });
     answerSupplyTypeCreation(409, {
       ok: false,
-      error: { code: "CONFLICT", message: "Ce type de fourniture existe déjà." },
+      error: { code: "CONFLICT", message: "Cette famille existe déjà." },
     });
     renderForm({ product: buildProduct() });
 
-    await user.click(screen.getByRole("button", { name: "Nouveau type" }));
-    const nameField = screen.getByLabelText("Nom du nouveau type de fourniture");
+    await user.click(screen.getByRole("button", { name: "Nouvelle famille" }));
+    const nameField = screen.getByLabelText("Nom de la nouvelle famille");
     await user.click(nameField);
     await user.paste("Tuyauterie Inox");
     await user.click(screen.getByRole("button", { name: "Créer" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Ce type de fourniture existe déjà.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Cette famille existe déjà.");
     expect(nameField).toHaveValue("Tuyauterie Inox");
-    expect(nameField).toHaveAccessibleDescription("Ce type de fourniture existe déjà.");
-    expect(screen.getByLabelText("Type de fourniture")).toHaveValue(SUPPLY_TYPES[1].id);
+    expect(nameField).toHaveAccessibleDescription("Cette famille existe déjà.");
+    expect(screen.getByLabelText("Famille")).toHaveValue(SUPPLY_TYPES[1].id);
   });
 
   it("creates a supply type on Enter without submitting or resetting the article form", async () => {
@@ -329,13 +328,13 @@ describe("ProductFormModal, supply type", () => {
 
     await user.click(screen.getByLabelText("Désignation *"));
     await user.paste("Collier isophonique M8");
-    await user.click(screen.getByRole("button", { name: "Nouveau type" }));
-    await user.click(screen.getByLabelText("Nom du nouveau type de fourniture"));
+    await user.click(screen.getByRole("button", { name: "Nouvelle famille" }));
+    await user.click(screen.getByLabelText("Nom de la nouvelle famille"));
     await user.paste("Supportage");
     await user.keyboard("{Enter}");
 
     await waitFor(() =>
-      expect(screen.getByLabelText("Type de fourniture")).toHaveValue(CREATED_SUPPLY_TYPE.id),
+      expect(screen.getByLabelText("Famille")).toHaveValue(CREATED_SUPPLY_TYPE.id),
     );
     expect(supplyTypeCreationCalls()).toHaveLength(1);
     expect(onSubmit).not.toHaveBeenCalled();
@@ -343,12 +342,12 @@ describe("ProductFormModal, supply type", () => {
     expect(screen.getByLabelText("Désignation *")).toHaveValue("Collier isophonique M8");
   });
 
-  it("offers a member who is not an administrator the supply types without « Nouveau type »", async () => {
+  it("offers a member who is not an administrator the supply types without « Nouvelle famille »", async () => {
     const user = userEvent.setup({ delay: null });
     const { onSubmit } = renderForm({ product: buildProduct(), canCreateSupplyType: false });
 
-    expect(screen.queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
-    const select = screen.getByLabelText("Type de fourniture");
+    expect(screen.queryByRole("button", { name: "Nouvelle famille" })).not.toBeInTheDocument();
+    const select = screen.getByLabelText("Famille");
     await user.selectOptions(select, "Robinetterie");
     await user.click(saveButton());
     expect(await submittedPayload(onSubmit)).toMatchObject({ supply_type_id: SUPPLY_TYPES[0].id });
@@ -358,27 +357,27 @@ describe("ProductFormModal, supply type", () => {
   it("tells a member who is not an administrator that an administrator creates the first supply type", () => {
     renderForm({ product: buildProduct({ supply_type_id: null }), supplyTypes: [], canCreateSupplyType: false });
 
-    expect(screen.queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Type de fourniture")).toHaveAccessibleDescription(
-      expect.stringContaining("Aucun type de fourniture n’existe encore : un administrateur peut en créer un."),
+    expect(screen.queryByRole("button", { name: "Nouvelle famille" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Famille")).toHaveAccessibleDescription(
+      expect.stringContaining("Aucune famille n’existe encore : un administrateur peut en créer une."),
     );
   });
 
-  it("does not offer « Nouveau type » when the form is opened without the flag", () => {
+  it("does not offer « Nouvelle famille » when the form is opened without the flag", () => {
     renderForm({ product: buildProduct({ supply_type_id: null }), supplyTypes: [], canCreateSupplyType: undefined });
 
-    expect(screen.queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Type de fourniture")).toHaveAccessibleDescription(
+    expect(screen.queryByRole("button", { name: "Nouvelle famille" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Famille")).toHaveAccessibleDescription(
       expect.stringContaining("un administrateur peut en créer un"),
     );
   });
 
-  it("tells an administrator to create the first supply type with « Nouveau type »", () => {
+  it("tells an administrator to create the first supply type with « Nouvelle famille »", () => {
     renderForm({ product: buildProduct({ supply_type_id: null }), supplyTypes: [] });
 
-    expect(screen.getByRole("button", { name: "Nouveau type" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Type de fourniture")).toHaveAccessibleDescription(
-      expect.stringContaining("Aucun type de fourniture n’existe encore. Créez-en un avec « Nouveau type »."),
+    expect(screen.getByRole("button", { name: "Nouvelle famille" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Famille")).toHaveAccessibleDescription(
+      expect.stringContaining("Aucune famille n’existe encore. Créez-en une avec « Nouvelle famille »."),
     );
   });
 });

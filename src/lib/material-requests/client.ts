@@ -736,7 +736,7 @@ export type MaterialRequestSupplyType = { id: string; code: string; name: string
 export async function fetchSupplyTypes(signal?: AbortSignal): Promise<MaterialRequestSupplyType[]> {
   const { items } = await read<{ items: MaterialRequestSupplyType[] }>(
     "/api/catalogue/supply-types",
-    "Les types de fourniture n’ont pas pu être chargés.",
+    "Les familles n’ont pas pu être chargées.",
     signal,
   );
   return items ?? [];

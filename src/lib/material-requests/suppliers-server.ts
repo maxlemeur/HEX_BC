@@ -133,7 +133,7 @@ export async function listLineSupplierProposals(projectId: string, requestId: st
     supabase.rpc("last_purchase_suppliers", { p_product_ids: productIds }),
   ]);
   if (products.error) throw mapSupabaseError(products.error, "Impossible de charger les articles des lignes.");
-  if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de charger les types de fourniture.");
+  if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de charger les familles.");
   if (lastPurchases.error) throw mapSupabaseError(lastPurchases.error, "Impossible de charger les derniers achats.");
 
   const articles = new Map((products.data ?? []).map((row) => [row.id, row]));

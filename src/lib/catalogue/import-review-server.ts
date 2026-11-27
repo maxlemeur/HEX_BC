@@ -248,8 +248,8 @@ export async function bulkUpdateProducts(input: BulkProductsInput): Promise<Bulk
         p_product_ids: input.ids.slice(start, start + PRODUCTS_PER_STATEMENT), p_supply_type_id: input.supply_type_id,
       });
       if (error) {
-        throw bulkRefusal(start, productBulkError(error, "Impossible de donner ce type de fourniture aux articles."),
-          { action: "assign-supply-type", updated }, `Type de fourniture appliqué à ${updated.toLocaleString("fr-FR")} articles.`);
+        throw bulkRefusal(start, productBulkError(error, "Impossible de donner cette famille aux articles."),
+          { action: "assign-supply-type", updated }, `Famille appliquée à ${updated.toLocaleString("fr-FR")} articles.`);
       }
       updated += data ?? 0;
     }

@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *  4. the refusal of an incomplete draft (HTTP 422, PRODUCT_VALIDATION_INCOMPLETE) is reported as a
  *     success, or as a bare error with nowhere to fill in what is missing;
  *  5. any other failure opens the edit form as if the article were incomplete;
- *  6. the article form offers « Nouveau type » to a member who is not an administrator of the active
+ *  6. the article form offers « Nouvelle famille » to a member who is not an administrator of the active
  *     tenant, although the server refuses them the creation (`createSupplyType`).
  *
  * The page runs on its real fetch helper, SWR and form; only the network and the router are replaced.
@@ -75,7 +75,7 @@ const PAGE_PAYLOAD = {
 };
 
 const INCOMPLETE_MESSAGE =
-  "Pour valider cet article, renseignez : le type d’article, le type de fourniture.";
+  "Pour valider cet article, renseignez : le type, la famille.";
 
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -250,20 +250,20 @@ describe("catalogue page, supply type creation in the article form", () => {
     return within(await screen.findByRole("dialog", { name: "Ajouter un produit" }));
   }
 
-  it("offers « Nouveau type » to an administrator of the active tenant", async () => {
+  it("offers « Nouvelle famille » to an administrator of the active tenant", async () => {
     const user = userEvent.setup({ delay: null });
     renderPage("", "admin");
 
     const dialog = await openNewArticle(user);
-    expect(dialog.getByRole("button", { name: "Nouveau type" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "Nouvelle famille" })).toBeInTheDocument();
   });
 
-  it("keeps « Nouveau type » from an engineer, who still picks a supply type", async () => {
+  it("keeps « Nouvelle famille » from an engineer, who still picks a supply type", async () => {
     const user = userEvent.setup({ delay: null });
     renderPage("", "engineer");
 
     const dialog = await openNewArticle(user);
     expect(dialog.getByRole("option", { name: "Supportage" })).toBeInTheDocument();
-    expect(dialog.queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
+    expect(dialog.queryByRole("button", { name: "Nouvelle famille" })).not.toBeInTheDocument();
   });
 });

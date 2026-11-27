@@ -67,7 +67,6 @@ export type CostingWorkbookArticle = {
   grade: string | null;
   dimensions: string | null;
   standard: string | null;
-  category: string;
   unit: string;
   unit_price_cents: number;
   reliability_score: number | null;
@@ -153,16 +152,6 @@ const ERROR_TOKENS = new Set([
 ]);
 /** Text columns where an error is read as empty, and reported. */
 const SECONDARY_TEXT_COLUMNS = ["Matériau", "Dimension", "Précision", "norme", "Unité", "Type FO"] as const;
-
-const CATEGORY_OF_KIND: Record<CostingWorkbookSupplyKind, string> = {
-  tube: "Tuyauterie",
-  raccord: "Raccords",
-  vanne: "Robinetterie",
-  robinetterie: "Robinetterie",
-  support: "Autres",
-  calorifuge: "Autres",
-  divers: "Autres",
-};
 
 const headerKey = (value: Cell) => foldText(text(value)).replace(/\s+/g, " ").trim();
 
@@ -545,7 +534,6 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
       grade: gradeOf(material),
       dimensions,
       standard: (secondary.get("norme") ?? "").slice(0, 255) || null,
-      category: family === "CONS" ? "Consommables" : CATEGORY_OF_KIND[supplyKind],
       unit,
       unit_price_cents: price.cents,
       reliability_score: reliability.score,

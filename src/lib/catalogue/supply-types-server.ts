@@ -15,11 +15,11 @@ type TenantContext = Awaited<ReturnType<typeof getAuthenticatedTenantContext>>;
 type SupplyTypeRow = SupplyTypeRecord & { preferred_supplier_id: string | null };
 
 const SUPPLY_TYPE_COLUMNS = "id, code, name, preferred_supplier_id";
-const SUPPLY_TYPE_NOT_FOUND = "Type de fourniture introuvable.";
+const SUPPLY_TYPE_NOT_FOUND = "Famille introuvable.";
 const SUPPLIER_NOT_FOUND = "Fournisseur introuvable.";
 /** TI-691: like the article's suppliers, a purchasing decision of the catalogue's editors. */
 const PREFERRED_SUPPLIER_REFUSAL =
-  "Le fournisseur préféré d’un type de fourniture est choisi par un administrateur ou un ingénieur.";
+  "Le fournisseur préféré d’une famille est choisi par un administrateur ou un ingénieur.";
 
 /** The rows with the name of the supplier each prefers (one query for all of them, none when no type prefers one). */
 async function withSupplierNames(context: TenantContext, rows: readonly SupplyTypeRow[]): Promise<SupplyTypeListItem[]> {
@@ -54,7 +54,7 @@ export async function listSupplyTypes(): Promise<{ items: SupplyTypeListItem[] }
     .eq("tenant_id", context.tenantId)
     .order("name", { ascending: true });
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les types de fourniture.");
+    throw mapSupabaseError(error, "Impossible de charger les familles.");
   }
   return { items: await withSupplierNames(context, data ?? []) };
 }
@@ -77,7 +77,7 @@ export async function setSupplyTypePreferredSupplier(
     .eq("id", supplyTypeId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
-  if (readError) throw mapSupabaseError(readError, "Impossible de charger le type de fourniture.");
+  if (readError) throw mapSupabaseError(readError, "Impossible de charger la famille.");
   if (!existing) throw notFound(SUPPLY_TYPE_NOT_FOUND);
   if (preferredSupplierId) {
     const { data: supplier, error: supplierError } = await supabase
@@ -118,7 +118,7 @@ export async function createSupplyType(input: CreateSupplyTypeInput): Promise<{ 
     throw forbidden("La gestion du catalogue est réservée aux administrateurs.");
   }
   if (!supplyTypeCodeFromName(input.name)) {
-    throw badRequest("Le nom du type de fourniture doit contenir une lettre ou un chiffre.");
+    throw badRequest("Le nom de la famille doit contenir une lettre ou un chiffre.");
   }
 
   // The duplicate check and the insert are one database call, under a lock per tenant: two administrators
@@ -128,17 +128,17 @@ export async function createSupplyType(input: CreateSupplyTypeInput): Promise<{ 
     if (error.message.includes("SUPPLY_TYPE_NAME_TAKEN")) {
       throw conflict(
         error.details
-          ? `Ce type de fourniture existe déjà : « ${error.details} ».`
-          : "Ce type de fourniture existe déjà.",
+          ? `Cette famille existe déjà : « ${error.details} ».`
+          : "Cette famille existe déjà.",
       );
     }
     if (error.message.includes("SUPPLY_TYPE_ADMIN_REQUIRED")) {
       throw forbidden("La gestion du catalogue est réservée aux administrateurs.");
     }
     if (error.message.includes("SUPPLY_TYPE_NAME_INVALID")) {
-      throw badRequest("Le nom du type de fourniture doit contenir une lettre ou un chiffre.");
+      throw badRequest("Le nom de la famille doit contenir une lettre ou un chiffre.");
     }
-    throw mapSupabaseError(error, "Impossible de créer le type de fourniture.");
+    throw mapSupabaseError(error, "Impossible de créer la famille.");
   }
   return { item: data };
 }

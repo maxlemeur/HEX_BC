@@ -61,7 +61,7 @@ export function useSupplyTypeCreation({
       setName("");
       setOpen(false);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Création du type de fourniture impossible.");
+      setError(failure instanceof Error ? failure.message : "Création de la famille impossible.");
     } finally {
       setBusy(false);
     }
@@ -92,7 +92,7 @@ function creationIds(idPrefix: string) {
   };
 }
 
-/** « Nouveau type », beside the select: opens and closes the field that names the new type. */
+/** « Nouvelle famille », beside the select: opens and closes the field that names the new supply type. */
 export function NewSupplyTypeButton({
   creation,
   idPrefix,
@@ -110,12 +110,12 @@ export function NewSupplyTypeButton({
       aria-controls={creationIds(idPrefix).panel}
       onClick={creation.toggle}
     >
-      Nouveau type
+      Nouvelle famille
     </Button>
   );
 }
 
-/** The field that names the new type and its « Créer », shown while « Nouveau type » is open. */
+/** The field that names the new type and its « Créer », shown while « Nouvelle famille » is open. */
 export function NewSupplyTypePanel({
   creation,
   idPrefix,
@@ -126,7 +126,7 @@ export function NewSupplyTypePanel({
   const button = BUTTON_PROPS[size];
   return (
     <div id={ids.panel} className="flex flex-col gap-2 rounded-lg border border-border bg-surface-subtle p-3">
-      <FieldLabel htmlFor={ids.field}>Nom du nouveau type de fourniture</FieldLabel>
+      <FieldLabel htmlFor={ids.field}>Nom de la nouvelle famille</FieldLabel>
       <div className={cn("flex gap-2", size === "md" && "flex-col sm:flex-row")}>
         <Input
           id={ids.field}

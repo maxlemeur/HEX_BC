@@ -465,7 +465,7 @@ function requiredText(max: number, message: string) {
 export const createMaterialRequestLineArticleSchema = z
   .object({
     designation: requiredText(500, "La désignation ne peut pas être vide.").optional(),
-    product_type: requiredText(200, "Le type d’article est requis."),
+    product_type: requiredText(200, "Le type est requis."),
     material: requiredText(120, "La matière est requise."),
     dimensions: optionalText(120),
     unit: requiredText(20, "L’unité est requise."),

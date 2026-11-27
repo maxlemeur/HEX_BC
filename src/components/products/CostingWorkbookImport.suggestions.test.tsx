@@ -327,9 +327,9 @@ describe("CostingWorkbookImport, proposals", () => {
       items: (body.groups as Array<{ key: string }>).map(({ key }) => ({ key, suggestion: { supply_type_id: SUPPORT_TYPE, confidence: null, source: "catalogue" } })),
     });
     await openImport(user);
-    await user.click(screen.getByRole("button", { name: "Types de fourniture" }));
-    const groups = within(screen.getByRole("table", { name: "Brouillons à classer par type d’article" }));
-    expect(groups.getByLabelText("Coquille porteuse")).toHaveDisplayValue("Celui de sa famille");
+    await user.click(screen.getByRole("button", { name: "Familles" }));
+    const groups = within(screen.getByRole("table", { name: "Brouillons à classer par type" }));
+    expect(groups.getByLabelText("Coquille porteuse")).toHaveDisplayValue("Celle de son code");
 
     await user.click(screen.getByRole("button", { name: "Proposer des types" }));
     await waitFor(() => expect(suggestions()).toEqual([{

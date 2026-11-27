@@ -40,7 +40,9 @@ const LINE = "d0000000-0000-4000-8000-000000000001";
 
 function product(id: string, designation: string, unitPriceCents: number): FakeRow {
   return {
-    id, tenant_id: TENANT, designation, reference: null, category: null, product_type: "Coude", material: "Inox 304L",
+    id, tenant_id: TENANT, designation, reference: null, product_type: "Coude", material: "Inox 304L",
+    // The article's family, embedded as the reads ask for it: read in the company of the article.
+    supply_types: { tenant_id: TENANT, name: "Raccord" },
     grade: null, dimensions: "DN 50", standard: null, unit: "u", unit_price_cents: unitPriceCents,
     updated_at: "2026-11-01T08:00:00.000Z", reference_transport_mode: null, catalogue_status: "validated", is_active: true,
   };

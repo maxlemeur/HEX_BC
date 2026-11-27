@@ -162,7 +162,7 @@ function ArticleCreationForm({
         if (!abort.signal.aborted) {
           setSupplyTypes({
             status: "error",
-            message: materialRequestErrorMessage(failure, "Les types de fourniture n’ont pas pu être chargés."),
+            message: materialRequestErrorMessage(failure, "Les familles n’ont pas pu être chargées."),
           });
         }
       });
@@ -182,7 +182,7 @@ function ArticleCreationForm({
     event.preventDefault();
     const value = (key: keyof CreationFields) => fields[key].trim();
     if (!value("product_type") || !value("material") || !value("unit") || !fields.supply_type_id) {
-      setError("Renseignez le type d’article, la matière, l’unité et le type de fourniture.");
+      setError("Renseignez la famille, le type, la matière et l’unité.");
       return;
     }
     const input: CreateMaterialRequestLineArticleInput = {
@@ -217,7 +217,7 @@ function ArticleCreationForm({
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-1.5">
-          <FieldLabel htmlFor={id("type")}>Type d’article *</FieldLabel>
+          <FieldLabel htmlFor={id("type")}>Type *</FieldLabel>
           <Input id={id("type")} size="sm" autoComplete="off" maxLength={200} required value={fields.product_type} onChange={set("product_type")} />
         </div>
         <div className="flex min-w-0 flex-col gap-1.5">
@@ -233,7 +233,7 @@ function ArticleCreationForm({
           <Input id={id("unit")} size="sm" autoComplete="off" maxLength={20} required value={fields.unit} onChange={set("unit")} />
         </div>
         <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
-          <FieldLabel htmlFor={id("supply")}>Type de fourniture *</FieldLabel>
+          <FieldLabel htmlFor={id("supply")}>Famille *</FieldLabel>
           <div className="flex gap-2">
             <NativeSelect
               ref={supplySelectRef}
@@ -258,13 +258,13 @@ function ArticleCreationForm({
             {offerCreation ? <NewSupplyTypeButton creation={supplyTypeCreation} idPrefix={id("supply")} size="sm" /> : null}
           </div>
           <div id={id("supply-state")} className="text-xs">
-            {supplyTypes.status === "loading" ? <p className="text-muted-foreground">Chargement des types de fourniture…</p> : null}
+            {supplyTypes.status === "loading" ? <p className="text-muted-foreground">Chargement des familles…</p> : null}
             {supplyTypes.status === "error" ? <p className="text-danger">{supplyTypes.message}</p> : null}
             {none ? (
               <p className="text-warning">
                 {offerCreation
-                  ? "Aucun type de fourniture n’existe encore. Créez-en un avec « Nouveau type »."
-                  : "Aucun type de fourniture n’existe encore : un administrateur peut en créer un."}
+                  ? "Aucune famille n’existe encore. Créez-en une avec « Nouvelle famille »."
+                  : "Aucune famille n’existe encore : un administrateur peut en créer une."}
               </p>
             ) : null}
           </div>

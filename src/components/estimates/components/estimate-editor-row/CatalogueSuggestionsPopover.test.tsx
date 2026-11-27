@@ -29,7 +29,7 @@ const suggestion: CataloguePriceSuggestion = {
   product_id: "product-1",
   product_designation: "Tube inox 304L à sertir — DN15",
   product_reference: "TUB-I4S-15",
-  product_category: "Tuyauterie",
+  product_supply_type_name: "Tube",
   product_type: "Tube",
   product_material: "Inox",
   product_grade: "304L",

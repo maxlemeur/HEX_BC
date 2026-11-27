@@ -163,7 +163,7 @@ function supplierHint(lines: readonly MaterialRequestLine[], read: (lineId: stri
   if (without.length === 0) return { text: "Aucun fournisseur à retenir : toutes les lignes rattachées en ont un.", missing: 0 };
   if (!without.every((line) => read(line.id))) return null;
   return {
-    text: `Aucun fournisseur à retenir : rien n’en propose pour ${without.length > 1 ? `les ${without.length} lignes rattachées` : "la ligne rattachée"} sans fournisseur. Donnez un fournisseur privilégié au type de fourniture de l’article, ou choisissez-le sur la ligne.`,
+    text: `Aucun fournisseur à retenir : rien n’en propose pour ${without.length > 1 ? `les ${without.length} lignes rattachées` : "la ligne rattachée"} sans fournisseur. Donnez un fournisseur privilégié à la famille de l’article, ou choisissez-le sur la ligne.`,
     missing: without.length,
   };
 }

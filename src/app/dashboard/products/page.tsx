@@ -71,7 +71,6 @@ type ProductPageResponse = {
   counters: ProductCatalogueCounters;
   facets: {
     materials: string[];
-    categories: string[];
     units: string[];
   };
   supplyTypes: ProductSupplyType[];
@@ -136,7 +135,7 @@ export default function ProductsPage() {
   const searchParams = useSearchParams();
   const confirm = useConfirm();
   // The dashboard layout reads the member of the active tenant on the server. Only its administrators create a
-  // supply type (`createSupplyType` checks it again): no « Nouveau type » the server would refuse.
+  // supply type (`createSupplyType` checks it again): no « Nouvelle famille » the server would refuse.
   const tenantRole = useOptionalUserContext()?.profile?.tenant_role;
   const canCreateSupplyType = tenantRole === "admin";
   /** Articles of the page chosen for an action on several at once (TI-711), and the supply type to give them. */
@@ -176,7 +175,7 @@ export default function ProductsPage() {
   const direction: SortDirection =
     searchParams.get("dir") === "desc" ? "desc" : "asc";
   const materialFilters = searchParams.getAll("material");
-  const categoryFilters = searchParams.getAll("category");
+  const supplyTypeFilters = searchParams.getAll("supply_type");
   const unitFilters = searchParams.getAll("unit");
   const priceStatusFilters = searchParams.getAll("price_status");
   const statusFilters = searchParams.getAll("status");
@@ -252,7 +251,7 @@ export default function ProductsPage() {
     });
     if (querySearch) query.set("q", querySearch);
     materialFilters.forEach((value) => query.append("material", value));
-    categoryFilters.forEach((value) => query.append("category", value));
+    supplyTypeFilters.forEach((value) => query.append("supply_type", value));
     unitFilters.forEach((value) => query.append("unit", value));
     priceStatusFilters.forEach((value) => query.append("price_status", value));
     statusFilters.forEach((value) => query.append("status", value));
@@ -260,7 +259,7 @@ export default function ProductsPage() {
     return `/api/catalogue?${query.toString()}`;
   }, [
     catalogueStatusFilters,
-    categoryFilters,
+    supplyTypeFilters,
     direction,
     materialFilters,
     page,
@@ -306,8 +305,8 @@ export default function ProductsPage() {
         const { updated } = await assignProductsSupplyType(selectedProducts.map((product) => product.id), bulkSupplyTypeId);
         const left = selectedProducts.length - updated;
         setSuccessMessage(
-          `Type de fourniture donné à ${plural(updated, "article", "articles")}.`
-          + (left > 0 ? ` ${plural(left, "article inchangé", "articles inchangés")} : il le portait déjà, ou vous ne pouvez pas le modifier.` : ""),
+          `Famille donnée à ${plural(updated, "article", "articles")}.`
+          + (left > 0 ? ` ${plural(left, "article inchangé", "articles inchangés")} : il la portait déjà, ou vous ne pouvez pas le modifier.` : ""),
         );
       }
       setSelectedIds(new Set());
@@ -331,17 +330,17 @@ export default function ProductsPage() {
     () => [
       {
         type: "multi-select",
+        key: "supply_type",
+        label: "Famille",
+        placeholder: "Toutes les familles",
+        options: (data?.supplyTypes ?? []).map((supplyType) => ({ value: supplyType.id, label: supplyType.name })),
+      },
+      {
+        type: "multi-select",
         key: "material",
         label: "Matière",
         placeholder: "Toutes les matières",
         options: toOptions(data?.facets.materials ?? []),
-      },
-      {
-        type: "multi-select",
-        key: "category",
-        label: "Famille",
-        placeholder: "Toutes les familles",
-        options: toOptions(data?.facets.categories ?? []),
       },
       {
         type: "multi-select",
@@ -372,15 +371,15 @@ export default function ProductsPage() {
         options: CATALOGUE_STATUS_OPTIONS,
       },
     ],
-    [data?.facets.categories, data?.facets.materials, data?.facets.units],
+    [data?.facets.materials, data?.facets.units, data?.supplyTypes],
   );
 
   const stats = data?.counters ?? EMPTY_COUNTERS;
   const pageStart = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
   const pageEnd = Math.min(page * pageSize, totalItems);
   const filterState: FilterState = {
+    supply_type: supplyTypeFilters,
     material: materialFilters,
-    category: categoryFilters,
     unit: unitFilters,
     price_status: priceStatusFilters,
     status: statusFilters,
@@ -599,8 +598,8 @@ export default function ProductsPage() {
           setSearchInput("");
           updateUrl({
             q: null,
+            supply_type: null,
             material: null,
-            category: null,
             unit: null,
             price_status: null,
             status: null,
@@ -670,12 +669,12 @@ export default function ProductsPage() {
                 <NativeSelect
                   size="sm"
                   wrapperClassName="w-56"
-                  aria-label="Type de fourniture à donner aux articles sélectionnés"
+                  aria-label="Famille à donner aux articles sélectionnés"
                   value={bulkSupplyTypeId}
                   disabled={bulkAction !== null}
                   onChange={(event) => setBulkSupplyTypeId(event.currentTarget.value)}
                 >
-                  <option value="">Type de fourniture…</option>
+                  <option value="">Famille…</option>
                   {(data?.supplyTypes ?? []).map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
                 </NativeSelect>
                 <Button
@@ -685,7 +684,7 @@ export default function ProductsPage() {
                   disabled={bulkAction !== null || !bulkSupplyTypeId}
                   onClick={() => void runBulk("assign")}
                 >
-                  Donner ce type
+                  Donner cette famille
                 </Button>
               </>
             ) : null}
@@ -763,7 +762,6 @@ export default function ProductsPage() {
           product={editingProduct}
           isSaving={isSaving}
           error={formError}
-          categorySuggestions={data?.facets.categories}
           materialSuggestions={data?.facets.materials}
           supplyTypes={data?.supplyTypes}
           canCreateSupplyType={canCreateSupplyType}

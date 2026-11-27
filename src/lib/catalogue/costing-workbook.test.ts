@@ -127,21 +127,21 @@ describe("readCostingWorkbookRows", () => {
   });
 
   it.each([
-    ["I4L", "Inox 304L soudé", "Tube", "tube", "Tuyauterie"],
-    ["I6L", "Inox 316L serti", "Coude 90°", "raccord", "Raccords"],
-    ["T10", "Acier galvanisé T10", "Bride plate à souder", "raccord", "Raccords"],
-    ["SMU", "Fonte SMU", "Collier de raccordement", "support", "Autres"],
-    ["ROB", "Robinetterie", "Vanne à boisseau sphérique", "vanne", "Robinetterie"],
-    ["ROB", "Robinetterie", "Clapet anti-retour à brides", "robinetterie", "Robinetterie"],
-    ["I4L", "Inox 304L soudé", "Vanne papillon", "vanne", "Robinetterie"],
-    ["CAL", "Kooltherm", "Coquille porteuse", "calorifuge", "Autres"],
-    ["SUP", "Supportage", "Rail de montage", "support", "Autres"],
-    ["CONS", "Consommables", "Ruban téflon", "divers", "Consommables"],
-    ["", "Divers", "Vase expansion à membrane", "divers", "Autres"],
-    ["XYZ", "Divers", "Article inconnu", "divers", "Autres"],
-  ])("reads the supply type of a %s « %s » article « %s » as %s (5)", (family, material, wording, kind, category) => {
+    ["I4L", "Inox 304L soudé", "Tube", "tube"],
+    ["I6L", "Inox 316L serti", "Coude 90°", "raccord"],
+    ["T10", "Acier galvanisé T10", "Bride plate à souder", "raccord"],
+    ["SMU", "Fonte SMU", "Collier de raccordement", "support"],
+    ["ROB", "Robinetterie", "Vanne à boisseau sphérique", "vanne"],
+    ["ROB", "Robinetterie", "Clapet anti-retour à brides", "robinetterie"],
+    ["I4L", "Inox 304L soudé", "Vanne papillon", "vanne"],
+    ["CAL", "Kooltherm", "Coquille porteuse", "calorifuge"],
+    ["SUP", "Supportage", "Rail de montage", "support"],
+    ["CONS", "Consommables", "Ruban téflon", "divers"],
+    ["", "Divers", "Vase expansion à membrane", "divers"],
+    ["XYZ", "Divers", "Article inconnu", "divers"],
+  ])("reads the supply type of a %s « %s » article « %s » as %s (5)", (family, material, wording, kind) => {
     const [entry] = read(article({ "ID": "A.1", "Type FO": family, "Matériau": material, "Caractéristique": wording })).articles;
-    expect([entry.supply_type_code, entry.category, entry.family_code]).toEqual([kind, category, family || null]);
+    expect([entry.supply_type_code, entry.family_code]).toEqual([kind, family || null]);
   });
 
   it("reads prices in euros into cents, and reports one it cannot read (6)", () => {
@@ -353,31 +353,31 @@ describe("readCostingWorkbookRows", () => {
 
   it.each([
     // A tube is a tube whatever its family, but for the insulation, support and valve families.
-    ["XYZ", "Inox 304L", "Tube", "tube", "Tuyauterie"],
-    ["", "PVC", "Tuyaux d'évacuation", "tube", "Tuyauterie"],
-    ["", "Acier noir", "Tubes", "tube", "Tuyauterie"],
-    ["XYZ", "Cuivre", "Tuyau recuit", "tube", "Tuyauterie"],
-    ["CAL", "Kooltherm", "Tube isolant", "calorifuge", "Autres"],
-    ["SUP", "Supportage", "Tube de suspension", "support", "Autres"],
-    ["ROB", "Robinetterie", "Tuyau flexible", "robinetterie", "Robinetterie"],
+    ["XYZ", "Inox 304L", "Tube", "tube"],
+    ["", "PVC", "Tuyaux d'évacuation", "tube"],
+    ["", "Acier noir", "Tubes", "tube"],
+    ["XYZ", "Cuivre", "Tuyau recuit", "tube"],
+    ["CAL", "Kooltherm", "Tube isolant", "calorifuge"],
+    ["SUP", "Supportage", "Tube de suspension", "support"],
+    ["ROB", "Robinetterie", "Tuyau flexible", "robinetterie"],
     // No family the reader knows: the material says it.
-    ["", "Calorifuge", "Coquille", "calorifuge", "Autres"],
-    ["", "Isolant", "Plaque", "calorifuge", "Autres"],
-    ["XYZ", "Armaflex AF", "Manchon", "calorifuge", "Autres"],
-    ["", "Laine de roche Rockwool", "Matelas", "calorifuge", "Autres"],
-    ["", "Kooltherm", "Coquille porteuse", "calorifuge", "Autres"],
-    ["", "Supportage", "Rail de montage", "support", "Autres"],
-    ["XYZ", "Collier isophonique", "Collier", "support", "Autres"],
-    ["", "Robinetterie", "Vanne à boisseau sphérique", "vanne", "Robinetterie"],
-    ["", "Robinetterie", "Clapet anti-retour", "robinetterie", "Robinetterie"],
+    ["", "Calorifuge", "Coquille", "calorifuge"],
+    ["", "Isolant", "Plaque", "calorifuge"],
+    ["XYZ", "Armaflex AF", "Manchon", "calorifuge"],
+    ["", "Laine de roche Rockwool", "Matelas", "calorifuge"],
+    ["", "Kooltherm", "Coquille porteuse", "calorifuge"],
+    ["", "Supportage", "Rail de montage", "support"],
+    ["XYZ", "Collier isophonique", "Collier", "support"],
+    ["", "Robinetterie", "Vanne à boisseau sphérique", "vanne"],
+    ["", "Robinetterie", "Clapet anti-retour", "robinetterie"],
     // Counterexamples: a fitting of a material family stays a fitting; an unclassified fitting stays « divers »;
     // a tube of sealant is a consumable, not piping.
-    ["I4L", "Inox 304L soudé", "Coude 90°", "raccord", "Raccords"],
-    ["", "Inox 304L soudé", "Coude 90°", "divers", "Autres"],
-    ["CONS", "Consommables", "Tube de silicone", "divers", "Consommables"],
-  ])("reads the supply type of a %s « %s » article « %s » as %s (17)", (family, material, wording, kind, category) => {
+    ["I4L", "Inox 304L soudé", "Coude 90°", "raccord"],
+    ["", "Inox 304L soudé", "Coude 90°", "divers"],
+    ["CONS", "Consommables", "Tube de silicone", "divers"],
+  ])("reads the supply type of a %s « %s » article « %s » as %s (17)", (family, material, wording, kind) => {
     const [entry] = read(article({ "ID": "A.1", "Type FO": family, "Matériau": material, "Caractéristique": wording })).articles;
-    expect([entry.supply_type_code, entry.category]).toEqual([kind, category]);
+    expect(entry.supply_type_code).toBe(kind);
   });
 
   it("closes the designation with the precision when it does not already say it, within 500 characters (18)", () => {

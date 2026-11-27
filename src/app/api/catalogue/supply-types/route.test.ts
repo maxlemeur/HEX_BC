@@ -136,7 +136,7 @@ describe("/api/catalogue/supply-types", () => {
 
     expect(response.status).toBe(409);
     expect((await response.json()).error.message).toBe(
-      "Ce type de fourniture existe déjà : « Supportage ».",
+      "Cette famille existe déjà : « Supportage ».",
     );
   });
 

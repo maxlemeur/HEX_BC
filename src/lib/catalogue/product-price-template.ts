@@ -1,4 +1,5 @@
 import {
+  isTemplateExampleReference,
   normalizedReference,
   SUPPORTED_TEMPLATE_VERSIONS,
   type ProductPriceTemplateIssue,
@@ -29,7 +30,7 @@ const PRODUCT_HEADERS = [
   "reference",
   "designation",
   "famille",
-  "type_produit",
+  "type",
   "matiere",
   "nuance",
   "dimensions",
@@ -39,10 +40,12 @@ const PRODUCT_HEADERS = [
 ] as const;
 
 /**
- * Gabarit v1 : meme feuille "Produits" suivie d'une colonne "tva" desormais ignoree.
- * Accepte a l'import pour ne pas rejeter les fichiers deja distribues.
+ * Gabarit v2 : la colonne "type" s'appelait "type_produit" et "famille" etait un texte libre.
+ * Gabarit v1 : meme feuille suivie d'une colonne "tva" desormais ignoree.
+ * Acceptes a l'import pour ne pas rejeter les fichiers deja distribues.
  */
-const LEGACY_PRODUCT_HEADERS_V1 = [...PRODUCT_HEADERS, "tva"] as const;
+const LEGACY_PRODUCT_HEADERS_V2 = PRODUCT_HEADERS.map((header) => (header === "type" ? "type_produit" : header));
+const LEGACY_PRODUCT_HEADERS_V1 = [...LEGACY_PRODUCT_HEADERS_V2, "tva"] as const;
 
 const PRICE_HEADERS = [
   "reference_produit",
@@ -192,16 +195,23 @@ function validateHeaders(
 
 function parseProducts(
   rows: WorkbookCell[][],
-  issues: ProductPriceTemplateIssue[]
+  issues: ProductPriceTemplateIssue[],
+  options: { legacyFamily: boolean; onExampleRow: () => void }
 ): ProductTemplateRow[] {
   const products: ProductTemplateRow[] = [];
   const referenceRows = new Map<string, number>();
+  let legacyFamilies = 0;
 
   rows.slice(1).forEach((row, index) => {
     const rowNumber = index + 2;
     if (isEmptyRow(row)) return;
 
     const reference = textValue(row[0]);
+    if (isTemplateExampleReference(reference)) {
+      options.onExampleRow();
+      return;
+    }
+    if (options.legacyFamily && textValue(row[2]) !== "") legacyFamilies += 1;
     const designation = textValue(row[1]);
     const unit = textValue(row[8]) || "u";
     const priceCell = row[9];
@@ -257,7 +267,7 @@ function parseProducts(
     products.push({
       reference,
       designation,
-      category: optionalText(row[2]),
+      family: options.legacyFamily ? null : optionalText(row[2]),
       product_type: optionalText(row[3]),
       material: optionalText(row[4]),
       grade: optionalText(row[5]),
@@ -269,13 +279,25 @@ function parseProducts(
     });
   });
 
+  if (legacyFamilies > 0) {
+    issues.push({
+      sheet: PRODUCTS_SHEET,
+      row: null,
+      column: "famille",
+      code: "LEGACY_FAMILY_IGNORED",
+      message: `Ce fichier suit un ancien gabarit : sa colonne "famille" n'est plus reprise (${legacyFamilies} ligne${legacyFamilies > 1 ? "s" : ""}). La famille des produits déjà au catalogue est conservée. Utilisez le gabarit 3.0 pour la renseigner.`,
+      blocking: false,
+    });
+  }
+
   return products;
 }
 
 function parsePrices(
   rows: WorkbookCell[][],
   issues: ProductPriceTemplateIssue[],
-  xlsx: XlsxModule
+  xlsx: XlsxModule,
+  onExampleRow: () => void
 ): SupplierPriceTemplateRow[] {
   const prices: SupplierPriceTemplateRow[] = [];
   const priceKeys = new Map<string, number>();
@@ -285,6 +307,10 @@ function parsePrices(
     if (isEmptyRow(row)) return;
 
     const productReference = textValue(row[0]);
+    if (isTemplateExampleReference(productReference)) {
+      onExampleRow();
+      return;
+    }
     const supplierName = textValue(row[1]);
     const unitPrice = parseLocalizedNumber(row[3]);
     const unit = textValue(row[4]) || "u";
@@ -422,6 +448,10 @@ export async function parseProductPriceTemplateWorkbook(
   let version: string | null = null;
   let products: ProductTemplateRow[] = [];
   let prices: SupplierPriceTemplateRow[] = [];
+  let ignoredExampleRows = 0;
+  const onExampleRow = () => {
+    ignoredExampleRows += 1;
+  };
 
   const instructionsSheet = workbook.Sheets[INSTRUCTIONS_SHEET];
   if (!instructionsSheet) {
@@ -461,11 +491,15 @@ export async function parseProductPriceTemplateWorkbook(
     const rows = validateHeaders(
       productsSheet,
       PRODUCTS_SHEET,
-      [PRODUCT_HEADERS, LEGACY_PRODUCT_HEADERS_V1],
+      [PRODUCT_HEADERS, LEGACY_PRODUCT_HEADERS_V2, LEGACY_PRODUCT_HEADERS_V1],
       issues,
       xlsx
     );
-    if (rows) products = parseProducts(rows, issues);
+    if (rows) {
+      // The header row tells the meaning of « famille », whatever the version cell says.
+      const legacyFamily = textValue(rows[0]?.[3]) !== "type";
+      products = parseProducts(rows, issues, { legacyFamily, onExampleRow });
+    }
   }
 
   const pricesSheet = workbook.Sheets[PRICES_SHEET];
@@ -485,7 +519,7 @@ export async function parseProductPriceTemplateWorkbook(
       issues,
       xlsx
     );
-    if (rows) prices = parsePrices(rows, issues, xlsx);
+    if (rows) prices = parsePrices(rows, issues, xlsx, onExampleRow);
   }
 
   return {
@@ -494,5 +528,6 @@ export async function parseProductPriceTemplateWorkbook(
     issues,
     hasBlockingIssues: issues.some((issue) => issue.blocking),
     version,
+    ignoredExampleRows,
   };
 }

@@ -126,9 +126,11 @@ async function hydrateSuggestedCatalogueCandidates(input: {
     const { data: productsData, error: productsError } = await input.supabase
       .from("products")
       .select(
-        "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at, reference_transport_mode, catalogue_status"
+        "id, designation, reference, supply_types(name), product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at, reference_transport_mode, catalogue_status"
       )
       .eq("tenant_id", input.tenantId)
+      // The family is read in the company of the article, as the catalogue page joins it.
+      .eq("supply_types.tenant_id", input.tenantId)
       .in("id", productIds);
 
     if (productsError) {
@@ -254,7 +256,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         supplierName: supplier?.name ?? "",
         supplierSku: row.supplier_sku ?? null,
         productReference: product?.reference ?? null,
-        category: product?.category ?? null,
+        supplyTypeName: product?.supply_types?.name ?? null,
         productType: product?.product_type ?? null,
         material: product?.material ?? null,
         grade: product?.grade ?? null,
@@ -268,7 +270,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         product_id: row.product_id,
         product_designation: product?.designation ?? "Produit",
         product_reference: product?.reference ?? null,
-        product_category: product?.category ?? null,
+        product_supply_type_name: product?.supply_types?.name ?? null,
         product_type: product?.product_type ?? null,
         product_material: product?.material ?? null,
         product_grade: product?.grade ?? null,
@@ -458,21 +460,24 @@ export async function suggestEstimateCataloguePrices(
     throw badRequest("Le paramètre q contient uniquement des caractères non supportés.");
   }
 
-  const productColumns =
-    "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at, reference_transport_mode, catalogue_status";
+  // The family of an article is its supply type: its name is read with the article, and searched below.
+  const productFields =
+    "id, designation, reference, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at, reference_transport_mode, catalogue_status";
+  const productColumns = `${productFields}, supply_types(name)`;
   const suggestedStatuses: Array<"draft" | "validated"> = includeDrafts
     ? ["validated", "draft"]
     : ["validated"];
-  const productContainsFilter = `designation.ilike.%${safeSearch}%,reference.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,product_type.ilike.%${safeSearch}%,material.ilike.%${safeSearch}%,grade.ilike.%${safeSearch}%,dimensions.ilike.%${safeSearch}%,standard.ilike.%${safeSearch}%`;
+  const productContainsFilter = `designation.ilike.%${safeSearch}%,reference.ilike.%${safeSearch}%,product_type.ilike.%${safeSearch}%,material.ilike.%${safeSearch}%,grade.ilike.%${safeSearch}%,dimensions.ilike.%${safeSearch}%,standard.ilike.%${safeSearch}%`;
   const productPrefixFilter = `designation.ilike.${safeSearch}%,reference.ilike.${safeSearch}%`;
 
-  const [prefixProductResult, productResult, supplierResult] = await Promise.all([
+  const [prefixProductResult, productResult, familyProductResult, supplierResult] = await Promise.all([
     supabase
       .from("products")
       .select(productColumns)
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .in("catalogue_status", suggestedStatuses)
+      .eq("supply_types.tenant_id", tenantId)
       .or(productPrefixFilter)
       .order("designation", { ascending: true })
       .limit(40),
@@ -482,7 +487,19 @@ export async function suggestEstimateCataloguePrices(
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .in("catalogue_status", suggestedStatuses)
+      .eq("supply_types.tenant_id", tenantId)
       .or(productContainsFilter)
+      .order("designation", { ascending: true })
+      .limit(80),
+    // Articles whose family is named by the search (« raccord » finds the fittings whatever their wording).
+    supabase
+      .from("products")
+      .select(`${productFields}, supply_types!inner(name)`)
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true)
+      .in("catalogue_status", suggestedStatuses)
+      .eq("supply_types.tenant_id", tenantId)
+      .ilike("supply_types.name", `%${safeSearch}%`)
       .order("designation", { ascending: true })
       .limit(80),
     supabase
@@ -493,7 +510,7 @@ export async function suggestEstimateCataloguePrices(
       .limit(40),
   ]);
 
-  const productError = prefixProductResult.error ?? productResult.error;
+  const productError = prefixProductResult.error ?? productResult.error ?? familyProductResult.error;
   if (productError) {
     throw mapSupabaseError(
       productError,
@@ -510,6 +527,7 @@ export async function suggestEstimateCataloguePrices(
   const matchingProducts = [
     ...(prefixProductResult.data ?? []),
     ...(productResult.data ?? []),
+    ...(familyProductResult.data ?? []),
   ] as unknown as CatalogueProductSuggestionRecord[];
   const products = Array.from(
     new Map(matchingProducts.map((product) => [product.id, product])).values()

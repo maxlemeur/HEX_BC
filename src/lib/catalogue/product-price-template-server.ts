@@ -5,6 +5,8 @@ import { maxPriceValidTo } from "@/lib/catalogue/price-validity";
 import { normalizedReference } from "@/lib/catalogue/product-price-template-client";
 
 import { PRODUCT_UNIT_HAS_PACKAGINGS, isProductUnitHeldByPackagings } from "@/lib/catalogue/packagings";
+import { matchSupplyTypeByName } from "@/lib/catalogue/supply-types";
+import { listSupplyTypes } from "@/lib/catalogue/supply-types-server";
 import { CatalogueApiError } from "@/lib/catalogue/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -18,14 +20,16 @@ const nullableTextSchema = (max: number) => z.string().trim().max(max).nullable(
 const productTemplateRowSchema = z.object({
   reference: z.string().trim().min(1).max(255),
   designation: z.string().trim().min(1).max(500),
-  category: nullableTextSchema(255),
+  family: nullableTextSchema(255),
   product_type: nullableTextSchema(255),
   material: nullableTextSchema(255),
   grade: nullableTextSchema(255),
   dimensions: nullableTextSchema(255),
   standard: nullableTextSchema(255),
   unit: z.string().trim().min(1).max(50),
-  unit_price_cents: z.number().int().min(0),
+  // products.unit_price_cents is a PostgreSQL integer: a larger price is refused here, before any write, rather
+  // than by the database once part of the file is written.
+  unit_price_cents: z.number().int().min(0).max(2_147_483_647),
   is_active: z.literal(true),
 });
 
@@ -194,9 +198,12 @@ export async function importProductPriceTemplate(
   const input = productPriceTemplateImportSchema.parse(rawInput);
   const supabase = await getAuthenticatedSupabase();
 
-  const [productsResult, suppliersResult] = await Promise.all([
+  const namesFamilies = input.products.some((product) => product.family);
+  const [productsResult, suppliersResult, supplyTypes] = await Promise.all([
     readAllRows(() => supabase.from("products").select("id, reference, unit", { count: "exact" })),
     readAllRows(() => supabase.from("suppliers").select("id, name", { count: "exact" }).eq("is_active", true)),
+    // Row policies show a member the supply types of every company they belong to: this read is the active one's.
+    namesFamilies ? listSupplyTypes().then((answer) => answer.items) : [],
   ]);
 
   if (productsResult.error) {
@@ -228,8 +235,18 @@ export async function importProductPriceTemplate(
   const unknownProducts = new Set<string>();
   const ambiguousSuppliers = new Set<string>();
   const unknownSuppliers = new Set<string>();
+  const ambiguousFamilies = new Set<string>();
+  const unknownFamilies = new Set<string>();
+  // The family a row names is one of the company's supply types.
+  const supplyTypeIdByFamily = new Map<string, string>();
 
   for (const product of input.products) {
+    if (product.family && !supplyTypeIdByFamily.has(product.family)) {
+      const match = matchSupplyTypeByName(supplyTypes, product.family);
+      if (match.status === "found") supplyTypeIdByFamily.set(product.family, match.id);
+      else if (match.status === "ambiguous") ambiguousFamilies.add(product.family);
+      else unknownFamilies.add(product.family);
+    }
     const productToken = normalizedReference(product.reference);
     if (
       incomingProductLookup.ambiguous.has(productToken) ||
@@ -266,7 +283,9 @@ export async function importProductPriceTemplate(
     ambiguousProducts.size > 0 ||
     unknownProducts.size > 0 ||
     ambiguousSuppliers.size > 0 ||
-    unknownSuppliers.size > 0
+    unknownSuppliers.size > 0 ||
+    ambiguousFamilies.size > 0 ||
+    unknownFamilies.size > 0
   ) {
     throw new CatalogueApiError({
       status: 400,
@@ -284,6 +303,12 @@ export async function importProductPriceTemplate(
         ambiguousSuppliers.size > 0
           ? `Fournisseurs ambigus: ${Array.from(ambiguousSuppliers).slice(0, 5).join(", ")}`
           : null,
+        unknownFamilies.size > 0
+          ? `Familles inconnues du catalogue: ${Array.from(unknownFamilies).slice(0, 5).join(", ")}`
+          : null,
+        ambiguousFamilies.size > 0
+          ? `Familles ambiguës: ${Array.from(ambiguousFamilies).slice(0, 5).join(", ")}`
+          : null,
       ]
         .filter(Boolean)
         .join(". "),
@@ -297,7 +322,10 @@ export async function importProductPriceTemplate(
 
   if (input.products.length > 0) {
     const productsToCreate: Array<Record<string, unknown>> = [];
+    // An update whose row names no family does not send the column at all: writing back the family read above
+    // would undo a reclassification made in the catalogue meanwhile. One statement takes rows of the same columns.
     const productsToUpdate: Array<Record<string, unknown>> = [];
+    const productsToReclassify: Array<Record<string, unknown>> = [];
 
     for (const product of input.products) {
       const existing = productLookup.values.get(normalizedReference(product.reference));
@@ -308,7 +336,6 @@ export async function importProductPriceTemplate(
         ...(existing ? { id: existing.id } : {}),
         reference: existing?.reference ?? product.reference,
         designation: product.designation,
-        category: product.category,
         product_type: product.product_type,
         material: product.material,
         grade: product.grade,
@@ -319,12 +346,15 @@ export async function importProductPriceTemplate(
         is_active: true,
       };
 
-      if (existing) productsToUpdate.push(payload);
-      else productsToCreate.push(payload);
+      const supplyTypeId = product.family ? (supplyTypeIdByFamily.get(product.family) ?? null) : null;
+      if (!existing) productsToCreate.push({ ...payload, supply_type_id: supplyTypeId });
+      else if (supplyTypeId) productsToReclassify.push({ ...payload, supply_type_id: supplyTypeId });
+      else productsToUpdate.push(payload);
     }
 
-    if (productsToUpdate.length > 0) {
-      const { error } = await supabase.from("products").upsert(productsToUpdate, {
+    for (const rows of [productsToUpdate, productsToReclassify]) {
+      if (rows.length === 0) continue;
+      const { error } = await supabase.from("products").upsert(rows, {
         onConflict: "id",
       });
 

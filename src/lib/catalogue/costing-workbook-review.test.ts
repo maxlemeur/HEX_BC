@@ -47,7 +47,7 @@ describe("missingColumnWarnings", () => {
       { column: "Fiabilité (/10)", effect: "aucun article n’aurait de note de fiabilité" },
       { column: "Dimension", effect: "aucun article n’aurait de dimension" },
       { column: "PR. FO", effect: "tous les articles seraient importés sans prix (0 €)" },
-      { column: "Type FO", effect: "le type de fourniture serait déduit du libellé seul" },
+      { column: "Type FO", effect: "la famille serait déduite du libellé seul" },
       // F2_nom without F2_ref is a pair cut in half; F3 is simply absent.
       { column: "F2_ref", effect: "les références du fournisseur 2 ne seraient pas lues" },
     ]);

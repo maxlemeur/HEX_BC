@@ -418,9 +418,9 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     expect(screen.getByText("À choisir")).toBeVisible();
 
-    await user.click(view("Types de fourniture"));
-    const types = within(screen.getByRole("table", { name: "Types de fourniture proposés" }));
-    expect(types.getByLabelText("I4L")).toHaveDisplayValue("Tube (type proposé)");
+    await user.click(view("Familles"));
+    const types = within(screen.getByRole("table", { name: "Familles proposées" }));
+    expect(types.getByLabelText("I4L")).toHaveDisplayValue("Tube (famille proposée)");
     await user.selectOptions(types.getByLabelText("CAL"), "Support");
     await waitFor(() => expect(previews()).toHaveLength(2));
     expect(previews()[1].body).toMatchObject({ confirm: false, supply_type_families: [{ family_code: "CAL", supply_type_id: SUPPORT_TYPE }] });

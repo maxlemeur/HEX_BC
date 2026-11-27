@@ -45,7 +45,6 @@ export type ProductRecord = {
   updated_at?: string | null;
   reference: string | null;
   designation: string;
-  category?: string | null;
   product_type?: string | null;
   material?: string | null;
   grade?: string | null;
@@ -70,7 +69,6 @@ export type ProductRecord = {
 export type ProductPayload = {
   reference: string | null;
   designation: string;
-  category: string | null;
   product_type: string | null;
   material: string | null;
   grade: string | null;
@@ -88,7 +86,6 @@ export type ProductPayload = {
 type ProductFormState = {
   reference: string;
   designation: string;
-  category: string;
   product_type: string;
   material: string;
   grade: string;
@@ -105,15 +102,13 @@ type ProductFormModalProps = {
   product: ProductRecord | null;
   isSaving: boolean;
   error: string | null;
-  /** Familles déjà utilisées dans le référentiel, proposées en autocomplétion. */
-  categorySuggestions?: readonly string[];
   /** Matières déjà utilisées dans le référentiel, proposées en autocomplétion. */
   materialSuggestions?: readonly string[];
   /** Supply types of the tenant; an administrator can add one from the form, since a tenant may have none. */
   supplyTypes?: readonly ProductSupplyType[];
   /**
    * The member is an administrator of the active tenant, the only role `createSupplyType` accepts: the form
-   * offers « Nouveau type » to them alone. Absent, it is not offered.
+   * offers « Nouvelle famille » to them alone. Absent, it is not offered.
    */
   canCreateSupplyType?: boolean;
   /**
@@ -169,7 +164,6 @@ function initialFormState(product: ProductRecord | null): ProductFormState {
   return {
     reference: product?.reference ?? "",
     designation: product?.designation ?? "",
-    category: product?.category ?? "",
     product_type: product?.product_type ?? "",
     material: product?.material ?? "",
     grade: product?.grade ?? "",
@@ -210,7 +204,6 @@ export function ProductFormModal({
   product,
   isSaving,
   error,
-  categorySuggestions,
   materialSuggestions,
   supplyTypes,
   canCreateSupplyType = false,
@@ -230,7 +223,7 @@ export function ProductFormModal({
   const [referenceUnlocked, setReferenceUnlocked] = useState(false);
   const hasReference = Boolean(product?.reference?.trim());
   const referenceLocked = isEditing && hasReference && !referenceUnlocked;
-  // The article type lives in the technical details and a draft needs it: they start unfolded.
+  // A draft is completed before it is validated: its technical details start unfolded.
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(
     () => hasTechnicalDetails(product) || isDraft,
   );
@@ -251,10 +244,6 @@ export function ProductFormModal({
     [isEditing],
   );
 
-  const categoryOptions = useMemo(
-    () => normalizeSuggestions(categorySuggestions),
-    [categorySuggestions],
-  );
   const materialOptions = useMemo(
     () => normalizeSuggestions(materialSuggestions),
     [materialSuggestions],
@@ -313,7 +302,6 @@ export function ProductFormModal({
     await onSubmit({
       reference: nullableText(form.reference),
       designation,
-      category: nullableText(form.category),
       product_type: nullableText(form.product_type),
       material: nullableText(form.material),
       grade: nullableText(form.grade),
@@ -360,7 +348,7 @@ export function ProductFormModal({
                 <p className="mt-1">
                   {missingForValidation.length > 0
                     ? productValidationMessage(missingForValidation)
-                    : "Le type d’article, la matière, l’unité et le type de fourniture sont renseignés : l’article peut être validé."}
+                    : "La famille, le type, la matière et l’unité sont renseignés : l’article peut être validé."}
                 </p>
               </Alert>
             ) : null}
@@ -419,26 +407,66 @@ export function ProductFormModal({
             <fieldset>
               <legend className="text-sm font-semibold text-foreground">Classement</legend>
               <p className="mt-1 text-xs text-muted-foreground">
-                Ces deux champs pilotent les filtres du référentiel.
+                La famille fixe le coefficient FO des lignes de devis. Elle filtre le référentiel, comme la matière.
               </p>
 
               <div className="mt-3 grid gap-4 md:grid-cols-2">
-                <div className="flex min-w-0 flex-col gap-2">
-                  <FieldLabel htmlFor="product-category">Famille</FieldLabel>
-                  <Input
-                    id="product-category"
-                    list={categoryOptions.length > 0 ? "product-category-options" : undefined}
-                    placeholder="Ex. Tuyauterie"
-                    value={form.category}
-                    onChange={(event) => setField("category", event.target.value)}
-                  />
-                  {categoryOptions.length > 0 ? (
-                    <datalist id="product-category-options">
-                      {categoryOptions.map((option) => (
-                        <option key={option} value={option} />
+                <div className="flex min-w-0 flex-col gap-2 md:col-span-2">
+                  <FieldLabel htmlFor="product-supply-type">Famille</FieldLabel>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <NativeSelect
+                      ref={supplyTypeSelectRef}
+                      id="product-supply-type"
+                      wrapperClassName="sm:flex-1"
+                      className={cn(
+                        blocksValidation("supply_type_id") && MISSING_FOR_VALIDATION_CLASS,
+                      )}
+                      aria-describedby={describedBy(
+                        supplyTypeOptions.length === 0 && "product-supply-type-empty-hint",
+                        blocksValidation("supply_type_id") && VALIDATION_HINT_IDS.supply_type_id,
+                      )}
+                      value={form.supply_type_id}
+                      onChange={(event) => setField("supply_type_id", event.target.value)}
+                    >
+                      <option value="">Non classée</option>
+                      {supplyTypeOptions.map((supplyType) => (
+                        <option key={supplyType.id} value={supplyType.id}>
+                          {supplyType.name}
+                        </option>
                       ))}
-                    </datalist>
+                    </NativeSelect>
+                    {canCreateSupplyType ? (
+                      <NewSupplyTypeButton creation={supplyTypeCreation} idPrefix="product" />
+                    ) : null}
+                  </div>
+                  {supplyTypeOptions.length === 0 ? (
+                    <FieldDescription id="product-supply-type-empty-hint" className="text-xs">
+                      {canCreateSupplyType
+                        ? "Aucune famille n’existe encore. Créez-en une avec « Nouvelle famille »."
+                        : "Aucune famille n’existe encore : un administrateur peut en créer une."}
+                    </FieldDescription>
                   ) : null}
+                  {blocksValidation("supply_type_id") ? (
+                    <ValidationHint field="supply_type_id" />
+                  ) : null}
+                  {canCreateSupplyType ? (
+                    <NewSupplyTypePanel creation={supplyTypeCreation} idPrefix="product" />
+                  ) : null}
+                </div>
+
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FieldLabel htmlFor="product-type">Type</FieldLabel>
+                  <Input
+                    id="product-type"
+                    placeholder="Ex. Coude, té, manchon"
+                    className={cn(blocksValidation("product_type") && MISSING_FOR_VALIDATION_CLASS)}
+                    aria-describedby={describedBy(
+                      blocksValidation("product_type") && VALIDATION_HINT_IDS.product_type,
+                    )}
+                    value={form.product_type}
+                    onChange={(event) => setField("product_type", event.target.value)}
+                  />
+                  {blocksValidation("product_type") ? <ValidationHint field="product_type" /> : null}
                 </div>
 
                 <div className="flex min-w-0 flex-col gap-2">
@@ -464,48 +492,6 @@ export function ProductFormModal({
                   {blocksValidation("material") ? <ValidationHint field="material" /> : null}
                 </div>
 
-                <div className="flex min-w-0 flex-col gap-2 md:col-span-2">
-                  <FieldLabel htmlFor="product-supply-type">Type de fourniture</FieldLabel>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <NativeSelect
-                      ref={supplyTypeSelectRef}
-                      id="product-supply-type"
-                      wrapperClassName="sm:flex-1"
-                      className={cn(
-                        blocksValidation("supply_type_id") && MISSING_FOR_VALIDATION_CLASS,
-                      )}
-                      aria-describedby={describedBy(
-                        supplyTypeOptions.length === 0 && "product-supply-type-empty-hint",
-                        blocksValidation("supply_type_id") && VALIDATION_HINT_IDS.supply_type_id,
-                      )}
-                      value={form.supply_type_id}
-                      onChange={(event) => setField("supply_type_id", event.target.value)}
-                    >
-                      <option value="">Non classé</option>
-                      {supplyTypeOptions.map((supplyType) => (
-                        <option key={supplyType.id} value={supplyType.id}>
-                          {supplyType.name}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                    {canCreateSupplyType ? (
-                      <NewSupplyTypeButton creation={supplyTypeCreation} idPrefix="product" />
-                    ) : null}
-                  </div>
-                  {supplyTypeOptions.length === 0 ? (
-                    <FieldDescription id="product-supply-type-empty-hint" className="text-xs">
-                      {canCreateSupplyType
-                        ? "Aucun type de fourniture n’existe encore. Créez-en un avec « Nouveau type »."
-                        : "Aucun type de fourniture n’existe encore : un administrateur peut en créer un."}
-                    </FieldDescription>
-                  ) : null}
-                  {blocksValidation("supply_type_id") ? (
-                    <ValidationHint field="supply_type_id" />
-                  ) : null}
-                  {canCreateSupplyType ? (
-                    <NewSupplyTypePanel creation={supplyTypeCreation} idPrefix="product" />
-                  ) : null}
-                </div>
               </div>
             </fieldset>
 
@@ -596,21 +582,6 @@ export function ProductFormModal({
               </summary>
 
               <div className="mt-3 grid gap-4 md:grid-cols-2">
-                <div className="flex min-w-0 flex-col gap-2">
-                  <FieldLabel htmlFor="product-type">Type d’article</FieldLabel>
-                  <Input
-                    id="product-type"
-                    placeholder="Ex. Tube, coude, té"
-                    className={cn(blocksValidation("product_type") && MISSING_FOR_VALIDATION_CLASS)}
-                    aria-describedby={describedBy(
-                      blocksValidation("product_type") && VALIDATION_HINT_IDS.product_type,
-                    )}
-                    value={form.product_type}
-                    onChange={(event) => setField("product_type", event.target.value)}
-                  />
-                  {blocksValidation("product_type") ? <ValidationHint field="product_type" /> : null}
-                </div>
-
                 <div className="flex min-w-0 flex-col gap-2">
                   <FieldLabel htmlFor="product-grade">Nuance</FieldLabel>
                   <Input

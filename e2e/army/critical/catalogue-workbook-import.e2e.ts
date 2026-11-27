@@ -18,7 +18,7 @@ type SupplyType = { id: string; code: string; name: string };
 type Product = { id: string; reference: string | null; designation: string; catalogue_status: string; unit_price_cents: number };
 type CatalogueItem = Product & {
   product_type: string | null; material: string | null; grade: string | null; dimensions: string | null;
-  category: string | null; unit: string | null; reliability_score: number | null; supply_type_id: string | null;
+  unit: string | null; reliability_score: number | null; supply_type_id: string | null;
 };
 
 // TI-690, lot 1. Failure modes, written before the journey was first run against the product:
@@ -468,7 +468,7 @@ armyTest(
       "3 nouveaux articles en brouillon",
       "1 déjà au catalogue (inchangé)",
       "2 références fournisseur à traiter séparément.",
-      ...(withoutSupplyType > 0 ? [`${withoutSupplyType} sans type de fourniture`] : []),
+      ...(withoutSupplyType > 0 ? [`${withoutSupplyType} sans famille`] : []),
     ];
     for (const sentence of sentences) {
       await expect(importPage.getByText(sentence, { exact: true })).toBeVisible();
@@ -537,17 +537,17 @@ armyTest(
     expect(draftOf(tubeRef)).toMatchObject({
       // The precision, absent from the wording, follows the size in parentheses.
       catalogue_status: "draft", designation: "Tube — Inox 304L soudé DN20 (21,3x1,6)", product_type: "Tube",
-      material: "Inox 304L soudé", grade: "304L", dimensions: "DN20 — 21,3x1,6", category: "Tuyauterie",
+      material: "Inox 304L soudé", grade: "304L", dimensions: "DN20 — 21,3x1,6",
       unit: "ml", unit_price_cents: 1250, reliability_score: 8, supply_type_id: expectedType("tube"),
     });
     expect(draftOf(elbowRef)).toMatchObject({
       catalogue_status: "draft", designation: "Coude 90° à souder — Inox 304L soudé DN20", product_type: "Coude 90° à souder",
-      category: "Raccords", unit: "u", unit_price_cents: 544, reliability_score: 6, supply_type_id: expectedType("raccord"),
+      unit: "u", unit_price_cents: 544, reliability_score: 6, supply_type_id: expectedType("raccord"),
     });
     expect(draftOf(valveRef)).toMatchObject({
       // The price is the one corrected in the screen, not the workbook's empty cell.
       catalogue_status: "draft", designation: "Vanne à boisseau sphérique DN15", product_type: "Vanne à boisseau sphérique",
-      category: "Robinetterie", unit: "u", unit_price_cents: 4510, reliability_score: null, supply_type_id: expectedType("vanne"),
+      unit: "u", unit_price_cents: 4510, reliability_score: null, supply_type_id: expectedType("vanne"),
     });
 
     // The article already in the catalogue is untouched.
@@ -644,7 +644,7 @@ armyTest(
     const page = screen.getByRole("region", "Importer le classeur de chiffrage", { exact: true });
     await page.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(workbookPath);
     await showWorkbookPreview(screen);
-    const family = page.getByRole("combobox", "Famille du classeur", { exact: true });
+    const family = page.getByRole("combobox", "Code famille du classeur", { exact: true });
     const table = page.getByRole("table", "Articles proposés en brouillon", { exact: true });
     await family.selectOption({ value: "family:I4L" });
     await expect(table.getByRole("row")).toHaveCount(5);

@@ -305,7 +305,7 @@ async function suggestArticles(context: AuthenticatedTenantContext, input: Reque
 // ---------------------------------------------------------------------------
 // Supply types: a group of drafts against the type the company's validated articles of the same kind carry.
 
-const NO_SUPPLY_TYPE = "Aucun de ces types de fourniture ne nomme ce genre de fourniture.";
+const NO_SUPPLY_TYPE = "Aucune de ces familles ne nomme ce genre de fourniture.";
 /** A type is proposed from the catalogue when at least this many validated articles of the same type carry it… */
 const SUPPLY_TYPE_MIN_ARTICLES = 2;
 /** …and at least this share of those that carry a type. */
@@ -320,7 +320,7 @@ async function suggestSupplyTypes(context: AuthenticatedTenantContext, input: Re
     readAllRows(() => supabase.from("products").select("id, product_type, supply_type_id", { count: "exact" })
       .eq("tenant_id", tenantId).eq("is_active", true).eq("catalogue_status", "validated"), { concurrency: 4 }),
   ]);
-  if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de lire les types de fourniture.");
+  if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de lire les familles.");
   if (products.error) throw mapSupabaseError(products.error, "Impossible de lire les articles du catalogue.");
   const types = [...(supplyTypes.data ?? [])].sort((left, right) => left.name.localeCompare(right.name, "fr") || left.id.localeCompare(right.id));
   const own = new Set(types.map((type) => type.id));

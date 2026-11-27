@@ -277,12 +277,12 @@ select is(
 );
 
 select ok(
-  not has_function_privilege('anon', 'public.catalogue_products_page(text, text[], text[], text[], text[], text[], text, text, integer, integer, text[])', 'execute'),
+  not has_function_privilege('anon', 'public.catalogue_products_page(text, text[], text[], text[], text[], text[], text, text, integer, integer, text[], uuid[])', 'execute'),
   'un visiteur anonyme ne peut pas appeler la page du catalogue'
 );
 
 select ok(
-  has_function_privilege('authenticated', 'public.catalogue_products_page(text, text[], text[], text[], text[], text[], text, text, integer, integer, text[])', 'execute'),
+  has_function_privilege('authenticated', 'public.catalogue_products_page(text, text[], text[], text[], text[], text[], text, text, integer, integer, text[], uuid[])', 'execute'),
   'un utilisateur connecté peut appeler la page du catalogue'
 );
 

@@ -113,7 +113,8 @@ const repeatedFilterSchema = z.array(z.string().trim().min(1).max(255)).max(100)
 export const cataloguePageQuerySchema = z.object({
   q: z.string().trim().max(200).optional().default(""),
   material: repeatedFilterSchema,
-  category: repeatedFilterSchema,
+  /** The family of an article is its supply type: filtered by identifier. */
+  supply_type: z.array(z.string().uuid(UUID_ERROR_MESSAGE)).max(100).default([]),
   unit: repeatedFilterSchema,
   price_status: z.array(z.enum(["fresh", "aging", "stale", "none"])).max(4).default([]),
   status: z.array(z.enum(["active", "archived"])).max(2).default([]),
@@ -140,7 +141,6 @@ const catalogueWriteFieldsSchema = z.object({
   unit_price_cents: nonNegativeIntegerSchema.optional(),
   tax_rate_bp: nonNegativeIntegerSchema.max(10000).optional(),
   unit: optionalTextSchema,
-  category: optionalTextSchema,
   notes: optionalTextSchema,
   is_active: z.boolean().optional(),
 });
@@ -153,7 +153,6 @@ const catalogueUpdateFieldsSchema = catalogueWriteFieldsSchema.extend({
   reference: optionalTextUpdateSchema,
   hex_code: optionalTextUpdateSchema,
   unit: optionalTextUpdateSchema,
-  category: optionalTextUpdateSchema,
   notes: optionalTextUpdateSchema,
 });
 
@@ -251,7 +250,8 @@ const newSupplierSchema = z.object({
 const newProductSchema = z.object({
   reference: optionalTextSchema,
   designation: requiredTextSchema.max(500),
-  category: optionalTextSchema,
+  /** The family of the new article: one of the company's supply types. */
+  supply_type_id: z.union([z.string().uuid(UUID_ERROR_MESSAGE), z.null()]).optional(),
   product_type: optionalTextSchema,
   material: optionalTextSchema,
   grade: optionalTextSchema,

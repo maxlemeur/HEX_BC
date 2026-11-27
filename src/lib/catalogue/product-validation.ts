@@ -20,10 +20,10 @@ export const PRODUCT_VALIDATION_FIELDS = [
 export type ProductValidationField = (typeof PRODUCT_VALIDATION_FIELDS)[number];
 
 const FIELD_LABELS: Record<ProductValidationField, string> = {
-  product_type: "le type d’article",
+  product_type: "le type",
   material: "la matière",
   unit: "l’unité",
-  supply_type_id: "le type de fourniture",
+  supply_type_id: "la famille",
 };
 
 export const PRODUCT_VALIDATION_INCOMPLETE = "PRODUCT_VALIDATION_INCOMPLETE";
@@ -52,7 +52,7 @@ export function productValidationFieldsFromDetail(
 
 export function productValidationMessage(missing: readonly ProductValidationField[]) {
   if (missing.length === 0) {
-    return "Cet article est incomplet : renseignez le type d’article, la matière, l’unité et le type de fourniture avant de le valider.";
+    return "Cet article est incomplet : renseignez la famille, le type, la matière et l’unité avant de le valider.";
   }
   return `Pour valider cet article, renseignez : ${missing.map((field) => FIELD_LABELS[field]).join(", ")}.`;
 }

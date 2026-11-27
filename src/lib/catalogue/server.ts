@@ -665,11 +665,11 @@ function normalizeCatalogueRecord(row: JsonRecord): CatalogueItemRecord {
         ? row.hex_code
         : null;
 
-  return {
-    ...(row as CatalogueItemRecord),
-    reference,
-    hex_code: reference,
-  };
+  const record: JsonRecord = { ...row, reference, hex_code: reference };
+  // The former free-text family (products.category) is no longer part of an article: its column, kept until
+  // the clients that read it are replaced, is not answered.
+  delete record.category;
+  return record as CatalogueItemRecord;
 }
 
 function normalizeSupplierPriceRecord(row: JsonRecord): SupplierPriceRecord {
@@ -778,7 +778,6 @@ export async function listCataloguePage(input: CataloguePageQueryInput) {
   const rpcInput = {
     p_q: input.q || null,
     p_materials: input.material,
-    p_categories: input.category,
     p_units: input.unit,
     p_price_statuses: input.price_status,
     p_statuses: input.status,
@@ -787,6 +786,7 @@ export async function listCataloguePage(input: CataloguePageQueryInput) {
     p_page: input.page,
     p_size: input.size,
     p_catalogue_statuses: input.catalogue_status,
+    p_supply_type_ids: input.supply_type,
   };
 
   const [pageResult, summaryResult, supplyTypesResult] = await Promise.all([
@@ -906,7 +906,6 @@ export async function listCataloguePage(input: CataloguePageQueryInput) {
     },
     facets: {
       materials: Array.isArray(summary.materials) ? summary.materials : [],
-      categories: Array.isArray(summary.categories) ? summary.categories : [],
       units: Array.isArray(summary.units) ? summary.units : [],
     },
     supplyTypes: supplyTypesResult.items,

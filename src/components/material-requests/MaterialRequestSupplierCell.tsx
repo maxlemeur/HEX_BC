@@ -33,7 +33,7 @@ export function supplierReasonLabel(proposal: LineSupplierProposal, supplyTypeNa
     case "article":
       return "exception de l’article";
     case "supply_type":
-      return supplyTypeName ? `fournisseur du type ${supplyTypeName}` : "fournisseur du type de fourniture";
+      return supplyTypeName ? `fournisseur de la famille ${supplyTypeName}` : "fournisseur de la famille";
     case "last_purchase":
       return "dernier achat";
   }
@@ -113,7 +113,7 @@ function NoProposal({
   if (!supplyTypeName) {
     return (
       <div className="space-y-0.5 text-xs text-muted-foreground">
-        <p>Aucun fournisseur proposé : l’article n’a pas de type de fourniture.</p>
+        <p>Aucun fournisseur proposé : l’article n’a pas de famille.</p>
         <Link
           href={`/dashboard/products?product_id=${encodeURIComponent(article.id)}`}
           className="font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
@@ -127,12 +127,12 @@ function NoProposal({
     <div className="space-y-0.5 text-xs text-muted-foreground">
       <p>
         {onChooseTypeSupplier
-          ? `Aucun fournisseur proposé : choisissez-en un ci-dessus, ou réglez le fournisseur privilégié du type « ${supplyTypeName} ».`
-          : `Aucun fournisseur proposé : choisissez-en un ci-dessus. Le fournisseur privilégié du type « ${supplyTypeName} » se règle par un administrateur ou un ingénieur (Référentiel › Produits › Types de fourniture).`}
+          ? `Aucun fournisseur proposé : choisissez-en un ci-dessus, ou réglez le fournisseur privilégié de la famille « ${supplyTypeName} ».`
+          : `Aucun fournisseur proposé : choisissez-en un ci-dessus. Le fournisseur privilégié de la famille « ${supplyTypeName} » se règle par un administrateur ou un ingénieur (Référentiel › Produits › Familles).`}
       </p>
       {onChooseTypeSupplier ? (
         <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={onChooseTypeSupplier}>
-          Choisir le fournisseur du type
+          Choisir le fournisseur de la famille
         </Button>
       ) : null}
     </div>

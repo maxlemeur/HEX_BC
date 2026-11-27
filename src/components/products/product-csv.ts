@@ -1,7 +1,12 @@
+import { matchSupplyTypeByName } from "@/lib/catalogue/supply-types";
+
 export type ProductCsvRow = {
   reference: string | null;
   designation: string;
-  category: string | null;
+  /** The company's family (supply type) the row names, or null when it names none. */
+  supply_type_id: string | null;
+  /** That family's name in the catalogue, for the preview; not a column of the article. */
+  family: string | null;
   product_type: string | null;
   material: string | null;
   grade: string | null;
@@ -28,7 +33,7 @@ export type ProductCsvParseResult = {
 type ProductField =
   | "reference"
   | "designation"
-  | "category"
+  | "family"
   | "product_type"
   | "material"
   | "grade"
@@ -45,13 +50,14 @@ const HEADER_ALIASES: Record<string, ProductField> = {
   description: "designation",
   nom: "designation",
   name: "designation",
-  category: "category",
-  categorie: "category",
-  famille: "category",
-  family: "category",
+  // The family is one of the company's supply types. The former free-text « catégorie » is no longer read.
+  famille: "family",
+  family: "family",
   product_type: "product_type",
   type_produit: "product_type",
   type_de_produit: "product_type",
+  type_article: "product_type",
+  type_d_article: "product_type",
   type: "product_type",
   material: "material",
   matiere: "material",
@@ -176,7 +182,14 @@ function optionalValue(value: string | undefined): string | null {
   return value?.trim() || null;
 }
 
-export function parseProductCsv(text: string): ProductCsvParseResult {
+/**
+ * `supplyTypes` are the families of the active company: a row naming a family that is not one of them is
+ * rejected, so that no article is filed under a family the catalogue does not have.
+ */
+export function parseProductCsv(
+  text: string,
+  supplyTypes: ReadonlyArray<{ id: string; name: string }> = [],
+): ProductCsvParseResult {
   if (!text.trim()) {
     throw new Error("Le fichier CSV est vide.");
   }
@@ -229,6 +242,11 @@ export function parseProductCsv(text: string): ProductCsvParseResult {
       reasons.push("Prix unitaire HT invalide");
     }
 
+    const familyName = optionalValue(getValue("family"));
+    const family = familyName ? matchSupplyTypeByName(supplyTypes, familyName) : null;
+    if (family?.status === "unknown") reasons.push(`Famille inconnue du catalogue : « ${familyName} »`);
+    if (family?.status === "ambiguous") reasons.push(`Famille ambiguë dans le catalogue : « ${familyName} »`);
+
     if (reasons.length > 0 || parsedPrice === null) {
       rejectedRows.push({ line, designation, reasons });
       return;
@@ -238,7 +256,8 @@ export function parseProductCsv(text: string): ProductCsvParseResult {
     acceptedRows.push({
       reference,
       designation,
-      category: optionalValue(getValue("category")),
+      supply_type_id: family?.status === "found" ? family.id : null,
+      family: family?.status === "found" ? family.name : null,
       product_type: optionalValue(getValue("product_type")),
       material: optionalValue(getValue("material")),
       grade: optionalValue(getValue("grade")),

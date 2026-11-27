@@ -74,7 +74,7 @@ type Company = {
   supplyTypes: SupplyType[];
 };
 
-const UNKNOWN_SUPPLY_TYPE = "Un type de fourniture choisi n’existe plus dans l’entreprise. Actualisez l’aperçu, puis choisissez-le à nouveau.";
+const UNKNOWN_SUPPLY_TYPE = "Une famille choisie n’existe plus dans l’entreprise. Actualisez l’aperçu, puis choisissez-la à nouveau.";
 
 export function readCostingWorkbookImportSheet(rows: CostingWorkbookImportInput["rows"]): CostingWorkbookReadResult {
   try {
@@ -94,7 +94,7 @@ async function readCompany({ supabase, tenantId }: AuthenticatedTenantContext): 
     readAllRows(() => supabase.from("supply_types").select("id, code, name", { count: "exact" }).eq("tenant_id", tenantId)),
   ]);
   if (products.error) throw mapSupabaseError(products.error, "Impossible de lire les articles du catalogue.");
-  if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de lire les types de fourniture.");
+  if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de lire les familles.");
   const articles = new Map<string, CatalogueArticle>();
   for (const product of products.data ?? []) {
     if (!product.reference) continue;
@@ -181,7 +181,6 @@ function productRow({ article, supplyTypeId }: PlannedDraft, tenantId: string, b
     import_batch_id: batchId,
     reference: article.reference,
     designation: article.designation,
-    category: article.category,
     product_type: article.product_type,
     material: article.material,
     grade: article.grade,

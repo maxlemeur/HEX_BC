@@ -151,8 +151,8 @@ armyTest(
     // Among drafts, a validated line's details open on request only (TI-690): the third line's proposal is read there.
     await screen.getByRole("button", "Afficher les détails de la ligne 3", { exact: true }).tap();
     await expect(screen.getByRole("complementary", "Détails de la ligne 3", { exact: true })
-      .getByText(`${gammaName} · fournisseur du type ${typeName}`, { exact: true })).toBeVisible();
-    await expect(screen.getByText(`${gammaName} · fournisseur du type ${typeName}`, { exact: true })).toHaveCount(2);
+      .getByText(`${gammaName} · fournisseur de la famille ${typeName}`, { exact: true })).toBeVisible();
+    await expect(screen.getByText(`${gammaName} · fournisseur de la famille ${typeName}`, { exact: true })).toHaveCount(2);
     await screen.getByRole("button", "Retenir les fournisseurs proposés (3)", { exact: true }).tap();
     await expect(screen.getByText("3 fournisseurs retenus.", { exact: true })).toBeVisible({ timeout: 30_000 });
     const retained = await read();

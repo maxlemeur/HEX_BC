@@ -304,7 +304,7 @@ export function CatalogueSuggestionsPopover({
                 </div>
                 {technicalDetails.length > 0 ||
                 suggestion.product_reference ||
-                suggestion.product_category ? (
+                suggestion.product_supply_type_name ? (
                   <div className="estimate-catalogue-suggestion__tags">
                     {technicalDetails.map((detail) => (
                       <span key={`technical:${detail}`}>{detail}</span>
@@ -312,8 +312,8 @@ export function CatalogueSuggestionsPopover({
                     {suggestion.product_reference ? (
                       <span>{suggestion.product_reference}</span>
                     ) : null}
-                    {suggestion.product_category ? (
-                      <span>{suggestion.product_category}</span>
+                    {suggestion.product_supply_type_name ? (
+                      <span>{suggestion.product_supply_type_name}</span>
                     ) : null}
                   </div>
                 ) : null}

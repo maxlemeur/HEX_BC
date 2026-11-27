@@ -57,7 +57,6 @@ function ProductDetails({ product }: { product: CatalogueItem }) {
   const details = [
     ["Référence", optionalText(product.reference)],
     ["Unité", optionalText(product.unit)],
-    ["Catégorie", optionalText(product.category)],
     ["Type", optionalText(product.product_type)],
     ["Matière", optionalText(product.material)],
     ["Nuance", optionalText(product.grade)],

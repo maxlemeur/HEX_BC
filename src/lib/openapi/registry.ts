@@ -508,7 +508,7 @@ const suggestedCataloguePriceSchema = z.object({
   product_id: uuidSchema,
   product_designation: z.string(),
   product_reference: z.string().nullable(),
-  product_category: z.string().nullable(),
+  product_supply_type_name: z.string().nullable().optional().describe("Famille de l'article : nom de son type de fourniture."),
   product_type: z.string().nullable(),
   product_material: z.string().nullable(),
   product_grade: z.string().nullable(),
