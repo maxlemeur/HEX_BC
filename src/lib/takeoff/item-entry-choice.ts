@@ -9,10 +9,15 @@ export function entryFacts(entry: ItemEntryView | null, names: Record<string, st
 }
 
 export function entryPlans(line: ItemTableLine, names: Record<string, string> = {}) {
-  return line.readings.flatMap(({ planKey, planName, answer, sent, entry }) => answer ? [{
-    key: planKey, name: planName, answerId: answer.answerId, entry: entryFacts(entry, names),
-    eligible: !sent && (answer.outcome === "not_found" || answer.outcome === "uncertain"),
-  }] : []);
+  return line.readings.map(reading => {
+    const { planKey, planName, answer, sent, unit } = reading;
+    // The coverage reader classifies queued and running units as in_flight even with a published answer.
+    const reason = sent ? "Plan déjà envoyé au devis" : unit === "queued" || unit === "running" ? "Lecture en cours"
+      : !answer ? "Aucune réponse sur ce plan" : answer.outcome === "measured" ? "Poste déjà mesuré" : null;
+    const entry = line.entry?.planKey === planKey ? line.entry : reading.entry;
+    return { key: planKey, name: planName, answerId: answer?.answerId ?? null, entry: entryFacts(entry, names),
+      eligible: !reason, ...(reason && { reason }) };
+  });
 }
 
 export function canChooseEntryScope(line: ItemTableLine) {

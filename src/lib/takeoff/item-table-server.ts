@@ -226,7 +226,7 @@ async function markedQuantities(access: AffaireAccess, revisions: ReadonlyMap<st
   const client = access.context.supabase as unknown as Client;
   const marks = new Map<string, NonNullable<ItemReadingInput["verifiedMarks"]>>();
   const decisions = new Map<string, NonNullable<ItemReadingInput["quantityDecision"]>>();
-  const whole = new Map<string, NonNullable<ItemTableRow["wholeEntry"]>>();
+  const whole = new Map<string, ItemEntryView>();
   const marked = [...revisions].filter(([, revision]) => revision > 0).map(([answerId]) => answerId);
   // A PostgREST IN filter carries these UUIDs in the URL.
   const batchSize = 100;
@@ -250,10 +250,10 @@ async function markedQuantities(access: AffaireAccess, revisions: ReadonlyMap<st
   }
   // A filtered row contains the plan entry. Read whole totals for the page together so a member can correct one from that view.
   const items = scopedItemIds ?? [...new Set(marked.flatMap(id => answers.get(id)?.itemId ?? []))];
-  const totals = await selectInChunks(items, ids => client.from("takeoff_item_entries").select("item_id,quantity,unit,included")
+  const totals = await selectInChunks(items, ids => client.from("takeoff_item_entries").select("item_id,quantity,unit,included,category,revision,note,actor_id,entered_at")
     .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).is("plan_logical_id", null).in("item_id", ids));
   if (totals.error) readFailure(totals.error);
-  for (const row of totals.data) whole.set(row.item_id, { quantity: row.quantity, unit: row.unit, included: row.included });
+  for (const row of totals.data) whole.set(row.item_id, entryOf(row)!);
   return { marks, decisions, whole };
 }
 
@@ -284,7 +284,7 @@ function laterAttempt(reading: Record<string, unknown>, answerJobId: string | nu
 }
 
 /** The rows of the database as the model reads them, with each answer's anomalies. */
-async function tableRows(access: AffaireAccess, rows: readonly TableRow[], scope: ItemTableScope): Promise<ItemTableRow[]> {
+async function tableRows(access: AffaireAccess, rows: readonly TableRow[], scope: ItemTableScope): Promise<Array<ItemTableRow & { wholeEntryFacts?: ItemEntryView }>> {
   const client = access.context.supabase as unknown as Client;
   const answers = new Map<string, TakeoffItemAnswer>();
   for (const row of rows) {
@@ -312,7 +312,8 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[], scope
       ids: uncertainPlanFiles }),
   ]);
   const sources = await markedQuantities(access, marksRevisions, answers, scope.kind === "plan" ? rows.map(row => row.item_id) : null);
-  return rows.map((row): ItemTableRow => {
+  return rows.map((row): ItemTableRow & { wholeEntryFacts?: ItemEntryView } => {
+    const total = sources.whole.get(row.item_id);
     if (!isState(row.state) || !isDecision(row.decision)) throw new TypeError("Poste illisible.");
     const readings = rawReadings(row).map((reading): ItemReadingInput => {
       const answer = reading.answer ? answers.get(String(asRecord(reading.answer)?.answer_id)) ?? null : null;
@@ -355,7 +356,7 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[], scope
       decision: row.decision,
       readings,
       entry: entryOf(row.entry),
-      ...(sources.whole.has(row.item_id) ? { wholeEntry: sources.whole.get(row.item_id) } : {}),
+      ...(total && { wholeEntryFacts: total, wholeEntry: { quantity: total.quantity, unit: total.unit, included: total.included } }),
     };
   });
 }
@@ -424,11 +425,11 @@ async function reviewerRight(access: AffaireAccess) {
   return data === true;
 }
 
-async function memberNames(client: Client, lines: readonly ItemTableLine[]) {
-  const people = [...new Set(lines.flatMap((line) => [
+async function memberNames(client: Client, lines: readonly ItemTableLine[], extraAuthors: string[] = []) {
+  const people = [...new Set([...extraAuthors, ...lines.flatMap((line) => [
     ...(line.entry ? [line.entry.actorId] : []),
     ...line.readings.flatMap(({ decision, entry }) => [...(decision ? [decision.actorId] : []), ...(entry ? [entry.actorId] : [])]),
-  ]))].filter(Boolean);
+  ])])].filter(Boolean);
   const names: Record<string, string> = {};
   if (!people.length) return names;
   const { data, error } = await client.from("profiles").select("id, full_name").in("id", people);
@@ -510,12 +511,14 @@ export async function freezeAffaireItemSelection(projectId: string, input: {
     // The count SQL gives, never the rows returned: a page of the Data API holds 1 000 rows at most, so 1 001 items
     // matching would arrive as 1 000. Above the bound the selection is refused before anything is built.
     if (Math.max(rows.length, rows[0]?.matching_items ?? 0) > ITEM_REVIEW_LIMITS.items) throw new RangeError(ITEM_SELECTION_TOO_LARGE);
-    const lines = buildItemLines(await tableRows(access, rows, input.scope), { plans: [], scope: input.scope });
+    const scopedRows = await tableRows(access, rows, input.scope);
+    const lines = buildItemLines(scopedRows, { plans: [], scope: input.scope });
     const frozen = freezeItemSelection(lines, input.selection.kind === "items" ? input.selection.itemIds : null);
     if (!input.entryPlans) return frozen;
-    const names = await memberNames(access.context.supabase as unknown as Client, lines);
+    const totals = new Map(scopedRows.map(row => [row.item.id, input.scope.kind === "plan" ? row.wholeEntryFacts ?? null : row.entry]));
+    const names = await memberNames(access.context.supabase as unknown as Client, lines, [...totals.values()].flatMap(entry => entry ? [entry.actorId] : []));
     return { ...frozen, items: frozen.items.map((item, index) => ({
-      ...item, entryPlans: entryPlans(lines[index], names), wholeEntry: entryFacts(lines[index].entry, names),
+      ...item, entryPlans: entryPlans(lines[index], names), wholeEntry: entryFacts(totals.get(item.itemId) ?? null, names),
     })) };
   } catch (error) {
     if (error instanceof RangeError) throw unprocessableEntity(error.message, undefined, "TAKEOFF_ITEM_SELECTION_TOO_LARGE");

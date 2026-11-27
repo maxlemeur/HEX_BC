@@ -259,7 +259,7 @@ export const itemSelectionResponseSchema = z.object({
     itemId: uuid,
     label: z.string(),
     target: itemReviewTargetSchema,
-    entryPlans: z.array(z.object({ key: planKey, name: z.string(), answerId: uuid, eligible: z.boolean(), entry: entryFacts.nullable() })).optional(),
+    entryPlans: z.array(z.object({ key: planKey, name: z.string(), answerId: uuid.nullable(), eligible: z.boolean(), reason: z.string().optional(), entry: entryFacts.nullable() })).optional(),
     wholeEntry: entryFacts.nullable().optional(),
     eligible: z.array(z.enum(ITEM_REVIEW_GESTURES)).describe("Gestes qui s’appliquent à ce poste, décidés de nouveau à la commande."),
   }).strict()),

@@ -55,6 +55,7 @@ const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
 const reads: string[] = [];
 let tableRows: Array<Record<string, unknown>> = [];
 let takeoffRows: Array<Record<string, unknown>> = [];
+let wholeEntries: Array<Record<string, unknown>> = [];
 let events: Array<Record<string, unknown>> = [];
 let jobRows: Array<Record<string, unknown>> = [];
 let visiblePlanFiles: string[] | null = null;
@@ -71,7 +72,7 @@ function memberClient() {
       : table === "takeoff_list_revisions" ? [{ id: "44444444-4444-4444-8444-444444444444", revision: 2, item_count: 2 }]
         : table === "takeoff_item_review_events" ? events
           : table === "takeoff_jobs" ? jobRows
-          : table === "takeoff_item_entries" || table === "takeoff_item_answer_decisions" ? []
+          : table === "takeoff_item_entries" ? wholeEntries : table === "takeoff_item_answer_decisions" ? []
           : table === "takeoff_count_answer_states" ? marksStates
           : table === "profiles" ? [{ id: MEMBER, full_name: " Léa Martin " }] : (() => { throw new Error(`Unexpected read of ${table}.`); })();
     const builder: Record<string, unknown> = {};
@@ -128,6 +129,7 @@ beforeEach(() => {
   calls.length = 0;
   reads.length = 0;
   ranges.length = 0;
+  wholeEntries = [];
   events = [];
   jobRows = [];
   visiblePlanFiles = null;
@@ -235,6 +237,35 @@ describe("one item on its own", () => {
 });
 
 describe("freezeAffaireItemSelection", () => {
+  it("keeps plan and whole entry facts distinct and preserves the 0.9.0 response bytes", async () => {
+    const row = tableRow(1);
+    const entry = { item_id: row.item_id, plan_logical_id: PLAN, quantity: 2, unit: "u", category: "site_survey",
+      note: "Deux sur le plan", actor_id: MEMBER, entered_at: "2026-11-22T09:00:00Z", revision: 3, included: true };
+    tableRows = [{ ...row, state: "not_found", entry, readings: [{ ...row.readings[0], entry }] }];
+    const request = { scope: query.scope, selection: { kind: "items" as const, itemIds: [row.item_id] } };
+    const legacy = await freezeAffaireItemSelection(PROJECT, request);
+    expect(JSON.stringify(legacy)).toEqual(JSON.stringify({ count: 1, items: [{ itemId: row.item_id, label: row.label,
+      target: { itemId: row.item_id, entryRevision: 3, answers: [{ answerId: answer(1, "not_found").answer_id,
+        answerRevision: "a".repeat(64), decisionRevision: 0, entryRevision: 0, marksRevision: 0 }] },
+      eligible: ["set_aside", "enter_quantity", "remeasure"] }],
+      eligible: { accept_measured: 0, set_aside: 1, reinstate: 0, enter_quantity: 1, include_entry: 0, remeasure: 1 }, missing: [] }));
+    const facts = async () => (await freezeAffaireItemSelection(PROJECT, { ...request, entryPlans: true })).items[0];
+    expect(await facts()).toMatchObject({ wholeEntry: null, entryPlans: [{ key: PLAN, entry: { quantity: 2, author: "Léa Martin" } }] });
+    wholeEntries = [{ ...entry, plan_logical_id: null, quantity: 7, note: "Total chantier", revision: 9 }];
+    expect(await facts()).toMatchObject({ wholeEntry: { quantity: 7, note: "Total chantier", revision: 9, author: "Léa Martin" },
+      entryPlans: [{ entry: { quantity: 2, revision: 3 } }] });
+  });
+
+  it("excludes an in-flight remeasure despite its earlier answer and explains the missing destination", async () => {
+    const row = tableRow(1);
+    const old = { ...row.readings[0].answer, outcome: "uncertain", reason_code: "QUALIFIER_UNREADABLE" };
+    tableRows = [{ ...row, state: "reading", answered: 0, in_flight: 1, readings: [{ ...row.readings[0],
+      answer: old, reading: "in_flight", unit_state: "running", job_id: itemId(82) }] }];
+    const result = await freezeAffaireItemSelection(PROJECT, { scope: { kind: "affaire" },
+      selection: { kind: "items", itemIds: [row.item_id] }, entryPlans: true });
+    expect(result.items[0].entryPlans).toMatchObject([{ name: "Plan RDC", eligible: false, reason: "Lecture en cours" }]);
+  });
+
   it("refuses a selection above its bound, never cuts it", async () => {
     tableRows = Array.from({ length: ITEM_REVIEW_LIMITS.items + 1 }, (_, index) => tableRow(index));
     await expect(freezeAffaireItemSelection(PROJECT, { scope: { kind: "affaire" }, selection: { kind: "filter", filter: {} } }))

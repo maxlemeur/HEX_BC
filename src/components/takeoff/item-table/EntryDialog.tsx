@@ -146,6 +146,7 @@ export function EntryDialog({ projectId, viewScope, values, onClose, onRefused, 
                 </NativeSelect>
                 {!row.eligible.length && !row.item.wholeEligible && <FieldDescription>Aucune portée admissible pour ce poste.</FieldDescription>}
               </Field>}
+              {row?.item.plans.filter(p => !p.eligible).map(p => <p key={p.key}>{p.name} · {p.reason ?? "Plan non admissible"}</p>)}
               {existing && <p>La saisie en place sera remplacée, avec sa catégorie et sa note : {formatEntryQuantity(existing.quantity, existing.unit)} · {QUANTITY_ENTRY_CATEGORIES[existing.category]} · {existing.author}, le {date.format(new Date(existing.at))}{existing.note && ` · ${existing.note}`}</p>}
               {row?.destination && row.key !== "affaire" && row.item.wholeEntry && <p>Le total de l’affaire garde la priorité. Ce poste ne part avec aucun plan tant que ce total n’est pas rattaché à un plan ou retiré.</p>}
             </li>;

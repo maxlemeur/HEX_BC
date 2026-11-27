@@ -20,7 +20,7 @@ const messages = {
 };
 const date = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Paris" });
 type Entry = NonNullable<ItemTableResponseLine["entry"]>;
-type Snapshot = { action: keyof typeof titles; source: Entry; plans: Array<{ key: string; name: string; revision: number }> };
+type Snapshot = { action: keyof typeof titles; source: Entry; plans: Array<{ key: string; name: string; revision: number; unavailable: string | null }> };
 
 export function EntryScopeActions({ projectId, viewerKey, line, filtered, version, onRefused, onRefresh }: {
   projectId: string; viewerKey: string; line: ItemTableResponseLine; filtered: boolean; version: number;
@@ -34,9 +34,9 @@ export function EntryScopeActions({ projectId, viewerKey, line, filtered, versio
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const begin = (action: Snapshot["action"]) => {
     if (full?.entry?.scope !== "affaire") return;
-    setSnapshot({ action, source: full.entry, plans: full.readings.flatMap(r =>
-      r.answer?.outcome === "not_found" || r.answer?.outcome === "uncertain" ?
-        [{ key: r.planKey, name: r.planName, revision: r.entry?.revision ?? 0 }] : []) });
+    setSnapshot({ action, source: full.entry, plans: full.readings.map(r => ({ key: r.planKey, name: r.planName, revision: r.entry?.revision ?? 0,
+      unavailable: r.unit === "running" || r.unit === "queued" ? "Lecture en cours" : !r.answer ? "Aucune réponse sur ce plan"
+        : r.answer.outcome === "measured" ? "Poste déjà mesuré" : null })) });
   };
   if (read.error) return <p role="alert">Impossible de relire la saisie de l’affaire.</p>;
   return <>
@@ -61,7 +61,8 @@ function ScopeDialog({ snapshot, projectId, onRefused, close }: {
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
   const cancel = useRef<HTMLButtonElement>(null);
-  const plan = plans.find(p => p.key === key);
+  const eligible = plans.filter(p => !p.unavailable);
+  const plan = eligible.find(p => p.key === key);
   const collision = result?.outcome === "collision" ? result.entry : null;
   useEffect(() => { if (collision) cancel.current?.focus(); }, [collision]);
   const refused = result && result.outcome in messages ? messages[result.outcome as keyof typeof messages] : null;
@@ -100,9 +101,10 @@ function ScopeDialog({ snapshot, projectId, onRefused, close }: {
         <NativeSelect id={field} value={key} disabled={busy || !!collision || !!refused || !!error}
           onChange={e => { setKey(e.target.value); setIntent(crypto.randomUUID()); setError(""); }}>
           <option value="">Choisir un plan…</option>
-          {plans.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
+          {eligible.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
         </NativeSelect>
-        {!plans.length && <p>Aucun plan avec une lecture incertaine ou non trouvée pour ce poste.</p>}
+        {plans.filter(p => p.unavailable).map(p => <p key={p.key}>{p.name} · {p.unavailable}</p>)}
+        {!eligible.length && <p>Aucun plan avec une lecture incertaine ou non trouvée pour ce poste.</p>}
       </Field>}
       {action === "withdraw" && <p>Le poste retrouvera la quantité issue de ses lectures.</p>}
       {collision && <div role="status">
