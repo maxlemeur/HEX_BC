@@ -56807,7 +56807,7 @@
                     "additionalProperties": false
                   }
                 ],
-                "description": "Ce que la demande lira et réservera (appels payants, budget en jetons), calculé comme son admission le calcule ; ou le motif qui l’en empêche."
+                "description": "Ce que la demande lira et réservera (appels payants, budget en jetons), calculé comme son admission le calcule ; ou le motif qui l’en empêche. Avec une clé API personnelle, `budgetTokens` est une estimation qui ne borne rien : la seule borne de la demande est son plafond en dollars (`payment.maxCostCents`)."
               },
               "running": {
                 "type": "boolean",

@@ -355,7 +355,8 @@ export const itemRemeasurePreviewSchema = z.object({
     z.object({ state: z.literal("ready"), summary: z.string(), calls: count, budgetTokens: count }).strict(),
     z.object({ state: z.literal("refused"), reason: z.string() }).strict(),
   ]).describe("Ce que la demande lira et réservera (appels payants, budget en jetons), calculé comme son admission le calcule ; "
-    + "ou le motif qui l’en empêche."),
+    + "ou le motif qui l’en empêche. Avec une clé API personnelle, `budgetTokens` est une estimation qui ne borne rien : "
+    + "la seule borne de la demande est son plafond en dollars (`payment.maxCostCents`)."),
   running: z.boolean().describe("Une demande de l’affaire est en cours : la confirmation garde la sélection prête."),
   previewDigest: z.string().regex(/^[0-9a-f]{64}$/),
   skipped: z.array(z.object({ itemId: uuid, label: z.string(), reason: z.enum(ITEM_INELIGIBILITIES) }).strict())

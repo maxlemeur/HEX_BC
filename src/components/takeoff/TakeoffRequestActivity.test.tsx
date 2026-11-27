@@ -165,6 +165,23 @@ describe("TakeoffRequestActivity", () => {
       paymentChoice: { source: "personal_api_key", expectedConnectionId: FIXTURE_KEY_CONNECTION, expectedMaxCostCents: 2500, model: "gpt-6.2-sol", effort: "high" } }));
   });
 
+  // The reason of a request whose plan is not connected tells the member to resume with it. Beside a gesture that reads
+  // « Reprendre avec ma clé API » it names no plan; with the plan it reads as before.
+  it.each([
+    ["the key", "personal_api_key", "Reprendre avec ma clé API", "Métré non démarré — forfait ChatGPT non connecté. Reprenez la demande avec la source IA choisie."],
+    ["the plan", "chatgpt_plan", "Reprendre avec mon forfait", "Métré non démarré — forfait ChatGPT non connecté. Connectez-le dans Mon profil, puis reprenez avec votre forfait."],
+  ] as const)("words the reason of a disconnected plan for a member who resumes with %s", async (_label, source, button, message) => {
+    readPayment.mockResolvedValue(fixtureTakeoffPaymentOptions(source));
+    const request = fixtureRequest(null, [], {
+      reason: { code: "CHATGPT_NOT_CONNECTED", message: "Métré non démarré — forfait ChatGPT non connecté. Connectez-le dans Mon profil, puis reprenez avec votre forfait." },
+      action: { kind: "resume", label: "Reprendre avec mon forfait", mandateRevision: 7 } });
+    renderActivity(fixtureActivityResponse(request, { live: false }));
+    expect(await screen.findByLabelText("Source IA")).toHaveValue(source);
+    expect(await screen.findByRole("button", { name: button })).toBeVisible();
+    expect(await screen.findByText(message)).toBeVisible();
+    expect(screen.queryAllByText(/Métré non démarré/)).toHaveLength(1);
+  });
+
   it("names the plans added since the analysis, which nothing reads by itself", () => {
     const closed = fixtureRequest([fixtureUnit("a", 1, { state: "succeeded", reviewable: true })], [fixtureActivityJob("a", { itemCount: 1 })], {
       state: "closed", outcome: "success", closedAt: "2026-11-21T09:10:00.000Z",

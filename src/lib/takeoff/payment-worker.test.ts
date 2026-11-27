@@ -7,6 +7,7 @@ import type { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import { resolveTakeoffApiProvider } from "@/lib/takeoff/payment-worker";
 import { LocalGroupsRequestError, LocalGroupsStop } from "@/lib/takeoff/vectors/group-local-model";
+import { TAKEOFF_KEY_STOP_MESSAGES } from "@/lib/takeoff/visible-status";
 
 const mandate = {
   connectionId: "d5130000-0000-4000-8000-000000000001", connectionVersion: 1,
@@ -159,4 +160,139 @@ it.each(["invalid schema", "truncated output"])("settles a vector group with %s 
   expect(settlements).toEqual(Array.from({ length: 2 }, () => ["settle_takeoff_api_call", expect.objectContaining({
     p_call_id: "vector-call", p_lease_token: "lease", p_cost: 90, p_tokens: 110,
   })]));
+});
+
+// Owner decision of 2026-11-27: a request paid by a personal key has no token ceiling. Its dollar ceiling is its only bound.
+it("bounds a call by the dollars the request has left, never by tokens, and records the tokens it used", async () => {
+  const reservations: Array<{ p_bound?: number; p_tokens?: number; p_exhausted?: boolean }> = [];
+  const rpc = vi.fn(async (operation: string, args: { p_bound?: number; p_tokens?: number; p_exhausted?: boolean }) => {
+    if (operation === "settle_takeoff_api_call") return { data: true };
+    reservations.push({ p_bound: args.p_bound, p_tokens: args.p_tokens, p_exhausted: args.p_exhausted });
+    // The ledger of a mandate without a token ceiling reports none; one sealed with the former ceiling reports a number.
+    return { data: [{ remaining_nano_usd: 10_000, remaining_tokens: reservations.length % 2 ? null : 1, call_id: args.p_bound ? "call-id" : null }] };
+  });
+  const prepare = vi.fn(async (_owner: unknown, input: Record<string, unknown>) => {
+    expect(input).not.toHaveProperty("maxTotalTokens");
+    return { boundNanoUsd: 5_000, inputTokens: 1_000, maxOutputTokens: 4_000 };
+  });
+  // The provider counts more tokens than the call's own estimate, within the dollars it reserved: the request goes on.
+  const execute = vi.fn(async (_owner: unknown, _prepared: unknown, { reserveBeforeSend }: { reserveBeforeSend(): Promise<void> }) => {
+    await reserveBeforeSend();
+    return { data: { accepted: true }, model: mandate.model, durationMs: 1, costNanoUsd: 4_900,
+      usage: { total: 9_000, input: 8_000, output: 1_000, reasoning: 0 } };
+  });
+  const provider = await resolveTakeoffApiProvider(job, () => "lease",
+    { rpc } as unknown as ReturnType<typeof createServiceRoleClient>,
+    { prepare, execute } as unknown as ReturnType<typeof openAiApiKeyAccess>);
+  const input = { prompt: "Lis le PDF", schema: z.object({ accepted: z.boolean() }) };
+  await expect(provider.call(input)).resolves.toMatchObject({ data: { accepted: true }, tokenCount: 9_000 });
+  await expect(provider.call(input)).resolves.toMatchObject({ data: { accepted: true } });
+  expect(prepare.mock.calls.map(([, sent]) => sent.allotmentNanoUsd)).toEqual([10_000, 10_000]);
+  // Each call reserves its dollar bound; its token estimate is recorded with it.
+  expect(reservations.filter(({ p_bound }) => p_bound)).toEqual(Array(2).fill({ p_bound: 5_000, p_tokens: 5_000, p_exhausted: false }));
+  expect(rpc).toHaveBeenCalledWith("settle_takeoff_api_call", expect.objectContaining({ p_cost: 4_900, p_tokens: 9_000 }));
+});
+
+it("stops at the dollar ceiling with its message, and sends nothing after the refusal", async () => {
+  let remaining = 10_000;
+  const reservations: Array<{ p_bound?: number; p_tokens?: number; p_exhausted?: boolean }> = [];
+  const rpc = vi.fn(async (operation: string, args: { p_bound?: number; p_tokens?: number; p_exhausted?: boolean }) => {
+    if (operation === "settle_takeoff_api_call") {
+      remaining = 10_000 - 6_000;
+      return { data: true };
+    }
+    reservations.push({ p_bound: args.p_bound, p_tokens: args.p_tokens, p_exhausted: args.p_exhausted });
+    if (args.p_exhausted) return { data: [{ reason: "BUDGET_EXHAUSTED", remaining_nano_usd: remaining, remaining_tokens: null, call_id: null }] };
+    return { data: [{ remaining_nano_usd: remaining, remaining_tokens: null, call_id: args.p_bound ? "call-id" : null }] };
+  });
+  // The second call's input alone costs more than the 4,000 nano-dollars left.
+  const prepare = vi.fn(async (_owner: unknown, input: { allotmentNanoUsd: number }) => {
+    if (input.allotmentNanoUsd < 5_000) throw new ApiKeyError("AI_KEY_CEILING");
+    return { boundNanoUsd: 7_000, inputTokens: 1_000, maxOutputTokens: 4_000 };
+  });
+  const execute = vi.fn(async (_owner: unknown, _prepared: unknown, { reserveBeforeSend }: { reserveBeforeSend(): Promise<void> }) => {
+    await reserveBeforeSend();
+    return { data: { accepted: true }, model: mandate.model, durationMs: 1, costNanoUsd: 6_000,
+      usage: { total: 1_200, input: 1_000, output: 200, reasoning: 0 } };
+  });
+  const provider = await resolveTakeoffApiProvider(job, () => "lease",
+    { rpc } as unknown as ReturnType<typeof createServiceRoleClient>,
+    { prepare, execute } as unknown as ReturnType<typeof openAiApiKeyAccess>);
+  const input = { prompt: "Lis le PDF", schema: z.object({ accepted: z.boolean() }) };
+  await expect(provider.call(input)).resolves.toMatchObject({ data: { accepted: true } });
+  const refused = { code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", retryable: false, message: TAKEOFF_KEY_STOP_MESSAGES.dollarCeiling };
+  expect(refused.message).toContain("Le plafond en dollars de cette demande avec la clé API OpenAI est atteint.");
+  // The paid call names its connection and asks for it to be read again before the count.
+  expect(prepare).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ expectedConnectionId: mandate.connectionId, recheckConnection: true }));
+  await expect(provider.call(input)).rejects.toMatchObject(refused);
+  // The ledger is told what the preparation saw in dollars: no token number takes part in its decision.
+  expect(reservations.at(-1)).toEqual({ p_bound: 4_000, p_tokens: undefined, p_exhausted: true });
+  const [ledgerCalls, counted] = [rpc.mock.calls.length, prepare.mock.calls.length];
+  await expect(provider.call(input)).rejects.toMatchObject(refused);
+  await expect(provider.callApiVectorGroup!(input)).rejects.toMatchObject(refused);
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(rpc).toHaveBeenCalledTimes(ledgerCalls);
+  expect(prepare).toHaveBeenCalledTimes(counted);
+});
+
+it("stops the request when a call costs more than the dollars it reserved", async () => {
+  const rpc = vi.fn(async (operation: string, args: { p_bound?: number }) => operation === "settle_takeoff_api_call" ? { data: true }
+    : { data: [{ remaining_nano_usd: 10_000, remaining_tokens: null, call_id: args.p_bound ? "call-id" : null }] });
+  const access = { prepare: async () => ({ boundNanoUsd: 5_000, inputTokens: 1_000, maxOutputTokens: 4_000 }),
+    execute: vi.fn(async (_owner: unknown, _prepared: unknown, { reserveBeforeSend }: { reserveBeforeSend(): Promise<void> }) => {
+      await reserveBeforeSend();
+      return { data: { accepted: true }, model: mandate.model, durationMs: 1, costNanoUsd: 5_001,
+        usage: { total: 1_200, input: 1_000, output: 200, reasoning: 0 } };
+    }) };
+  const provider = await resolveTakeoffApiProvider(job, () => "lease",
+    { rpc } as unknown as ReturnType<typeof createServiceRoleClient>, access as unknown as ReturnType<typeof openAiApiKeyAccess>);
+  const input = { prompt: "Lis le PDF", schema: z.object({ accepted: z.boolean() }) };
+  // The dollars are not spent (10,000 left): the member reads that one call cost more than it reserved.
+  const refused = { code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", retryable: false, message: TAKEOFF_KEY_STOP_MESSAGES.callOverBound };
+  await expect(provider.call(input)).rejects.toMatchObject(refused);
+  expect(rpc).toHaveBeenCalledWith("settle_takeoff_api_call", expect.objectContaining({ p_cost: 5_001, p_tokens: 1_200 }));
+  await expect(provider.call(input)).rejects.toMatchObject(refused);
+  expect(access.execute).toHaveBeenCalledTimes(1);
+});
+
+// The ledger names what stopped the request. Each reason has its own text, and none is the dollar ceiling's.
+it.each([
+  ["the confirmed calls of the lane are all reserved", "CALLS_EXHAUSTED", TAKEOFF_KEY_STOP_MESSAGES.confirmedCalls, "appels payants confirmés"],
+  ["an earlier call of the request cost more than it reserved", "CALL_OVER_BOUND", TAKEOFF_KEY_STOP_MESSAGES.callOverBound, "plus que le montant réservé"],
+] as const)("says why the request stopped when %s", async (_case, reason, message, words) => {
+  const rpc = vi.fn(async () => ({ data: [{ reason, remaining_nano_usd: 0, remaining_tokens: 0, call_id: null }] }));
+  const access = { prepare: vi.fn(), execute: vi.fn() };
+  const provider = await resolveTakeoffApiProvider(job, () => "lease",
+    { rpc } as unknown as ReturnType<typeof createServiceRoleClient>, access as unknown as ReturnType<typeof openAiApiKeyAccess>);
+  const input = { prompt: "Lis le PDF", schema: z.object({ accepted: z.boolean() }) };
+  expect(message).toContain(words);
+  expect(message).not.toContain("plafond en dollars");
+  await expect(provider.call(input)).rejects.toMatchObject({ code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", retryable: false, message });
+  // Refused before anything is counted or sent, and the stop holds for the calls that follow without asking again.
+  await expect(provider.callApiVectorGroup!(input)).rejects.toMatchObject({ message });
+  expect(rpc).toHaveBeenCalledTimes(1);
+  expect(access.prepare).not.toHaveBeenCalled();
+  expect(access.execute).not.toHaveBeenCalled();
+});
+
+// A ledger older than the dollar-only rule still refuses on a mandate's token number and asks for a new preparation. With
+// the dollars the call asked for still available, preparing again cannot change the answer: the request stops, nothing sent.
+it("stops instead of preparing again when the ledger refuses a bound the dollars left can hold", async () => {
+  const rpc = vi.fn(async (_operation: string, args: { p_bound?: number }) => args.p_bound
+    ? { data: [{ reason: "REPREPARE", remaining_nano_usd: 10_000, remaining_tokens: 1, call_id: null }] }
+    : { data: [{ remaining_nano_usd: 10_000, remaining_tokens: 1, call_id: null }] });
+  const prepare = vi.fn(async () => ({ boundNanoUsd: 5_000, inputTokens: 1_000, maxOutputTokens: 4_000 }));
+  const sent = vi.fn();
+  const execute = vi.fn(async (_owner: unknown, _prepared: unknown, { reserveBeforeSend }: { reserveBeforeSend(): Promise<void> }) => {
+    await reserveBeforeSend();
+    sent();
+    return { data: { accepted: true }, model: mandate.model, durationMs: 1, costNanoUsd: 1, usage: { total: 1, input: 1, output: 0, reasoning: 0 } };
+  });
+  const provider = await resolveTakeoffApiProvider(job, () => "lease",
+    { rpc } as unknown as ReturnType<typeof createServiceRoleClient>,
+    { prepare, execute } as unknown as ReturnType<typeof openAiApiKeyAccess>);
+  await expect(provider.call({ prompt: "Lis le PDF", schema: z.object({ accepted: z.boolean() }) })).rejects.toMatchObject({
+    code: "TAKEOFF_USAGE_UNRECORDED", message: expect.stringContaining("Aucun autre appel ne sera envoyé") });
+  expect(prepare).toHaveBeenCalledTimes(1);
+  expect(sent).not.toHaveBeenCalled();
 });

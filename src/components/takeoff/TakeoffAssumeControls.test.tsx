@@ -66,16 +66,28 @@ describe("a member whose profile pays with the ChatGPT plan", () => {
     expect(screen.queryByRole("button", { name: "Recharger les réglages" })).toBeNull();
   });
 
-  it("sends the key once the options say the profile now pays with it", async () => {
+  it("sends the key once the options say the profile now pays with it, and says the default source changed", async () => {
     readPayment.mockResolvedValue(fixtureTakeoffPaymentOptions("personal_api_key"));
     renderControls("chatgpt_plan");
-    fireEvent.click(await screen.findByRole("button", { name: "Prendre en charge avec ma clé API" }));
+    expect(withPlan()).toBeEnabled();
+    expect(screen.queryByText(/Votre source par défaut a changé/)).toBeNull();
+    const withKey = await screen.findByRole("button", { name: "Prendre en charge avec ma clé API" });
+    // The gesture's label just changed under the member: one line says why.
+    expect(screen.getByText("Votre source par défaut a changé : c’est maintenant votre clé API OpenAI.")).toHaveAttribute("role", "status");
+    fireEvent.click(withKey);
     await waitFor(() => expect(assume).toHaveBeenCalledWith({ ...AS_ON_MAIN, paymentChoice: { source: "personal_api_key",
       model: "gpt-6.1-sol", effort: "medium", expectedConnectionId: FIXTURE_KEY_CONNECTION, expectedMaxCostCents: 2500 } }));
   });
 });
 
 describe("a member whose profile does not pay with the ChatGPT plan", () => {
+  it("says nothing about the default source when the options name the payer the page rendered with", async () => {
+    readPayment.mockResolvedValue(fixtureTakeoffPaymentOptions("personal_api_key"));
+    renderControls("personal_api_key");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Prendre en charge avec ma clé API" })).toBeEnabled());
+    expect(screen.queryByText(/Votre source par défaut a changé/)).toBeNull();
+  });
+
   it("waits for the key's options", () => {
     readPayment.mockImplementation(pending);
     renderControls("personal_api_key");
@@ -138,6 +150,33 @@ describe("the setting shown for an untouched plan", () => {
     fireEvent.click(withPlan());
     await waitFor(() => expect(assume).toHaveBeenLastCalledWith({ ...AS_ON_MAIN, paymentChoice: { source: "chatgpt_plan",
       model: "modele-forfait", effort: "high", expectedConnectionId: FIXTURE_PLAN_CONNECTION } }));
+  });
+
+  // The profile's model is no longer in the catalogue the server holds: a request without a choice still pins it. The
+  // selector shows that model and says so, never the catalogue's default.
+  it("is the profile's own model even when the catalogue no longer lists it, and says so", async () => {
+    const shown = options();
+    if (!shown.ok) throw new Error("fixture");
+    shown.data.planSetting = { model: "modele-retire", reasoningEffort: "medium" };
+    readPayment.mockResolvedValue(shown);
+    renderControls("chatgpt_plan");
+    const model = await screen.findByLabelText("Modèle");
+    expect(model).toHaveValue("modele-retire");
+    expect(screen.getByRole("option", { name: "modele-retire (absent du catalogue)" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Effort de raisonnement")).toHaveValue("medium");
+    expect(screen.getByText("Le modèle de Mon profil (modele-retire) n’est plus dans le catalogue de votre forfait ChatGPT. "
+      + "La demande l’utilise tel quel tant que vous n’en choisissez pas un autre.")).toHaveAttribute("role", "status");
+    expect(reloadButton()).toBeEnabled();
+    fireEvent.click(withPlan());
+    await waitFor(() => expect(assume).toHaveBeenCalledWith(AS_ON_MAIN));
+
+    // A model of the catalogue chosen instead is an explicit choice: the absent model is offered no more.
+    fireEvent.change(model, { target: { value: "modele-forfait" } });
+    expect(screen.queryByRole("option", { name: /absent du catalogue/ })).toBeNull();
+    expect(screen.queryByText(/n’est plus dans le catalogue/)).toBeNull();
+    fireEvent.click(withPlan());
+    await waitFor(() => expect(assume).toHaveBeenLastCalledWith({ ...AS_ON_MAIN, paymentChoice: expect.objectContaining({
+      source: "chatgpt_plan", model: "modele-forfait", expectedConnectionId: FIXTURE_PLAN_CONNECTION }) }));
   });
 
   it("is the validated one when the server asked for an explicit choice: it is what the choice carries", async () => {

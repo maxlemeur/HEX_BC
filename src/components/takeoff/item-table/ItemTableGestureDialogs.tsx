@@ -2,7 +2,9 @@
 
 import { useId, useState, type KeyboardEvent } from "react";
 
+import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
 import { CHATGPT_REASONING_EFFORT_LABELS } from "@/lib/ai/chatgpt-model-preferences";
+import { TAKEOFF_NANO_USD_PER_CENT } from "@/lib/takeoff/payment-choice";
 import { TakeoffPaymentFields } from "../TakeoffPaymentFields";
 import type { TakeoffPaymentSettings } from "../useTakeoffPaymentSettings";
 import { ITEM_SET_ASIDE_REASONS, type ItemSetAsideReason } from "@/lib/takeoff/item-table";
@@ -149,6 +151,8 @@ export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError,
   const ready = preview?.subscription.state === "ready" ? preview.subscription : null;
   const reading = preview?.reading.state === "ready" ? preview.reading : null;
   const viaKey = payment.value.source === "personal_api_key";
+  // The ceiling the server planned the request with, else the one the settings showed.
+  const keyCeilingCents = viaKey ? preview?.payment?.maxCostCents ?? payment.data?.maxCostCents : undefined;
   const canConfirm = Boolean(payment.ready && !paymentStale && ready && reading && preview && !preview.running && preview.items.length > 0 && preview.plans.length > 0 && !busy);
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -189,8 +193,11 @@ export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError,
             </div>
             {reading ? (
               <p data-testid="poste-remeasure-reading">
-                {reading.summary} Budget réservé {viaKey ? "pour cette demande" : "sur votre forfait"} : {formatItemCount(reading.budgetTokens, "jeton", "jetons")} au plus
-                ({formatItemCount(reading.calls, "appel payant", "appels payants")}).
+                {/* A key's request is bounded by its dollar ceiling alone: no token budget is announced for it. */}
+                {reading.summary} {keyCeilingCents ? `Plafond de cette demande : ${formatUsdCeiling(keyCeilingCents * TAKEOFF_NANO_USD_PER_CENT)}`
+                  : viaKey ? "Plafond de cette demande : celui de votre clé API OpenAI"
+                  : `Budget réservé sur votre forfait : ${formatItemCount(reading.budgetTokens, "jeton", "jetons")} au plus`}
+                {" "}({formatItemCount(reading.calls, "appel payant", "appels payants")}).
               </p>
             ) : preview.reading.state === "refused" ? (
               <p className="text-danger" role="alert">{preview.reading.reason}</p>

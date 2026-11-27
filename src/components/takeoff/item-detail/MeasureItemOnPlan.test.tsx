@@ -55,6 +55,9 @@ it("uses the selected key and its frozen preview without also submitting a forfa
   fireEvent.click(screen.getByRole("button", { name: "Mesurer ce poste" }));
   expect(await screen.findByLabelText("Source IA")).toHaveValue("personal_api_key");
   expect(screen.getByText(/Plafond pour cette demande.*25.*US/)).toBeVisible();
+  // With the key the request's bound is its dollar ceiling: no token budget is announced.
+  expect(await screen.findByText("Deux appels maximum. Plafond de cette demande · 25,00 $ US.")).toBeVisible();
+  expect(screen.queryByText(/jetons|Budget réservé/)).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Modèle"), { target: { value: "gpt-6.2-sol" } });
   fireEvent.change(screen.getByLabelText("Effort de raisonnement"), { target: { value: "high" } });
   const button = screen.getByRole("button", { name: "Mesurer avec ma clé API" });

@@ -94,6 +94,8 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
   [viewerTenantId, viewerUserId]);
   const initialData = useMemo(() => ownData(props.initialData), [ownData, props.initialData]);
   const [optionsOpen, setOptionsOpen] = useState(Boolean(props.initialOptionsOpen && canOperate));
+  // The gesture reads « avec ma clé API »: the reason beside it then names no plan to resume with.
+  const [gestureViaKey, setGestureViaKey] = useState(false);
   const zoneOf = useCallback((zoneData: AffaireTakeoffZoneData | null) => buildAffaireTakeoffZone({
     projectId, data: zoneData, dossier: props.dossier, planFileCount: props.planFileCount, canOperate,
   }), [canOperate, projectId, props.dossier, props.planFileCount]);
@@ -142,7 +144,9 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
         <Badge variant={TONE_BADGE[model.tone]}>{model.status}</Badge>
       </div>
       <div aria-live="polite" className="mt-2 space-y-2">
-        {model.message ? <p className="text-sm text-foreground-secondary">{model.message}</p> : null}
+        {model.message ? (
+          <p className="text-sm text-foreground-secondary">{(model.gesture && gestureViaKey ? model.messageWithKey : null) ?? model.message}</p>
+        ) : null}
         {model.pieces.length > 0 ? (
           <ul aria-label="Pièces concernées" className="list-disc space-y-0.5 pl-5 text-sm text-foreground-secondary">
             {model.pieces.map((piece) => <li key={piece.id}>{piece.name}</li>)}
@@ -184,6 +188,7 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
             <TakeoffAssumeControls key={`${model.gesture.requestId}:${model.gesture.revision}`} projectId={projectId}
               requestId={model.gesture.requestId} revision={model.gesture.revision} action={model.gesture.kind}
               label={model.gesture.label} busyLabel="Prise en charge…" size="md" className={ACTION_CLASS} wrapperClassName="max-sm:w-full"
+              onSource={setGestureViaKey}
               onChanged={(result, viaKey) => {
                 if (!result) { void mutate(); return; }
                 const verb = model.gesture?.kind === "resume" ? "Métré repris" : "Métré pris en charge";

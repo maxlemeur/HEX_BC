@@ -5,9 +5,11 @@ import {
   assumeTakeoffLaunchRequestAction, launchPreparedTakeoffFromPlanSetAction, launchPreparedTakeoffFromSourceVersionPlanSetAction,
   readTakeoffPaymentOptionsAction, relaunchTakeoffAction,
 } from "@/app/dashboard/affaires/_actions/takeoff";
+import { confirmTakeoffPreparationAction } from "@/app/dashboard/affaires/_actions/takeoff-preparation";
 import { POST as remeasure } from "@/app/api/affaires/[projectId]/takeoff/items/remeasure/route";
 import { ITEM_REVIEW_COMMAND_VERSION } from "@/lib/takeoff/item-table-contracts";
 import { TAKEOFF_PAYMENT_SETTINGS_CHANGED } from "@/lib/takeoff/payment-choice";
+import { createEmptyTakeoffPreparation } from "@/lib/takeoff/preparation";
 
 const fixture = vi.hoisted(() => {
   const id = (n: number) => `f1000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -32,7 +34,8 @@ const fixture = vi.hoisted(() => {
   const from = vi.fn(() => ({ select: () => ({ eq: () => ({ eq: () => ({ eq: () => request }) }) }) }));
   const context = { tenantId: id(1), userId: id(2), tenantRole: "engineer",
     supabase: { auth: { getClaims: async () => ({ data: { claims: {} } }) } } };
-  return { id, context, rpc, from, state, costCents: 2500, connectionId: id(8), readBriefPlans: vi.fn() };
+  return { id, context, rpc, from, state, costCents: 2500, connectionId: id(8), readBriefPlans: vi.fn(),
+    preparationRecord: vi.fn() };
 });
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -55,6 +58,8 @@ vi.mock("@/lib/takeoff/item-list-seal-server", async (original) => ({
 }));
 vi.mock("@/lib/takeoff/preparation-repository", async (original) => ({
   ...await original<typeof import("./preparation-repository")>(), assertPreparationProjectAccess: vi.fn(),
+  // The affaire's confirmed preparation, deduced from its dossier, as a second confirmation of the same revision reads it.
+  readPreparationRecord: fixture.preparationRecord, readPreparationSourceRows: async () => ({ sources: [], documents: new Map() }),
 }));
 vi.mock("@/lib/takeoff/preparation-server", async (original) => ({
   ...await original<typeof import("./preparation-server")>(),
@@ -113,6 +118,16 @@ const remeasureCommand = () => remeasure(new Request("http://localhost/remeasure
 const assume = (action: "take_on" | "resume") =>
   assumeTakeoffLaunchRequestAction({ projectId, requestId, seenRevision: 7, action, paymentChoice: choice });
 const called = () => fixture.rpc.mock.calls.map(([name]) => name);
+/** A preparation of the dossier already confirmed at revision 3: confirming it again resolves the payment before anything else. */
+function confirmedDossierPreparation() {
+  const preparation = { ...createEmptyTakeoffPreparation(), processing: { level: "C" as const, provider: "chatgpt" as const },
+    provenance: { kind: "dossier" as const, rule_version: 1 as const, converted_from_legacy: false, plan_set_id: planSetId,
+      brief_context: { buildings: [], lots: [], zones: [] } } };
+  return { revision: 3, draft: preparation, confirmed_at: "2026-11-26T10:00:00Z", confirmed_by: fixture.context.userId,
+    confirmed_snapshot: { schema_version: 1, preparation_revision: 3, preparation } };
+}
+const confirmPreparation = () => confirmTakeoffPreparationAction({ projectId, expectedRevision: 3, paymentChoice: choice,
+  expectedExecutionFingerprint: digest });
 
 beforeEach(() => {
   fixture.costCents = 2500;
@@ -120,6 +135,7 @@ beforeEach(() => {
   Object.assign(fixture.state, { payer: true, notice: digest, mandateRevision: 7, allowedAction: "take_on", itemList: "ready" });
   fixture.rpc.mockClear();
   fixture.readBriefPlans.mockReset();
+  fixture.preparationRecord.mockReset().mockResolvedValue(confirmedDossierPreparation());
 });
 
 describe("the amount accepted for a takeoff with a personal key", () => {
@@ -178,6 +194,7 @@ describe("a payment choice sent by a member who may not pay the affaire's takeof
     ["take on", () => assume("take_on")],
     ["resume", () => assume("resume")],
     ["relaunch", () => relaunchTakeoffAction({ ...launch, intentKey: fixture.id(10), predecessorJobId: null })],
+    ["confirmation of the preparation", confirmPreparation],
   ] as const)("is refused at %s, with no mandate", async (_label, gesture) => {
     fixture.state.payer = false;
     expect(await gesture()).toMatchObject({ ok: false, error: forbidden });
@@ -218,7 +235,8 @@ describe("a gesture with a personal key refused after its settings were accepted
     const [, confirmed] = fixture.rpc.mock.calls.at(-1) as unknown as [string, { p_selection: { authorizationId: string; source: string } }];
     expect(confirmed.p_selection).toMatchObject({ source: "personal_api_key", authorizationId: sealed.p_id });
     expect(sealed).toMatchObject({ p_tenant_id: fixture.context.tenantId, p_project_id: projectId, p_payer_id: fixture.context.userId,
-      p_settings: { connectionId: choice.expectedConnectionId, maxNanoUsd: 25_000_000_000, maxTokens: 400_000 } });
+      // The mandate seals the dollar ceiling the member saw, and no token ceiling (owner decision of 2026-11-27).
+      p_settings: { connectionId: choice.expectedConnectionId, maxNanoUsd: 25_000_000_000, maxTokens: null } });
   });
 
   it.each([

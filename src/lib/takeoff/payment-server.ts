@@ -45,7 +45,7 @@ export type ResolvedTakeoffPayment = {
 };
 
 /**
- * Resolve inside the authenticated gesture; it reads and writes nothing. Only the opaque mandate reference goes in public
+ * Resolve inside the authenticated gesture; it writes nothing. Only the opaque mandate reference goes in public
  * snapshots. A key's mandate is content-addressed here and recorded by `sealTakeoffPayment`, once nothing can refuse the
  * gesture any more.
  */
@@ -73,7 +73,7 @@ export async function resolveTakeoffPayment(scope: TakeoffPaymentScope, input: T
   }
   const mandate = takeoffApiMandateSchema.parse({ ...resolved.preferences, connectionId: resolved.connection.id,
     connectionVersion: resolved.connection.version, hostId: takeoffPaymentHostId(await getChatGptHostId()),
-    maxTokens: config.maxTotalTokens, maxNanoUsd: expectedMaxCostCents * TAKEOFF_NANO_USD_PER_CENT });
+    maxTokens: null, maxNanoUsd: expectedMaxCostCents * TAKEOFF_NANO_USD_PER_CENT });
   // The exact same object produces the same brief-notice digest at preview and confirmation.
   const id = deriveDeterministicJobId(scope.tenantId, JSON.stringify([scope.projectId.toLowerCase(), scope.userId, mandate]));
   return { selection: { source: "personal_api_key", profileId: id, authorizationId: id, hostId: mandate.hostId,

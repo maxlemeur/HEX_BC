@@ -11,6 +11,22 @@ vi.mock("@/lib/takeoff/level-c-reading", async (importOriginal) => ({
       maxCostCents: 2_500 }, requestBudget: { remainingTokens: 400_000, remainingCostCents: 2_500 } })),
 }));
 vi.mock("@/lib/takeoff/processing-audit", () => ({ logCompletedAuditEvent: vi.fn() }));
+// What the checks before a paid call read when a case runs them for real (a job paid by a personal key): the tenant's
+// default budget, the key's sealed mandate, and no write of a page count.
+const keyMandate = vi.hoisted(() => ({ maxTokens: null as number | null }));
+vi.mock("@/lib/takeoff/feature-flags", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/takeoff/feature-flags")>(),
+  getTakeoffLevelCProcessingConfigForTenant: vi.fn(async () => ({ thresholdPages: 15, chunkSizePages: 10, overlapPages: 2, maxPdfPages: 200,
+    timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 })),
+}));
+vi.mock("@/lib/takeoff/payment-mandate-server", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/takeoff/payment-mandate-server")>(),
+  readTakeoffApiMandate: vi.fn(async () => ({ model: "gpt-6.1-terra", reasoningEffort: "medium", connectionVersion: 1,
+    connectionId: "aaaaaaaa-0000-4000-8000-000000000090", hostId: "urn:uuid:aaaaaaaa-0000-8000-8000-000000000099",
+    maxTokens: keyMandate.maxTokens, maxNanoUsd: 25_000_000_000 })),
+}));
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => ({}) }));
+vi.mock("@/lib/takeoff/plan-file-page-counts", () => ({ persistDetectedPlanFilePageCounts: vi.fn() }));
 // The vector classifier's calls as its own bound counts them (its conditions are environment flags): none unless a case says.
 vi.mock("@/lib/takeoff/vectors/worker-server", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/takeoff/vectors/worker-server")>(), takeoffVectorGroupCallsBound: vi.fn(() => 0),
@@ -701,6 +717,55 @@ describe("processItemListLevelC", () => {
       .rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED, retryable: false,
         message: expect.stringContaining("Le budget qui reste à cette analyse ne permet plus ses appels") });
     expect(call.received).toEqual([]);
+  });
+
+  // Owner decision of 2026-11-27: a request paid by a personal key is bounded by its dollar ceiling alone. A one-page plan
+  // read against the list bounds 25 calls of the vector classifier beside its own: 26 calls, 780,000 tokens at the ledger's
+  // estimate, past the tenant's default of 400,000 its mandate used to carry. It was stopped before any call
+  // (TAKEOFF_LEVEL_C_BUDGET_EXCEEDED); it is read, whatever token number its mandate was sealed with.
+  it.each([["without a token ceiling", null], ["with the former token ceiling", 400_000]] as const)(
+    "reads a one-page plan against the list with a personal key at the default budget, its mandate sealed %s", async (_label, maxTokens) => {
+      keyMandate.maxTokens = maxTokens;
+      const actual = await vi.importActual<typeof import("@/lib/takeoff/level-c-reading")>("@/lib/takeoff/level-c-reading");
+      vi.mocked(prepareLevelCReading).mockImplementationOnce(actual.prepareLevelCReading);
+      vi.mocked(takeoffVectorGroupCallsBound).mockReturnValueOnce(25);
+      const call = controlledPosteCall();
+      // Sized as its admission sizes it: 26 calls at the ledger's estimate, times the margin.
+      const share = { tokens: 26 * 30_000 * 2, cost_cents: 2_500 };
+      const manifest = planManifest([{ id: PLAN, pageCount: 1, vectorPages: 1, budget: share }], share);
+      const mandateId = "aaaaaaaa-0000-4000-8000-000000000091";
+      const own = job({ preparation_snapshot: {
+        execution_selection: { source: "personal_api_key", profileId: mandateId, authorizationId: mandateId, model: "personal_api_key",
+          reasoningEffort: null, hostId: "urn:uuid:aaaaaaaa-0000-8000-8000-000000000099" },
+        launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 1, budget: share } } });
+      const onePage = { ...(await sourceFile()), bytes: await pdf(1), sourcePageNumbersByPage: [1] };
+      const result = await run({ call, job: own, sourceFile: onePage, readVectors: async () => [], order: { ...SEALED, manifest } });
+      expect(vi.mocked(takeoffVectorGroupCallsBound)).toHaveBeenCalledWith(1);
+      expect(call.received).toHaveLength(1);
+      expect(publishTakeoffItemAnswers).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ status: "completed", pageCount: 1 });
+    });
+
+  // The dollar ceiling stays the key's bound, checked on what the calls of the attempt cost.
+  it("stops a reading paid by a personal key once its calls cost more than the dollar ceiling its mandate sealed", async () => {
+    keyMandate.maxTokens = null;
+    const actual = await vi.importActual<typeof import("@/lib/takeoff/level-c-reading")>("@/lib/takeoff/level-c-reading");
+    vi.mocked(prepareLevelCReading).mockImplementationOnce(actual.prepareLevelCReading);
+    const answered = controlledPosteCall();
+    const call = Object.assign(async (options: Parameters<typeof answered>[0]) => ({ ...(await answered(options)), costCents: 2_501 }),
+      { received: answered.received });
+    const share = { tokens: 2 * 30_000 * 2, cost_cents: 2_500 };
+    const manifest = planManifest([{ id: PLAN, pageCount: 1, budget: share }], share);
+    const mandateId = "aaaaaaaa-0000-4000-8000-000000000091";
+    const own = job({ preparation_snapshot: {
+      execution_selection: { source: "personal_api_key", profileId: mandateId, authorizationId: mandateId, model: "personal_api_key",
+        reasoningEffort: null, hostId: "urn:uuid:aaaaaaaa-0000-8000-8000-000000000099" },
+      launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 0, budget: share } } });
+    const onePage = { ...(await sourceFile()), bytes: await pdf(1), sourcePageNumbersByPage: [1] };
+    await expect(run({ call: call as never, job: own, sourceFile: onePage, readVectors: async () => [], order: { ...SEALED, manifest } }))
+      .rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED });
+    expect(call.received).toHaveLength(1);
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
   });
 
   // Closing round, point 7: the re-check plans the whole request as today's settings plan it, every unit of its manifest,

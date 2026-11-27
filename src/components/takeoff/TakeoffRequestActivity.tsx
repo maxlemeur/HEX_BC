@@ -26,6 +26,7 @@ import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { describeTakeoffJobFailure } from "@/lib/takeoff/visible-status";
 
 import { useTakeoffRequestActivity } from "./useTakeoffRequestActivity";
+import { describeTakeoffLaunchReasonWithKey } from "@/lib/takeoff/launch-request";
 import { TakeoffAssumeControls } from "./TakeoffAssumeControls";
 
 const TakeoffItemSendDialog = dynamic(
@@ -216,6 +217,11 @@ function RequestUnits({ projectId, request, onLocate, onCommand, onSendItems, pe
 function RequestNotes({ projectId, request, onChanged }: { projectId: string; request: Activity; onChanged: () => void }) {
   const action = request.action;
   const changed = request.dossierChanged;
+  const assumes = Boolean(action && (action.kind === "take_on" || action.kind === "resume") && action.label);
+  const [viaKey, setViaKey] = useState(false);
+  // Beside « Reprendre avec ma clé API », the reason does not tell the member to resume with a plan.
+  const reason = request.reason
+    ? (assumes && viaKey ? describeTakeoffLaunchReasonWithKey(request.reason.code) : null) ?? request.reason.message : null;
   const OMITTED: Record<Activity["plansOmitted"][number]["reason"], string> = {
     alternate: "autre indice retenu", identical_copy: "copie identique", unsupported_format: "format non lu",
     not_requested: "lu par une analyse précédente",
@@ -224,10 +230,11 @@ function RequestNotes({ projectId, request, onChanged }: { projectId: string; re
 
   return (
     <>
-      {request.reason ? <p className="text-sm text-foreground-secondary">{request.reason.message}</p> : null}
+      {reason ? <p className="text-sm text-foreground-secondary">{reason}</p> : null}
       {action && (action.kind === "take_on" || action.kind === "resume") && action.label ? (
         <TakeoffAssumeControls key={`${request.id}:${action.mandateRevision}`} projectId={projectId} requestId={request.id}
-          revision={action.mandateRevision} action={action.kind} label={action.label} busyLabel="Enregistrement…" onChanged={onChanged} />
+          revision={action.mandateRevision} action={action.kind} label={action.label} busyLabel="Enregistrement…" onChanged={onChanged}
+          onSource={setViaKey} />
       ) : action?.kind === "open_mac" ? (
         <p className="text-sm text-muted-foreground">Ouvrez MergeOne sur le Mac connecté pour reprendre ce métré avec votre forfait.</p>
       ) : null}

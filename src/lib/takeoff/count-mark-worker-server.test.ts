@@ -42,6 +42,11 @@ it("uses original rotated crop geometry and refuses a changed schedule before a 
   };
   expect(await prepareCountMarkReading({ ...input, snapshot: {} })).toBeNull();
   await expect(prepareCountMarkReading({ ...input, pdfCalls: 3 })).rejects.toThrow();
+  // Eight calls at the ledger's estimate of 30,000 tokens: the plan's remaining token budget refuses them. A job paid by a
+  // personal key has no token budget (infinite), and its confirmed calls are prepared.
+  await expect(prepareCountMarkReading({ ...input, remainingTokens: 239_999 })).rejects.toMatchObject({
+    code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED, message: expect.stringContaining("Le budget restant ne permet plus") });
+  await expect(prepareCountMarkReading({ ...input, remainingTokens: Number.POSITIVE_INFINITY })).resolves.toMatchObject({ jobId: "job" });
   for (const frame of [
     { ...frames[0].geometry, height: 391 },
     { ...frames[0].geometry, rotation: 270 },

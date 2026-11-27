@@ -15,7 +15,8 @@ import type { ItemDetailPlanView } from "@/lib/takeoff/item-detail-contracts";
 import type { ItemDetailLine } from "@/lib/takeoff/item-detail";
 import { fetchItemMeasureReadings, previewItemRemeasure, sendItemRemeasure } from "@/lib/takeoff/item-table-client";
 import { ITEM_REVIEW_COMMAND_VERSION, type ItemMeasureReadings, type ItemRemeasureCommand, type ItemRemeasurePreview } from "@/lib/takeoff/item-table-contracts";
-import { TAKEOFF_PAYMENT_SETTINGS_CHANGED } from "@/lib/takeoff/payment-choice";
+import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
+import { TAKEOFF_NANO_USD_PER_CENT, TAKEOFF_PAYMENT_SETTINGS_CHANGED } from "@/lib/takeoff/payment-choice";
 
 type Props = { projectId: string; line: ItemDetailLine; plan: ItemDetailPlanView["plan"]; page: number; listRevisionId: string | null;
   receipt: ItemDetailAddress["receipt"]; onFollow: (receipt: NonNullable<ItemDetailAddress["receipt"]>) => void;
@@ -197,6 +198,9 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
   }
   const preview = payment.ready && summary?.command.payment_choice === payment.choice ? summary?.preview : null;
   const selected = preview?.models?.find((m) => m.id === model);
+  // A key's request is bounded by its dollar ceiling alone (the one the server planned it with): no token budget is announced.
+  const viaKey = preview?.payment?.source === "personal_api_key";
+  const keyCeilingCents = viaKey ? preview?.payment?.maxCostCents ?? payment.data?.maxCostCents : undefined;
   return <section className="shrink-0 space-y-1 border-t border-border px-3 py-2 text-xs">
     <Button size="xs" variant="outline" onClick={() => void show(false)}>
       {readings?.latest?.comparisonOnly ? "Mesurer tout le plan" : "Mesurer ce poste"}
@@ -252,7 +256,10 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
               onChange={(e) => setEffort(e.target.value as ChatGptReasoningEffort || null)}>
               <option value="">Automatique</option>{selected?.reasoningEfforts.map((f) => <option key={f} value={f}>{CHATGPT_REASONING_EFFORT_LABELS[f]}</option>)}
             </NativeSelect></label></>}
-          {preview.reading.state === "ready" ? <p>{preview.detail?.markSchedule && "Hors repérage · "}{preview.reading.summary} Budget réservé · {preview.reading.budgetTokens.toLocaleString("fr-FR")} jetons.</p>
+          {preview.reading.state === "ready" ? <p>{preview.detail?.markSchedule && "Hors repérage · "}{preview.reading.summary} {keyCeilingCents
+            ? `Plafond de cette demande · ${formatUsdCeiling(keyCeilingCents * TAKEOFF_NANO_USD_PER_CENT)}.`
+            : viaKey ? "Plafond de cette demande · celui de votre clé API OpenAI."
+            : `Budget réservé · ${preview.reading.budgetTokens.toLocaleString("fr-FR")} jetons.`}</p>
             : <p role="alert">{preview.reading.reason}</p>}
           {preview.running ? <p>Une demande de métré est déjà active sur cette affaire. Votre sélection est conservée.</p> : null}
         </> : !message ? <p role="status">Préparation du récapitulatif…</p> : null}

@@ -6,12 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AffaireTakeoffZone } from "@/components/affaires/AffaireTakeoffZone";
 import { UserProvider, type UserProfile } from "@/lib/auth/user-context";
 import type { AffaireTakeoffZoneData } from "@/lib/takeoff/affaire-takeoff-zone";
-import { NO_PAYMENT_OPTIONS } from "@/lib/takeoff/payment-settings.test-fixtures";
+import { fixtureTakeoffPaymentOptions, NO_PAYMENT_OPTIONS } from "@/lib/takeoff/payment-settings.test-fixtures";
 
-const { assume, read, dialog } = vi.hoisted(() => ({ assume: vi.fn(), read: vi.fn(), dialog: vi.fn() }));
+const { assume, read, dialog, payment } = vi.hoisted(() => ({ assume: vi.fn(), read: vi.fn(), dialog: vi.fn(), payment: vi.fn() }));
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   assumeTakeoffLaunchRequestAction: assume, readAffaireTakeoffZoneAction: read,
-  readTakeoffPaymentOptionsAction: async () => NO_PAYMENT_OPTIONS,
+  readTakeoffPaymentOptionsAction: payment,
 }));
 vi.mock("@/components/affaires/LaunchMetreDialog", () => ({
   LaunchMetreDialog: (props: { open: boolean; launchMode: unknown }) => {
@@ -68,8 +68,24 @@ describe("AffaireTakeoffZone", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     read.mockImplementation(async () => ({ ok: true, data: blocked() }));
+    payment.mockResolvedValue(NO_PAYMENT_OPTIONS);
   });
   afterEach(() => cleanup());
+
+  // The reason of a request whose plan is not connected tells the member to resume with it. Beside a gesture that reads
+  // « Reprendre avec ma clé API » it names no plan to resume with; with the plan it reads as before.
+  it.each([
+    ["the key", "personal_api_key", "Reprendre avec ma clé API", "Métré non démarré — forfait ChatGPT non connecté. Reprenez la demande avec la source IA choisie."],
+    ["the plan", "chatgpt_plan", "Reprendre avec mon forfait", "Métré non démarré — forfait ChatGPT non connecté. Connectez-le dans Mon profil, puis reprenez avec votre forfait."],
+  ] as const)("words the reason of a disconnected plan for a member who resumes with %s", async (_label, source, button, message) => {
+    payment.mockResolvedValue(fixtureTakeoffPaymentOptions(source));
+    const data = blocked({ reason: "CHATGPT_NOT_CONNECTED", action: "resume", hasPayer: true, payerIsViewer: true });
+    read.mockImplementation(async () => ({ ok: true, data }));
+    show(data);
+    expect(await screen.findByRole("button", { name: button })).toBeInTheDocument();
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryAllByText(/Métré non démarré/)).toHaveLength(1);
+  });
 
   it("takes the request on with the revision and the action the zone showed, then reads the affaire again", async () => {
     assume.mockResolvedValue({ ok: true, data: { requestId, state: "evaluating", reason: null, message: null, action: "none", actionLabel: null } });

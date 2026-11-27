@@ -29,10 +29,10 @@ const WC = "WC suspendu";
 const ITEMS = [{ id: "lavabo-colonne", label: "Lavabo sur colonne", expectedUnit: "u" }, { id: "wc-suspendu", label: WC, expectedUnit: "u" }];
 
 /**
- * The owner's tenant template made of the journey's two items (the list an affaire without a DPGF is read against), and
- * the tenant's own token ceiling for a detailed reading. A reading against the list bounds 25 calls of the vector
- * classifier beside its own (26 calls, 780 000 tokens estimated): a key's mandate carries the tenant's ceiling, and the
- * default of 400 000 tokens refuses that reading at the worker (TAKEOFF_LEVEL_C_BUDGET_EXCEEDED), whatever the plan.
+ * The owner's tenant template made of the journey's two items (the list an affaire without a DPGF is read against). The
+ * tenant keeps its default budget: a reading against the list bounds 25 calls of the vector classifier beside its own (26
+ * calls, 780 000 tokens estimated), past the default token ceiling of a detailed reading (400 000). A key's request has no
+ * token ceiling (owner decision of 2026-11-27): its dollar ceiling is its only bound, and the reading runs.
  */
 async function prepareItemList(userId: string) {
   const setup = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -40,9 +40,9 @@ async function prepareItemList(userId: string) {
   const member = await setup.from("tenant_memberships").select("tenant_id").eq("user_id", userId).single();
   if (member.error || !member.data) throw new Error("Fixture owner without a tenant.");
   await publishOwnedItemTemplate(setup, { tenantId: member.data.tenant_id, userId } as WorkerOwner, ITEMS);
-  const ceiling = await setup.from("feature_flags").upsert({ tenant_id: member.data.tenant_id, flag_key: "TAKEOFF_C_MAX_TOTAL_TOKENS",
-    enabled: true, value: "1000000" }, { onConflict: "tenant_id,flag_key" });
-  if (ceiling.error) throw new Error("Fixture token ceiling not saved.");
+  const ceiling = await setup.from("feature_flags").select("flag_key").eq("tenant_id", member.data.tenant_id)
+    .in("flag_key", ["TAKEOFF_C_MAX_TOTAL_TOKENS", "TAKEOFF_C_MAX_COST_CENTS"]);
+  if (ceiling.error || ceiling.data.length) throw new Error("The journey runs at the tenant's default budget.");
 }
 
 async function readProfile(browser: Browser) {
@@ -92,8 +92,10 @@ async function showOverride(surface: PaymentSurface, scope = "cette demande") {
 
 async function assertSealedPayingChoice(projectId: string) {
   if (!/^[0-9a-f-]{36}$/u.test(projectId)) throw new Error("Invalid fixture affaire.");
-  expect(await querySql(`select distinct settings->>'model', settings->>'reasoningEffort', settings->>'maxNanoUsd'
-    from private.takeoff_api_mandates where project_id = '${projectId}';`)).toEqual(["gpt-6.2-sol|high|25000000000"]);
+  // The mandate seals the model, the effort and the dollar ceiling shown, and no token ceiling.
+  expect(await querySql(`select distinct settings->>'model', settings->>'reasoningEffort', settings->>'maxNanoUsd',
+    coalesce(settings->>'maxTokens', 'aucun plafond de jetons')
+    from private.takeoff_api_mandates where project_id = '${projectId}';`)).toEqual(["gpt-6.2-sol|high|25000000000|aucun plafond de jetons"]);
 }
 
 async function providerReads() {
@@ -325,7 +327,10 @@ commit;`);
       const dialog = ui.screen.getByRole("dialog", /mesurer de nouveau la sélection/);
       await showOverride(dialog);
       await expect(dialog.getByText(/à votre nom et avec votre clé API OpenAI/)).toBeVisible();
-      await expect(ui.screen.getByTestId("poste-remeasure-reading")).toContainText("Budget réservé pour cette demande", DEV_SERVER_WORK);
+      // The request's bound is the key's dollar ceiling: no token budget is announced for it.
+      const reading = ui.screen.getByTestId("poste-remeasure-reading");
+      await expect(reading).toContainText(/Plafond de cette demande : 25,00.\$.US \(\d+ appels payants\)/, DEV_SERVER_WORK);
+      await expect(reading).not.toContainText(/jeton|Budget réservé/);
       const confirm = dialog.getByRole("button", "Confirmer la demande avec ma clé API", { exact: true });
       await expect(confirm).toBeEnabled(DEV_SERVER_WORK);
       const screenshot = await app.screenshot("paidmetre05-remesure");
@@ -380,6 +385,8 @@ commit;`);
       await showOverride(zone, "les lectures reprises");
       const resume = zone.getByRole("button", "Reprendre avec ma clé API", { exact: true });
       await resume.scrollIntoView();
+      // Beside a gesture that names the key, the reason does not tell the member to resume with a plan.
+      await expect(zone.getByText("Métré non démarré — forfait ChatGPT non connecté. Reprenez la demande avec la source IA choisie.", { exact: true })).toBeVisible();
       // The button, its wrapper and the row of the zone's actions share one width, and the page does not scroll sideways.
       const widths = await ui.browser.evaluate(() => {
         const button = [...document.querySelectorAll("button")].find((entry) => entry.textContent?.trim() === "Reprendre avec ma clé API");

@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 
-it.each(["takeoff_personal_api_mandate", "validate_takeoff_personal_api_mandate", "takeoff_personal_api_mark_publication"])(
+it.each(["takeoff_personal_api_mandate", "validate_takeoff_personal_api_mandate", "takeoff_personal_api_mark_publication",
+  "takeoff_api_dollar_ceiling"])(
   "bounds lock acquisition for the %s migration inside its own transaction",
   (migration) => {
     const directory = new URL("../../supabase/migrations/", import.meta.url);
