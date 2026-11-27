@@ -89,7 +89,6 @@ const restPaths = () => sent.map(({ url }) => url.pathname.slice("/rest/v1/".len
 
 const HOUR = 3_600_000;
 const T0 = new Date(Math.floor(Date.now() / 1000) * 1000);
-const at = (offsetMs: number) => new Date(T0.getTime() + offsetMs).toISOString();
 const ids = {
   tenantA: randomUUID(), tenantB: randomUUID(), tenantC: randomUUID(), launch: randomUUID(), launchJob: randomUUID(),
 };

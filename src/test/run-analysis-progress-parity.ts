@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { runLocalSupabaseCi } from "../src/test/local-supabase-ci";
+import { runLocalSupabaseCi } from "./local-supabase-ci";
+
+// node --import tsx src/test/run-analysis-progress-parity.ts
 
 // The standard runner owns the native stack and destroys it even on test failure.
 runLocalSupabaseCi({
