@@ -693,7 +693,7 @@ export function ArticlePreview({
           </>
         ) : null}
       </WorkbookReviewLayout>
-      <AlertDialog open={pending !== null} onOpenChange={(open) => { if (!open) setPending(null); }}>
+      <AlertDialog open={Boolean(onValidate && pending)} onOpenChange={(open) => { if (!open) setPending(null); }}>
         <AlertDialogContent>
           <AlertDialogTitle>Valider les articles sélectionnés ?</AlertDialogTitle>
           <AlertDialogDescription>

@@ -619,7 +619,7 @@ export function CostingWorkbookImport({
   const toImport = articlePreview?.new_articles ?? supplierReport?.to_import ?? 0;
 
   async function runImport(selectedRows?: readonly number[]) {
-    if (!rows || !preview || toImport === 0 || isBusy || editorDirty || phaseRef.current !== "idle") return;
+    if (!visible || !rows || !preview || toImport === 0 || isBusy || editorDirty || phaseRef.current !== "idle") return;
     const expectedTenantId = selectedRows ? articlePreview?.review_tenant_id : undefined;
     if (selectedRows && (!isAdmin || !expectedTenantId || selectedRows.length === 0)) return;
     importingRef.current = true;
@@ -900,7 +900,7 @@ export function CostingWorkbookImport({
                     setKnownDuplicateRows((previous) => new Set(complete ? found : [...previous, ...found]));
                   }}
                   onShowSupplierReferences={() => changeMode("supplier-references")}
-                  onValidate={isAdmin && articlePreview.review_tenant_id ? (selection) => void runImport(selection) : undefined}
+                  onValidate={visible && isAdmin && articlePreview.review_tenant_id ? (selection) => void runImport(selection) : undefined}
                   editorDirty={editorDirty}
                   columnPreferences={columnPreferences}
                   onColumnPreferencesChange={setColumnPreferences}
