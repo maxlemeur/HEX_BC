@@ -11,7 +11,7 @@ const mappingSchema = z.object(
 );
 
 export const MATERIAL_REQUEST_WORKBOOK_REMARK_CODES = [
-  "rounded", "no_quantity", "quantity_too_large", "reference_dropped", "written_doubt", "already_present",
+  "rounded", "no_quantity", "quantity_too_large", "reference_dropped", "dimension_part_dropped", "written_doubt", "already_present",
 ] as const;
 
 /** `inactive_alias`: the spelling is associated with a deactivated supplier; only the catalogue can change that. */
@@ -41,7 +41,15 @@ export const materialRequestWorkbookPreviewSchema = z.object({
    * The columns under the header row: those with a header cell and those holding values without one (`header` is
    * then empty), with up to three example values read from the first data rows. Empty without a header row.
    */
-  columns: z.array(z.object({ column: columnLetter, header: z.string(), examples: z.array(z.string()).max(3) })),
+  columns: z.array(z.object({
+    column: columnLetter,
+    header: z.string(),
+    examples: z.array(z.string()).max(3),
+    /** Whether a sampled cell of the column holds a part separator (« · » or « ; »): splitting the dimension then helps. */
+    has_parts: z.boolean(),
+  })),
+  /** Whether this preview split the dimension cell into dimension, precision and dropped doubts (`split_dimension`). */
+  split_dimension: z.boolean(),
   /** What automatic recognition assigns to each role. */
   detected_columns: mappingSchema,
   /** What this preview read: the explicit mapping when one was sent, else the recognized one. */
@@ -77,6 +85,10 @@ export type MaterialRequestWorkbookPreview = z.output<typeof materialRequestWork
 export type MaterialRequestWorkbookRow = MaterialRequestWorkbookPreview["rows"][number];
 export type MaterialRequestWorkbookSupplier = MaterialRequestWorkbookPreview["suppliers"][number];
 export type MaterialRequestWorkbookColumns = MaterialRequestWorkbookPreview["mapped_columns"];
+
+/** The `split_dimension` query parameter: `true` splits the dimension cell, `false` (or absent) keeps it whole. */
+export const materialRequestWorkbookSplitParamSchema = z.enum(["true", "false"], { error: "split_dimension vaut true ou false." })
+  .transform((value) => value === "true");
 
 /** The `header_row` query parameter: the Excel number of the header row, within the first rows a sheet is searched in. */
 export const materialRequestWorkbookHeaderRowParamSchema = z.coerce.number({ error: "Numéro de ligne d’en-tête invalide." })

@@ -9,6 +9,7 @@ import { foldWords } from "@/lib/text/fold";
 
 import {
   MATERIAL_REQUEST_MAX_LINES,
+  MATERIAL_REQUEST_ORIGINAL_TEXT_MAX as ORIGINAL_TEXT_MAX,
   MATERIAL_REQUEST_QUANTITY_MAX,
   materialRequestLineInputSchema,
   type MaterialRequestLine,
@@ -22,6 +23,8 @@ import {
   isWorkbookHeaderText,
   roundUpWorkbookQuantity,
   workbookColumnIndex,
+  hasWorkbookDimensionParts,
+  splitWorkbookDimension,
   workbookColumnLetter,
   workbookNumericReferenceText,
   workbookReferenceCode,
@@ -68,6 +71,8 @@ export type MaterialRequestWorkbookPreviewOptions = {
   sheet?: string;
   /** Excel number of the header row, chosen by hand; recognized automatically otherwise. */
   headerRow?: number;
+  /** Split the dimension cell into dimension, precision and dropped doubts; kept whole otherwise. */
+  splitDimension?: boolean;
   /** Explicit columns by role; automatic recognition otherwise. */
   mapping?: WorkbookMapping;
   /** The lines the request holds: a row matching one is proposed unticked. */
@@ -260,6 +265,7 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
     header_detected: header !== null && chosenRow === undefined,
     first_rows,
     columns: [],
+    split_dimension: options.splitDimension === true,
     detected_columns: toLetters(header?.columns ?? NO_COLUMNS),
     mapped_columns: toLetters(NO_COLUMNS),
     rows: [],
@@ -276,17 +282,20 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
   // each with example values from the first data rows.
   const headerByColumn = new Map(headers.map(({ column, text }) => [column, text]));
   const examples = new Map<number, string[]>(headers.map(({ column }) => [column, []]));
+  const withParts = new Set<number>();
   for (const [, cells] of collectRows(table.sheet, (r, c) => r > headerRow && r <= headerRow + EXAMPLE_SCAN_ROWS && c < MAX_COLUMNS)) {
     for (const [column, cell] of cells) {
       const text = cellText(cell);
       if (!text) continue;
       const list = examples.get(column) ?? [];
       examples.set(column, list);
+      if (hasWorkbookDimensionParts(text)) withParts.add(column);
       if (list.length < 3) list.push(shorten(text));
     }
   }
   preview.columns = [...examples.keys()].sort((a, b) => a - b)
-    .map((column) => ({ column: workbookColumnLetter(column), header: shorten(headerByColumn.get(column) ?? ""), examples: examples.get(column) ?? [] }));
+    .map((column) => ({ column: workbookColumnLetter(column), header: shorten(headerByColumn.get(column) ?? ""), examples: examples.get(column) ?? [],
+      has_parts: withParts.has(column) }));
   if (columns.designation === undefined) return preview;
   const included = new Set(Object.values(columns));
 
@@ -331,17 +340,32 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
     }
     const writtenReference = referenceText(cell("reference")) || undefined;
     const reference = workbookReferenceCode(writtenReference);
+    // The dimension cell, split when asked: first part the dimension, the rest the precision, doubts dropped. The
+    // untouched cell then follows the designation in the original text, when both fit its limit.
+    const dimensionCell = text("dimension");
+    const split = options.splitDimension && dimensionCell ? splitWorkbookDimension(dimensionCell) : null;
+    const reshaped = split !== null && (split.precision !== null || split.dropped.length > 0);
+    const withCell = reshaped ? `${designation} ${dimensionCell}` : designation;
     const line = materialRequestLineInputSchema.safeParse({
-      original_text: designation,
+      original_text: withCell.length <= ORIGINAL_TEXT_MAX ? withCell : designation,
       product_type: designation,
       quantity: quantity ?? undefined,
       unit: text("unit"),
-      dimension: text("dimension"),
+      dimension: split ? split.dimension ?? undefined : dimensionCell,
+      material_precision: split?.precision ?? undefined,
       reference: reference ?? undefined,
       material: text("material"),
       zone: text("zone"),
     });
     if (!line.success) {
+      const precisionIssue = line.error.issues.find((issue) => issue.path[0] === "material_precision" && issue.code === "too_big");
+      if (precisionIssue?.code === "too_big" && columns.dimension !== undefined) {
+        preview.issues.push({
+          row_number,
+          message: `La précision tirée de la cellule « Dimension » (colonne ${workbookColumnLetter(columns.dimension)}) dépasse ${Number(precisionIssue.maximum)} caractères. Raccourcissez-la dans le classeur. Ligne écartée.`,
+        });
+        continue;
+      }
       const tooBig = line.error.issues.flatMap((issue) => {
         const role = ROLE_OF_FIELD[String(issue.path[0])];
         return issue.code === "too_big" && role ? [{ role, limit: Number(issue.maximum) }] : [];
@@ -373,6 +397,7 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
       selected = false;
     }
     if (writtenReference && !reference) remarks.push({ code: "reference_dropped", message: "Référence écartée" });
+    if (split?.dropped.length) remarks.push({ code: "dimension_part_dropped", message: `Écarté : ${split.dropped.join(" ; ")}` });
     if (hasWrittenDoubt(line.data.product_type, line.data.dimension)) {
       remarks.push({ code: "written_doubt", message: "Doute écrit dans le libellé, à retirer" });
     }

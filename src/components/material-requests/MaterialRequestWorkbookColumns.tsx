@@ -29,13 +29,17 @@ function rowSummary(row: Reading["first_rows"][number]) {
  * Step « Onglet et colonnes »: the sheet, the header row (recognized, or chosen among the first rows when it is not),
  * then the workbook column of each role with an example read under it.
  */
-export function MaterialRequestWorkbookColumns({ preview, sheet, mapping, disabled, onSheetChange, onHeaderRowChange, onMappingChange }: Readonly<{
+export function MaterialRequestWorkbookColumns({
+  preview, sheet, mapping, splitDimension, disabled, onSheetChange, onHeaderRowChange, onSplitDimensionChange, onMappingChange,
+}: Readonly<{
   preview: Reading;
   sheet: string;
   mapping: WorkbookMapping;
+  splitDimension: boolean;
   disabled: boolean;
   onSheetChange: (sheet: string) => void;
   onHeaderRowChange: (row: number) => void;
+  onSplitDimensionChange: (split: boolean) => void;
   onMappingChange: (mapping: WorkbookMapping) => void;
 }>) {
   const id = useId();
@@ -135,6 +139,18 @@ export function MaterialRequestWorkbookColumns({ preview, sheet, mapping, disabl
                           </option>
                         ))}
                       </NativeSelect>
+                      {role === "dimension" && (
+                        <label className="mt-1.5 flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            className="size-4 accent-primary"
+                            checked={splitDimension && !!letter}
+                            disabled={disabled || !letter}
+                            onChange={(event) => onSplitDimensionChange(event.currentTarget.checked)}
+                          />
+                          Découper la dimension (séparateurs · et ;)
+                        </label>
+                      )}
                     </td>
                     <td className="max-w-60 break-words px-3 py-2 text-muted-foreground">{example}</td>
                   </tr>

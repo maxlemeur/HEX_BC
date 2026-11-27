@@ -23,7 +23,7 @@ export async function previewMaterialRequestWorkbookImport(
   projectId: string,
   requestId: string,
   fileId: string,
-  options: { sheet?: string; headerRow?: number; mapping?: WorkbookMapping },
+  options: { sheet?: string; headerRow?: number; mapping?: WorkbookMapping; splitDimension?: boolean },
   signal?: AbortSignal,
 ): Promise<MaterialRequestWorkbookPreview> {
   const access = await requireProjectAccess(projectId, "write");

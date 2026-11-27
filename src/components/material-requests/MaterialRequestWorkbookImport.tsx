@@ -35,7 +35,7 @@ import { readRememberedWorkbookColumns, rememberWorkbookColumns } from "./workbo
 type Step = "columns" | "suppliers" | "preview";
 
 const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
-const HEADINGS = ["Ligne Excel", "Désignation", "Dimension", "Quantité", "Unité", "Fournisseur", "Référence", "Matière", "Repère"];
+const HEADINGS = ["Ligne Excel", "Désignation", "Dimension", "Précision", "Quantité", "Unité", "Fournisseur", "Référence", "Matière", "Repère"];
 const STEP_TITLES: Record<Step, string> = {
   columns: "Onglet et colonnes",
   suppliers: "Fournisseurs à reconnaître",
@@ -47,7 +47,12 @@ function toMapping(columns: ColumnLetters): WorkbookMapping {
 }
 
 /** A remembered mapping applies only while each of its columns is still offered for the sheet. */
-function usableMapping(mapping: WorkbookMapping | null, preview: MaterialRequestWorkbookPreview): WorkbookMapping | null {
+/** Splitting is proposed when sampled cells of the dimension column hold a part separator. */
+function columnHasParts(preview: MaterialRequestWorkbookPreview, letter: string | undefined) {
+  return preview.columns.some((column) => column.column === letter && column.has_parts);
+}
+
+function usableMapping(mapping: WorkbookMapping | null | undefined, preview: MaterialRequestWorkbookPreview): WorkbookMapping | null {
   if (!mapping?.designation) return null;
   const letters = new Set(preview.columns.map((column) => column.column));
   return Object.values(mapping).every((letter) => letters.has(letter)) ? mapping : null;
@@ -71,6 +76,8 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
   /** The automatic reading of the chosen sheet: its columns, examples and recognized mapping. */
   const [detection, setDetection] = useState<MaterialRequestWorkbookPreview | null>(null);
   const [mapping, setMapping] = useState<WorkbookMapping>({});
+  /** Split the dimension cell into dimension, precision and dropped doubts (« · » and « ; »). */
+  const [splitDimension, setSplitDimension] = useState(false);
   /** The reading of the confirmed mapping; its suppliers resolved by the server, before the choices below. */
   const [preview, setPreview] = useState<MaterialRequestWorkbookPreview | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
@@ -94,8 +101,11 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
       .then((data) => {
         if (abort.signal.aborted) return;
         setDetection(data);
-        const remembered = usableMapping(readRememberedWorkbookColumns(profileId, workbookHeaderSignature(data.columns)), data);
-        setMapping(remembered ?? toMapping(data.detected_columns));
+        const stored = readRememberedWorkbookColumns(profileId, workbookHeaderSignature(data.columns));
+        const remembered = usableMapping(stored?.mapping, data);
+        const next = remembered ?? toMapping(data.detected_columns);
+        setMapping(next);
+        setSplitDimension((remembered ? stored?.splitDimension : undefined) ?? columnHasParts(data, next.dimension));
         setReading(false);
       })
       .catch((cause: unknown) => {
@@ -156,9 +166,10 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
 
   const confirmColumns = async () => {
     if (!detection || detection.header_row === null || !mapping.designation || busy.current) return;
-    rememberWorkbookColumns(profileId, workbookHeaderSignature(detection.columns), mapping);
+    const split = splitDimension && mapping.dimension !== undefined;
+    rememberWorkbookColumns(profileId, workbookHeaderSignature(detection.columns), mapping, split);
     setError(null);
-    if (sameWorkbookMapping(mapping, toMapping(detection.mapped_columns))) {
+    if (sameWorkbookMapping(mapping, toMapping(detection.mapped_columns)) && split === detection.split_dimension) {
       showPreview(detection);
       return;
     }
@@ -167,7 +178,7 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
     readAbort.current = abort;
     setReading(true);
     try {
-      const data = await fetchMaterialRequestWorkbookPreview(projectId, requestId, file.id, { sheet: detection.sheet_name, headerRow: detection.header_row, mapping }, abort.signal);
+      const data = await fetchMaterialRequestWorkbookPreview(projectId, requestId, file.id, { sheet: detection.sheet_name, headerRow: detection.header_row, mapping, splitDimension: split }, abort.signal);
       if (!abort.signal.aborted) showPreview(data);
     } catch (cause) {
       if (!abort.signal.aborted) setError(materialRequestErrorMessage(cause, "L’aperçu du classeur n’a pas pu être affiché."));
@@ -309,7 +320,13 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
               setReading(true);
               setHeaderRow(row);
             }}
-            onMappingChange={setMapping}
+            splitDimension={splitDimension}
+            onSplitDimensionChange={setSplitDimension}
+            onMappingChange={(next) => {
+              // A new dimension column comes with its own proposal; the user's tick stays for the same column.
+              if (next.dimension !== mapping.dimension) setSplitDimension(columnHasParts(detection, next.dimension));
+              setMapping(next);
+            }}
           />
         ))}
         {step === "suppliers" && preview && (
@@ -369,6 +386,7 @@ export function MaterialRequestWorkbookImport({ editor, file, onImported }: Read
                             ))}
                           </td>
                           <td className="max-w-40 break-words px-3 py-2">{line?.dimension}</td>
+                          <td className="max-w-40 break-words px-3 py-2">{line?.material_precision}</td>
                           <td className="whitespace-nowrap px-3 py-2 tabular-nums">{line?.quantity == null ? null : quantityFormat.format(line.quantity)}</td>
                           <td className="max-w-40 break-words px-3 py-2">{line?.unit}</td>
                           <td className="max-w-40 break-words px-3 py-2">

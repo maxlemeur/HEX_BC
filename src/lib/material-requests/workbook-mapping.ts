@@ -27,16 +27,16 @@ const SYNONYMS: Record<WorkbookRole, readonly string[]> = {
   designation: ["designation", "designation article", "article", "libelle", "description", "materiel", "produit"],
   quantity: ["quantite", "qte", "qty", "quantity", "besoin retenu", "quantite retenue", "quantite a consulter", "quantite demandee", "besoin"],
   unit: ["unite", "unite de mesure", "u", "unit"],
-  dimension: ["dimension", "dimensions", "dimension embouts", "dimension raccordement", "diametre", "dn"],
+  dimension: ["dimension", "dimensions", "dimension embouts", "dimension raccordement", "diametre", "dn", "dn dim", "dim"],
   reference: [
     "reference", "ref", "reference fournisseur", "ref fournisseur", "reference article", "ref article", "code article",
   ],
   supplier: ["fournisseur", "fournisseur retenu", "fournisseur a consulter", "supplier"],
-  material: ["matiere", "materiau", "material", "famille"],
+  // « Famille » is not a material (owner, 2026-11-27): the user may still assign that column to the material by hand.
+  material: ["matiere", "materiau", "material"],
   zone: ["zone", "repere", "localisation", "emplacement"],
 };
 
-/** « famille » serves the material only when no real material column exists: it ranks after every other synonym. */
 const rankByLabel = new Map<string, Array<{ role: WorkbookRole; rank: number }>>();
 for (const role of WORKBOOK_ROLES) {
   SYNONYMS[role].forEach((label, rank) => {
@@ -189,9 +189,36 @@ export function workbookNumericReferenceText(value: number, format: string | und
   return (shown ?? String(value)).trim();
 }
 
-/** Wording that says the author still doubts: kept as written, flagged for the office to remove. */
-const DOUBT = /\ba (?:confirmer|verifier|preciser|identifier|valider|definir)\b/u;
+/** Wording that says the author still doubts, matched on folded words (accents and case aside). */
+const DOUBT = /\ba (?:confirmer|verifier|preciser|identifier|valider|relever|determiner|proposer|definir)\b/u;
 
 export function hasWrittenDoubt(...texts: ReadonlyArray<string | null | undefined>): boolean {
   return texts.some((text) => text && DOUBT.test(foldWords(text)));
+}
+
+/** What separates the parts of a dimension cell (« 32 · Sertissage ; FF/MF à confirmer »); a slash, an arrow or « × » does not. */
+const DIMENSION_SEPARATOR = /(\s*[\u00b7;]\s*)/u;
+
+export function hasWorkbookDimensionParts(text: string): boolean {
+  return /[\u00b7;]/u.test(text);
+}
+
+/**
+ * A dimension cell cut into its parts (owner's decision of 2026-11-27): the first part is the dimension, the others
+ * the precision, joined with the separators that preceded them; a part that expresses a doubt is dropped from both
+ * and reported. Nothing is interpreted: « 32 » stays « 32 ». A doubtful first part leaves the dimension empty.
+ */
+export function splitWorkbookDimension(text: string): { dimension: string | null; precision: string | null; dropped: string[] } {
+  const pieces = text.split(DIMENSION_SEPARATOR);
+  const parts: Array<{ separator: string; text: string }> = [];
+  for (let index = 0; index < pieces.length; index += 2) {
+    const part = pieces[index]?.trim() ?? "";
+    if (part) parts.push({ separator: index === 0 ? "" : pieces[index - 1] ?? "", text: part });
+  }
+  const dropped = parts.filter((part) => hasWrittenDoubt(part.text)).map((part) => part.text);
+  const [first, ...rest] = parts;
+  const dimension = first && !hasWrittenDoubt(first.text) ? first.text : null;
+  const kept = rest.filter((part) => !hasWrittenDoubt(part.text));
+  const precision = kept.map((part, index) => (index === 0 ? part.text : `${part.separator}${part.text}`)).join("") || null;
+  return { dimension, precision, dropped };
 }

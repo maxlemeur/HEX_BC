@@ -312,7 +312,7 @@ export function fetchMaterialRequestWorkbookPreview(
   projectId: string,
   requestId: string,
   fileId: string,
-  options: { sheet?: string; headerRow?: number; mapping?: WorkbookMapping },
+  options: { sheet?: string; headerRow?: number; mapping?: WorkbookMapping; splitDimension?: boolean },
   signal: AbortSignal,
 ): Promise<MaterialRequestWorkbookPreview> {
   const path = requestsPath(projectId, requestId, "files", fileId, "workbook-preview");
@@ -320,6 +320,7 @@ export function fetchMaterialRequestWorkbookPreview(
   if (options.sheet !== undefined) query.set("sheet", options.sheet);
   if (options.headerRow !== undefined) query.set("header_row", String(options.headerRow));
   if (options.mapping) query.set("columns", formatWorkbookMapping(options.mapping));
+  if (options.splitDimension !== undefined) query.set("split_dimension", String(options.splitDimension));
   return read(query.size ? `${path}?${query}` : path, "L’aperçu du classeur n’a pas pu être affiché.", signal);
 }
 

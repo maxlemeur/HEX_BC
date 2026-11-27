@@ -333,8 +333,11 @@ export const updateMaterialRequestSchema = z
 export type UpdateMaterialRequestInput = z.input<typeof updateMaterialRequestSchema>;
 export type UpdateMaterialRequestData = z.output<typeof updateMaterialRequestSchema>;
 
+/** The longest original text of a line. */
+export const MATERIAL_REQUEST_ORIGINAL_TEXT_MAX = 500;
+
 const lineFields = {
-  original_text: optionalText(500),
+  original_text: optionalText(MATERIAL_REQUEST_ORIGINAL_TEXT_MAX),
   quantity,
   quantity_doubtful: z.boolean().optional(),
   unit: optionalText(20),

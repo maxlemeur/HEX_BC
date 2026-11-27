@@ -7,6 +7,7 @@ import { MaterialRequestWorkbookBusyError, MaterialRequestWorkbookError } from "
 import {
   materialRequestWorkbookColumnsParamSchema,
   materialRequestWorkbookHeaderRowParamSchema,
+  materialRequestWorkbookSplitParamSchema,
 } from "@/lib/material-requests/workbook-preview-contract";
 
 export const runtime = "nodejs";
@@ -29,7 +30,10 @@ export async function GET(request: Request, { params }: Context) {
     const sheet = query.get("sheet") ?? undefined;
     const mapping = queryValue(materialRequestWorkbookColumnsParamSchema, query.get("columns"));
     const headerRow = queryValue(materialRequestWorkbookHeaderRowParamSchema, query.get("header_row"));
-    response = ok(await previewMaterialRequestWorkbookImport(projectId, requestId, fileId, { sheet, headerRow, mapping }, request.signal));
+    const splitDimension = queryValue(materialRequestWorkbookSplitParamSchema, query.get("split_dimension"));
+    response = ok(await previewMaterialRequestWorkbookImport(
+      projectId, requestId, fileId, { sheet, headerRow, mapping, splitDimension }, request.signal,
+    ));
   } catch (error) {
     if (error instanceof MaterialRequestWorkbookBusyError) {
       response = toErrorResponse(new ApiError({ status: 503, code: "MATERIAL_REQUEST_WORKBOOK_BUSY", message: error.message }));
