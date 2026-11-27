@@ -14,12 +14,32 @@ import {
   PENDING_REFERENCE_PAGE_SIZES,
   reviewReferencesSchema,
 } from "@/lib/catalogue/import-review-contract";
+import { supplierBasePreviewSchema, supplierBaseUploadSchema } from "@/lib/catalogue/supplier-base-contract";
 import { successResponseSchemaDefinition } from "@/lib/openapi/registry-helpers";
 import type { RouteContract } from "@/lib/openapi/route-contracts";
 
 const uuidSchema = z.string().uuid();
 
 export const catalogueImportContracts: RouteContract[] = [
+  {
+    id: "preview-supplier-article-base",
+    method: "post",
+    path: "/api/catalogue/supplier-base/preview",
+    summary: "Prévisualiser l’import d’une base articles fournisseurs",
+    description:
+      "Lit un classeur Excel de 4 Mo au plus. Regroupe les lignes par fournisseur et propose des rapprochements déterministes. Ignore les feuilles SOMMAIRE, RÉCAP et LOCATION, les feuilles masquées et les anciens prix. Aperçu en lecture seule réservé aux administrateurs et aux ingénieurs de l’entreprise active.",
+    tags: ["Catalogue"],
+    body: { schema: supplierBaseUploadSchema, contentType: "multipart/form-data", description: "Un classeur Excel (.xlsx) dans le champ file." },
+    success: [{
+      status: "200",
+      description: "Plan d’import avec les références connues, les propositions, les nouveaux articles potentiels et les anomalies.",
+      schema: successResponseSchemaDefinition("ApiSupplierBasePreview", supplierBasePreviewSchema),
+    }],
+    extraErrors: [
+      { status: "413", description: "Fichier ou aperçu trop volumineux." },
+      { status: "503", description: "La capacité de lecture des classeurs est momentanément atteinte." },
+    ],
+  },
   {
     id: "list-supplier-aliases",
     method: "get",
