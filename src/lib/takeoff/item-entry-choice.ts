@@ -8,12 +8,17 @@ export function entryFacts(entry: ItemEntryView | null, names: Record<string, st
   return { quantity, unit, category, revision, at, note, author: names[entry.actorId] ?? "Un membre" };
 }
 
+export function entryReadingReason({ unit, answer }: ItemTableLine["readings"][number]) {
+  // The coverage reader classifies queued and running units as in_flight even with a published answer.
+  if (unit === "queued" || unit === "running") return "Lecture en cours";
+  if (!answer) return "Aucune réponse sur ce plan";
+  return answer.outcome === "measured" ? "Poste déjà mesuré" : null;
+}
+
 export function entryPlans(line: ItemTableLine, names: Record<string, string> = {}) {
   return line.readings.map(reading => {
-    const { planKey, planName, answer, sent, unit } = reading;
-    // The coverage reader classifies queued and running units as in_flight even with a published answer.
-    const reason = sent ? "Plan déjà envoyé au devis" : unit === "queued" || unit === "running" ? "Lecture en cours"
-      : !answer ? "Aucune réponse sur ce plan" : answer.outcome === "measured" ? "Poste déjà mesuré" : null;
+    const { planKey, planName, answer, sent } = reading;
+    const reason = sent ? "Plan déjà envoyé au devis" : entryReadingReason(reading);
     const entry = line.entry?.planKey === planKey ? line.entry : reading.entry;
     return { key: planKey, name: planName, answerId: answer?.answerId ?? null, entry: entryFacts(entry, names),
       eligible: !reason, ...(reason && { reason }) };

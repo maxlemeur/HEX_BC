@@ -145,8 +145,8 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
     return refused;
   }, []);
   /** The last command's item, read again when it ends (`version` counts the commands). */
-  const [refresh, setRefresh] = useState<{ version: number; itemId: string } | null>(null);
-  const refreshItem = (itemId: string) => setRefresh((current) => ({ version: (current?.version ?? 0) + 1, itemId }));
+  const [refresh, setRefresh] = useState<{ version: number; itemId: string; uncertain?: boolean } | null>(null);
+  const refreshItem = (itemId: string, uncertain = false) => setRefresh((current) => ({ version: (current?.version ?? 0) + 1, itemId, uncertain }));
   const [shown, setShown] = useState<ItemDetailShown | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const scopeKey = JSON.stringify(tableAddress.scope);
@@ -285,12 +285,13 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
       {active?.gesture === "enter_quantity" && active.value ? (
         <EntryDialog key={active.intentKey} projectId={projectId} viewScope={scope} onRefused={withdrawOnRefusal}
           onClose={close} values={[{ line: active.line, ...active.value }]}
-          onFinished={(result, error) => {
+          onFinished={(result, batch, error) => {
+            const uncertain = batch.rows.some(row => row.state === "État inconnu");
             setPending(null);
-            setNotice(error ? { tone: "danger", text: itemReviewStaleLines(error)
+            setNotice(error || uncertain ? { tone: "danger", text: itemReviewStaleLines(error)
               ? "Le poste a changé. Vérifiez la saisie après relecture."
               : "La saisie n’a pas été confirmée. Vérifiez le poste après relecture." } : resultNotice(result, "saisi"));
-            refreshItem(active.line.itemId);
+            refreshItem(active.line.itemId, uncertain);
           }} />
       ) : null}
     </div>

@@ -93,8 +93,8 @@ type Props = {
    * Changes after each command of the page: the command's item (`itemId`, whichever item is shown when the command ends)
    * is read again and its line kept, the journal shown read again; nothing moves.
    */
-  refresh?: { version: number; itemId: string } | null;
-  onMeasureChanged?: (itemId: string) => void;
+  refresh?: { version: number; itemId: string; uncertain?: boolean } | null;
+  onMeasureChanged?: (itemId: string, uncertain?: boolean) => void;
   /** Told what the detail shows each time it changes (another item, reading, line read again or right). */
   onShown?: (shown: ItemDetailShown | null) => void;
 };
@@ -202,10 +202,11 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
   // read of the same item, or the end of this screen, makes a reply obsolete. A save of an answer's counted marks (lot 5)
   // reads its item again the same way.
   const [fresh, setFresh] = useState<Record<string, ItemDetailLineRead | null>>({});
+  const [unconfirmed, setUnconfirmed] = useState<Record<string, "reading" | "failed">>({});
   const rereads = useRef<Record<string, number>>({});
   const read = found?.page.page.lines[found.index] ?? (outside?.line.itemId === itemId ? outside.line : null);
   const gone = itemId in fresh && !fresh[itemId]?.line;
-  const storedLine = itemId in fresh ? fresh[itemId]?.line ?? null : read;
+  const storedLine = unconfirmed[itemId] ? null : itemId in fresh ? fresh[itemId]?.line ?? null : read;
   const context = found?.page ?? (anchor !== null ? queue.page(anchor) : null);
   const canReview = rights ?? false;
   const plans = fresh[itemId]?.plans ?? (outside?.line.itemId === itemId ? outside.plans : context?.plans);
@@ -237,22 +238,28 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
     const completion = begin({ screen: DETAIL_SCREEN, item: itemId });
     return (error: unknown) => completion.ownScreen() && onRefused(error);
   }, [begin, itemId, onRefused]);
-  const rereadItem = useCallback((target: string) => {
+  const rereadItem = useCallback((target: string, uncertain = false) => {
+    if (uncertain) setUnconfirmed(current => ({ ...current, [target]: "reading" }));
     const asked = (rereads.current[target] ?? 0) + 1;
     rereads.current[target] = asked;
     const done = begin({ screen: DETAIL_SCREEN, item: target });
     const latest = () => done.ownScreen() && rereads.current[target] === asked;
     void reader.readLine(target).then((read) => {
       if (!latest()) return;
+      setUnconfirmed(current => {
+        if (!(target in current)) return current;
+        const next = { ...current }; delete next[target]; return next;
+      });
       setFresh((current) => ({ ...current, [target]: read }));
       if (read) setRights(read.canReview);
     }).catch((caught: unknown) => {
+      if (latest()) setUnconfirmed(current => target in current ? { ...current, [target]: "failed" } : current);
       if (isRightRefusal(caught) ? done.ownScreen() : latest() && done.current()) onRefused(caught);
     });
   }, [begin, onRefused, reader]);
   useEffect(() => {
     if (!refresh) return;
-    rereadItem(refresh.itemId);
+    rereadItem(refresh.itemId, refresh.uncertain);
     // The command's item is read again when the page says a command ended, not when another item is shown; a read under
     // way is never cancelled by another item's.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -514,7 +521,10 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
       </p>
       {notice ? <p className="shrink-0 border-b border-border bg-surface px-3 py-1 text-xs text-foreground-secondary" data-testid="poste-detail-notice">{notice}</p> : null}
 
-      {load.state === "missing" || gone ? (
+      {unconfirmed[itemId] ? (
+        <div role="alert" className="p-4">État inconnu · {read?.label ?? "Poste"}. {unconfirmed[itemId] === "reading"
+          ? "Relecture en cours…" : <Button variant="outline" onClick={() => rereadItem(itemId, true)}>Relire le poste</Button>}</div>
+      ) : load.state === "missing" || gone ? (
         <div className="p-4"><Alert variant="danger">Ce poste est introuvable dans la liste de l’affaire.</Alert></div>
       ) : load.state === "error" ? (
         <div className="p-4"><Alert variant="danger">Les postes du métré n’ont pas pu être lus. Revenez aux postes puis réessayez.</Alert></div>
@@ -593,7 +603,7 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
               <ItemDetailEvidencePane ref={evidence} projectId={projectId} line={line} choice={choice} plan={view}
                 entryScopeActions={canReview && <EntryScopeActions key={viewer + line.itemId} projectId={projectId} viewerKey={viewer}
                   line={line} filtered={new URLSearchParams(tableQuery).has("postePlan")} version={version} onRefused={historyRefused}
-                  onRefresh={() => onMeasureChanged ? onMeasureChanged(line.itemId) : rereadItem(line.itemId)} />}
+                  onRefresh={uncertain => onMeasureChanged ? onMeasureChanged(line.itemId, uncertain) : rereadItem(line.itemId, uncertain)} />}
                 showPosteDecision={!reviewId || (!!review && !decisionDisagrees)}
                 measureRetention={choice.kind === "reading" && review && answer ? <MeasureRetention
                   key={`${viewerKey}:${review.answer_id}:${review.revision}:${canReview}`} projectId={projectId}

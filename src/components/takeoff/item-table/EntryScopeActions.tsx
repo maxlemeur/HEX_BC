@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { EntryScopeCommand, EntryScopeResult } from "@/lib/takeoff/entry-scope-contracts";
+import { entryReadingReason } from "@/lib/takeoff/item-entry-choice";
 import { fetchItemLine, sendEntryScope } from "@/lib/takeoff/item-table-client";
 import type { ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
 import { formatEntryQuantity } from "@/lib/takeoff/item-table-labels";
@@ -24,7 +25,7 @@ type Snapshot = { action: keyof typeof titles; source: Entry; plans: Array<{ key
 
 export function EntryScopeActions({ projectId, viewerKey, line, filtered, version, onRefused, onRefresh }: {
   projectId: string; viewerKey: string; line: ItemTableResponseLine; filtered: boolean; version: number;
-  onRefused: (error: unknown) => boolean; onRefresh: () => void;
+  onRefused: (error: unknown) => boolean; onRefresh: (uncertain?: boolean) => void;
 }) {
   const needsFullLine = filtered && line.entry?.scope !== "affaire";
   const read = useSWR(needsFullLine && line.wholeEntry ? ["poste-entry-scope", viewerKey, projectId, line.itemId, version] : null,
@@ -35,8 +36,7 @@ export function EntryScopeActions({ projectId, viewerKey, line, filtered, versio
   const begin = (action: Snapshot["action"]) => {
     if (full?.entry?.scope !== "affaire") return;
     setSnapshot({ action, source: full.entry, plans: full.readings.map(r => ({ key: r.planKey, name: r.planName, revision: r.entry?.revision ?? 0,
-      unavailable: r.unit === "running" || r.unit === "queued" ? "Lecture en cours" : !r.answer ? "Aucune réponse sur ce plan"
-        : r.answer.outcome === "measured" ? "Poste déjà mesuré" : null })) });
+      unavailable: entryReadingReason(r) })) });
   };
   if (read.error) return <p role="alert">Impossible de relire la saisie de l’affaire.</p>;
   return <>
@@ -45,12 +45,12 @@ export function EntryScopeActions({ projectId, viewerKey, line, filtered, versio
       <Button size="xs" variant="outline" onClick={() => begin("withdraw")}>{titles.withdraw}</Button>
     </div>}
     {snapshot && <ScopeDialog snapshot={snapshot} projectId={projectId} onRefused={onRefused}
-      close={refresh => { setSnapshot(null); if (refresh) onRefresh(); }} />}
+      close={(refresh, uncertain) => { setSnapshot(null); if (refresh) onRefresh(uncertain); }} />}
   </>;
 }
 
 function ScopeDialog({ snapshot, projectId, onRefused, close }: {
-  snapshot: Snapshot; projectId: string; onRefused: (error: unknown) => boolean; close: (refresh: boolean) => void;
+  snapshot: Snapshot; projectId: string; onRefused: (error: unknown) => boolean; close: (refresh: boolean, uncertain?: boolean) => void;
 }) {
   const { source, plans, action } = snapshot;
   const field = useId();
@@ -66,7 +66,7 @@ function ScopeDialog({ snapshot, projectId, onRefused, close }: {
   const collision = result?.outcome === "collision" ? result.entry : null;
   useEffect(() => { if (collision) cancel.current?.focus(); }, [collision]);
   const refused = result && result.outcome in messages ? messages[result.outcome as keyof typeof messages] : null;
-  const dismiss = () => { if (!sending.current) close(!!refused || !!error); };
+  const dismiss = () => { if (!sending.current) close(!!refused || !!error, !!error); };
   async function submit(replace = false) {
     if (sending.current || refused || (action === "attach" && !plan) || (replace !== !!collision)) return;
     const base = { entry_revision: source.revision, intent_key: intent };

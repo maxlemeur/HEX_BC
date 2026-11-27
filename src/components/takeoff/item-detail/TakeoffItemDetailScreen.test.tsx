@@ -870,3 +870,27 @@ it("keeps F2's uncertain entry and retries the identical command before refreshi
   expect(client.sendItemReviewCommand.mock.calls[1]).toEqual(client.sendItemReviewCommand.mock.calls[0]);
   expect(screen.getByTestId("poste-detail-decision")).toHaveTextContent("Poste saisi");
 });
+
+it("withholds the former entry and F2 when rereading an uncertain withdrawal fails, then reads its disappearance", async () => {
+  scenario.entries = [{ itemId: ITEMS.notFound, scope: "affaire", planKey: null, quantity: 4, unit: "u", category: "site_survey",
+    actorId: JOB_RDC, revision: 1, at: "2026-11-22T08:00:00Z", previous: null, note: null, included: true }];
+  const send = vi.spyOn(itemClient, "sendEntryScope").mockRejectedValueOnce(new TypeError("response lost"));
+  open(ITEMS.notFound, PLAN_RDC, JOB_RDC);
+  await settle();
+  fireEvent.click(evidence().getByRole("button", { name: "Retirer la saisie de l’affaire" }));
+  fireEvent.click(dialog().getByRole("button", { name: "Retirer" }));
+  await dialog().findByRole("alert");
+  client.fetchItemLine.mockRejectedValueOnce(new TypeError("offline"));
+  fireEvent.click(dialog().getByRole("button", { name: "Annuler" }));
+  const retry = await screen.findByRole("button", { name: "Relire le poste" });
+  expect(screen.getByRole("alert")).toHaveTextContent("État inconnu");
+  expect(screen.queryByText("Retirer la saisie de l’affaire")).toBeNull();
+  fireEvent.keyDown(document.activeElement!, { key: "F2" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  scenario.entries = [];
+  fireEvent.click(retry);
+  await screen.findByRole("button", { name: "Saisir une quantité" });
+  expect(screen.queryByText("Retirer la saisie de l’affaire")).toBeNull();
+  expect(send).toHaveBeenCalledOnce();
+  send.mockRestore();
+});

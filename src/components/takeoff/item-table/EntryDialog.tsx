@@ -9,30 +9,30 @@ import { Textarea } from "@/components/ui/textarea";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
 import { entryDestination, entryPlans, groupEntryCommands, type EntryChoiceItem } from "@/lib/takeoff/item-entry-choice";
 import type { ItemTableScope } from "@/lib/takeoff/item-table";
-import { fetchFrozenItemSelection, sendItemReviewCommand } from "@/lib/takeoff/item-table-client";
+import { fetchFrozenItemSelection, itemReviewStaleLines, sendItemReviewCommand } from "@/lib/takeoff/item-table-client";
 import type { ItemReviewResult, ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
-import { formatItemCount, formatEntryQuantity } from "@/lib/takeoff/item-table-labels";
+import { formatItemCount, formatEntryQuantity, ITEM_INELIGIBILITY_LABELS } from "@/lib/takeoff/item-table-labels";
 import { noteText } from "@/lib/takeoff/rules/verification";
 import { HYPOTHESIS_NOTE, QUANTITY_ENTRY_CATEGORIES, quantityEntryError, type QuantityEntryCategory } from "@/lib/takeoff/quantity-entry";
+import { EntryBatchResult, type EntryBatch } from "./EntryBatchResult";
 import { confirmOnEnter } from "./ItemTableGestureDialogs";
 
 const CATEGORIES = Object.keys(QUANTITY_ENTRY_CATEGORIES) as QuantityEntryCategory[];
 const date = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Paris" });
 type Value = { line: ItemTableResponseLine; quantity: number; unit: string };
-type Submission = { remaining: ReturnType<typeof groupEntryCommands>; result: ItemReviewResult };
 
-export function EntryDialog({ projectId, viewScope, values, onClose, onRefused, onFinished }: {
-  projectId: string; viewScope: ItemTableScope; values: Value[]; onClose: () => void;
+export function EntryDialog({ projectId, viewScope, values, resume, onClose, onRefused, onFinished }: {
+  projectId: string; viewScope: ItemTableScope; values: Value[]; resume?: EntryBatch; onClose: () => void;
   onRefused: (error: unknown) => boolean;
-  onFinished: (result: ItemReviewResult, failure?: unknown) => void;
+  onFinished: (result: ItemReviewResult, batch: EntryBatch, failure?: unknown) => void;
 }) {
   const [seen] = useState(() => values);
   const [initial] = useState(() => seen.map(({ line }) => ({ target: line.targets, plans: entryPlans(line),
     wholeEligible: line.eligibility.enter_quantity.eligible, wholeEntry: null })));
   const filtered = viewScope.kind === "plan" ? viewScope.planKey : null;
   // The filtered view omits the other scopes. A draft from another page may also lack the author's name.
-  const needsRead = !!filtered || seen.some(({ line }) => line.entry || line.targets.entryRevision ||
-    line.targets.answers.some(answer => answer.entryRevision) || line.readings.some(reading => reading.entry));
+  const needsRead = !resume && (!!filtered || seen.some(({ line }) => line.entry || line.targets.entryRevision ||
+    line.targets.answers.some(answer => answer.entryRevision) || line.readings.some(reading => reading.entry)));
   const [items, setItems] = useState<EntryChoiceItem[]>(needsRead ? [] : initial);
   const [loadError, setLoadError] = useState("");
   const report = useEffectEvent(onRefused);
@@ -75,37 +75,51 @@ export function EntryDialog({ projectId, viewScope, values, onClose, onRefused, 
   const invalid = entry && quantityEntryError(entry);
   const complete = entry && !invalid && rows.some(r => r.destination) && rows.every(r => r.destination || r.keepDraft);
   const replacements = rows.filter(r => r.destination?.existing).length;
-  const [pending, setPending] = useState<Submission | null>(null);
+  const [pending, setPending] = useState<EntryBatch | null>(resume ?? null);
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const close = () => {
     if (running.current) return;
-    if (pending) onFinished(pending.result, new Error("Réponse non confirmée. Vérifiez les saisies après relecture."));
+    if (pending) onFinished(pending.result, pending);
     else onClose();
   };
   async function confirm() {
-    if (running.current || !complete || !entry) return;
+    if (running.current || (!pending && (!complete || !entry))) return;
     running.current = true;
     setBusy(true);
-    const submission = pending ?? { remaining: groupEntryCommands(rows.flatMap(({ destination, value }) =>
-      destination ? [{ destination, quantity: value.quantity, unit: value.unit }] : []), entry),
-      result: { outcome: "applied", applied: [], skipped: [] } satisfies ItemReviewResult };
-    let index = 0;
-    const result: ItemReviewResult = { ...submission.result, applied: [...submission.result.applied], skipped: [...submission.result.skipped] };
+    let batch: EntryBatch = pending ?? {
+      rows: rows.map(({ item, key, value }) => ({ id: value.line.itemId, label: value.line.label, quantity: value.quantity, unit: value.unit,
+        destination: key === "affaire" ? "Toute l’affaire" : item.plans.find(p => p.key === key)?.name ?? "Brouillon sans portée",
+        state: "Non envoyé" })),
+      remaining: groupEntryCommands(rows.flatMap(({ destination, value }) =>
+        destination ? [{ destination, quantity: value.quantity, unit: value.unit }] : []), entry!),
+      result: { outcome: "applied", applied: [], skipped: [] },
+    };
     try {
-      for (; index < submission.remaining.length; index++) {
-        const next = await sendItemReviewCommand(projectId, submission.remaining[index]);
+      while (batch.remaining.length) {
+        const [command, ...later] = batch.remaining;
+        const next = await sendItemReviewCommand(projectId, command);
         if (!mounted.current) return;
-        result.applied.push(...next.applied);
-        result.skipped.push(...next.skipped);
+        const stored = new Set(next.applied.map(row => row.itemId));
+        const skipped = new Map(next.skipped.map(row => [row.itemId, ITEM_INELIGIBILITY_LABELS[row.reason]]));
+        batch = { remaining: later, result: { outcome: next.outcome, applied: [...batch.result.applied, ...next.applied],
+          skipped: [...batch.result.skipped, ...next.skipped] }, rows: batch.rows.map(row => stored.has(row.id)
+          ? { ...row, state: "Enregistré", reason: undefined } : skipped.has(row.id)
+            ? { ...row, state: "Refusé", reason: skipped.get(row.id) } : row) };
+        if (next.skipped.length && later.length) { setPending(batch); return; }
       }
-      onFinished(result);
+      onFinished(batch.result, batch);
     } catch (error) {
       if (!mounted.current || onRefused(error)) return;
-      if (isTakeoffApiError(error) && error.status >= 400 && error.status < 500 && error.status !== 408) onFinished(result, error);
-      else setPending({ result, remaining: submission.remaining.slice(index) });
+      const refused = isTakeoffApiError(error) && error.status >= 400 && error.status < 500 && error.status !== 408;
+      const reason = refused ? itemReviewStaleLines(error) ? "Écran périmé" : error.message : undefined;
+      const ids = new Set(batch.remaining[0].targets.map(target => target.itemId));
+      batch = { ...batch, remaining: refused ? batch.remaining.slice(1) : batch.remaining,
+        rows: batch.rows.map(row => ids.has(row.id) ? { ...row, state: refused ? "Refusé" : "État inconnu", reason } : row) };
+      if (batch.remaining.length) setPending(batch);
+      else onFinished(batch.result, batch, error);
     } finally {
       running.current = false;
       if (mounted.current) setBusy(false);
@@ -115,9 +129,9 @@ export function EntryDialog({ projectId, viewScope, values, onClose, onRefused, 
     <DialogContent size="md">
       <DialogHeader>
         <DialogTitle>Enregistrer les quantités saisies</DialogTitle>
-        <DialogDescription>{formatItemCount(seen.length, "valeur", "valeurs")}. Une saisie sur un plan peut être envoyée avec ce plan si l’aperçu la retient. Un total de toute l’affaire ne part avec aucun plan.</DialogDescription>
+        <DialogDescription>{formatItemCount(pending?.rows.length ?? seen.length, "valeur", "valeurs")}. Une saisie sur un plan peut être envoyée avec ce plan si l’aperçu la retient. Un total de toute l’affaire ne part avec aucun plan.</DialogDescription>
       </DialogHeader>
-      <fieldset disabled={busy || !!pending} className="flex min-w-0 flex-col gap-3" onKeyDown={confirmOnEnter(() => { if (!replacements) void confirm(); })}>
+      {!pending && <fieldset disabled={busy} className="flex min-w-0 flex-col gap-3" onKeyDown={confirmOnEnter(() => { if (!replacements) void confirm(); })}>
         <Field>
           <FieldLabel htmlFor={scopeId}>Portée de la saisie</FieldLabel>
           <NativeSelect id={scopeId} value={selected} onChange={event => setChoice(event.target.value)}>
@@ -166,12 +180,14 @@ export function EntryDialog({ projectId, viewScope, values, onClose, onRefused, 
             "La même note est écrite sur chaque poste : ne la donnez que si elle vaut pour chacun."}</FieldDescription>
           {invalid && <p role="alert">{invalid}</p>}
         </Field>
-      </fieldset>
-      {pending && <p role="alert">Réponse non confirmée. Réessayez la même saisie ou fermez pour relire les postes. Valeurs déjà confirmées : {pending.result.applied.length}.</p>}
+      </fieldset>}
+      {pending && <div role="status"><EntryBatchResult rows={pending.rows} />
+        {pending.rows.some(r => r.state === "État inconnu") && <p>Réessayez la même saisie ou fermez pour relire les postes concernés.</p>}
+      </div>}
       <DialogFooter>
         <Button variant="outline" disabled={busy} onClick={close}>Annuler</Button>
-        <Button disabled={!complete || busy} variant={replacements ? "danger" : "primary"} onClick={() => void confirm()}>
-          {pending ? "Réessayer la même saisie" : replacements === 1 ? "Remplacer la saisie" : replacements ? `Remplacer les ${replacements} saisies` : "Enregistrer"}
+        <Button disabled={(!pending && !complete) || busy} variant={replacements ? "danger" : "primary"} onClick={() => void confirm()}>
+          {pending ? pending.rows.some(r => r.state === "État inconnu") ? "Réessayer la même saisie" : "Envoyer les valeurs non envoyées" : replacements === 1 ? "Remplacer la saisie" : replacements ? `Remplacer les ${replacements} saisies` : "Enregistrer"}
         </Button>
       </DialogFooter>
     </DialogContent>

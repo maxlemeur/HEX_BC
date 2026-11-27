@@ -16,6 +16,7 @@ import type { ItemTableResponse } from "@/lib/takeoff/item-table-contracts";
 
 const client = vi.hoisted(() => ({
   fetchItemTable: vi.fn(),
+  fetchItemLine: vi.fn(),
   fetchMeasureReview: vi.fn(),
   fetchFrozenItemSelection: vi.fn(),
   sendItemReviewCommand: vi.fn(),
@@ -731,32 +732,93 @@ it("shows a whole-affaire entry and its priority per poste before confirming the
   expect(client.sendItemReviewCommand.mock.calls[0][1].targets).toEqual([line.targets]);
 });
 
-it("resumes a two-plan batch at the uncertain group, using the same intention only for that group", async () => {
-  const data = table({ readings: SCENARIO.filter(r => !(r.itemId === fixtureItemId(3) && r.planKey === R1)
-    && !(r.itemId === fixtureItemId(4) && r.planKey === RDC)) });
+it.each(["stale", "lost"])("reports all three typed postes when the middle command is %s", async failure => {
+  const plans = [RDC, R1, "plan-bas"];
+  const labels = ITEMS.slice(3).map(item => item.label);
+  const data = table({ readings: plans.map((key, i) => ({ ...fixtureReading(i + 3, key, fixtureAnswer("not_found", null)), planName: ["RDC", "Étage", "Sous-sol"][i] })) });
   client.fetchItemTable.mockResolvedValue(data);
-  const result = (index: number) => ({ outcome: "applied", applied: [{ itemId: fixtureItemId(index), label: ITEMS[index].label, answers: 1 }], skipped: [] });
-  client.sendItemReviewCommand.mockResolvedValueOnce(result(3)).mockRejectedValueOnce(new TypeError("lost")).mockResolvedValueOnce(result(4));
+  const stored = new Map<string, number>();
+  let interrupted = false;
+  client.sendItemReviewCommand.mockImplementation(async (_project, command) => {
+    const value = command.values[0];
+    const middle = value.item_id === fixtureItemId(4);
+    if (middle && !interrupted) {
+      interrupted = true;
+      if (failure === "stale") throw new TakeoffApiError("Écran périmé", 409, { stale: [{ itemId: value.item_id, label: labels[1] }] }, "TAKEOFF_ITEM_REVIEW_STALE");
+      stored.set(value.item_id, value.quantity);
+      throw new TypeError("Response lost after commit");
+    }
+    stored.set(value.item_id, value.quantity);
+    return { outcome: "applied", applied: [{ itemId: value.item_id, label: labels[plans.indexOf(command.scope.planKey)], answers: 1 }], skipped: [] };
+  });
   renderTable();
-  for (const name of ["Baignoire", "Vanne DN32"]) {
-    fireEvent.change(await screen.findByLabelText(`Quantité saisie pour « ${name} »`), { target: { value: "2" } });
+  for (const [index, name] of labels.entries()) {
+    fireEvent.change(await screen.findByLabelText(`Quantité saisie pour « ${name} »`), { target: { value: String(index + 2) } });
   }
-  fireEvent.click(screen.getByText("Enregistrer les saisies (2)"));
+  fireEvent.click(screen.getByText("Enregistrer les saisies (3)"));
   const dialog = within(await screen.findByRole("dialog"));
-  const choice = dialog.getByRole("option", { name: "Chaque valeur sur son plan" }) as HTMLOptionElement;
-  fireEvent.change(dialog.getByLabelText("Portée de la saisie"), { target: { value: choice.value } });
-  expect(dialog.getByLabelText("Plan pour Baignoire")).toHaveValue(RDC);
-  expect(dialog.getByLabelText("Plan pour Vanne DN32")).toHaveValue(R1);
+  fireEvent.change(dialog.getByLabelText("Portée de la saisie"), { target: { value: "individual" } });
   fireEvent.change(dialog.getByLabelText("Ce qui fonde ces quantités"), { target: { value: "site_survey" } });
   fireEvent.click(dialog.getByRole("button", { name: "Enregistrer" }));
-  expect(await dialog.findByRole("alert")).toHaveTextContent("Valeurs déjà confirmées : 1");
-  fireEvent.click(dialog.getByRole("button", { name: "Réessayer la même saisie" }));
+  const receipt = await dialog.findByRole("list", { name: "Résultat des saisies" });
+  const rows = within(receipt).getAllByRole("listitem");
+  expect(rows[0]).toHaveTextContent("Baignoire · 2 u · RDC · Enregistré");
+  expect(rows[1]).toHaveTextContent(`Vanne DN32 · 3 u · Étage · ${failure === "lost" ? "État inconnu" : "Refusé · Écran périmé"}`);
+  expect(rows[2]).toHaveTextContent("Receveur de douche · 4 u · Sous-sol · Non envoyé");
+  expect([...stored.values()]).toEqual(failure === "lost" ? [2, 3] : [2]);
+  fireEvent.click(dialog.getByRole("button", { name: failure === "lost" ? "Réessayer la même saisie" : "Envoyer les valeurs non envoyées" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   const commands = client.sendItemReviewCommand.mock.calls.map(call => call[1]);
-  expect(commands.map(c => c.scope.planKey)).toEqual([RDC, R1, R1]);
-  expect(commands[2]).toEqual(commands[1]);
-  expect(commands[0].intent_key).not.toBe(commands[1].intent_key);
-  expect(screen.getByTestId("poste-notice")).toHaveTextContent("2 postes saisis");
+  expect(commands.map(c => c.scope.planKey)).toEqual(failure === "lost" ? [RDC, R1, R1, plans[2]] : plans);
+  if (failure === "lost") expect(commands[2]).toEqual(commands[1]);
+  expect([...stored.values()]).toEqual(failure === "lost" ? [2, 3, 4] : [2, 4]);
+  expect(screen.getByRole("list", { name: "Résultat des saisies" })).toHaveTextContent("Receveur de douche · 4 u · Sous-sol · Enregistré");
+  if (failure === "stale") expect(screen.getByLabelText("Quantité saisie pour « Vanne DN32 »")).toHaveValue("3");
+});
+
+it("rereads an uncertain draft on another page by id and withholds entry until the read succeeds", async () => {
+  client.sendItemReviewCommand.mockRejectedValueOnce(new TypeError("lost"));
+  const all = table();
+  const hidden = all.page.lines.find(l => l.itemId === fixtureItemId(3))!;
+  client.fetchItemLine.mockRejectedValueOnce(new TypeError("offline")).mockResolvedValue({ line: hidden, canReview: true });
+  const view = renderTable({ signature: "first" });
+  fireEvent.change(await screen.findByLabelText("Quantité saisie pour « Baignoire »"), { target: { value: "7" } });
+  client.fetchItemTable.mockResolvedValue({ ...all, page: { ...all.page, lines: all.page.lines.filter(l => l !== hidden) } });
+  view.rerenderWith({ signature: "second" });
+  await waitFor(() => expect(screen.queryByLabelText("Quantité saisie pour « Baignoire »")).toBeNull());
+  fireEvent.click(screen.getByText("Enregistrer les saisies (1)"));
+  const dialog = within(await screen.findByRole("dialog"));
+  fireEvent.change(dialog.getByLabelText("Portée de la saisie"), { target: { value: "affaire" } });
+  fireEvent.change(dialog.getByLabelText("Ce qui fonde ces quantités"), { target: { value: "site_survey" } });
+  fireEvent.click(dialog.getByText("Enregistrer"));
+  await dialog.findByText("Réessayer la même saisie");
+  fireEvent.click(dialog.getByText("Annuler"));
+  const retry = await screen.findByRole("button", { name: "Relire Baignoire" });
+  expect(client.fetchItemLine).toHaveBeenCalledWith(FIXTURE_ITEM_PROJECT, hidden.itemId);
+  expect(screen.queryByText("Enregistrer les saisies (1)")).toBeNull();
+  fireEvent.click(retry);
+  expect(await screen.findByText("Enregistrer les saisies (1)")).toBeVisible();
+  expect(client.fetchItemLine).toHaveBeenCalledTimes(2);
+  expect(screen.getByText(/Après relecture · Aucune saisie/)).toBeVisible();
+  client.sendItemReviewCommand.mockResolvedValueOnce({ outcome: "applied", applied: [{ itemId: hidden.itemId, label: hidden.label, answers: 1 }], skipped: [] });
+  fireEvent.click(screen.getByText("Reprendre les saisies du lot"));
+  fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Réessayer la même saisie" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(client.sendItemReviewCommand.mock.calls[1]).toEqual(client.sendItemReviewCommand.mock.calls[0]);
+  expect(screen.getByRole("list", { name: "Résultat des saisies" })).toHaveTextContent("Baignoire · 7 u · Toute l’affaire · Enregistré");
+});
+
+it("explains why the plan with an earlier uncertain answer cannot be selected during a new measure", async () => {
+  const data = table({ readings: [fixtureReading(4, R1, fixtureAnswer("not_found", null)),
+    { ...fixtureReading(4, RDC, fixtureAnswer("uncertain", null)), reading: "in_flight", unit: "running" }] });
+  client.fetchItemTable.mockResolvedValue(data);
+  renderTable();
+  fireEvent.change(await screen.findByLabelText("Quantité saisie pour « Vanne DN32 »"), { target: { value: "2" } });
+  fireEvent.click(screen.getByText("Enregistrer les saisies (1)"));
+  const dialog = within(await screen.findByRole("dialog"));
+  expect(dialog.queryByRole("option", { name: "Plan RDC" })).toBeNull();
+  expect(dialog.getByText("Plan RDC · Lecture en cours")).toBeVisible();
+  expect(dialog.getByRole("option", { name: "Plan R+1" })).toBeVisible();
 });
 
 it("shows both colleagues' entries on another plan before replacing either in a batch", async () => {
