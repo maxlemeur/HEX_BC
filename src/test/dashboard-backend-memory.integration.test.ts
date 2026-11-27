@@ -8,7 +8,8 @@ import { runLocalSupabaseCi } from "./local-supabase-ci";
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "./supabase-cli";
 
 // Run from the checkout with:
-// MERGEONE_TEST_DASHBOARD_MEMORY=1 npx vitest run --project node src/test/dashboard-backend-memory.integration.test.ts
+// MERGEONE_TEST_DASHBOARD_MEMORY=1 npx vitest run --project node --disableConsoleIntercept --silent=false \
+//   src/test/dashboard-backend-memory.integration.test.ts
 // Allocator totals cover PostgreSQL memory contexts after each statement. RSS includes shared
 // pages, so it is reported separately. The budget is for retained growth after warm-up.
 // The five dashboard entries need a sixth row to decide whether another page exists.
