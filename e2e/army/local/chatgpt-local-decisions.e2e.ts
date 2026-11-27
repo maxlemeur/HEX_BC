@@ -53,6 +53,8 @@ beforeAll(async () => {
 // ASSIST02 launches a job and reads its review. Warm the takeoff routes in bounded waves.
 for (const wave of TAKEOFF_JOURNEY_WAVES) beforeAll(() => server.compileTakeoffRoutes(wave));
 beforeAll(() => compileChatGptRoutes(localOrigin, fixtureEmail, "takeoff-activity"));
+// LOCALREV01 opens the same preparation panel as LOCAL01, including the deferred dashboard poll.
+beforeAll(() => compileChatGptRoutes(localOrigin, fixtureEmail, "takeoff-launch-panel"));
 
 afterAll(() => server.stop(fixtureStore));
 
@@ -138,7 +140,7 @@ if (!existsSync(liveProbePath)) test("LOCALREV01 a chosen plan revision supplies
     await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
     const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
     await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
-    await expect(dialog.getByText("Quelle version retenir ?", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Quelle version retenir ?", { exact: true })).toBeVisible(DEV_SERVER_WORK);
     expect(await jobs.list()).toEqual([]);
     expect((await readTransport()).slice(start)).toEqual([]);
     const screenshot = await app.screenshot("localrev01-plan-choice");

@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  TAKEOFF_LAUNCH_DOSSIER_REASONS, TAKEOFF_LAUNCH_MANDATE_REASONS, TAKEOFF_LAUNCH_TRANSIENT_REASONS,
+  describeTakeoffLaunchReason, TAKEOFF_LAUNCH_DOSSIER_REASONS, TAKEOFF_LAUNCH_MANDATE_REASONS, TAKEOFF_LAUNCH_TRANSIENT_REASONS,
 } from "@/lib/takeoff/launch-request";
 
 // The reasons a launch request waits on are decided in SQL (the claim, the allowed gesture) and shown by the server:
@@ -27,5 +27,23 @@ describe("launch request reasons", () => {
     ["takeoff_launch_transient_reasons", TAKEOFF_LAUNCH_TRANSIENT_REASONS],
   ])("lists %s as the migration does", (name, list) => {
     expect([...list]).toEqual(sqlList(name));
+  });
+});
+
+// A request is taken on or resumed with the plan or with a personal key (the gesture's own label says which): a reason
+// that tells the member to resume names neither. The reasons about ChatGPT itself keep naming the plan.
+describe("what a launch request's reason tells the member to do", () => {
+  it.each([
+    ["MANDATE_REQUIRED", "Métré non démarré — la confirmation du dossier n’a engagé aucun forfait ChatGPT. Un métreur peut le prendre en charge."],
+    ["LOCAL_RUNTIME_REQUIRED", "Métré non démarré — ouvrez MergeOne sur le Mac connecté, puis reprenez la demande."],
+    ["EVALUATION_FAILED", "Métré non démarré — la vérification du dossier a échoué plusieurs fois. Reprenez la demande pour réessayer."],
+    ["PAYER_NOT_ELIGIBLE", "Métré non démarré — la personne qui devait payer ne peut plus lancer de métré sur cette affaire. Un métreur peut le prendre en charge."],
+  ] as const)("names no payment source for %s", (reason, message) => {
+    expect(describeTakeoffLaunchReason(reason)).toBe(message);
+    expect(message).not.toMatch(/votre forfait|avec le sien/);
+  });
+
+  it.each(["CHATGPT_NOT_CONNECTED", "CHATGPT_SELECTION_CHANGED"] as const)("keeps naming the plan for %s, which is about it", (reason) => {
+    expect(describeTakeoffLaunchReason(reason)).toMatch(/reprenez avec votre forfait/i);
   });
 });

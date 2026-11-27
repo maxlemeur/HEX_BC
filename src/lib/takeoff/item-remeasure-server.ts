@@ -281,6 +281,8 @@ function sealedSelectionValue(selection: TakeoffExecutionSelection) {
 export async function launchTakeoffItemRemeasure(context: Context, input: {
   projectId: string; intentKey: string; plan: TakeoffItemRemeasurePlan; selection: TakeoffExecutionSelection;
   targets: TakeoffItemRemeasureTargets; confirmation: TakeoffItemRemeasureConfirmation; host?: string | null;
+  /** Runs immediately before the admission: a key's mandate is recorded there, after every refusal made here. */
+  beforeAdmission?: () => Promise<void>;
 }): Promise<TakeoffItemRemeasureAdmission> {
   const service = createServiceRoleClient();
   const { plan } = input;
@@ -294,6 +296,7 @@ export async function launchTakeoffItemRemeasure(context: Context, input: {
     });
     if (attested.error) remeasureError(attested.error);
   }
+  await input.beforeAdmission?.();
   const { data, error } = await service.rpc("launch_takeoff_item_remeasure", {
     p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId, p_intent_key: input.intentKey,
     p_predecessor_job_id: plan.predecessorJobId as string, p_host: input.selection.hostId,

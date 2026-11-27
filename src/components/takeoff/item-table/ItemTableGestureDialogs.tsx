@@ -3,6 +3,8 @@
 import { useId, useState, type KeyboardEvent } from "react";
 
 import { CHATGPT_REASONING_EFFORT_LABELS } from "@/lib/ai/chatgpt-model-preferences";
+import { TakeoffPaymentFields } from "../TakeoffPaymentFields";
+import type { TakeoffPaymentSettings } from "../useTakeoffPaymentSettings";
 import { ITEM_SET_ASIDE_REASONS, type ItemSetAsideReason } from "@/lib/takeoff/item-table";
 import { ITEM_SET_ASIDE_NOTE, type ItemRemeasurePreview } from "@/lib/takeoff/item-table-contracts";
 import {
@@ -136,41 +138,47 @@ export function ReinstateDialog({ scopeLabel, busy, onClose, eligible, onConfirm
   );
 }
 
-export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError, onConfirm }: Base & {
+export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError, onConfirm, payment, paymentStale, onReloadPayment }: Base & {
   preview: ItemRemeasurePreview | null;
   loadError: string | null;
   onConfirm: () => void;
+  payment: TakeoffPaymentSettings;
+  paymentStale?: boolean;
+  onReloadPayment: () => void;
 }) {
   const ready = preview?.subscription.state === "ready" ? preview.subscription : null;
   const reading = preview?.reading.state === "ready" ? preview.reading : null;
-  const canConfirm = Boolean(ready && reading && preview && !preview.running && preview.items.length > 0 && preview.plans.length > 0 && !busy);
+  const viaKey = payment.value.source === "personal_api_key";
+  const canConfirm = Boolean(payment.ready && !paymentStale && ready && reading && preview && !preview.running && preview.items.length > 0 && preview.plans.length > 0 && !busy);
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Demander à l’IA de mesurer de nouveau la sélection</DialogTitle>
           <DialogDescription>
-            {scopeLabel}. Une nouvelle demande d’analyse, à votre nom et sur votre forfait ChatGPT, lit seulement ces postes
+            {scopeLabel}. Une nouvelle demande d’analyse, à votre nom et {viaKey ? "avec votre clé API OpenAI" : "sur votre forfait ChatGPT"}, lit seulement ces postes
             sur ces plans. Les résultats précédents restent consultables ; leur acceptation ne passe pas à la nouvelle mesure.
           </DialogDescription>
         </DialogHeader>
+        <TakeoffPaymentFields settings={payment} disabled={busy} stale={paymentStale} onReload={onReloadPayment} />
         {loadError ? <p className="text-sm text-danger" role="alert">{loadError}</p> : null}
         {!preview && !loadError ? <p className="text-sm text-muted-foreground" role="status">Préparation de la demande…</p> : null}
         {preview ? (
           <div className="space-y-3 text-sm" data-testid="poste-remeasure-preview">
             <p>
-              Forfait utilisé : {preview.payer.name ? `celui de ${preview.payer.name}` : "le vôtre"} (vous confirmez la demande).
+              {viaKey ? `Clé API utilisée : ${preview.payer.name ? `celle de ${preview.payer.name}` : "la vôtre"}`
+                : `Forfait utilisé : ${preview.payer.name ? `celui de ${preview.payer.name}` : "le vôtre"}`} (vous confirmez la demande).
             </p>
-            {ready ? (
+            {ready && !payment.choice ? (
               <p>
                 Réglage de Mon profil : {ready.model} · effort{" "}
                 {ready.reasoningEffort ? CHATGPT_REASONING_EFFORT_LABELS[ready.reasoningEffort].toLocaleLowerCase("fr") : "par défaut"}.
                 {/* The Mac reads a request with its payer's profile as it is: no effort is offered for one request alone. */}
                 {" "}La demande l’utilise tel quel.
               </p>
-            ) : (
+            ) : !ready ? (
               <p className="text-danger" role="alert">{preview.subscription.state === "unavailable" ? preview.subscription.reason : null}</p>
-            )}
+            ) : null}
             <div>
               <p className="font-medium">{formatItemCount(preview.plans.length, "plan lu", "plans lus")}</p>
               <ul className="list-disc pl-5">{preview.plans.map((plan) => <li key={plan.key}>{plan.name}</li>)}</ul>
@@ -181,7 +189,7 @@ export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError,
             </div>
             {reading ? (
               <p data-testid="poste-remeasure-reading">
-                {reading.summary} Budget réservé sur votre forfait : {formatItemCount(reading.budgetTokens, "jeton", "jetons")} au plus
+                {reading.summary} Budget réservé {viaKey ? "pour cette demande" : "sur votre forfait"} : {formatItemCount(reading.budgetTokens, "jeton", "jetons")} au plus
                 ({formatItemCount(reading.calls, "appel payant", "appels payants")}).
               </p>
             ) : preview.reading.state === "refused" ? (
@@ -200,7 +208,7 @@ export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError,
         <DialogFooter>
           <DialogClose disabled={busy} render={<Button variant="outline" />}>Annuler</DialogClose>
           <Button disabled={!canConfirm} onClick={onConfirm}>
-            Confirmer la demande sur mon forfait
+            {viaKey ? "Confirmer la demande avec ma clé API" : "Confirmer la demande sur mon forfait"}
           </Button>
         </DialogFooter>
       </DialogContent>

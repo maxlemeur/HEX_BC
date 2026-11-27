@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fixtureTakeoffPaymentOptions, FIXTURE_KEY_CONNECTION, NO_PAYMENT_OPTIONS } from "@/lib/takeoff/payment-settings.test-fixtures";
 
 import { TakeoffApiError } from "@/lib/takeoff/client-http";
 import {
@@ -14,6 +15,8 @@ import {
 } from "@/lib/takeoff/item-table.test-fixtures";
 import type { ItemTableResponse } from "@/lib/takeoff/item-table-contracts";
 
+const readPayment = vi.hoisted(() => vi.fn());
+vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({ readTakeoffPaymentOptionsAction: readPayment }));
 const client = vi.hoisted(() => ({
   fetchItemTable: vi.fn(),
   fetchItemLine: vi.fn(),
@@ -89,6 +92,7 @@ const readAgain = (item: number, revision: string) => table({ readings: SCENARIO
 const tick = (label: string) => fireEvent.click(screen.getByRole("checkbox", { name: `Sélectionner le poste « ${label} »` }));
 
 beforeEach(() => {
+  readPayment.mockReset().mockResolvedValue(NO_PAYMENT_OPTIONS);
   searchParams = new URLSearchParams();
   window.sessionStorage.clear();
   client.fetchItemTable.mockImplementation(async () => table());
@@ -574,6 +578,27 @@ describe("TakeoffItemTable", () => {
     expect(await screen.findByTestId("poste-notice")).toHaveTextContent("Nouvelle mesure demandée");
     // The table is read again at once: the items asked now read « En lecture » on their plans.
     await waitFor(() => expect(client.fetchItemTable.mock.calls.length).toBeGreaterThan(reads));
+  });
+
+  it("ties a one-request model and effort to the key remeasure preview and confirmation", async () => {
+    readPayment.mockResolvedValue(fixtureTakeoffPaymentOptions());
+    client.previewItemRemeasure.mockResolvedValue(fixtureRemeasurePreview({ items: [{ itemId: fixtureItemId(5), label: "Receveur de douche" }] }));
+    client.sendItemRemeasure.mockResolvedValue({ outcome: "admitted", requestId: "55555555-5555-4555-8555-555555555555" });
+    renderTable();
+    await screen.findByRole("row", { name: /Receveur de douche/ });
+    tick("Receveur de douche");
+    fireEvent.click(screen.getByRole("button", { name: "Demander une nouvelle mesure (1)" }));
+    expect(await screen.findByLabelText("Source IA")).toHaveValue("personal_api_key");
+    expect(screen.getByText(/Plafond pour cette demande.*25.*US/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Modèle"), { target: { value: "gpt-6.2-sol" } });
+    fireEvent.change(screen.getByLabelText("Effort de raisonnement"), { target: { value: "high" } });
+    const choice = { source: "personal_api_key", expectedConnectionId: FIXTURE_KEY_CONNECTION, expectedMaxCostCents: 2500, model: "gpt-6.2-sol", effort: "high" };
+    const confirm = screen.getByRole("button", { name: "Confirmer la demande avec ma clé API" });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    await waitFor(() => expect(client.sendItemRemeasure).toHaveBeenCalledWith(FIXTURE_ITEM_PROJECT, expect.objectContaining({ payment_choice: choice,
+      setting: null, preview_digest: "a".repeat(64) })));
+    expect(client.previewItemRemeasure.mock.lastCall?.[6]).toEqual(choice);
   });
 
   it("says why the reading of the selection is refused before anything is paid, and offers no confirmation", async () => {

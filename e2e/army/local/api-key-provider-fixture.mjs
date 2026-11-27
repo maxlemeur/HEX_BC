@@ -8,7 +8,9 @@
 //    what MergeOne writes: it proves the wiring, not the real Keychain.
 // 2. OpenAI's API at its HTTP boundary, for a personal key: the API's model list (not the subscription's), the
 //    input token count, and Responses answered from the fictional plan's independent truth (12,5 m of copper
-//    pipe, four valves). Every request is checked (fixed origin, key, store false, Standard tier, no cache
+//    pipe, four valves). A reading against the affaire's list of items (its prompt carries a MANIFESTE) answers each
+//    item asked, as the manifest names it: « not found » when several are asked, two units on the first page it owns
+//    when one is asked alone (a new measure of that item). Every request is checked (fixed origin, key, store false, Standard tier, no cache
 //    write, bounded output, model and effort the key may use). Mode « echo » returns the key in the answer (once
 //    escaped in the JSON, once literal), the model id and the request id, as a provider bug would. The journey gives only the key's SHA-256
 //    (ARMY_API_KEY_CONTROL); the transport log never holds the key.
@@ -80,11 +82,27 @@ globalThis.fetch = async (input, init) => {
   assert.deepEqual(body.prompt_cache_options, { mode: "explicit" }, "No prompt cache write is asked for.");
   assert(Number.isInteger(body.max_output_tokens) && body.max_output_tokens > 0 && body.max_output_tokens <= 64_000, "The output is bounded.");
   const format = body.text?.format?.type;
+  // The manifest of a reading against the list of items: the line after « MANIFESTE » in its prompt.
+  const lines = String(parts.find((part) => part.type === "input_text")?.text ?? "").split("\n");
+  const manifest = pdf && lines.includes("MANIFESTE") ? JSON.parse(lines[lines.indexOf("MANIFESTE") + 1]) : null;
   await log({ operation: "responses", model: body.model, reasoningEffort: body.reasoning?.effort ?? null, inputKind: pdf ? "pdf" : "none",
-    format, store: body.store, maxOutputTokens: body.max_output_tokens, serviceTier: body.service_tier, echo: mode === "echo" });
+    format, store: body.store, maxOutputTokens: body.max_output_tokens, serviceTier: body.service_tier, echo: mode === "echo",
+    ...(manifest && { askedItems: manifest.requested_posts.length }) });
   const echo = mode === "echo";
   let text;
-  if (pdf) {
+  if (manifest) {
+    assert(pdf.file_data.startsWith("data:application/pdf;base64,JVBER"), "The plan reaches OpenAI inline.");
+    const owned = manifest.page_scope.owned_pages;
+    const alone = manifest.requested_posts.length === 1;
+    text = JSON.stringify({ schema_version: manifest.schema_version, prompt_version: manifest.prompt_version, chunk_id: manifest.chunk_id,
+      responses: manifest.requested_posts.map((post) => alone
+        ? { post_id: post.post_id, outcome: "measured", searched_pages: owned, reason_code: null, reason_text: null,
+          observations: [{ page: owned[0], quantity: 2, unit: "u", evidence: `Reperes fictifs page ${owned[0]}`, method: "symbol_count",
+            confidence: 0.9, measurement_basis: null, counts_as: "distinct", basis_as_requested: false }] }
+        : { post_id: post.post_id, outcome: "not_found", searched_pages: owned, reason_code: "NO_INDICATION",
+          reason_text: "Aucun indice sur les pages lues.", observations: [] }),
+      unreadable_pages: [], unlisted_findings: [], warnings: [] });
+  } else if (pdf) {
     assert(pdf.file_data.startsWith("data:application/pdf;base64,JVBER"), "The plan reaches OpenAI inline.");
     assert.equal(format, "json_object");
     text = JSON.stringify({ items: [

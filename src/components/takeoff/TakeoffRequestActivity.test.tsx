@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -11,14 +11,16 @@ import {
   fixtureUnit,
 } from "@/lib/takeoff/request-activity.test-fixtures";
 import type { TakeoffRequestActivityResponse } from "@/lib/takeoff/request-activity-contracts";
+import { fixtureTakeoffPaymentOptions, FIXTURE_KEY_CONNECTION, NO_PAYMENT_OPTIONS } from "@/lib/takeoff/payment-settings.test-fixtures";
 
 const history = vi.hoisted(() => ({ data: undefined as unknown, mutate: vi.fn() }));
 const assume = vi.hoisted(() => vi.fn());
+const readPayment = vi.hoisted(() => vi.fn());
 const cancel = vi.hoisted(() => vi.fn());
 vi.mock("./useTakeoffRequestActivity", () => ({
   useTakeoffRequestActivity: () => ({ data: history.data, error: undefined, isLoading: false, mutate: history.mutate, refreshMs: 0 }),
 }));
-vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({ assumeTakeoffLaunchRequestAction: assume }));
+vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({ assumeTakeoffLaunchRequestAction: assume, readTakeoffPaymentOptionsAction: readPayment }));
 vi.mock("@/lib/takeoff/client", () => ({ cancelTakeoffJob: cancel, resubmitTakeoffJob: vi.fn(), isTakeoffApiError: () => false }));
 vi.mock("@/components/takeoff/TakeoffPlanLocationDialog", () => ({
   TakeoffPlanLocationDialog: ({ documentName, fileId }: { documentName: string; fileId: string }) => (
@@ -44,7 +46,7 @@ function renderActivity(data: TakeoffRequestActivityResponse | undefined, extra:
 const units = () => screen.getAllByTestId("takeoff-request-unit");
 
 describe("TakeoffRequestActivity", () => {
-  beforeEach(() => { history.data = undefined; });
+  beforeEach(() => { history.data = undefined; readPayment.mockReset().mockResolvedValue(NO_PAYMENT_OPTIONS); });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
   it("shows plan A ready to review while B is read and C waits, in the recorded order", () => {
@@ -139,12 +141,28 @@ describe("TakeoffRequestActivity", () => {
     });
     const { onChanged } = renderActivity(fixtureActivityResponse(blocked, { live: false }));
     expect(screen.getByText(/aucun forfait ChatGPT/)).toBeVisible();
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Prendre en charge avec mon forfait" })); });
+    const button = screen.getByRole("button", { name: "Prendre en charge avec mon forfait" });
+    await waitFor(() => expect(button).toBeEnabled());
+    await act(async () => { fireEvent.click(button); });
     expect(assume).toHaveBeenCalledWith({ projectId: FIXTURE_PROJECT, requestId: blocked.id, seenRevision: 2, action: "take_on" });
     expect(onChanged).toHaveBeenCalled();
     cleanup();
     renderActivity(fixtureActivityResponse({ ...blocked, action: { kind: "none", label: null, mandateRevision: 2 } }, { live: false }));
     expect(screen.queryByRole("button", { name: /forfait/ })).toBeNull();
+  });
+
+  it.each(["take_on", "resume"] as const)("shows the key cap and the mandate revision for %s", async (kind) => {
+    readPayment.mockResolvedValue(fixtureTakeoffPaymentOptions());
+    assume.mockResolvedValue({ ok: true, data: {} });
+    const request = fixtureRequest(null, [], { action: { kind, label: "Forfait", mandateRevision: 7 } });
+    renderActivity(fixtureActivityResponse(request, { live: false }));
+    expect(await screen.findByLabelText("Source IA")).toHaveValue("personal_api_key");
+    expect(screen.getByText(/Plafond pour les lectures.*25.*US/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Modèle"), { target: { value: "gpt-6.2-sol" } });
+    fireEvent.change(screen.getByLabelText("Effort de raisonnement"), { target: { value: "high" } });
+    fireEvent.click(screen.getByRole("button", { name: kind === "resume" ? "Reprendre avec ma clé API" : "Prendre en charge avec ma clé API" }));
+    await waitFor(() => expect(assume).toHaveBeenCalledWith({ projectId: FIXTURE_PROJECT, requestId: request.id, seenRevision: 7, action: kind,
+      paymentChoice: { source: "personal_api_key", expectedConnectionId: FIXTURE_KEY_CONNECTION, expectedMaxCostCents: 2500, model: "gpt-6.2-sol", effort: "high" } }));
   });
 
   it("names the plans added since the analysis, which nothing reads by itself", () => {

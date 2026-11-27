@@ -198,9 +198,9 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
     sourceVersionId: input.sourceVersionId,
     level, provider,
   });
+  if ("paymentChoice" in input) await assertTakeoffPaymentMatches(context, projectId, preparationSnapshot, input.paymentChoice);
   const executionOwner = await getConfirmedTakeoffExecutionOwner(supabase, { userId, tenantId }, preparationSnapshot,
     usesTakeoffApiKey(preparationSnapshot) ? projectId : undefined);
-  if ("paymentChoice" in input) await assertTakeoffPaymentMatches(context, projectId, preparationSnapshot, input.paymentChoice);
   const planSetPageConfig = await getTakeoffLevelCProcessingConfigForTenant(tenantId, { supabase });
 
   await assertPlanSetAccessibleForCreation({

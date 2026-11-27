@@ -141,8 +141,8 @@ export async function launchTakeoffFromSourceVersionPlanSet(
     ...processing,
   });
   // Check the local provider before creating a new business version.
-  await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot, usesTakeoffApiKey(snapshot) ? parsed.projectId : undefined);
   await assertTakeoffPaymentMatches(context, parsed.projectId, snapshot, parsed.paymentChoice);
+  await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot, usesTakeoffApiKey(snapshot) ? parsed.projectId : undefined);
   const copyScope = {
     context, projectId: parsed.projectId, sourceVersionId: parsed.sourceVersionId, preparationRevision: parsed.preparationRevision!,
   };
@@ -195,11 +195,13 @@ const relaunchTakeoffSchema = z.object({
   planFileIds: z.array(uuidSchema).min(1).max(20).nullish(),
   paymentChoice: takeoffPaymentChoiceSchema.optional(),
 });
-export async function readTakeoffPaymentOptionsAction(input: { projectId: string }) {
+/** `live` reads the plan's models from ChatGPT again: only the member's « Recharger les réglages » asks for it. */
+export async function readTakeoffPaymentOptionsAction(input: { projectId: string; live?: boolean }) {
   return runSafeTakeoffAction(async () => {
     const context = await getAuthenticatedContext();
-    return readTakeoffPaymentOptions({ ...context, projectId: uuidSchema.parse(input.projectId) });
-  });
+    return readTakeoffPaymentOptions({ ...context, projectId: uuidSchema.parse(input.projectId) },
+      z.boolean().optional().parse(input.live) ? "live" : "cached");
+  }, "Les réglages IA du métré n’ont pas pu être lus.");
 }
 
 const stopTakeoffSchema = z.object({ projectId: uuidSchema, requestId: uuidSchema });

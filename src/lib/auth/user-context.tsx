@@ -3,6 +3,7 @@
 import { createContext, useContext, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
+import type { AiBillingSource } from "@/lib/ai/access/contracts";
 import type { UiMode } from "@/lib/ui-mode";
 import type { Database } from "@/types/database";
 
@@ -25,6 +26,11 @@ type UserContextValue = {
   tenantName: string | null;
   profile: UserProfile | null;
   setProfile: Dispatch<SetStateAction<UserProfile | null>>;
+  /**
+   * The payer of Mon profil as the page was rendered: null when it could not be read, undefined when the page did not
+   * read it. A screen's own options, once read, are the current value.
+   */
+  aiDefaultSource?: AiBillingSource | null;
 };
 
 const UserContext = createContext<UserContextValue | null>(null);
@@ -33,11 +39,13 @@ export function UserProvider({
   initialUserEmail,
   initialProfile,
   tenantName = null,
+  aiDefaultSource,
   children,
 }: Readonly<{
   initialUserEmail: string;
   initialProfile: UserProfile | null;
   tenantName?: string | null;
+  aiDefaultSource?: AiBillingSource | null;
   children: React.ReactNode;
 }>) {
   const [profile, setProfile] = useState<UserProfile | null>(initialProfile);
@@ -49,8 +57,9 @@ export function UserProvider({
       tenantName,
       profile,
       setProfile,
+      aiDefaultSource,
     }),
-    [initialUserEmail, profile, tenantName]
+    [aiDefaultSource, initialUserEmail, profile, tenantName]
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

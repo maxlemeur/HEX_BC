@@ -6,14 +6,14 @@ vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }
 vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ readLocalChatGptSubscription: vi.fn() }));
 vi.mock("./launch-request-server", () => ({ readAffaireTakeoffLaunchState: vi.fn() }));
 vi.mock("./item-measure-catalogue-server", () => ({ readMeasureCatalogue: vi.fn() }));
-vi.mock("./payment-server", () => ({ resolveTakeoffPayment: vi.fn() }));
+vi.mock("./payment-server", () => ({ resolveTakeoffPayment: vi.fn(), sealTakeoffPayment: vi.fn() }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("./item-remeasure-server", () => ({ planTakeoffItemRemeasure: vi.fn(), launchTakeoffItemRemeasure: vi.fn(),
   replayTakeoffItemRemeasure: vi.fn() }));
 vi.mock("./item-table-server", () => ({ loadItemLines: vi.fn(), itemReviewerRight: vi.fn() }));
 vi.mock("@/lib/takeoff/rules/recompute-server", () => ({ recomputeTakeoffRulesQuietly: vi.fn(async () => ({ lines: 1, skipped: 0 })) }));
 
-import { resolveTakeoffPayment } from "./payment-server";
+import { resolveTakeoffPayment, sealTakeoffPayment } from "./payment-server";
 import { readMeasureCatalogue } from "./item-measure-catalogue-server";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { readLocalChatGptSubscription } from "@/lib/ai/chatgpt-takeoff";
@@ -249,8 +249,18 @@ describe("remeasure of a selection", () => {
       preferences, apiMandate: { ...apiMandate, maxNanoUsd: 24_000_000_000 } });
     await expect(runItemRemeasure(PROJECT, command)).rejects.toMatchObject({ status: 409 });
     expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
+    // Refused on what the preview showed: the key's mandate was resolved, never recorded.
+    expect(sealTakeoffPayment).not.toHaveBeenCalled();
+    // The admission records it itself, after its own refusals: nothing before it does.
+    vi.mocked(launchTakeoffItemRemeasure).mockImplementationOnce(async (_context, input) => {
+      expect(sealTakeoffPayment).not.toHaveBeenCalled();
+      await input.beforeAdmission?.();
+      return { outcome: "admitted", requestId: "55555555-5555-4555-8555-555555555555" };
+    });
     await expect(runItemRemeasure(PROJECT, command)).resolves.toMatchObject({ outcome: "admitted" });
     expect(launchTakeoffItemRemeasure).toHaveBeenCalledWith(access.context, expect.objectContaining({ selection }));
+    expect(sealTakeoffPayment).toHaveBeenCalledExactlyOnceWith({ ...access.context, projectId: PROJECT },
+      { selection, preferences, apiMandate }, undefined);
   });
 
   it("requires the same Mac and an available model and effort for the measure on a plan", async () => {

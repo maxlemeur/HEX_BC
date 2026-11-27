@@ -5,6 +5,7 @@ import { getTakeoffExecutionSelection } from "@/lib/ai/chatgpt-takeoff";
 import { renderPdfPages } from "@/lib/pdf/page-render-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { resolveTakeoffPayment, sealTakeoffPayment, takeoffSelectionFingerprint } from "@/lib/takeoff/payment-server";
 import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import { confirmedPreparationFixture, fictionalPlanPdf } from "@/lib/takeoff/preparation.test-utils";
 import { assertConfirmedTakeoffPreparation as assertConfirmedTakeoffPreparationServer, confirmTakeoffPreparation, loadTakeoffExecutionPreview, loadTakeoffPreparation, saveTakeoffPreparation } from "@/lib/takeoff/preparation-server";
@@ -18,6 +19,9 @@ vi.mock("@/lib/pdf/page-render-server", () => ({ renderPdfPages: vi.fn() }));
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn() }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/takeoff/preparation-assistance-server", () => ({ generateTakeoffPreparationAssistance: vi.fn() }));
+vi.mock("@/lib/takeoff/payment-server", async (original) => ({
+  ...await original<typeof import("@/lib/takeoff/payment-server")>(), resolveTakeoffPayment: vi.fn(), sealTakeoffPayment: vi.fn(),
+}));
 vi.mock("@/lib/takeoff/preparation-copy-provenance-server", () => ({ hasTakeoffPreparationCopyReceipt: vi.fn().mockResolvedValue(false) }));
 
 function assertConfirmedTakeoffPreparation(input: Omit<Parameters<typeof assertConfirmedTakeoffPreparationServer>[0], "level" | "provider"> & Partial<Pick<Parameters<typeof assertConfirmedTakeoffPreparationServer>[0], "level" | "provider">>) {
@@ -149,6 +153,32 @@ describe("persisted preparation server boundary", () => {
     await expect(confirmTakeoffPreparation({ ...confirmation, expectedExecutionFingerprint: recap.fingerprint }))
       .rejects.toMatchObject({ status: 409, code: "TAKEOFF_CHATGPT_SELECTION_CHANGED" });
     expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  // A key's mandate is recorded by the confirmation that names it, never by one refused on what the recap showed.
+  it("records a key's mandate only with the confirmation that pins it", async () => {
+    const f = fixture();
+    const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
+    const key = { source: "personal_api_key", profileId: "mandat-fictif", authorizationId: "mandat-fictif", hostId: "urn:uuid:mac",
+      model: "personal_api_key", reasoningEffort: null } as const;
+    const payment = { selection: key, preferences: { model: "gpt-6.1-sol", reasoningEffort: "medium" as const },
+      apiMandate: { model: "gpt-6.1-sol", reasoningEffort: "medium" as const, connectionId: "f3000000-0000-4000-8000-000000000001",
+        connectionVersion: 1, hostId: key.hostId, maxTokens: 400_000, maxNanoUsd: 25_000_000_000 } };
+    vi.mocked(resolveTakeoffPayment).mockResolvedValue(payment);
+    const paymentChoice = { source: "personal_api_key", model: "gpt-6.1-sol", effort: "medium",
+      expectedConnectionId: payment.apiMandate.connectionId, expectedMaxCostCents: 2500 } as const;
+    await expect(confirmTakeoffPreparation({ ...confirmation, paymentChoice })).rejects.toMatchObject({
+      status: 409, code: "TAKEOFF_PAYMENT_SETTINGS_CHANGED" });
+    expect(sealTakeoffPayment).not.toHaveBeenCalled();
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+
+    vi.mocked(sealTakeoffPayment).mockImplementationOnce(async () => { expect(f.getRecord()?.confirmed_snapshot).toBeNull(); });
+    await expect(confirmTakeoffPreparation({ ...confirmation, paymentChoice, expectedExecutionFingerprint: takeoffSelectionFingerprint(key) }))
+      .resolves.toMatchObject({ revision: 2 });
+    expect(sealTakeoffPayment).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: M3_PROJECT_ID, userId: M3_USER_ID }),
+      payment, f.server.client);
+    expect(f.getRecord()?.confirmed_snapshot).toMatchObject({ execution_selection: key });
   });
 
   it("reopens selection for a plan and CCTP added before the first save", async () => {

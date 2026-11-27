@@ -9,8 +9,10 @@ import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
 import { describeTakeoffLaunchReason, isTakeoffLaunchReason, TAKEOFF_AUTOMATIC_PAYER_NOTICE,
   type TakeoffLaunchReason, type TakeoffLaunchRequestState } from "@/lib/takeoff/launch-request";
 import { describeTakeoffLaunchAction, viewerLaunchAction, type TakeoffLaunchAction } from "@/lib/takeoff/operator-state";
+import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import type { TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
-import { resolveTakeoffPayment } from "@/lib/takeoff/payment-server";
+import type { TakeoffPaymentScope } from "@/lib/takeoff/payment-mandate-server";
+import { resolveTakeoffPayment, sealTakeoffPayment, type ResolvedTakeoffPayment } from "@/lib/takeoff/payment-server";
 import type { TakeoffExecutionSelection } from "@/lib/takeoff/preparation";
 import type { Json } from "@/types/database";
 
@@ -33,6 +35,33 @@ export async function readPayerSubscription(service: Service, context: Context, 
   if (error) databaseError(error, "Impossible de vérifier qui peut payer le métré de cette affaire.");
   if (mayPay !== true) return { issue: "MANDATE_REQUIRED" as const, selection: null };
   return readLocalChatGptSubscription({ userId: context.userId, tenantId: context.tenantId }, host);
+}
+
+/** The refusal of a gesture on a request that moved since the member read it: its mandate, or the gesture it offers. */
+export function takeoffRequestMoved() {
+  return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+    message: "Le métré de cette affaire a changé depuis votre lecture. Actualisez avant de le prendre en charge." });
+}
+
+/**
+ * Records a key's mandate for a take-on or a resume, only for a gesture the request still offers: its mandate revision and
+ * its allowed action are read first (a request that moved throws, nothing recorded), as the database compares them again
+ * under its lock. The plan needs no mandate: nothing is read for it.
+ */
+export async function sealOfferedGesturePayment(service: Service, scope: TakeoffPaymentScope, payment: ResolvedTakeoffPayment | null,
+  gesture: { requestId: string; seenRevision: number; action: "take_on" | "resume" }): Promise<"sealed" | "not_needed" | "not_found"> {
+  if (!payment?.apiMandate) return "not_needed";
+  const [seen, allowed] = await Promise.all([
+    service.from("takeoff_launch_requests").select("mandate_revision")
+      .eq("tenant_id", scope.tenantId).eq("project_id", scope.projectId).eq("id", gesture.requestId).maybeSingle(),
+    service.rpc("takeoff_launch_request_action", { p_request_id: gesture.requestId, p_actor: scope.userId }),
+  ]);
+  if (seen.error) databaseError(seen.error, "Impossible de vérifier le mandat du métré.");
+  if (allowed.error) databaseError(allowed.error, "Impossible de lire le métré de l’affaire.");
+  if (!seen.data) return "not_found";
+  if (seen.data.mandate_revision !== gesture.seenRevision || allowed.data !== gesture.action) throw takeoffRequestMoved();
+  await sealTakeoffPayment(scope, payment, service);
+  return "sealed";
 }
 
 export type GestureRow = { request_id: string | null; state: string | null; reason_code: string | null; payer_id: string | null };
@@ -70,7 +99,7 @@ export async function readAutomaticTakeoffPayerNotice(context: Context, project:
   paymentChoice?: TakeoffPaymentChoice) {
   const service = createServiceRoleClient();
   const scope = { ...context, projectId: project.id };
-  const explicit = paymentChoice ? await resolveTakeoffPayment(scope, paymentChoice, service, false) : null;
+  const explicit = paymentChoice ? await resolveTakeoffPayment(scope, paymentChoice, service) : null;
   const subscription = explicit ? { issue: null, selection: explicit.selection }
     : await readPayerSubscription(service, context, project.id, host);
   if (subscription.issue === "MANDATE_REQUIRED") return null;

@@ -11,7 +11,7 @@ import { buildDeducedTakeoffPreparation } from "@/lib/takeoff/preparation-from-d
 import { toPreparationIntakeSource, toPreparationPlanSource } from "@/lib/takeoff/preparation-sources";
 
 import { querySql } from "../local/calculation-gate-support";
-import { ownedWorkerSelection, type WorkerOwner, type WorkerUi } from "./worker-support";
+import { ownedWorkerHostId, ownedWorkerSelection, type WorkerOwner, type WorkerUi } from "./worker-support";
 
 // One analysis per plan (lot 3, migration 20261121231238_takeoff_plan_dispatcher.sql) on the owned worker stack: its
 // activation for the duration of a journey, a fictional dossier of plans, a member's explicit command run by the server
@@ -38,6 +38,24 @@ insert into private.takeoff_plan_dispatch_activation (active_from) values (clock
 export async function deactivateOwnedPlanDispatch() {
   assertOwnedCampaign();
   await querySql("delete from private.takeoff_plan_dispatch_activation; delete from private.takeoff_launch_activation;");
+}
+
+/**
+ * Gives the stack's Mac back before a journey whose own server serves the Mac's queue (chatGptLocalServer). The Mac is one
+ * identity for the whole stack (ownedWorkerHostId), read one plan at a time, the oldest first once one analysis per plan
+ * is active: an analysis another journey left unread would be read before this journey's, and one left in reading by a
+ * stopped worker or server keeps the Mac until its lease lapses (30 minutes), the key's queue included. Each is stopped as
+ * its member stops it, then the Mac is released as the stopped worker's own end releases it. The takeoff journeys run one
+ * at a time (army-shards.json, suite « takeoff »): no other journey is reading here.
+ */
+export async function releaseOwnedHost() {
+  assertOwnedCampaign();
+  const host = await ownedWorkerHostId();
+  await querySql(`update public.takeoff_jobs set status = 'canceled', completed_at = clock_timestamp(), next_retry_at = null
+where execution_provider = 'chatgpt_local' and execution_host_id in ('${host}', private.takeoff_payment_queue_id('${host}'))
+  and analysis_outcome is null and (status in ('pending', 'processing') or (status = 'failed' and next_retry_at is not null));
+select public.release_takeoff_host_slot(s.host_id, s.holder_token) from private.takeoff_host_slots s
+where s.host_id = '${host}' and s.holder_token is not null;`);
 }
 
 /** A fictional plan of `pages` pages whose bytes are its own. */

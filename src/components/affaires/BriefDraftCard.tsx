@@ -31,6 +31,9 @@ import {
 import { ArrowRightIcon, FileIcon, InfoIcon, SquarePenIcon, XIcon } from "lucide-react";
 
 import type { BriefPlanOption } from "@/lib/takeoff/brief-plan-choice";
+import type { TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
+import { TakeoffPaymentFields } from "@/components/takeoff/TakeoffPaymentFields";
+import { useTakeoffPaymentSettings } from "@/components/takeoff/useTakeoffPaymentSettings";
 import "./BriefDraftCard.css";
 
 type BriefDraftCardProps = {
@@ -45,9 +48,10 @@ type BriefDraftCardProps = {
 
 type BadgeVariant = "neutral" | "info" | "success" | "warning" | "danger";
 
+type BriefChoices = Extract<Awaited<ReturnType<typeof readAffaireBriefChoices>>, { plans: unknown }>;
 type BriefChoicesRead =
   | { state: "pending" | "failed" }
-  | ({ state: "ready" } & Awaited<ReturnType<typeof readAffaireBriefChoices>>);
+  | ({ state: "ready" } & BriefChoices);
 
 const PLAN_READING_LABELS: Record<BriefPlanOption["state"], string> = {
   analysed: "Déjà analysé",
@@ -338,22 +342,48 @@ export function BriefDraftCard({
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [checked, setChecked] = useState<string[]>([]);
   const [choices, setChoices] = useState<BriefChoicesRead>({ state: "pending" });
+  const [paymentStale, setPaymentStale] = useState(false);
+  const [shown, setShown] = useState<{ choice: TakeoffPaymentChoice; notice: BriefChoices["notice"]; error?: string }>();
+  const showPayment = showConfirmDialog && choices.state === "ready" && Boolean(choices.notice);
+  const payment = useTakeoffPaymentSettings(projectId, showPayment ? "brief" : null);
+  const reloadPayment = payment.reload;
+  const paymentChoice = showPayment && checked.length > 0 ? payment.choice : undefined;
+  const paymentPreview = paymentChoice && shown?.choice === paymentChoice ? shown : null;
+  const paymentCurrent = !paymentChoice || Boolean(paymentPreview?.notice);
+  const paymentNotice = paymentChoice ? paymentPreview?.notice : choices.state === "ready" ? choices.notice : null;
+  useEffect(() => {
+    if (!paymentChoice) return;
+    let current = true;
+    const fail = (message: string) => { if (current) setShown({ choice: paymentChoice, notice: null, error: message }); };
+    void readAffaireBriefChoices({ projectId, paymentChoice }).then((result) => {
+      if (!current) return;
+      if ("plans" in result && result.notice) setShown({ choice: paymentChoice, notice: result.notice });
+      else fail("message" in result ? result.message : "La mention de paiement a changé. Rechargez les réglages avant de confirmer.");
+    }, () => fail("Impossible de lire la mention de paiement. Rechargez les réglages avant de confirmer."));
+    return () => { current = false; };
+  }, [paymentChoice, projectId]);
   // Each opening and each new try reads again; an answer meant for an earlier one is never shown.
   const choicesRead = useRef(0);
-  const loadChoices = useCallback(() => {
+  const loadChoices = useCallback((keepSelection = false) => {
     const read = ++choicesRead.current;
-    setChecked([]);
+    if (!keepSelection) setChecked([]);
     setChoices({ state: "pending" });
     readAffaireBriefChoices({ projectId }).then(
-      (result) => { if (choicesRead.current === read) setChoices({ state: "ready", ...result }); },
+      (result) => {
+        if (choicesRead.current !== read) return;
+        setChoices("plans" in result ? { state: "ready", ...result } : { state: "failed" });
+        if (keepSelection && "plans" in result) setChecked((ids) => ids.filter((id) => result.plans.some((plan) => plan.id === id && plan.state !== "analysed" && plan.state !== "in_progress")));
+      },
       () => { if (choicesRead.current === read) setChoices({ state: "failed" }); },
     );
   }, [projectId]);
   const openConfirmDialog = useCallback(() => {
     setError(null);
+    setPaymentStale(false);
+    reloadPayment();
     setShowConfirmDialog(true);
     loadChoices();
-  }, [loadChoices]);
+  }, [loadChoices, reloadPayment]);
   const closeConfirmDialog = useCallback(() => {
     choicesRead.current += 1;
     setShowConfirmDialog(false);
@@ -464,8 +494,8 @@ export function BriefDraftCard({
   // `payerNoticeDigest`: the notice this dialog showed, read at its opening; none engages nobody.
   const handleConfirm = useCallback((withAnalysis: boolean) => {
     const plans = withAnalysis && choices.state === "ready" ? choices.plans.filter(({ id }) => checked.includes(id)).map(({ id, version }) => ({ id, version })) : [];
-    if (withAnalysis && !plans.length) return;
-    const payerNoticeDigest = plans.length && choices.state === "ready" ? choices.notice?.digest ?? null : null;
+    if (withAnalysis && (!plans.length || !paymentCurrent || (showPayment && (!payment.ready || paymentStale)))) return;
+    const payerNoticeDigest = plans.length ? paymentNotice?.digest ?? null : null;
     setError(null);
     if (!briefDraft?.updatedAt) {
       toast.error({ title: "Impossible de confirmer le brief", description: "Actualisez le dossier et réessayez." });
@@ -473,11 +503,13 @@ export function BriefDraftCard({
     }
     startTransition(async () => {
       try {
-        const result = await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt!, plans, payerNotice: payerNoticeDigest });
+        const result = await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt!, plans, payerNotice: payerNoticeDigest,
+          ...(payerNoticeDigest && paymentChoice && { paymentChoice }) });
         // What the confirmation did with the affaire's takeoff: why it waits, and the gesture it now offers this member.
         if (result?.ok === false) {
           setError(result.message);
-          if (!("code" in result) || result.code !== "TAKEOFF_BRIEF_IDENTICAL_COPIES") loadChoices();
+          if ("reloadSettings" in result && result.reloadSettings) setPaymentStale(true);
+          else if (!("code" in result) || result.code !== "TAKEOFF_BRIEF_IDENTICAL_COPIES") loadChoices();
           toast.error({ title: "Confirmation en attente", description: result.message });
           return;
         }
@@ -497,7 +529,8 @@ export function BriefDraftCard({
         });
       }
     });
-  }, [briefDraft, projectId, router, toast, choices, checked, closeConfirmDialog, loadChoices]);
+  }, [briefDraft, projectId, router, toast, choices, checked, closeConfirmDialog, loadChoices,
+    paymentChoice, paymentCurrent, paymentNotice, payment.ready, paymentStale, showPayment]);
 
   const handleResolvePlanGap = useCallback((entryIndex: number) => {
     if (!briefDraft?.updatedAt) return;
@@ -669,7 +702,7 @@ export function BriefDraftCard({
         title="Confirmer ce brief ?"
         message="Il deviendra la référence de travail pour la suite du chiffrage."
         confirmLabel={`Confirmer et analyser ${checked.length} plan${checked.length > 1 ? "s" : ""}`}
-        confirmDisabled={isPending || !checked.length || choices.state !== "ready"}
+        confirmDisabled={isPending || !checked.length || choices.state !== "ready" || !paymentCurrent || (showPayment && (!payment.ready || paymentStale))}
         cancelDisabled={isPending} errorMessage={error}
         secondaryAction={<Button size="lg" variant="outline" disabled={isPending} onClick={() => handleConfirm(false)}>Confirmer sans analyser</Button>}
         onConfirm={() => handleConfirm(true)} onCancel={closeConfirmDialog}>
@@ -700,13 +733,22 @@ export function BriefDraftCard({
               </label>
             ))}
             {checked.length > 1 && <p className="text-sm">Si deux plans ont le même contenu, choisissez une seule copie.</p>}
-            {checked.length > 0 && <p className="text-sm">{choices.notice?.message ?? "Une personne habilitée pourra lancer les plans cochés avec son forfait."}</p>}
+            {checked.length > 0 && (paymentChoice
+              ? paymentPreview?.error ? <p role="alert" className="text-sm">{paymentPreview.error}</p>
+                : paymentNotice ? <p className="text-sm">{paymentNotice.message}</p> : <p role="status" className="text-sm">Lecture de la mention de paiement…</p>
+              : <p className="text-sm">{paymentNotice?.message ?? "Une personne habilitée pourra lancer les plans cochés avec son forfait."}</p>)}
           </fieldset>
         )}
+        {showPayment && <TakeoffPaymentFields settings={payment} disabled={isPending} stale={paymentStale || Boolean(paymentPreview?.error)} onReload={() => {
+          setError(null);
+          setPaymentStale(false);
+          payment.reload({ live: true });
+          loadChoices(true);
+        }} />}
         {choices.state === "pending" && <p role="status">Lecture des plans du dossier…</p>}
         {choices.state === "failed" && <Alert variant="warning" role="alert"><AlertDescription>
           <p>Impossible de charger les plans et le forfait. Vous pouvez confirmer sans analyser.</p>
-          <Button type="button" variant="outline" size="sm" className="mt-2" onClick={loadChoices}>Réessayer</Button>
+          <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => loadChoices()}>Réessayer</Button>
         </AlertDescription></Alert>}
       </AffaireConfirmDialog>
 

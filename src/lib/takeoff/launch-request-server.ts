@@ -2,10 +2,10 @@ import "server-only";
 
 import { TAKEOFF_NANO_USD_PER_CENT, type TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
 import { assertTakeoffApiConnection, readTakeoffApiMandate, takeoffPaymentHostId,
-  takeoffPaymentError, usesTakeoffApiKey, type TakeoffApiMandate } from "@/lib/takeoff/payment-mandate-server";
-import { resolveTakeoffPayment } from "@/lib/takeoff/payment-server";
-import { databaseError, gestureResult, payerNoticeDigest, readPayerSubscription, selectionParameters,
-  type GestureRow } from "./launch-payer-server";
+  takeoffPaymentChoiceRequired, usesTakeoffApiKey, type TakeoffApiMandate } from "@/lib/takeoff/payment-mandate-server";
+import { resolveTakeoffPayment, sealTakeoffPayment } from "@/lib/takeoff/payment-server";
+import { databaseError, gestureResult, payerNoticeDigest, readPayerSubscription, sealOfferedGesturePayment, selectionParameters,
+  takeoffRequestMoved, type GestureRow } from "./launch-payer-server";
 import { readAdmittedPlanRequests } from "./admitted-plan-readings-server";
 import { attestBriefPlanChoice } from "./brief-plan-choice-server";
 import { BRIEF_PLAN_CHANGED, sealedBriefPlansSchema, type BriefPlanSelection, type SealedBriefPlans } from "./brief-plan-choice";
@@ -146,22 +146,23 @@ export async function confirmAffaireBriefWithTakeoff(input: {
 }) {
   const { context } = input;
   const service = createServiceRoleClient();
+  const payer = { ...context, projectId: input.projectId };
+  const payment = input.plans.length && input.paymentChoice ? resolveTakeoffPayment(payer, input.paymentChoice, service) : null;
   const [subscription, session] = await Promise.all([
-    input.plans.length ? (input.paymentChoice
-      ? resolveTakeoffPayment({ ...context, projectId: input.projectId }, input.paymentChoice, service)
-        .then(({ selection }) => ({ issue: null, selection }))
-      : readPayerSubscription(service, context, input.projectId, input.host)) : null,
+    input.plans.length ? payment?.then(({ selection }) => ({ issue: null, selection }))
+      ?? readPayerSubscription(service, context, input.projectId, input.host) : null,
     // The member's verified session claims: the database evaluates the released brief policy under them (none refuses).
     context.supabase.auth.getClaims().then(({ data, error }) => (error ? null : data?.claims ?? null), () => null),
   ]);
   const choice = await attestBriefPlanChoice(context, input.projectId, input.plans);
   if ("message" in choice) return { outcome: "choice_refused" as const, takeoff: null, ...choice };
   if (input.paymentChoice && subscription) {
-    const { data: expected, error } = await payerNoticeDigest(service, { ...context, projectId: input.projectId }, subscription.selection);
+    const { data: expected, error } = await payerNoticeDigest(service, payer, subscription.selection);
     if (error) databaseError(error, "Impossible de vérifier le mandat de paiement du métré.");
     if (!input.notice || expected !== input.notice) return { outcome: "choice_refused" as const, takeoff: null,
       code: "TAKEOFF_PAYER_NOTICE_CHANGED", message: "Le payeur, les réglages ou le budget du métré ont changé. Rechargez la mention de paiement." };
   }
+  await sealTakeoffPayment(payer, await payment, service); // last: the plans and the notice confirmed are the ones just read
   const { data, error } = await service.rpc("confirm_affaire_brief_plan_choice", {
     p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId,
     // No notice: the brief is confirmed and engages nobody.
@@ -205,16 +206,18 @@ export async function assumeTakeoffLaunchRequest(input: {
       .eq("tenant_id", context.tenantId).eq("project_id", projectId).eq("id", input.requestId).maybeSingle();
     if (error) databaseError(error, "Impossible de vérifier le mandat du métré.");
     if (usesTakeoffApiKey({ execution_selection: mandate?.mandate_selection })) {
-      throw takeoffPaymentError("Choisissez qui paiera le métré avant de reprendre la demande.");
+      throw takeoffPaymentChoiceRequired("Choisissez qui paiera le métré avant de reprendre la demande.");
     }
   }
-  const subscription = input.paymentChoice
-    ? { issue: null, selection: (await resolveTakeoffPayment({ ...context, projectId }, input.paymentChoice, service)).selection }
+  const payment = input.paymentChoice ? await resolveTakeoffPayment({ ...context, projectId }, input.paymentChoice, service) : null;
+  const subscription = payment ? { issue: null, selection: payment.selection }
     : await readLocalChatGptSubscription({ userId: context.userId, tenantId: context.tenantId }, input.host);
   if (subscription.issue) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: describeTakeoffLaunchReason(subscription.issue) });
   }
+  const offered = await sealOfferedGesturePayment(service, { ...context, projectId }, payment, input);
+  if (offered === "not_found") launchError({ message: "TAKEOFF_LAUNCH_REQUEST_NOT_FOUND" }, "");
   const { data, error } = await service.rpc("take_on_takeoff_launch_request", {
     p_tenant_id: context.tenantId, p_project_id: projectId, p_actor: context.userId, p_request_id: input.requestId,
     p_seen_revision: input.seenRevision, p_action: input.action, p_host: subscription.selection.hostId,
@@ -222,10 +225,7 @@ export async function assumeTakeoffLaunchRequest(input: {
   });
   if (error) launchError(error, "Impossible d’enregistrer qui paie le métré de cette affaire.");
   const row = ((data ?? []) as Array<GestureRow & { outcome: string }>)[0];
-  if (!row || row.outcome === "moved") {
-    throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
-      message: "Le métré de cette affaire a changé depuis votre lecture. Actualisez avant de le prendre en charge." });
-  }
+  if (!row || row.outcome === "moved") throw takeoffRequestMoved();
   if (row.state === "evaluating") wakeTakeoffLaunchConsumer();
   return (await gestureResult(service, row, context.userId, true))!;
 }
@@ -796,7 +796,7 @@ export async function launchTakeoffRelaunch(input: {
     return { outcome: recorded.outcome as TakeoffRelaunchResult["outcome"], requestId: recorded.request_id, jobId: recorded.job_id };
   }
   if (commandPlans.predecessorUsedKey && !input.paymentChoice) {
-    throw takeoffPaymentError("Choisissez qui paiera cette nouvelle analyse du métré.");
+    throw takeoffPaymentChoiceRequired("Choisissez qui paiera cette nouvelle analyse du métré.");
   }
   if (await isTakeoffPlanDispatchActive(service)) {
     // No receipt: the plans of the analysis it replaces are read at their current copies.
@@ -809,7 +809,7 @@ export async function launchTakeoffRelaunch(input: {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
       message: "Une analyse groupée lit tous les plans de sa préparation : relancez-la sans choisir de plans." });
   }
-  const { snapshot, owner, config } = await relaunchSeal(service, input);
+  const { snapshot, owner, config, payment } = await relaunchSeal(service, input);
   const jobId = deriveDeterministicJobId(context.tenantId,
     `takeoff-request-command:${input.projectId}:${input.intentKey}:${TAKEOFF_GROUPED_UNIT_KEY}`);
   const plans = snapshot.preparation.sources.filter((source) => source.active && source.kind === "plan");
@@ -821,6 +821,7 @@ export async function launchTakeoffRelaunch(input: {
     planSetCopiesSetAside(snapshot.preparation.sources, input.planSetId), order.order);
   const { manifest, refusal: tooLarge } = await sealItemListReading(relaunched.manifest, async () => config, order.items);
   if (tooLarge) throw itemListReadingTooLarge(tooLarge);
+  await sealTakeoffPayment({ ...context, projectId: input.projectId }, payment, service);
   const { data, error } = await service.rpc("launch_manual_takeoff_request", {
     ...command, p_host: owner.execution_host_id, p_selection: snapshot.execution_selection as unknown as Json,
     p_manifest: manifest as unknown as Json, p_snapshot: snapshot as unknown as Json,
@@ -839,7 +840,7 @@ export async function launchTakeoffRelaunch(input: {
 
 type RelaunchInput = Parameters<typeof launchTakeoffRelaunch>[0];
 
-/** The member's confirmed preparation of the plan set and their own subscription, as pinned at that confirmation. */
+/** The member's confirmed preparation of the plan set and their own subscription; the caller records a key's `payment`. */
 async function relaunchSeal(service: Service, input: RelaunchInput) {
   const { context } = input;
   const snapshot = await assertConfirmedTakeoffPreparation({ context, estimateVersionId: null, projectId: input.projectId,
@@ -853,10 +854,10 @@ async function relaunchSeal(service: Service, input: RelaunchInput) {
     snapshot.confirmed_by = context.userId;
     snapshot.confirmed_at = new Date().toISOString();
   } else if (snapshot.execution_selection?.source === "personal_api_key") {
-    throw takeoffPaymentError("Choisissez qui paiera la nouvelle analyse du métré.");
+    throw takeoffPaymentChoiceRequired("Choisissez qui paiera la nouvelle analyse du métré.");
   }
   const owner = await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot,
-    snapshot.execution_selection?.source === "personal_api_key" ? input.projectId : undefined);
+    snapshot.execution_selection?.source === "personal_api_key" ? input.projectId : undefined, explicit?.apiMandate);
   if (!snapshot.execution_selection?.authorizationId) {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
       message: "Confirmez à nouveau la préparation pour utiliser votre forfait ChatGPT." });
@@ -866,7 +867,7 @@ async function relaunchSeal(service: Service, input: RelaunchInput) {
     config.maxTotalTokens = explicit.apiMandate.maxTokens;
     config.maxCostCents = explicit.apiMandate.maxNanoUsd / TAKEOFF_NANO_USD_PER_CENT;
   }
-  return { snapshot, owner, config };
+  return { snapshot, owner, config, payment: explicit };
 }
 
 /**
@@ -955,7 +956,7 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
   }
   const intent = command.p_intent as TakeoffLaunchManifest["intent"];
   // Only the plans named are read: the member's confirmed preparation of the plan set, the other plans set aside.
-  const { snapshot: confirmed, owner, config } = await relaunchSeal(service, input);
+  const { snapshot: confirmed, owner, config, payment } = await relaunchSeal(service, input);
   const scope = named ?? confirmed.preparation.sources.filter((source) => source.active && source.kind === "plan")
     .map((source) => source.document_id).sort();
   const active = new Set(confirmed.preparation.sources.filter((source) => source.active && source.kind === "plan").map((source) => source.document_id));
@@ -1046,9 +1047,8 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
   const checkCopies = () => checkCurrentCommandCopies(service, input, scope, confirmed);
   // A new named relaunch can only spend on the exact copies the member selected.
   // Replay was resolved first and an older unnamed command can still resolve its replacement copies.
-  if (input.predecessorJobId && input.planFileIds?.length) {
-    await checkCopies();
-  }
+  if (input.predecessorJobId && input.planFileIds?.length) await checkCopies();
+  await sealTakeoffPayment({ ...context, projectId: input.projectId }, payment, service);
   // A first analysis that names no plan keeps M4's identity (every plan of the preparation), its units as its jobs; a
   // command naming plans, its own.
   const { data, error } = named

@@ -1,6 +1,7 @@
 "use server";
 
 import { takeoffPaymentChoiceSchema, type TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
+import { takeoffPaymentRefusal } from "@/lib/takeoff/action-errors-server";
 
 import { after } from "next/server";
 import { createIntakeAiRunner, intakeAiScopeArgs, readIntakeAiBatch, readIntakeAiOptions, resolveIntakeAiSelection, IntakeAiBudgetStopped } from "@/lib/affaires/intake-ai-server";
@@ -340,15 +341,26 @@ export async function updateAffaireBrief(input: UpdateAffaireBriefInput) {
 /** The payer notice the brief's confirmation dialog shows, read when it opens; it changes nothing. */
 export async function readAffaireBriefChoices(input: { projectId: string; paymentChoice?: TakeoffPaymentChoice }) {
   const parsed = readAffaireBriefChoicesInputSchema.parse(input);
-  return readAffaireBriefChoicesServer(parsed);
+  try {
+    return await readAffaireBriefChoicesServer(parsed);
+  } catch (cause) {
+    const refusal = takeoffPaymentRefusal(cause);
+    if (!refusal) throw cause;
+    return { ok: false, ...refusal } as const;
+  }
 }
 
 export async function confirmAffaireBrief(input: ConfirmAffaireBriefInput) {
   const parsed = confirmAffaireBriefInputSchema.parse(input);
-  const result = await confirmAffaireBriefServer(parsed);
+  try {
+    const result = await confirmAffaireBriefServer(parsed);
+    revalidatePath("/dashboard/affaires");
+    revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
 
-  revalidatePath("/dashboard/affaires");
-  revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
-
-  return result;
+    return result;
+  } catch (cause) {
+    const refusal = takeoffPaymentRefusal(cause);
+    if (!refusal) throw cause;
+    return { ok: false, code: refusal.code, message: refusal.message, takeoff: null, reloadSettings: true } as const;
+  }
 }

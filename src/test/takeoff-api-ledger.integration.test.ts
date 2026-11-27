@@ -139,7 +139,7 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before com
       if (saved.outcome !== "saved" || saved.state.status !== "saved") throw new Error("Fictional key was not saved");
       const { connectionId } = saved.state.connection;
       await api.saveAnalysisPreferences(owner, { billingSource: "personal_api_key", apiModel: model, apiReasoningEffort: "medium" }, connectionId);
-      const paymentChoice = { model, effort, expectedConnectionId: connectionId };
+      const paymentChoice = { model, effort, expectedConnectionId: connectionId, expectedMaxCostCents: 100 };
       const preview = await loadTakeoffExecutionPreviewAction({ projectId, paymentChoice });
       expect(preview).toMatchObject({ ok: true, data: { model, reasoningEffort: effort } });
       await expect(loadTakeoffExecutionPreviewAction({ projectId, paymentChoice: { ...paymentChoice, expectedConnectionId: randomUUID() } }))
@@ -156,9 +156,25 @@ it.runIf(process.env.MERGEONE_TEST_TAKEOFF_API_LEDGER === "1").each(["before com
         } };
       draft.sources = draft.sources.map((source) => ({ ...source, active: true, confirmed: true }));
       const review = await saveTakeoffPreparation({ projectId, draft, expectedRevision: null });
+      vi.stubEnv("TAKEOFF_LEVEL_C_MAX_COST_CENTS", "200");
+      await expect(confirmTakeoffPreparationAction({ projectId, expectedRevision: review.revision!, paymentChoice,
+        expectedExecutionFingerprint: preview.data.fingerprint })).resolves.toMatchObject({ ok: false, error: {
+        code: "TAKEOFF_PAYMENT_SETTINGS_CHANGED", reloadSettings: true,
+      } });
+      const mandates = () => execFileSync(process.env.E2E_ARMY_LOCAL_PSQL!, ["-X", "-At", "-d", process.env.E2E_ARMY_LOCAL_DB_URL!, "-c",
+        `select count(*) from private.takeoff_api_mandates where project_id = '${projectId}'`], { encoding: "utf8" }).trim();
+      expect(mandates()).toBe("0");
+      vi.stubEnv("TAKEOFF_LEVEL_C_MAX_COST_CENTS", "100");
+      // The payment is accepted, the recap it was shown with is not the one confirmed: refused late, still no mandate.
+      await expect(confirmTakeoffPreparationAction({ projectId, expectedRevision: review.revision!, paymentChoice,
+        expectedExecutionFingerprint: "0".repeat(64) })).resolves.toMatchObject({ ok: false, error: {
+        code: "TAKEOFF_PAYMENT_SETTINGS_CHANGED", reloadSettings: true,
+      } });
+      expect(mandates()).toBe("0");
       const confirmed = await confirmTakeoffPreparationAction({ projectId, expectedRevision: review.revision!, paymentChoice,
         expectedExecutionFingerprint: preview.data.fingerprint });
       if (!confirmed.ok) throw new Error(confirmed.error.message);
+      expect(mandates()).toBe("1");
 
       const launched = await launchPreparedTakeoffFromPlanSetAction({ projectId, planSetId, versionId, level: "C", provider: "chatgpt",
         preparationRevision: confirmed.data.revision!, paymentChoice });

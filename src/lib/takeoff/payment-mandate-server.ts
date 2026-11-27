@@ -7,6 +7,9 @@ import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { chatGptPreferencesSchema } from "@/lib/ai/chatgpt-model-preferences";
 import type { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
+import { ApiError } from "@/lib/http/api-error";
+import { mapSupabaseError } from "@/lib/http/api-response";
+import { TAKEOFF_PAYMENT_CHOICE_REQUIRED, TAKEOFF_PAYMENT_SETTINGS_CHANGED } from "@/lib/takeoff/payment-choice";
 import type { TakeoffExecutionSelection } from "@/lib/takeoff/preparation";
 
 type Service = ReturnType<typeof createServiceRoleClient>;
@@ -24,6 +27,14 @@ export function takeoffPaymentError(message: string, jobId?: string) {
   return new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId, message });
 }
 
+export function takeoffPaymentSettingsChanged(message: string) {
+  return new ApiError({ status: 409, code: TAKEOFF_PAYMENT_SETTINGS_CHANGED, message, details: { reloadSettings: true } });
+}
+
+export function takeoffPaymentChoiceRequired(message: string) {
+  return new ApiError({ status: 422, code: TAKEOFF_PAYMENT_CHOICE_REQUIRED, message });
+}
+
 export const TAKEOFF_API_CONNECTION_CHANGED =
   "La clé API OpenAI du payeur a été remplacée ou retirée. Les résultats déjà enregistrés sont conservés.";
 
@@ -37,7 +48,8 @@ export async function assertTakeoffPayer(service: Service, scope: TakeoffPayment
   const { data, error } = await service.rpc("takeoff_payer_may_launch", {
     p_tenant_id: scope.tenantId, p_project_id: scope.projectId, p_user_id: scope.userId,
   });
-  if (error || data !== true) throw new TakeoffError({ status: 403, code: TakeoffErrorCode.FORBIDDEN, retryable: false,
+  if (error) throw mapSupabaseError(error, "Impossible de vérifier qui peut payer le métré de cette affaire.");
+  if (data !== true) throw new TakeoffError({ status: 403, code: TakeoffErrorCode.FORBIDDEN, retryable: false,
     message: "Votre rôle ne permet pas de payer le métré de cette affaire." });
 }
 

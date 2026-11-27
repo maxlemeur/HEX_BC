@@ -4,11 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/feedback/toast-provider";
 import type { AffaireIntakeBriefDraft } from "@/lib/affaires/intake";
+import { FIXTURE_KEY_CONNECTION, fixtureTakeoffPaymentOptions, NO_PAYMENT_OPTIONS } from "@/lib/takeoff/payment-settings.test-fixtures";
 import { BriefDraftCard } from "./BriefDraftCard";
 
 // The confirmation dialog tells the member who pays from a read made when it opens (lot 2): never from what the page
 // rendered before the brief reached it.
 const { refresh, readNotice, confirmBrief } = vi.hoisted(() => ({ refresh: vi.fn(), readNotice: vi.fn(), confirmBrief: vi.fn() }));
+const readPayment = vi.hoisted(() => vi.fn());
+vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({ readTakeoffPaymentOptionsAction: readPayment }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 vi.mock("@/app/dashboard/affaires/_actions/intake", () => ({
   readAffaireBriefChoices: readNotice, confirmAffaireBrief: confirmBrief, updateAffaireBrief: vi.fn(), resolveAffaireBriefPlanGap: vi.fn(),
@@ -47,12 +50,55 @@ async function openDialog(user: ReturnType<typeof userEvent.setup>) {
 }
 
 beforeEach(() => {
+  readPayment.mockReset().mockResolvedValue(NO_PAYMENT_OPTIONS);
   refresh.mockReset();
   readNotice.mockReset();
   confirmBrief.mockReset().mockResolvedValue({ ok: true, status: "confirme", takeoff: null });
 });
 
 describe("BriefDraftCard confirmation dialog", () => {
+  it("confirms with the digest of the selected key settings and can reload after a changed connection", async () => {
+    const newConnection = "dead8000-11aa-4cab-8122-112233445566";
+    readPayment.mockResolvedValueOnce(fixtureTakeoffPaymentOptions()).mockResolvedValue(fixtureTakeoffPaymentOptions("personal_api_key", 3000, newConnection));
+    const keyNotice = { message: "Mention de paiement avec votre clé OpenAI.", digest: "c".repeat(64) };
+    readNotice.mockImplementation(async ({ paymentChoice }) => ({ plans, notice: paymentChoice ? keyNotice : NOTICE }));
+    const message = "La connexion OpenAI a changé. Rechargez les réglages du métré.";
+    confirmBrief.mockResolvedValueOnce({ ok: false, message, reloadSettings: true, takeoff: null });
+    const user = renderCard();
+    const dialog = within(await openDialog(user));
+    await user.click(await dialog.findByRole("checkbox", { name: /Niveau 0/ }));
+    expect(await dialog.findByLabelText("Source IA")).toHaveValue("personal_api_key");
+    expect(dialog.getByText(/Plafond pour cette demande.*25.*US/)).toBeVisible();
+    await user.selectOptions(dialog.getByLabelText("Modèle"), "gpt-6.2-sol");
+    await user.selectOptions(dialog.getByLabelText("Effort de raisonnement"), "high");
+    expect(await dialog.findByText(keyNotice.message)).toBeVisible();
+    // The key's notice reads at the size of the plan's, in the same list.
+    expect(dialog.getByText(keyNotice.message)).toHaveClass("text-sm");
+    await user.click(dialog.getByRole("button", { name: "Confirmer et analyser 1 plan" }));
+    expect(confirmBrief).toHaveBeenLastCalledWith(expect.objectContaining({ payerNotice: keyNotice.digest,
+      paymentChoice: { source: "personal_api_key", model: "gpt-6.2-sol", effort: "high", expectedConnectionId: FIXTURE_KEY_CONNECTION, expectedMaxCostCents: 2500 } }));
+    expect(await dialog.findByText(message)).toBeVisible();
+    expect(dialog.getByRole("button", { name: "Confirmer et analyser 1 plan" })).toBeDisabled();
+    await user.click(dialog.getByRole("button", { name: "Recharger les réglages" }));
+    expect(await dialog.findByText(/Plafond pour cette demande.*30.*US/)).toBeVisible();
+    expect(dialog.getByLabelText("Modèle")).toHaveValue("gpt-6.1-sol");
+    await dialog.findByText(keyNotice.message);
+    await user.click(dialog.getByRole("button", { name: "Confirmer et analyser 1 plan" }));
+    expect(confirmBrief).toHaveBeenLastCalledWith(expect.objectContaining({ payerNotice: keyNotice.digest,
+      paymentChoice: expect.objectContaining({ expectedConnectionId: newConnection, expectedMaxCostCents: 3000 }) }));
+  });
+
+  it("offers no payment options to a reader without a payer notice", async () => {
+    readNotice.mockResolvedValue({ ...choices, notice: null });
+    const user = renderCard();
+    const dialog = within(await openDialog(user));
+    await user.click(await dialog.findByRole("checkbox", { name: /Niveau 0/ }));
+    expect(dialog.queryByLabelText("Source IA")).toBeNull();
+    expect(readPayment).not.toHaveBeenCalled();
+    await user.click(dialog.getByRole("button", { name: "Confirmer et analyser 1 plan" }));
+    expect(confirmBrief).toHaveBeenCalledWith({ projectId: PROJECT, expectedUpdatedAt: UPDATED_AT,
+      plans: [{ id: plans[0].id, version: plans[0].version }], payerNotice: null });
+  });
   it("sends only checked versions with the payer notice actually shown", async () => {
     readNotice.mockResolvedValue(choices);
     const user = renderCard();

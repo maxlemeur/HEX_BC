@@ -12,6 +12,7 @@ import {
   compileChatGptRoutes, createLocalChatGptOwner, prepareChatGptServerWorkspace, type TAKEOFF_JOURNEY_WAVES,
 } from "./chatgpt-server-support";
 import { buildLabVectorPlanPdf } from "./lab-vector-plan-fixture";
+import { labFictionalApiKey } from "./lab-fictional-key";
 
 // The takeoff, Decisions and three intake files each own a server, account, ephemeral port, Next workspace
 // and artifacts directory.
@@ -108,7 +109,7 @@ export async function writePlanFixture(email: string, liveProbe: ChatGptLiveProb
  * its own time limit, and one hook cannot hold them all (compileChatGptRoutes). `compileIntakeRoutes` warms the
  * affaire's intake desk, with a separate wave for the dossier spreadsheet import.
  */
-export function chatGptLocalServer() {
+export function chatGptLocalServer({ apiKeyFixture = false }: { apiKeyFixture?: boolean } = {}) {
   let localServer: ChildProcess | undefined;
   let localOrigin: string | undefined;
   let ownerEmail: string | undefined;
@@ -127,6 +128,7 @@ export function chatGptLocalServer() {
     if (liveProbe && (!liveProbe.accessToken || !liveProbe.model || liveProbe.expiresAt < Date.now() + 300_000)) {
       throw new Error("Live probe requires a selected model and a valid short-lived token.");
     }
+    if (apiKeyFixture && liveProbe) throw new Error("The paid-request screens journey requires fictional transports only.");
     const reservation = createServer();
     await new Promise<void>((resolve, reject) => { reservation.once("error", reject); reservation.listen(0, "127.0.0.1", resolve); });
     const address = reservation.address();
@@ -143,6 +145,11 @@ export function chatGptLocalServer() {
     await mkdir(path.dirname(log), { recursive: true });
     await writeFile(log, "");
     await writeDecisionsControl(decisionsControl, {});
+    const apiKeyControl = path.join(artifacts, "api-key-control.json");
+    if (apiKeyFixture) {
+      const key = labFictionalApiKey(process.env.E2E_LOGIN_PASSWORD!);
+      await writeFile(apiKeyControl, JSON.stringify({ keySha256: createHash("sha256").update(key).digest("hex"), mode: "catalog-updated" }));
+    }
     // The takeoff lab of VEC01: a fictional dataset of one layered plan, and an empty output, under this run's artifacts.
     const labDatasetDir = path.join(artifacts, "lab-dataset");
     const labOutputDir = path.join(artifacts, "lab-output");
@@ -157,7 +164,9 @@ export function chatGptLocalServer() {
     }] }));
     const child = localServer = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", "--port", String(port), "--webpack"], {
       cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", MERGEONE_CHATGPT_LOCAL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development", ...workspace.environment,
-        NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}${apiKeyFixture
+          ? ` --import=${pathToFileURL(path.resolve("e2e/army/local/api-key-provider-fixture.mjs")).href}` : ""}`,
+        ...(apiKeyFixture && { ARMY_API_KEY_CONTROL: apiKeyControl }),
         CRON_SECRET: recoverySecret, ARMY_CHATGPT_TRANSPORT_LOG: log, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
         TAKEOFF_LAB_DATASET_DIR: labDatasetDir, TAKEOFF_LAB_OUTPUT_DIR: labOutputDir,
         // The assistant (ASSIST01) exists only where it is switched on, beside the linked ChatGPT plan.

@@ -1,7 +1,8 @@
 import "server-only";
 
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { resolveTakeoffPayment, takeoffSelectionFingerprint } from "@/lib/takeoff/payment-server";
+import { resolveTakeoffPayment, sealTakeoffPayment, takeoffSelectionFingerprint } from "@/lib/takeoff/payment-server";
+import { takeoffPaymentSettingsChanged } from "@/lib/takeoff/payment-mandate-server";
 import type { TakeoffPaymentChoice } from "@/lib/takeoff/payment-choice";
 
 import { createHash } from "node:crypto";
@@ -71,26 +72,34 @@ export async function loadTakeoffExecutionPreview(input?: { projectId: string; p
   if (input) {
     await assertPreparationProjectAccess(context, projectIdSchema.parse(input.projectId), true);
     const { selection, preferences } = await resolveTakeoffPayment({ ...context, projectId: input.projectId },
-      input.paymentChoice, createServiceRoleClient(), false);
+      input.paymentChoice, createServiceRoleClient());
     return { ...preferences, fingerprint: takeoffSelectionFingerprint(selection) };
   }
   const selection = await getTakeoffExecutionSelection(context.supabase, context, "chatgpt");
   return { model: selection.model, reasoningEffort: selection.reasoningEffort, fingerprint: takeoffSelectionFingerprint(selection) };
 }
 
+/**
+ * The selection a confirmation pins, as the member saw it. `seal` records a key's mandate: the caller runs it last,
+ * immediately before it writes the confirmation (a confirmation already written recorded it then).
+ */
 async function selectionForConfirmation(context: AuthenticatedTenantContext, input: {
   projectId: string; expectedExecutionFingerprint?: string; paymentChoice?: TakeoffPaymentChoice;
 }) {
-  const selection = takeoffExecutionSelectionSchema.parse(input.paymentChoice
-    ? (await resolveTakeoffPayment({ ...context, projectId: input.projectId }, input.paymentChoice, createServiceRoleClient())).selection
-    : await getTakeoffExecutionSelection(context.supabase, context, "chatgpt"));
+  const payer = { ...context, projectId: input.projectId };
+  // Without a choice, the plan's selection is read as it always was: nothing of the payment is touched.
+  const explicit = input.paymentChoice ? { service: createServiceRoleClient(), choice: input.paymentChoice } : null;
+  const payment = explicit ? await resolveTakeoffPayment(payer, explicit.choice, explicit.service) : null;
+  const selection = takeoffExecutionSelectionSchema.parse(payment?.selection
+    ?? await getTakeoffExecutionSelection(context.supabase, context, "chatgpt"));
   if (takeoffSelectionFingerprint(selection) !== input.expectedExecutionFingerprint) {
+    if (input.paymentChoice) {
+      throw takeoffPaymentSettingsChanged("La connexion, le modèle, l’effort ou le budget du métré a changé. Vérifiez les réglages affichés et confirmez de nouveau.");
+    }
     throw new ApiError({ status: 409, code: "TAKEOFF_CHATGPT_SELECTION_CHANGED",
-      message: input.paymentChoice
-        ? "La connexion, le modèle, l’effort ou le budget du métré a changé. Vérifiez les réglages affichés et confirmez de nouveau."
-        : "Le compte, le modèle ou l’effort ChatGPT a changé. Vérifiez la sélection affichée et confirmez de nouveau." });
+      message: "Le compte, le modèle ou l’effort ChatGPT a changé. Vérifiez la sélection affichée et confirmez de nouveau." });
   }
-  return selection;
+  return { selection, seal: async () => { if (explicit) await sealTakeoffPayment(payer, payment, explicit.service); } };
 }
 
 /**
@@ -98,7 +107,8 @@ async function selectionForConfirmation(context: AuthenticatedTenantContext, inp
  * with a plan set, the preparation deduced from the dossier for that set. The automatic start seals the same deduction,
  * through the server's own client, without saving it over the member's draft.
  */
-export async function loadPreparation(context: Pick<AuthenticatedTenantContext, "supabase" | "tenantId">, projectId: string, planSetId?: string) {
+export async function loadPreparation(context: Pick<AuthenticatedTenantContext, "supabase" | "tenantId"> &
+  Partial<Pick<AuthenticatedTenantContext, "userId">>, projectId: string, planSetId?: string) {
   const [record, availableSources] = await Promise.all([
     readPreparationRecord(context, projectId), readPreparationSources(context, projectId),
   ]);
@@ -123,12 +133,17 @@ export async function loadPreparation(context: Pick<AuthenticatedTenantContext, 
     });
   }
   const needsSave = !record || JSON.stringify(saved) !== JSON.stringify(draft);
+  const confirmedAt = changedSourceIds.length || (planSetId && needsSave) ? null : record?.confirmed_at ?? null;
+  const ownConfirmation = confirmedAt && record?.confirmed_by === context.userId
+    ? storedPreparationSnapshotSchema.safeParse(record?.confirmed_snapshot) : null;
+  const execution = ownConfirmation?.success ? ownConfirmation.data.execution_selection : undefined;
   return {
     draft, revision: record?.revision ?? null, availableSources, changedSourceIds, needsSave,
-    confirmedAt: changedSourceIds.length || (planSetId && needsSave) ? null : record?.confirmed_at ?? null,
+    confirmedAt,
     confirmedBy: changedSourceIds.length || (planSetId && needsSave) ? null : record?.confirmed_by ?? null,
     sourceFingerprint: getPreparationSourcesFingerprint(availableSources),
     readiness: evaluateTakeoffPreparation(draft),
+    ...(execution && { confirmedExecutionFingerprint: takeoffSelectionFingerprint(execution) }),
   };
 }
 
@@ -571,7 +586,11 @@ export async function confirmTakeoffPreparation(input: {
   }
   const confirmedAt = new Date().toISOString();
   const snapshot = createTakeoffPreparationSnapshot({ preparation: draft, confirmedBy: context.userId, confirmedAt, revision });
-  if (draft.provenance) snapshot.execution_selection = await selectionForConfirmation(context, input);
+  if (draft.provenance) {
+    const pinned = await selectionForConfirmation(context, input);
+    snapshot.execution_selection = pinned.selection;
+    await pinned.seal();
+  }
   await persistPreparationRecord({
     context, projectId: input.projectId, expectedRevision: record.revision, revision,
     draft: snapshot.preparation as unknown as Json, snapshot: snapshot as unknown as Json, confirmedAt,

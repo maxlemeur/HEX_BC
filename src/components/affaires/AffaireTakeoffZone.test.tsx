@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AffaireTakeoffZone } from "@/components/affaires/AffaireTakeoffZone";
 import { UserProvider, type UserProfile } from "@/lib/auth/user-context";
 import type { AffaireTakeoffZoneData } from "@/lib/takeoff/affaire-takeoff-zone";
+import { NO_PAYMENT_OPTIONS } from "@/lib/takeoff/payment-settings.test-fixtures";
 
 const { assume, read, dialog } = vi.hoisted(() => ({ assume: vi.fn(), read: vi.fn(), dialog: vi.fn() }));
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   assumeTakeoffLaunchRequestAction: assume, readAffaireTakeoffZoneAction: read,
+  readTakeoffPaymentOptionsAction: async () => NO_PAYMENT_OPTIONS,
 }));
 vi.mock("@/components/affaires/LaunchMetreDialog", () => ({
   LaunchMetreDialog: (props: { open: boolean; launchMode: unknown }) => {

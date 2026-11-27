@@ -390,6 +390,7 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     return `Métré non démarré — ${names ? `les plans ${names} dépassent` : "les plans dépassent"} les limites d’une lecture contre `
       + `la liste des postes. ${describePosteReadingBounds(readingBounds)}`;
   }
+  // A member takes a request on with the plan or with their own key: what they are told to do names neither.
   switch (reason) {
     case "DOSSIER_EMPTY": return "Ajoutez le dossier de consultation pour pouvoir choisir les plans à analyser.";
     case "DOSSIER_PROCESSING": return "Le classement des documents est en cours. Vous pourrez choisir les plans en confirmant le brief.";
@@ -401,8 +402,8 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     case "PLAN_SET_TOO_LARGE": return `Métré non démarré — ${names ? `les plans ${names} dépassent` : "les plans dépassent"} les limites d’une analyse. Restreignez-les dans les options du métré.`;
     case "TAKEOFF_DISABLED": return "Le métré n’est pas activé pour cette entreprise.";
     case "OPERATOR_REQUIRED": return "Métré non démarré — prise en charge par un métreur requise";
-    case "MANDATE_REQUIRED": return "Métré non démarré — la confirmation du dossier n’a engagé aucun forfait ChatGPT. Un métreur peut le prendre en charge avec le sien.";
-    case "LOCAL_RUNTIME_REQUIRED": return "Métré non démarré — ouvrez MergeOne sur le Mac connecté, puis reprenez avec votre forfait.";
+    case "MANDATE_REQUIRED": return "Métré non démarré — la confirmation du dossier n’a engagé aucun forfait ChatGPT. Un métreur peut le prendre en charge.";
+    case "LOCAL_RUNTIME_REQUIRED": return "Métré non démarré — ouvrez MergeOne sur le Mac connecté, puis reprenez la demande.";
     case "HOST_NOT_AUTHORISED": return "Métré non démarré — cette adresse ne peut pas utiliser le forfait ChatGPT. Ouvrez MergeOne sur le Mac connecté.";
     case "CHATGPT_NOT_CONNECTED": return "Métré non démarré — forfait ChatGPT non connecté. Connectez-le dans Mon profil, puis reprenez avec votre forfait.";
     case "API_KEY_CONNECTION_CHANGED": return "Métré non démarré — la clé API OpenAI du payeur a été remplacée ou retirée. Reprenez avec votre propre connexion.";
@@ -414,7 +415,7 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     case "SOURCE_UNREADABLE": return "Métré en attente — une pièce du dossier n’a pas pu être lue. Nouvelle tentative automatique.";
     case "ANOTHER_ANALYSIS_RUNNING": return "Métré en attente — une autre analyse de l’affaire est en cours.";
     case "ITEM_LIST_TO_PREPARE": return "Métré en attente — la liste des postes est à préparer : importez ou choisissez la DPGF de l’affaire. Nouvelle tentative automatique.";
-    case "EVALUATION_FAILED": return "Métré non démarré — la vérification du dossier a échoué plusieurs fois. Reprenez avec votre forfait pour réessayer.";
+    case "EVALUATION_FAILED": return "Métré non démarré — la vérification du dossier a échoué plusieurs fois. Reprenez la demande pour réessayer.";
     case "SUPERSEDED": return "Métré automatique remplacé par une relance de l’analyse : une nouvelle analyse se lance depuis les options du métré.";
     case "BUDGET_EXHAUSTED": return "Métré arrêté — le budget de cette analyse est épuisé. Une nouvelle analyse se lance depuis les options du métré.";
     case "STOPPED_BY_MEMBER": return "Métré arrêté à la demande d’un métreur : les plans déjà lus restent disponibles, les autres n’ont pas été lus.";

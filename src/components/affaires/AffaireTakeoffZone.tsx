@@ -5,19 +5,18 @@ import useSWR from "swr";
 import { BellIcon, SlidersHorizontalIcon } from "lucide-react";
 
 import {
-  assumeTakeoffLaunchRequestAction,
   readAffaireTakeoffZoneAction,
 } from "@/app/dashboard/affaires/_actions/takeoff";
 import { LaunchMetreDialog, type LaunchMetreDialogMode } from "@/components/affaires/LaunchMetreDialog";
+import { TakeoffAssumeControls } from "@/components/takeoff/TakeoffAssumeControls";
 import { useToast } from "@/components/feedback/toast-provider";
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { AffaireDossierState } from "@/lib/affaires/intake";
 import type { AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 import { useOptionalUserContext } from "@/lib/auth/user-context";
-import { TakeoffActionError, unwrapTakeoffActionResult } from "@/lib/takeoff/action-result";
+import { unwrapTakeoffActionResult } from "@/lib/takeoff/action-result";
 import {
   buildAffaireTakeoffZone,
   type AffaireTakeoffZoneData,
@@ -95,8 +94,6 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
   [viewerTenantId, viewerUserId]);
   const initialData = useMemo(() => ownData(props.initialData), [ownData, props.initialData]);
   const [optionsOpen, setOptionsOpen] = useState(Boolean(props.initialOptionsOpen && canOperate));
-  const [gestureBusy, setGestureBusy] = useState(false);
-  const [gestureError, setGestureError] = useState<string | null>(null);
   const zoneOf = useCallback((zoneData: AffaireTakeoffZoneData | null) => buildAffaireTakeoffZone({
     projectId, data: zoneData, dossier: props.dossier, planFileCount: props.planFileCount, canOperate,
   }), [canOperate, projectId, props.dossier, props.planFileCount]);
@@ -121,26 +118,6 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
     void mutate();
     props.onChanged();
   }, [mutate, props]);
-
-  const runGesture = useCallback(async () => {
-    const gesture = model?.gesture;
-    if (!gesture || gestureBusy) return;
-    setGestureBusy(true);
-    setGestureError(null);
-    try {
-      const result = unwrapTakeoffActionResult(await assumeTakeoffLaunchRequestAction({
-        projectId, requestId: gesture.requestId, seenRevision: gesture.revision, action: gesture.kind,
-      }));
-      toast.success({ title: gesture.kind === "resume" ? "Métré repris avec votre forfait" : "Métré pris en charge avec votre forfait",
-        description: result.message ?? "Le Mac connecté vérifie les plans avant de lancer l’analyse détaillée.", durationMs: 6000 });
-      refresh();
-    } catch (cause) {
-      setGestureError(cause instanceof TakeoffActionError ? cause.message : "Impossible de prendre en charge le métré. Réessayez.");
-      void mutate();
-    } finally {
-      setGestureBusy(false);
-    }
-  }, [gestureBusy, model?.gesture, mutate, projectId, refresh, toast]);
 
   if (!model) return null;
   const options = model.options;
@@ -200,14 +177,20 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
         {model.awayFromMac ? (
           <p className="text-sm text-muted-foreground">Pour reprendre avec votre forfait, ouvrez MergeOne sur le Mac connecté.</p>
         ) : null}
-        {gestureError ? <Alert variant="danger"><AlertDescription>{gestureError}</AlertDescription></Alert> : null}
       </div>
       {model.gesture || model.reviews.length > 0 || model.links.length > 0 || dialogMode ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {model.gesture ? (
-            <Button variant="primary" size="md" className={ACTION_CLASS} disabled={gestureBusy} onClick={() => void runGesture()}>
-              {gestureBusy ? "Prise en charge…" : model.gesture.label}
-            </Button>
+            <TakeoffAssumeControls key={`${model.gesture.requestId}:${model.gesture.revision}`} projectId={projectId}
+              requestId={model.gesture.requestId} revision={model.gesture.revision} action={model.gesture.kind}
+              label={model.gesture.label} busyLabel="Prise en charge…" size="md" className={ACTION_CLASS} wrapperClassName="max-sm:w-full"
+              onChanged={(result, viaKey) => {
+                if (!result) { void mutate(); return; }
+                const verb = model.gesture?.kind === "resume" ? "Métré repris" : "Métré pris en charge";
+                toast.success({ title: `${verb} avec ${viaKey ? "votre clé API" : "votre forfait"}`,
+                  description: result.message ?? "Le Mac connecté vérifie les plans avant de lancer l’analyse détaillée.", durationMs: 6000 });
+                refresh();
+              }} />
           ) : null}
           {model.reviews.map((review) => (
             <Link key={review.key} href={review.href} className={cn(buttonVariants({ variant: model.gesture ? "outline" : "primary", size: "md" }), ACTION_CLASS)}>

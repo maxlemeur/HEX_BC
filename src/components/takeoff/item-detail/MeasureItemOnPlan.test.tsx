@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { basinLine, DETAIL_PROJECT, JOB_RDC, MEMBER, PLAN_RDC, planViews, SET } from "@/lib/takeoff/item-detail.test-fixtures";
 import { itemDetailHref, readItemDetailAddress } from "@/lib/takeoff/item-detail-address";
@@ -8,6 +8,11 @@ import { TakeoffApiError } from "@/lib/takeoff/client-http";
 import { fetchItemMeasureReadings, previewItemRemeasure, sendItemRemeasure } from "@/lib/takeoff/item-table-client";
 import type { ItemRemeasureResult } from "@/lib/takeoff/item-table-contracts";
 import { MeasureItemOnPlan } from "./MeasureItemOnPlan";
+import { fixtureTakeoffPaymentOptions, FIXTURE_KEY_CONNECTION, NO_PAYMENT_OPTIONS } from "@/lib/takeoff/payment-settings.test-fixtures";
+
+const readPayment = vi.hoisted(() => vi.fn());
+vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({ readTakeoffPaymentOptionsAction: readPayment }));
+beforeEach(() => { readPayment.mockResolvedValue(NO_PAYMENT_OPTIONS); });
 
 vi.mock("@/lib/takeoff/item-table-client", () => ({
   fetchItemMeasureReadings: vi.fn(), previewItemRemeasure: vi.fn(), sendItemRemeasure: vi.fn(),
@@ -33,6 +38,32 @@ function openMeasure(search = "") {
   window.history.replaceState(null, "", `?poste=${basinLine.itemId}&plan=${PLAN_RDC}${search}`);
   return render(<MeasureFromAddress />);
 }
+
+it("uses the selected key and its frozen preview without also submitting a forfait setting", async () => {
+  readPayment.mockResolvedValue(fixtureTakeoffPaymentOptions());
+  vi.mocked(fetchItemMeasureReadings).mockResolvedValue(null);
+  vi.mocked(previewItemRemeasure).mockResolvedValue({
+    plans: [{ key: PLAN_RDC, name: "RDC" }], items: [{ itemId: basinLine.itemId, label: basinLine.label }],
+    payer: { memberId: MEMBER, name: "Léa" }, running: false, skipped: [], previewDigest: "a".repeat(64),
+    subscription: { state: "ready", model: "gpt-6.2-sol", reasoningEffort: "high" },
+    payment: { source: "personal_api_key", maxCostCents: 2500 },
+    detail: { hostProof: "f".repeat(64), revision: "B", pages: [1, 2], pageCount: 2, previousPages: [1, 2], effect: "replace" },
+    reading: { state: "ready", calls: 2, budgetTokens: 2000, summary: "Deux appels maximum." },
+  });
+  vi.mocked(sendItemRemeasure).mockResolvedValue({ outcome: "admitted", requestId: SET });
+  openMeasure();
+  fireEvent.click(screen.getByRole("button", { name: "Mesurer ce poste" }));
+  expect(await screen.findByLabelText("Source IA")).toHaveValue("personal_api_key");
+  expect(screen.getByText(/Plafond pour cette demande.*25.*US/)).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Modèle"), { target: { value: "gpt-6.2-sol" } });
+  fireEvent.change(screen.getByLabelText("Effort de raisonnement"), { target: { value: "high" } });
+  const button = screen.getByRole("button", { name: "Mesurer avec ma clé API" });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+  expect(sendItemRemeasure).toHaveBeenCalledWith(DETAIL_PROJECT, expect.objectContaining({ setting: null,
+    payment_choice: { source: "personal_api_key", model: "gpt-6.2-sol", effort: "high", expectedConnectionId: FIXTURE_KEY_CONNECTION, expectedMaxCostCents: 2500 },
+    host_proof: "f".repeat(64), preview_digest: "a".repeat(64) }));
+});
 
 it("keeps one immutable confirmation across a double click and a lost admission response", async () => {
   vi.mocked(fetchItemMeasureReadings).mockResolvedValue(null);

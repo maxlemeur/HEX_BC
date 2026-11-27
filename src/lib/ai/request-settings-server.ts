@@ -131,6 +131,14 @@ async function sourceOptions(
   }
 }
 
+/**
+ * The payer configured in Mon profil, as every request screen starts from it; null when it cannot be read. It reads the
+ * local metadata only: no key is opened and no provider is called.
+ */
+export async function readAiRequestDefaultSource(owner: Owner): Promise<AiBillingSource | null> {
+  return (await readProfile(owner, await localAccess())).defaultSource;
+}
+
 /** Read the options for a screen using the same defaults and availability rules as dispatch. */
 export async function readAiRequestOptions(
   owner: Owner, policy: RequestPolicy, planCatalogue: "live" | "cached" = "live",
