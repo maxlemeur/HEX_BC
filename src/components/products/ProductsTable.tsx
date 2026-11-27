@@ -260,15 +260,10 @@ export function ProductsTable({
                       {[product.material, product.grade].filter(Boolean).join(" ") || "Non renseigné"}
                     </div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
-                      {[product.category, product.product_type, product.dimensions, product.standard]
+                      {[product._supplyTypeName, product.product_type, product.dimensions, product.standard]
                         .filter(Boolean)
                         .join(" · ") || "Sans caractéristique"}
                     </div>
-                    {product._supplyTypeName ? (
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        Fourniture : {product._supplyTypeName}
-                      </div>
-                    ) : null}
                   </td>
                   <td className="text-right">
                     <div className="whitespace-nowrap font-mono text-xs font-semibold text-foreground sm:text-sm">

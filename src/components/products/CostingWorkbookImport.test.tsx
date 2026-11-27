@@ -141,7 +141,7 @@ describe("CostingWorkbookImport", () => {
     for (const sentence of [
       "1 842 nouveaux articles en brouillon",
       "779 déjà au catalogue (inchangés)",
-      "31 sans type de fourniture",
+      "31 sans famille",
       "613 références fournisseur à traiter séparément.",
     ]) {
       expect(within(preview).getByText(sentence)).toBeInTheDocument();

@@ -418,8 +418,8 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     expect(screen.getByText("À choisir")).toBeVisible();
 
-    await user.click(view("Types de fourniture"));
-    const types = within(screen.getByRole("table", { name: "Types de fourniture proposés" }));
+    await user.click(view("Familles"));
+    const types = within(screen.getByRole("table", { name: "Familles proposées" }));
     expect(types.getByLabelText("I4L")).toHaveDisplayValue("Tube (type proposé)");
     await user.selectOptions(types.getByLabelText("CAL"), "Support");
     await waitFor(() => expect(previews()).toHaveLength(2));

@@ -82,7 +82,7 @@ export async function fetchSupplyTypesWithPreferredSupplier(
 ): Promise<SupplyTypeWithPreferredSupplier[]> {
   const { items } = await read<{ items: SupplyTypeWithPreferredSupplier[] }>(
     "/api/catalogue/supply-types",
-    "Les types de fourniture n’ont pas pu être chargés.",
+    "Les familles n’ont pas pu être chargées.",
     signal,
   );
   return items ?? [];
@@ -97,7 +97,7 @@ export async function saveSupplyTypePreferredSupplier(
     `/api/catalogue/supply-types/${encodeURIComponent(supplyTypeId)}`,
     "PATCH",
     { preferred_supplier_id: supplierId },
-    "Le fournisseur privilégié du type n’a pas pu être enregistré.",
+    "Le fournisseur privilégié de la famille n’a pas pu être enregistré.",
   );
   return answer?.item ?? null;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createSupplyTypeSchema, supplyTypeCodeFromName } from "./supply-types";
+import { createSupplyTypeSchema, matchSupplyTypeByName, supplyTypeCodeFromName, supplyTypeNameKey } from "./supply-types";
 
 /**
  * Failure modes, written before the code (TI-690):
@@ -27,6 +27,43 @@ describe("supplyTypeCodeFromName", () => {
 
   it("yields no code for a name without a letter or a digit", () => {
     expect(supplyTypeCodeFromName(" -- / ")).toBeNull();
+  });
+});
+
+// An import names the family of an article by its name. Failure modes:
+//  a. « tubes », « TUBE » or « Tube » with a trailing space file the article under no family, or another one;
+//  b. a name the company does not have is matched to the closest family instead of being reported;
+//  c. two historical families sharing a key are picked at random.
+describe("matchSupplyTypeByName", () => {
+  const families = [
+    { id: "tube", name: "Tube" },
+    { id: "raccord", name: "Raccord à sertir" },
+  ];
+
+  it.each([
+    ["Tube", "tube"],
+    ["  TUBES ", "tube"],
+    ["raccord-a-sertir", "raccord_a_sertir"],
+    // Only the final « s » of the whole name is dropped.
+    ["Raccords à sertir", "raccords_a_sertir"],
+    ["Raccord à sertirs", "raccord_a_sertir"],
+    ["s", "s"],
+  ])("gives « %s » the key %s, as the database does", (name, key) => {
+    expect(supplyTypeNameKey(name)).toBe(key);
+  });
+
+  it("finds the family whatever its case, accents, punctuation or final « s »", () => {
+    expect(matchSupplyTypeByName(families, " tubes ")).toEqual({ status: "found", id: "tube", name: "Tube" });
+    expect(matchSupplyTypeByName(families, "RACCORD A SERTIR")).toEqual({ status: "found", id: "raccord", name: "Raccord à sertir" });
+  });
+
+  it("reports a name the company does not have, and a name with no letter or digit", () => {
+    expect(matchSupplyTypeByName(families, "Tuyauterie")).toEqual({ status: "unknown" });
+    expect(matchSupplyTypeByName(families, " -- ")).toEqual({ status: "unknown" });
+  });
+
+  it("reports a name two historical families share", () => {
+    expect(matchSupplyTypeByName([...families, { id: "tubes", name: "Tubes" }], "tube")).toEqual({ status: "ambiguous" });
   });
 });
 

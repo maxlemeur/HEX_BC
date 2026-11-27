@@ -39,7 +39,6 @@ const catalogueStatusSchema = z.enum(PRODUCT_CATALOGUE_STATUSES).optional();
 const productWriteFieldsSchema = z.object({
   reference: optionalTextSchema,
   designation: requiredTextSchema.max(500),
-  category: optionalTextSchema,
   product_type: optionalTextSchema,
   material: optionalTextSchema,
   grade: optionalTextSchema,
@@ -57,7 +56,6 @@ const productUpdateFieldsSchema = z
   .object({
     reference: optionalTextUpdateSchema,
     designation: requiredTextSchema.max(500).optional(),
-    category: optionalTextUpdateSchema,
     product_type: optionalTextUpdateSchema,
     material: optionalTextUpdateSchema,
     grade: optionalTextUpdateSchema,

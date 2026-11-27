@@ -351,6 +351,8 @@ describe("estimate server coverage additions", () => {
       }),
     ];
     productsBuilders.splice(1, 0, chainResult({ data: [], error: null }));
+    // The search also reads the articles whose family (supply type) the query names.
+    productsBuilders.splice(2, 0, chainResult({ data: [], error: null }));
     const suppliersBuilders = [
       chainResult({
         data: [],

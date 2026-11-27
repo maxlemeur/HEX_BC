@@ -30,6 +30,7 @@ import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 import { maxPriceValidTo, resolvePriceValidity } from "@/lib/catalogue/price-validity";
 import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
 import { useOptionalUserContext } from "@/lib/auth/user-context";
+import { fetchSupplyTypesWithPreferredSupplier } from "@/lib/catalogue/supplier-items-client";
 
 type EntityMode = "existing" | "new";
 
@@ -50,7 +51,8 @@ type SupplierDraft = {
 type ProductDraft = {
   reference: string;
   designation: string;
-  category: string;
+  /** The family of the new article: one of the company's supply types, or none. */
+  supply_type_id: string;
   product_type: string;
   material: string;
   grade: string;
@@ -111,7 +113,7 @@ const EMPTY_SUPPLIER: SupplierDraft = {
 const EMPTY_PRODUCT: ProductDraft = {
   reference: "",
   designation: "",
-  category: "",
+  supply_type_id: "",
   product_type: "",
   material: "",
   grade: "",
@@ -205,6 +207,7 @@ export function SupplierOfferFormModal({
   const [productMode, setProductMode] = useState<EntityMode>("existing");
   const [supplierDraft, setSupplierDraft] = useState(EMPTY_SUPPLIER);
   const [productDraft, setProductDraft] = useState(EMPTY_PRODUCT);
+  const [supplyTypes, setSupplyTypes] = useState<ReadonlyArray<{ id: string; name: string }>>([]);
   const [priceDraft, setPriceDraft] = useState(EMPTY_PRICE);
   const [supplierQuery, setSupplierQuery] = useState("");
   const [productQuery, setProductQuery] = useState("");
@@ -251,6 +254,17 @@ export function SupplierOfferFormModal({
     setIsSaving(false);
     setFormError(null);
   }, [defaultProductId, item, open]);
+
+  // The families a new article can take. A failed read leaves the article unclassified, as a blank choice does:
+  // its sheet in the catalogue classifies it later.
+  useEffect(() => {
+    if (!open || productMode !== "new") return;
+    const controller = new AbortController();
+    fetchSupplyTypesWithPreferredSupplier(controller.signal)
+      .then((items) => setSupplyTypes(items))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [open, productMode]);
 
   useEffect(() => {
     if (
@@ -466,7 +480,7 @@ export function SupplierOfferFormModal({
                     new_product: {
                       reference: nullableText(productDraft.reference),
                       designation: productDraft.designation.trim(),
-                      category: nullableText(productDraft.category),
+                      supply_type_id: productDraft.supply_type_id || null,
                       product_type: nullableText(productDraft.product_type),
                       material: nullableText(productDraft.material),
                       grade: nullableText(productDraft.grade),
@@ -610,13 +624,20 @@ export function SupplierOfferFormModal({
                     value={productDraft.designation}
                     onChange={(value) => updateProduct("designation", value)}
                   />
+                  <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-foreground-secondary">
+                    Famille
+                    <NativeSelect
+                      value={productDraft.supply_type_id}
+                      onChange={(event) => updateProduct("supply_type_id", event.target.value)}
+                    >
+                      <option value="">Non classée</option>
+                      {supplyTypes.map((supplyType) => (
+                        <option key={supplyType.id} value={supplyType.id}>{supplyType.name}</option>
+                      ))}
+                    </NativeSelect>
+                  </label>
                   <TextField
-                    label="Famille"
-                    value={productDraft.category}
-                    onChange={(value) => updateProduct("category", value)}
-                  />
-                  <TextField
-                    label="Type d'article"
+                    label="Type"
                     value={productDraft.product_type}
                     onChange={(value) => updateProduct("product_type", value)}
                   />

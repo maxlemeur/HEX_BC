@@ -73,13 +73,13 @@ describe("productValidationFieldsFromDetail", () => {
 describe("productValidationMessage", () => {
   it("names every missing field in French", () => {
     expect(productValidationMessage(["product_type", "supply_type_id"])).toBe(
-      "Pour valider cet article, renseignez : le type d’article, le type de fourniture.",
+      "Pour valider cet article, renseignez : le type, la famille.",
     );
   });
 
   it("stays explicit when the database names no field", () => {
     expect(productValidationMessage([])).toBe(
-      "Cet article est incomplet : renseignez le type d’article, la matière, l’unité et le type de fourniture avant de le valider.",
+      "Cet article est incomplet : renseignez la famille, le type, la matière et l’unité avant de le valider.",
     );
   });
 });

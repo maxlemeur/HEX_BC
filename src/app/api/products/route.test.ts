@@ -13,7 +13,6 @@ const PRODUCT_ID = "22222222-2222-4222-8222-222222222222";
 const VALID_PRODUCT = {
   reference: "TUB-15",
   designation: "Tube DN15",
-  category: "Tuyauterie",
   product_type: "Tube",
   material: "Inox",
   grade: "304L",
@@ -267,7 +266,7 @@ describe("POST /api/products", () => {
       ok: false,
       error: {
         code: "PRODUCT_VALIDATION_INCOMPLETE",
-        message: "Pour valider cet article, renseignez : le type d’article, le type de fourniture.",
+        message: "Pour valider cet article, renseignez : le type, la famille.",
         details: { missing: ["product_type", "supply_type_id"] },
       },
     });
@@ -330,7 +329,7 @@ describe("POST /api/products", () => {
 
     expect(response.status).toBe(400);
     expect((await response.json()).error.message).toBe(
-      "Ce type de fourniture n’existe pas dans votre référentiel."
+      "Cette famille n’existe pas dans votre référentiel."
     );
   });
 

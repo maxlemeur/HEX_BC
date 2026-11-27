@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { controlSurface } from "@/components/ui/input";
+import { fetchSupplyTypesWithPreferredSupplier } from "@/lib/catalogue/supplier-items-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +39,21 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
   const [success, setSuccess] = useState<string | null>(null);
   const [isReading, setIsReading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  // The families of the company: the file names them, and is read once they are known.
+  const [supplyTypes, setSupplyTypes] = useState<ReadonlyArray<{ id: string; name: string }> | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    setSupplyTypes(null);
+    fetchSupplyTypesWithPreferredSupplier(controller.signal)
+      .then((items) => setSupplyTypes(items))
+      .catch((loadError) => {
+        if (controller.signal.aborted) return;
+        setError(loadError instanceof Error ? loadError.message : "Les familles n’ont pas pu être chargées.");
+      });
+    return () => controller.abort();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -73,7 +89,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
 
     setIsReading(true);
     try {
-      setResult(parseProductCsv(await file.text()));
+      setResult(parseProductCsv(await file.text(), supplyTypes ?? []));
     } catch (readError) {
       setError(readError instanceof Error ? readError.message : "Impossible de lire le fichier CSV.");
     } finally {
@@ -91,7 +107,12 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
     // The generated database type can lag behind additive catalogue migrations.
     const { error: insertError } = await supabase
       .from("products")
-      .insert(result.acceptedRows as never);
+      // `family` is the preview's wording of supply_type_id, not a column.
+      .insert(result.acceptedRows.map((row) => {
+        const columns: Partial<typeof row> = { ...row };
+        delete columns.family;
+        return columns;
+      }) as never);
 
     if (insertError) {
       setError(insertError.message);
@@ -134,7 +155,9 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
             </label>
             <p id="product-csv-help" className="mt-1 mb-3 text-xs text-muted-foreground">
               La désignation est obligatoire. Colonnes reconnues : référence, famille, type,
-              matière, nuance, dimensions, norme, unité, prix unitaire HT et TVA.
+              matière, nuance, dimensions, norme, unité et prix unitaire HT. La famille est le nom
+              d’une famille de votre catalogue, par exemple « Raccord » ; le type décrit la pièce,
+              par exemple « Coude 90° ».
             </p>
             <input
               ref={fileInputRef}
@@ -142,7 +165,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
               type="file"
               accept=".csv,text/csv,application/csv,text/plain"
               aria-describedby="product-csv-help"
-              disabled={isReading || isImporting}
+              disabled={isReading || isImporting || supplyTypes === null}
               onChange={onFileChange}
               className={cn(
                 controlSurface,
@@ -192,6 +215,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                           <th scope="col" className="px-3 py-2 font-semibold">Référence</th>
                           <th scope="col" className="px-3 py-2 font-semibold">Désignation</th>
                           <th scope="col" className="px-3 py-2 font-semibold">Famille</th>
+                          <th scope="col" className="px-3 py-2 font-semibold">Type</th>
                           <th scope="col" className="px-3 py-2 font-semibold">Matière / nuance</th>
                           <th scope="col" className="px-3 py-2 text-right font-semibold">Prix HT</th>
                         </tr>
@@ -201,7 +225,8 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                           <tr key={`${row.reference ?? row.designation}-${index}`}>
                             <td className="px-3 py-2 font-mono text-xs text-foreground-secondary">{row.reference ?? "—"}</td>
                             <td className="px-3 py-2 font-medium text-foreground">{row.designation}</td>
-                            <td className="px-3 py-2 text-foreground-secondary">{row.category ?? "—"}</td>
+                            <td className="px-3 py-2 text-foreground-secondary">{row.family ?? "—"}</td>
+                            <td className="px-3 py-2 text-foreground-secondary">{row.product_type ?? "—"}</td>
                             <td className="px-3 py-2 text-foreground-secondary">
                               {[row.material, row.grade].filter(Boolean).join(" · ") || "—"}
                             </td>

@@ -266,7 +266,7 @@ describe("suppliers of request lines", () => {
     });
 
     const retain = await screen.findByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" });
-    expect(screen.getByText("Négoce Alpha · fournisseur du type Inox")).toBeVisible();
+    expect(screen.getByText("Négoce Alpha · fournisseur de la famille Inox")).toBeVisible();
     // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
     await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
     expect(retain).toHaveAccessibleDescription(expect.stringContaining("Réf. fournisseur : NA-4471"));
@@ -308,7 +308,7 @@ describe("suppliers of request lines", () => {
     expect(await screen.findByText("Négoce Alpha · nommé par le technicien")).toBeVisible();
     expect(screen.getByText("Négoce Alpha · nommé par le technicien, à confirmer")).toBeVisible();
     expect(screen.getByText("Comptoir Bêta · exception de l’article")).toBeVisible();
-    expect(screen.getByText("Négoce Alpha · fournisseur du type Inox")).toBeVisible();
+    expect(screen.getByText("Négoce Alpha · fournisseur de la famille Inox")).toBeVisible();
     expect(screen.getByText("Dépôt Gamma · dernier achat")).toBeVisible();
     expect(screen.queryByText(/Réf\. fournisseur/)).not.toBeInTheDocument();
   });
@@ -589,7 +589,7 @@ describe("suppliers of request lines", () => {
       [`PATCH ${BASE}`]: { data: { request: request({ presumed_supplier_id: GAMMA }), reopened_line_ids: [] } },
     });
 
-    await screen.findByText("Négoce Alpha · fournisseur du type Inox");
+    await screen.findByText("Négoce Alpha · fournisseur de la famille Inox");
     expect(reads(PROPOSALS)).toHaveLength(1);
 
     // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
@@ -643,7 +643,7 @@ describe("suppliers of request lines", () => {
 
     await user.click(await screen.findByRole("button", { name: "Recharger les fournisseurs proposés" }));
 
-    expect(await screen.findByText("Négoce Alpha · fournisseur du type Inox")).toBeVisible();
+    expect(await screen.findByText("Négoce Alpha · fournisseur de la famille Inox")).toBeVisible();
     expect(screen.queryByText("Fournisseurs proposés indisponibles.")).not.toBeInTheDocument();
   });
 

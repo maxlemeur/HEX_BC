@@ -154,13 +154,13 @@ armyTest(
     // The plug is not in the catalogue: the office creates it from the line, as a draft marked new.
     await screen.getByRole("button", "Chercher ou créer l’article, ligne 3", { exact: true }).tap();
     await screen.getByRole("button", "Créer l’article", { exact: true }).last().tap();
-    await expect(screen.getByLabel("Type d’article *", { exact: true })).toHaveValue("bouchon mâle", { timeout: 15_000 });
+    await expect(screen.getByLabel("Type *", { exact: true })).toHaveValue("bouchon mâle", { timeout: 15_000 });
     // Its supply type does not exist yet: the administrator creates it in place, without leaving the form (TI-690).
     // Enter creates the type, selects it and gives the focus back to the select; it does not create the article.
-    const supplySelect = screen.getByLabel("Type de fourniture *", { exact: true });
-    await screen.getByRole("button", "Nouveau type", { exact: true }).tap();
+    const supplySelect = screen.getByLabel("Famille *", { exact: true });
+    await screen.getByRole("button", "Nouvelle famille", { exact: true }).tap();
     const fittingsType = `${army.runPrefix} raccords laiton`;
-    const typeName = screen.getByLabel("Nom du nouveau type de fourniture", { exact: true });
+    const typeName = screen.getByLabel("Nom de la nouvelle famille", { exact: true });
     await typeName.fill(fittingsType);
     await typeName.press("Enter");
     await expect(supplySelect).toBeFocused({ timeout: 15_000 });

@@ -8955,12 +8955,12 @@
             }
           },
           {
-            "name": "category",
+            "name": "supply_type",
             "in": "query",
-            "description": "Filtres categorie repetables.",
+            "description": "Filtres famille repetables : identifiants des types de fourniture.",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/ListCatalogueCategoryParameter"
+              "$ref": "#/components/schemas/ListCatalogueSupplyTypeParameter"
             }
           },
           {
@@ -59107,10 +59107,12 @@
           "type": "string"
         }
       },
-      "ListCatalogueCategoryParameter": {
+      "ListCatalogueSupplyTypeParameter": {
         "type": "array",
         "items": {
-          "type": "string"
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
         }
       },
       "ListCatalogueUnitParameter": {
@@ -59235,12 +59237,6 @@
                       "null"
                     ]
                   },
-                  "category": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
                   "notes": {
                     "type": [
                       "string",
@@ -59315,17 +59311,6 @@
                     "maximum": 10000
                   },
                   "unit": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      },
-                      {}
-                    ]
-                  },
-                  "category": {
                     "anyOf": [
                       {
                         "type": "string"
@@ -62252,7 +62237,7 @@
                   "minLength": 1,
                   "maxLength": 500
                 },
-                "category": {
+                "family": {
                   "anyOf": [
                     {
                       "type": "string",
@@ -62261,7 +62246,8 @@
                     {
                       "type": "null"
                     }
-                  ]
+                  ],
+                  "description": "Nom d'une famille du catalogue (type de fourniture) de l'entreprise."
                 },
                 "product_type": {
                   "anyOf": [
@@ -62336,7 +62322,7 @@
               "required": [
                 "reference",
                 "designation",
-                "category",
+                "family",
                 "product_type",
                 "material",
                 "grade",
@@ -96046,7 +96032,8 @@
                         "null"
                       ]
                     },
-                    "product_category": {
+                    "product_supply_type_name": {
+                      "description": "Famille de l'article : nom de son type de fourniture.",
                       "type": [
                         "string",
                         "null"
@@ -96402,7 +96389,6 @@
                     "product_id",
                     "product_designation",
                     "product_reference",
-                    "product_category",
                     "product_type",
                     "product_material",
                     "product_grade",
@@ -105591,10 +105577,16 @@
                         "minLength": 1,
                         "maxLength": 500
                       },
-                      "category": {
-                        "type": [
-                          "string",
-                          "null"
+                      "supply_type_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
                         ]
                       },
                       "product_type": {
@@ -106521,12 +106513,6 @@
                     "minLength": 1,
                     "maxLength": 500
                   },
-                  "category": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
                   "product_type": {
                     "type": [
                       "string",
@@ -106633,17 +106619,6 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 500
-                  },
-                  "category": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      },
-                      {}
-                    ]
                   },
                   "product_type": {
                     "anyOf": [

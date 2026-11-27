@@ -12,7 +12,7 @@ function product(
     id: "product-1",
     designation: "Produit",
     reference: null,
-    category: null,
+    supply_types: null,
     product_type: null,
     material: null,
     grade: null,

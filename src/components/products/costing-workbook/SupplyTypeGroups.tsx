@@ -110,10 +110,10 @@ export function SupplyTypeGroups({ articles, companyTypes, chosenRows, onChoose 
     <section aria-labelledby="costing-workbook-classify-title" className="space-y-3 border-t border-border pt-4">
       <div className="space-y-1">
         <h4 id="costing-workbook-classify-title" className="text-sm font-semibold">
-          {`${formatCount(articles.length)} ${plural(articles.length, "brouillon", "brouillons")} à classer, en ${formatCount(groups.length)} ${plural(groups.length, "type d’article", "types d’article")}`}
+          {`${formatCount(articles.length)} ${plural(articles.length, "brouillon", "brouillons")} à classer, en ${formatCount(groups.length)} ${plural(groups.length, "type", "types")}`}
         </h4>
         <p className="text-xs text-muted-foreground">
-          Le classeur ne dit pas de quelle fourniture il s’agit, ou l’entreprise n’a pas de type pour sa famille. Un choix vaut pour tous les brouillons du type.
+          Le classeur ne dit pas de quelle fourniture il s’agit, ou l’entreprise n’a pas de famille pour son code. Un choix vaut pour tous les brouillons du type.
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -127,12 +127,12 @@ export function SupplyTypeGroups({ articles, companyTypes, chosenRows, onChoose 
       {error ? <p role="alert" className="text-xs font-medium text-danger">{error}</p> : null}
       {outcome ? <SuggestionStatus status={outcome.status} message={outcome.message} /> : null}
       <div className="overflow-x-auto rounded-md border border-border">
-        <table aria-label="Brouillons à classer par type d’article" className="w-full min-w-160 text-left text-sm">
+        <table aria-label="Brouillons à classer par type" className="w-full min-w-160 text-left text-sm">
           <thead className="border-b border-border bg-surface-subtle text-xs text-muted-foreground">
             <tr className="[&>th]:px-3 [&>th]:py-2.5">
-              <th scope="col">Type d’article</th>
+              <th scope="col">Type</th>
               <th scope="col" className="text-right">Brouillons</th>
-              <th scope="col">Type de fourniture</th>
+              <th scope="col">Famille</th>
               <th scope="col">Proposition</th>
             </tr>
           </thead>
@@ -147,7 +147,7 @@ export function SupplyTypeGroups({ articles, companyTypes, chosenRows, onChoose 
                   <td>
                     <label htmlFor={id} className="font-medium">{group.productType}</label>
                     <p className="text-xs text-muted-foreground">
-                      {[group.familyCode ? `famille ${group.familyCode}` : "", group.samples[0] !== group.productType ? group.samples[0] : ""].filter(Boolean).join(" · ")}
+                      {[group.familyCode ? `code ${group.familyCode}` : "", group.samples[0] !== group.productType ? group.samples[0] : ""].filter(Boolean).join(" · ")}
                     </p>
                   </td>
                   <td className="text-right tabular-nums">{formatCount(group.rows.length)}</td>
@@ -160,7 +160,7 @@ export function SupplyTypeGroups({ articles, companyTypes, chosenRows, onChoose 
                       disabled={busy || companyTypes.length === 0}
                       onChange={(event) => onChoose([{ rows: group.rows, supplyTypeId: event.currentTarget.value || null }])}
                     >
-                      <option value="">Celui de sa famille</option>
+                      <option value="">Celle de son code</option>
                       {companyTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
                     </NativeSelect>
                   </td>
@@ -185,7 +185,7 @@ export function SupplyTypeGroups({ articles, companyTypes, chosenRows, onChoose 
                         ) : null}
                       </span>
                     ) : suggestion ? (
-                      <span className="text-muted-foreground">Aucun type ne convient selon l’IA.</span>
+                      <span className="text-muted-foreground">Aucune famille ne convient selon l’IA.</span>
                     ) : null}
                   </td>
                 </tr>

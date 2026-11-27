@@ -24,7 +24,7 @@ const STANDARD_COLUMNS = [
   { id: "material", label: "Matière", field: "Matériau" },
   { id: "unit", label: "Unité", field: "Unité" },
   { id: "price", label: "Prix", field: "PR. FO" },
-  { id: "supplyType", label: "Type de fourniture", field: null },
+  { id: "supplyType", label: "Famille", field: null },
   { id: "findings", label: "À vérifier", field: null },
 ] as const;
 

@@ -8,8 +8,13 @@ vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture")
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
+// The families of the active company, read through the tenant-scoped list.
+vi.mock("@/lib/catalogue/supply-types-server", () => ({
+  listSupplyTypes: vi.fn(),
+}));
 
 import { importProductPriceTemplate } from "@/lib/catalogue/product-price-template-server";
+import { listSupplyTypes } from "@/lib/catalogue/supply-types-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -19,7 +24,7 @@ const SUPPLIER_ID = "33333333-3333-4333-8333-333333333333";
 const productRow = {
   reference: "TUB-I4L-SOUDE-15",
   designation: "Tube inox 304L soude DN15",
-  category: "Tuyauterie",
+  family: null as string | null,
   product_type: "Tube",
   material: "Inox",
   grade: "304L",
@@ -54,9 +59,89 @@ function authenticatedClient() {
   };
 }
 
+const TUBE_ID = "44444444-4444-4444-8444-444444444444";
+const RACCORD_ID = "55555555-5555-4555-8555-555555555555";
+
+/** A catalogue with one article, already filed under « Raccord », and no supplier. */
+function catalogueClient(writes: { upsert: ReturnType<typeof vi.fn>; insert: ReturnType<typeof vi.fn> }) {
+  return {
+    ...authenticatedClient(),
+    from: vi.fn((table: string) => {
+      if (table === "products") {
+        return {
+          select: vi.fn().mockResolvedValue({
+            data: [{ id: PRODUCT_ID, reference: "COU-15", unit: "u", supply_type_id: RACCORD_ID }],
+            error: null,
+          }),
+          ...writes,
+        };
+      }
+      if (table === "suppliers") {
+        return { select: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ data: [], error: null }) })) };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    }),
+    rpc: vi.fn(),
+  };
+}
+
 describe("product price template server", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(listSupplyTypes).mockResolvedValue({
+      items: [
+        { id: TUBE_ID, code: "tube", name: "Tube", preferred_supplier_id: null, preferred_supplier_name: null },
+        { id: RACCORD_ID, code: "raccord", name: "Raccord", preferred_supplier_id: null, preferred_supplier_name: null },
+      ],
+    });
+  });
+
+  it("files a new article under the family its row names, and keeps the family of an article whose row names none", async () => {
+    const writes = { upsert: vi.fn().mockResolvedValue({ error: null }), insert: vi.fn().mockResolvedValue({ error: null }) };
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(catalogueClient(writes) as never);
+
+    await importProductPriceTemplate({
+      products: [
+        // « tubes » is the company's « Tube »: case and a final « s » do not make another family.
+        { ...productRow, family: "tubes" },
+        { ...productRow, reference: "cou-15", designation: "Coude 90° DN15", unit: "u", family: null },
+      ],
+      prices: [],
+    });
+
+    expect(writes.insert).toHaveBeenCalledWith([expect.objectContaining({ reference: "TUB-I4L-SOUDE-15", supply_type_id: TUBE_ID })]);
+    expect(writes.upsert).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: PRODUCT_ID, supply_type_id: RACCORD_ID })],
+      { onConflict: "id" },
+    );
+    // The former free-text family is never written.
+    expect(writes.insert.mock.calls[0][0][0]).not.toHaveProperty("category");
+    expect(writes.insert.mock.calls[0][0][0]).not.toHaveProperty("family");
+  });
+
+  it("refuses the whole file, before any write, when a row names a family the catalogue does not have", async () => {
+    const writes = { upsert: vi.fn(), insert: vi.fn() };
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(catalogueClient(writes) as never);
+
+    await expect(
+      importProductPriceTemplate({ products: [{ ...productRow, family: "Pompes" }], prices: [] }),
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "TEMPLATE_REFERENCES_UNRESOLVED",
+      message: "Familles inconnues du catalogue: Pompes",
+    });
+    expect(writes.insert).not.toHaveBeenCalled();
+    expect(writes.upsert).not.toHaveBeenCalled();
+  });
+
+  it("does not read the families when no row names one", async () => {
+    const writes = { upsert: vi.fn().mockResolvedValue({ error: null }), insert: vi.fn().mockResolvedValue({ error: null }) };
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(catalogueClient(writes) as never);
+
+    await importProductPriceTemplate({ products: [productRow], prices: [] });
+
+    expect(listSupplyTypes).not.toHaveBeenCalled();
+    expect(writes.insert).toHaveBeenCalledWith([expect.objectContaining({ supply_type_id: null })]);
   });
 
   it("upserts products with their existing reference casing and imports resolved prices", async () => {

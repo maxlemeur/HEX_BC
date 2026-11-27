@@ -76,7 +76,7 @@ export function catalogueStatusError(error: { message: string; details?: string 
     return forbidden("La validation d’un article en brouillon est réservée aux administrateurs.");
   }
   if (error.message.includes(PRODUCT_SUPPLY_TYPE_INVALID)) {
-    return badRequest("Ce type de fourniture n’existe pas dans votre référentiel.");
+    return badRequest("Cette famille n’existe pas dans votre référentiel.");
   }
   return null;
 }
@@ -89,7 +89,6 @@ export async function createProduct(input: CreateProductInput) {
   const payload = compactRecord<ProductInsert>({
     reference: proposed ?? input.reference,
     designation: input.designation,
-    category: input.category,
     product_type: input.product_type,
     material: input.material,
     grade: input.grade,

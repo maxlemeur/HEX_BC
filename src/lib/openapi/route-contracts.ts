@@ -284,7 +284,7 @@ const affaireIntakeFormSchema = z
 const productTemplateRowSchema = z.object({
   reference: z.string().trim().min(1).max(255),
   designation: z.string().trim().min(1).max(500),
-  category: z.string().trim().max(255).nullable(),
+  family: z.string().trim().max(255).nullable().describe("Nom d'une famille du catalogue (type de fourniture) de l'entreprise."),
   product_type: z.string().trim().max(255).nullable(),
   material: z.string().trim().max(255).nullable(),
   grade: z.string().trim().max(255).nullable(),
@@ -727,7 +727,7 @@ const administrationContracts: RouteContract[] = [
       { name: "validated_only", schema: z.boolean(), description: "Liste simple : ecarte les articles brouillons (recherches qui chiffrent sans choix de l'operateur)." },
       { name: "q", schema: z.string().max(200), description: "Recherche de la vue paginee." },
       { name: "material", schema: z.array(z.string()), description: "Filtres matiere repetables." },
-      { name: "category", schema: z.array(z.string()), description: "Filtres categorie repetables." },
+      { name: "supply_type", schema: z.array(z.string().uuid()), description: "Filtres famille repetables : identifiants des types de fourniture." },
       { name: "unit", schema: z.array(z.string()), description: "Filtres unite repetables." },
       { name: "price_status", schema: z.array(z.enum(["fresh", "aging", "stale", "none"])), description: "Filtres fraicheur du prix." },
       { name: "status", schema: z.array(z.enum(["active", "archived"])), description: "Filtres statut." },

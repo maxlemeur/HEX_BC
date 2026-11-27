@@ -57,7 +57,7 @@ function SupplyTypeRow({
     if (!outcome.latest) return;
     setPending(null);
     if (outcome.ok) setSaved(true);
-    else setError(catalogueErrorMessage(outcome.error, "Le fournisseur privilégié du type n’a pas pu être enregistré."));
+    else setError(catalogueErrorMessage(outcome.error, "Le fournisseur privilégié de la famille n’a pas pu être enregistré."));
   };
 
   return (
@@ -66,7 +66,7 @@ function SupplyTypeRow({
         <p className="min-w-0 break-words text-sm font-medium text-foreground">{type.name}</p>
         <NativeSelect
           wrapperClassName="w-full sm:w-64"
-          aria-label={`Fournisseur privilégié, type ${type.name}`}
+          aria-label={`Fournisseur privilégié, famille ${type.name}`}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : undefined}
           value={shown ?? ""}
@@ -135,24 +135,24 @@ export function SupplyTypeSuppliersDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md">
         <DialogHeader>
-          <DialogTitle>Types de fourniture</DialogTitle>
+          <DialogTitle>Familles</DialogTitle>
           <DialogDescription>
-            Le fournisseur privilégié d’un type est proposé sur les demandes de matériel pour tous ses articles,
+            Le fournisseur privilégié d’une famille est proposé sur les demandes de matériel pour tous ses articles,
             après celui nommé par le technicien et l’exception de l’article. Enregistré dès qu’il est choisi.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="min-h-0">
           {types.status === "loading" ? <p className="text-sm text-muted-foreground">Chargement…</p> : null}
           {types.status === "error" ? (
-            <p className="text-sm text-danger">Les types de fourniture n’ont pas pu être chargés.</p>
+            <p className="text-sm text-danger">Les familles n’ont pas pu être chargées.</p>
           ) : null}
           {types.status === "ready" && types.items.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Aucun type de fourniture pour le moment. Créez-en un depuis la fiche d’un article, avec « Nouveau type ».
+              Aucune famille pour le moment. Créez-en une depuis la fiche d’un article, avec « Nouvelle famille ».
             </p>
           ) : null}
           {types.status === "ready" && types.items.length > 0 ? (
-            <ul aria-label="Types de fourniture" className="divide-y divide-border rounded-lg border border-border">
+            <ul aria-label="Familles" className="divide-y divide-border rounded-lg border border-border">
               {types.items.map((type) => (
                 <SupplyTypeRow
                   key={type.id}

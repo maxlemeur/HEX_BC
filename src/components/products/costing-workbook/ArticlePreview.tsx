@@ -252,7 +252,7 @@ export function ArticlePreview({
   }
 
   const mainViews: ReviewChoice[] = [{ id: "proposed", label: "Articles proposés", count: newArticles }];
-  if (families.length > 0) mainViews.push({ id: "supply-types", label: "Types de fourniture", count: unclassified, tone: "warning" });
+  if (families.length > 0) mainViews.push({ id: "supply-types", label: "Familles", count: unclassified, tone: "warning" });
   mainViews.push({ id: "columns", label: "Colonnes du classeur", count: columnWarnings.length, tone: "warning" });
   const checkViews: ReviewChoice[] = [];
   if (proposedAll.length > 0) checkViews.push({ id: "duplicates", label: "Doublons possibles", count: duplicates?.found.length ?? 0, tone: "warning" });
@@ -328,7 +328,7 @@ export function ArticlePreview({
             </div>
             <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
               <li>{already === 0 ? "Aucun article déjà au catalogue" : `${formatCount(already)} déjà au catalogue (${plural(already, "inchangé", "inchangés")})`}</li>
-              {report.without_supply_type > 0 ? <li>{`${formatCount(report.without_supply_type)} sans type de fourniture`}</li> : null}
+              {report.without_supply_type > 0 ? <li>{`${formatCount(report.without_supply_type)} sans famille`}</li> : null}
               {notImported > 0 ? (
                 <li>
                   {`${formatCount(notImported)} ${plural(notImported, "référence fournisseur", "références fournisseur")} à traiter séparément.`}
@@ -347,13 +347,13 @@ export function ArticlePreview({
               <>
                 <div className="flex flex-wrap items-end gap-3">
                   <label className="grid max-w-full gap-1 text-xs font-medium">
-                    Famille du classeur
+                    Code famille du classeur
                     <NativeSelect size="sm" value={family} onChange={(event) => {
                       setFamily(event.currentTarget.value);
                       filterBy(undefined);
                     }}>
-                      <option value="">Toutes les familles</option>
-                      {family && !familyGroups.has(family) ? <option value={family}>Famille sélectionnée · 0</option> : null}
+                      <option value="">Tous les codes</option>
+                      {family && !familyGroups.has(family) ? <option value={family}>Code sélectionné · 0</option> : null}
                       {families.map(([key, group]) => (
                         <option key={key} value={key}>
                           {`${group.family ?? SUPPLY_KIND_LABELS[[...group.kinds][0]]} · ${formatCount(group.rows.length)} · ${formatCount(group.ready)} prêts · ${formatCount(group.rows.length - group.ready)} à examiner`}
@@ -532,25 +532,25 @@ export function ArticlePreview({
         {active === "supply-types" ? (
           <section aria-labelledby="costing-workbook-supply-types-title" className="space-y-3">
             <div className="space-y-1">
-              <h3 id="costing-workbook-supply-types-title" className="typo-h3">Types de fourniture des brouillons</h3>
+              <h3 id="costing-workbook-supply-types-title" className="typo-h3">Familles des brouillons</h3>
               <p className="text-sm text-muted-foreground">
-                Le type de fourniture fixe le coefficient FO automatique d’une ligne de devis une fois l’article validé.
-                Le type proposé dépend de chaque article. Vous pouvez choisir ici un même type pour toute une famille.
+                La famille fixe le coefficient FO automatique d’une ligne de devis une fois l’article validé.
+                La famille proposée dépend de chaque article. Vous pouvez choisir ici une même famille pour tout un code du classeur.
               </p>
             </div>
             {companyTypes.length === 0 ? (
               <Alert variant="warning">
-                L’entreprise n’a aucun type de fourniture : les brouillons seraient importés sans type et ne pourraient pas être validés.
-                Un administrateur les crée depuis le catalogue, menu « Types de fourniture ».
+                L’entreprise n’a aucune famille : les brouillons seraient importés sans famille et ne pourraient pas être validés.
+                Un administrateur les crée depuis le catalogue, menu « Familles ».
               </Alert>
             ) : null}
             <div className="overflow-x-auto rounded-md border border-border">
-              <table aria-label="Types de fourniture proposés" className="w-full min-w-120 text-left text-sm">
+              <table aria-label="Familles proposées" className="w-full min-w-120 text-left text-sm">
                 <thead className="border-b border-border bg-surface-subtle text-xs text-muted-foreground">
                   <tr className="[&>th]:px-3 [&>th]:py-2.5">
-                    <th scope="col">Famille lue dans le classeur</th>
+                    <th scope="col">Code famille lu dans le classeur</th>
                     <th scope="col" className="text-right">Brouillons</th>
-                    <th scope="col">Type de fourniture de l’entreprise</th>
+                    <th scope="col">Famille de l’entreprise</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">

@@ -12,25 +12,30 @@ const MAX_INDEX_ROWS = 2000;
 export async function loadSupplierExportSearch(): Promise<SupplierExportSearch | null> {
   const { supabase, tenantId } = await getAuthenticatedTenantContext();
   const limit = MAX_INDEX_ROWS + 1;
-  const [products, suppliers, offers] = await Promise.all([
+  const [products, suppliers, offers, supplyTypes] = await Promise.all([
     readAllRows(() => supabase.from("products")
-      .select("id, designation, reference, category, product_type, material, grade, dimensions, standard", { count: "exact" })
+      .select("id, designation, reference, product_type, material, grade, dimensions, standard", { count: "exact" })
       .eq("tenant_id", tenantId).eq("is_active", true).eq("catalogue_status", "validated"), { limit, concurrency: 4 }),
     readAllRows(() => supabase.from("suppliers").select("id, name", { count: "exact" })
       .eq("tenant_id", tenantId), { limit, concurrency: 4 }),
     readAllRows(() => supabase.from("supplier_pricebook").select("id, supplier_sku", { count: "exact" })
       .eq("tenant_id", tenantId).eq("is_active", true), { limit, concurrency: 4 }),
+    // The comparison also finds an article by the name of its family: every family of the company is a
+    // possible match, whether or not a validated article carries it (over-approximation, never an exclusion).
+    readAllRows(() => supabase.from("supply_types").select("id, name", { count: "exact" })
+      .eq("tenant_id", tenantId), { limit, concurrency: 4 }),
   ]);
-  for (const result of [products, suppliers, offers]) {
+  for (const result of [products, suppliers, offers, supplyTypes]) {
     if (result.error) throw mapSupabaseError(result.error, "Impossible de préparer les comparaisons de l'export.");
   }
   // A partial inventory must never justify omitting a supplier. Larger
   // catalogues keep the original comparison path, without changing its limits.
-  if ([products, suppliers, offers].some(result => (result.count ?? limit) > MAX_INDEX_ROWS)) return null;
+  if ([products, suppliers, offers, supplyTypes].some(result => (result.count ?? limit) > MAX_INDEX_ROWS)) return null;
 
   const values = [
     ...(products.data ?? []).flatMap(row => Object.entries(row).filter(([key]) => key !== "id").map(([, value]) => value)),
     ...(suppliers.data ?? []).map(row => row.name),
+    ...(supplyTypes.data ?? []).map(row => row.name),
     ...(offers.data ?? []).map(row => row.supplier_sku),
   ];
   const search: SupplierExportSearch = { ascii: [], unicode: [] };

@@ -41,7 +41,8 @@ export type CataloguePriceSuggestion = {
   product_id: string;
   product_designation: string;
   product_reference: string | null;
-  product_category?: string | null;
+  /** The article's family: the name of its supply type. */
+  product_supply_type_name?: string | null;
   product_type?: string | null;
   product_material?: string | null;
   product_grade?: string | null;
@@ -101,7 +102,8 @@ export type CatalogueProductSuggestionRecord = {
   id: string;
   designation: string;
   reference: string | null;
-  category: string | null;
+  /** Embedded by the catalogue reads (`supply_types(name)`): the article's family. */
+  supply_types?: { name: string } | null;
   product_type: string | null;
   material: string | null;
   grade: string | null;
@@ -119,7 +121,7 @@ type SearchRelevanceInput = {
   supplierName: string;
   supplierSku: string | null;
   productReference: string | null;
-  category?: string | null;
+  supplyTypeName?: string | null;
   productType?: string | null;
   material?: string | null;
   grade?: string | null;
@@ -136,7 +138,7 @@ export function computeCatalogueSearchRelevance(
   const supplierSku = (input.supplierSku ?? "").toLowerCase();
   const productReference = (input.productReference ?? "").toLowerCase();
   const technicalDetails = [
-    input.category,
+    input.supplyTypeName,
     input.productType,
     input.material,
     input.grade,
@@ -218,7 +220,7 @@ export function mergeCatalogueProductSuggestions(input: {
       supplierName: "",
       supplierSku: null,
       productReference: product.reference,
-      category: product.category,
+      supplyTypeName: product.supply_types?.name ?? null,
       productType: product.product_type,
       material: product.material,
       grade: product.grade,
@@ -238,7 +240,7 @@ export function mergeCatalogueProductSuggestions(input: {
       product_id: product.id,
       product_designation: product.designation,
       product_reference: product.reference,
-      product_category: product.category,
+      product_supply_type_name: product.supply_types?.name ?? null,
       product_type: product.product_type,
       product_material: product.material,
       product_grade: product.grade,

@@ -13,7 +13,7 @@ const PRODUCT_HEADERS = [
   "reference",
   "designation",
   "famille",
-  "type_produit",
+  "type",
   "matiere",
   "nuance",
   "dimensions",
@@ -21,6 +21,9 @@ const PRODUCT_HEADERS = [
   "unite",
   "prix_reference_ht",
 ];
+
+/** Headers of the v2 workbook: the type column had another name, and « famille » was free text. */
+const LEGACY_PRODUCT_HEADERS = PRODUCT_HEADERS.map((header) => (header === "type" ? "type_produit" : header));
 
 const PRICE_HEADERS = [
   "reference_produit",
@@ -88,6 +91,28 @@ function createWorkbook(options: WorkbookOptions = {}): ArrayBuffer {
 describe("parseProductPriceTemplateWorkbook", () => {
   it("accepts the official workbook distributed by the application", async () => {
     const file = await readFile(
+      path.join(process.cwd(), "public/templates/hex-bc-produits-tarifs-v3.xlsx")
+    );
+    const input = file.buffer.slice(
+      file.byteOffset,
+      file.byteOffset + file.byteLength
+    ) as ArrayBuffer;
+
+    const result = await parseProductPriceTemplateWorkbook(input);
+
+    // Its four example products and two example prices show how to fill it in, and are never imported.
+    expect(result).toEqual({
+      products: [],
+      prices: [],
+      issues: [],
+      hasBlockingIssues: false,
+      version: TEMPLATE_VERSION,
+      ignoredExampleRows: 6,
+    });
+  });
+
+  it("still accepts the v2 workbook", async () => {
+    const file = await readFile(
       path.join(process.cwd(), "public/templates/hex-bc-produits-tarifs-v2.xlsx")
     );
     const input = file.buffer.slice(
@@ -97,13 +122,51 @@ describe("parseProductPriceTemplateWorkbook", () => {
 
     const result = await parseProductPriceTemplateWorkbook(input);
 
-    expect(result).toEqual({
-      products: [],
-      prices: [],
-      issues: [],
-      hasBlockingIssues: false,
-      version: TEMPLATE_VERSION,
+    expect(result.version).toBe("2.0");
+    expect(result.issues).toEqual([]);
+    expect(result.hasBlockingIssues).toBe(false);
+  });
+
+  it("no longer reads the free-text family of a v2 workbook, and says so without blocking", async () => {
+    const workbook = createWorkbook({
+      version: "2.0",
+      productHeaders: LEGACY_PRODUCT_HEADERS,
+      productRows: [
+        ["INOX-001", "Tube inox 304L", "Tuyauterie", "Tube", "Inox", "", "", "", "m", "10"],
+        ["INOX-002", "Coude inox", "", "Coude", "Inox", "", "", "", "u", "4"],
+      ],
     });
+
+    const result = await parseProductPriceTemplateWorkbook(workbook);
+
+    expect(result.hasBlockingIssues).toBe(false);
+    expect(result.products.map((product) => [product.reference, product.family, product.product_type])).toEqual([
+      ["INOX-001", null, "Tube"],
+      ["INOX-002", null, "Coude"],
+    ]);
+    expect(result.issues).toEqual([
+      expect.objectContaining({ code: "LEGACY_FAMILY_IGNORED", column: "famille", blocking: false }),
+    ]);
+  });
+
+  it("ignores the example rows left in a filled workbook, in both sheets", async () => {
+    const workbook = createWorkbook({
+      productRows: [
+        ["EXEMPLE-TUB-I4L-015", "Tube inox 316L Ø15", "Tube", "Tube", "", "", "", "", "ml", "12,5"],
+        ["INOX-001", "Tube inox 304L", "Tube", "Tube", "", "", "", "", "m", "10"],
+      ],
+      priceRows: [
+        ["exemple-tub-i4l-015", "Fournisseur Démo", "", "10,8", "ml", "EUR", "2026-07-10", "1", "", ""],
+        ["INOX-001", "Arcus", "", "9", "m", "EUR", "2026-07-10", "1", "", ""],
+      ],
+    });
+
+    const result = await parseProductPriceTemplateWorkbook(workbook);
+
+    expect(result.issues).toEqual([]);
+    expect(result.ignoredExampleRows).toBe(2);
+    expect(result.products.map((product) => product.reference)).toEqual(["INOX-001"]);
+    expect(result.prices.map((price) => price.product_reference)).toEqual(["INOX-001"]);
   });
 
   it("still accepts the v1 workbook and ignores its trailing tva column", async () => {
@@ -125,7 +188,7 @@ describe("parseProductPriceTemplateWorkbook", () => {
   it("parses v1 product rows while dropping their tva column", async () => {
     const workbook = createWorkbook({
       version: "1.0",
-      productHeaders: [...PRODUCT_HEADERS, "tva"],
+      productHeaders: [...LEGACY_PRODUCT_HEADERS, "tva"],
       productRows: [
         ["INOX-003", "Te inox", "", "", "", "", "", "", "u", "10", "5,5"],
       ],
@@ -138,7 +201,7 @@ describe("parseProductPriceTemplateWorkbook", () => {
       {
         reference: "INOX-003",
         designation: "Te inox",
-        category: null,
+        family: null,
         product_type: null,
         material: null,
         grade: null,
@@ -157,7 +220,7 @@ describe("parseProductPriceTemplateWorkbook", () => {
         [
           "INOX-001",
           "Tube inox 304L",
-          "Tuyauterie",
+          "Tube",
           "Tube",
           "Inox",
           "304L",
@@ -200,14 +263,14 @@ describe("parseProductPriceTemplateWorkbook", () => {
 
     const result = await parseProductPriceTemplateWorkbook(workbook);
 
-    expect(result.version).toBe("2.0");
+    expect(result.version).toBe(TEMPLATE_VERSION);
     expect(result.issues).toEqual([]);
     expect(result.hasBlockingIssues).toBe(false);
     expect(result.products).toEqual([
       {
         reference: "INOX-001",
         designation: "Tube inox 304L",
-        category: "Tuyauterie",
+        family: "Tube",
         product_type: "Tube",
         material: "Inox",
         grade: "304L",
@@ -220,7 +283,7 @@ describe("parseProductPriceTemplateWorkbook", () => {
       {
         reference: "INOX-002",
         designation: "Coude inox",
-        category: null,
+        family: null,
         product_type: null,
         material: null,
         grade: null,

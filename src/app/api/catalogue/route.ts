@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       const pageQuery = cataloguePageQuerySchema.parse({
         q: searchParams.get("q") ?? "",
         material: searchParams.getAll("material"),
-        category: searchParams.getAll("category"),
+        supply_type: searchParams.getAll("supply_type"),
         unit: searchParams.getAll("unit"),
         price_status: searchParams.getAll("price_status"),
         status: searchParams.getAll("status"),

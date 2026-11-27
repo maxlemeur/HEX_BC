@@ -5,6 +5,8 @@ import { maxPriceValidTo } from "@/lib/catalogue/price-validity";
 import { normalizedReference } from "@/lib/catalogue/product-price-template-client";
 
 import { PRODUCT_UNIT_HAS_PACKAGINGS, isProductUnitHeldByPackagings } from "@/lib/catalogue/packagings";
+import { matchSupplyTypeByName } from "@/lib/catalogue/supply-types";
+import { listSupplyTypes } from "@/lib/catalogue/supply-types-server";
 import { CatalogueApiError } from "@/lib/catalogue/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -18,7 +20,7 @@ const nullableTextSchema = (max: number) => z.string().trim().max(max).nullable(
 const productTemplateRowSchema = z.object({
   reference: z.string().trim().min(1).max(255),
   designation: z.string().trim().min(1).max(500),
-  category: nullableTextSchema(255),
+  family: nullableTextSchema(255),
   product_type: nullableTextSchema(255),
   material: nullableTextSchema(255),
   grade: nullableTextSchema(255),
@@ -57,6 +59,7 @@ type ExistingProduct = {
   id: string;
   reference: string | null;
   unit: string;
+  supply_type_id: string | null;
 };
 
 type ExistingSupplier = {
@@ -194,9 +197,12 @@ export async function importProductPriceTemplate(
   const input = productPriceTemplateImportSchema.parse(rawInput);
   const supabase = await getAuthenticatedSupabase();
 
-  const [productsResult, suppliersResult] = await Promise.all([
-    readAllRows(() => supabase.from("products").select("id, reference, unit", { count: "exact" })),
+  const namesFamilies = input.products.some((product) => product.family);
+  const [productsResult, suppliersResult, supplyTypes] = await Promise.all([
+    readAllRows(() => supabase.from("products").select("id, reference, unit, supply_type_id", { count: "exact" })),
     readAllRows(() => supabase.from("suppliers").select("id, name", { count: "exact" }).eq("is_active", true)),
+    // Row policies show a member the supply types of every company they belong to: this read is the active one's.
+    namesFamilies ? listSupplyTypes().then((answer) => answer.items) : [],
   ]);
 
   if (productsResult.error) {
@@ -228,8 +234,18 @@ export async function importProductPriceTemplate(
   const unknownProducts = new Set<string>();
   const ambiguousSuppliers = new Set<string>();
   const unknownSuppliers = new Set<string>();
+  const ambiguousFamilies = new Set<string>();
+  const unknownFamilies = new Set<string>();
+  // The family a row names is one of the company's supply types; a row without one leaves the article's as it is.
+  const supplyTypeIdByFamily = new Map<string, string>();
 
   for (const product of input.products) {
+    if (product.family && !supplyTypeIdByFamily.has(product.family)) {
+      const match = matchSupplyTypeByName(supplyTypes, product.family);
+      if (match.status === "found") supplyTypeIdByFamily.set(product.family, match.id);
+      else if (match.status === "ambiguous") ambiguousFamilies.add(product.family);
+      else unknownFamilies.add(product.family);
+    }
     const productToken = normalizedReference(product.reference);
     if (
       incomingProductLookup.ambiguous.has(productToken) ||
@@ -266,7 +282,9 @@ export async function importProductPriceTemplate(
     ambiguousProducts.size > 0 ||
     unknownProducts.size > 0 ||
     ambiguousSuppliers.size > 0 ||
-    unknownSuppliers.size > 0
+    unknownSuppliers.size > 0 ||
+    ambiguousFamilies.size > 0 ||
+    unknownFamilies.size > 0
   ) {
     throw new CatalogueApiError({
       status: 400,
@@ -283,6 +301,12 @@ export async function importProductPriceTemplate(
           : null,
         ambiguousSuppliers.size > 0
           ? `Fournisseurs ambigus: ${Array.from(ambiguousSuppliers).slice(0, 5).join(", ")}`
+          : null,
+        unknownFamilies.size > 0
+          ? `Familles inconnues du catalogue: ${Array.from(unknownFamilies).slice(0, 5).join(", ")}`
+          : null,
+        ambiguousFamilies.size > 0
+          ? `Familles ambiguës: ${Array.from(ambiguousFamilies).slice(0, 5).join(", ")}`
           : null,
       ]
         .filter(Boolean)
@@ -308,7 +332,8 @@ export async function importProductPriceTemplate(
         ...(existing ? { id: existing.id } : {}),
         reference: existing?.reference ?? product.reference,
         designation: product.designation,
-        category: product.category,
+        supply_type_id:
+          (product.family ? supplyTypeIdByFamily.get(product.family) : undefined) ?? existing?.supply_type_id ?? null,
         product_type: product.product_type,
         material: product.material,
         grade: product.grade,

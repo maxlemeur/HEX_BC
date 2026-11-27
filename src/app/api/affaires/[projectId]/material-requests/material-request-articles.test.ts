@@ -692,7 +692,7 @@ describe("creating an article from a line", () => {
     expect((await call(lineArticleRoute.POST, "POST", onLine(LINE_TEE), withoutSupplyType)).status).toBe(400);
     const foreign = await call(lineArticleRoute.POST, "POST", onLine(LINE_TEE), { ...NEW_TEE, supply_type_id: FOREIGN_SUPPLY_TYPE });
     expect(foreign.status).toBe(400);
-    expect(foreign.error?.message).toBe("Ce type de fourniture n’existe pas dans votre référentiel.");
+    expect(foreign.error?.message).toBe("Cette famille n’existe pas dans votre référentiel.");
     expect(fake.writes).toEqual([]);
   });
 

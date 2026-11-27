@@ -80,8 +80,8 @@ describe("preferred supplier of each supply type", () => {
     });
     render(<SupplyTypeSuppliersDialog open onOpenChange={vi.fn()} />);
 
-    const inox = await screen.findByLabelText("Fournisseur privilégié, type Inox");
-    const cuivre = screen.getByLabelText("Fournisseur privilégié, type Cuivre");
+    const inox = await screen.findByLabelText("Fournisseur privilégié, famille Inox");
+    const cuivre = screen.getByLabelText("Fournisseur privilégié, famille Cuivre");
     await waitFor(() => expect(inox).toHaveValue(ALPHA));
     expect(cuivre).toHaveValue("");
 
@@ -106,7 +106,7 @@ describe("preferred supplier of each supply type", () => {
     };
     render(<SupplyTypeSuppliersDialog open onOpenChange={vi.fn()} />);
 
-    const inox = await screen.findByLabelText("Fournisseur privilégié, type Inox");
+    const inox = await screen.findByLabelText("Fournisseur privilégié, famille Inox");
     await waitFor(() => expect(inox).toHaveValue(ALPHA));
     await user.selectOptions(inox, BETA);
 
@@ -132,7 +132,7 @@ describe("preferred supplier of each supply type", () => {
       });
     render(<SupplyTypeSuppliersDialog open onOpenChange={vi.fn()} />);
 
-    const cuivre = await screen.findByLabelText("Fournisseur privilégié, type Cuivre");
+    const cuivre = await screen.findByLabelText("Fournisseur privilégié, famille Cuivre");
     await waitFor(() => expect(cuivre.querySelectorAll("option")).toHaveLength(3));
     cuivre.focus();
     await user.selectOptions(cuivre, ALPHA);
@@ -159,7 +159,7 @@ describe("preferred supplier of each supply type", () => {
     });
     render(<SupplyTypeSuppliersDialog open onOpenChange={vi.fn()} />);
 
-    const inox = await screen.findByLabelText("Fournisseur privilégié, type Inox");
+    const inox = await screen.findByLabelText("Fournisseur privilégié, famille Inox");
     await waitFor(() => expect(inox).toHaveValue(GONE));
     expect(inox).toHaveDisplayValue("Ancien Négoce");
   });
@@ -171,7 +171,7 @@ describe("preferred supplier of each supply type", () => {
     };
     render(<SupplyTypeSuppliersDialog open onOpenChange={vi.fn()} />);
 
-    expect(await screen.findByText("Les types de fourniture n’ont pas pu être chargés.")).toBeVisible();
+    expect(await screen.findByText("Les familles n’ont pas pu être chargées.")).toBeVisible();
     expect(screen.queryByText("Aucun type de fourniture pour le moment.")).not.toBeInTheDocument();
   });
 });

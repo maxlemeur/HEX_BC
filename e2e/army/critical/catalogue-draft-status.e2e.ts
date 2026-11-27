@@ -117,7 +117,7 @@ armyTest(
     expect(refused.body.error?.code).toBe("PRODUCT_VALIDATION_INCOMPLETE");
     expect(refused.body.error?.details?.missing).toEqual(["product_type", "material", "supply_type_id"]);
     expect(refused.body.error?.message).toBe(
-      "Pour valider cet article, renseignez : le type d’article, la matière, le type de fourniture.",
+      "Pour valider cet article, renseignez : le type, la matière, la famille.",
     );
     expect((await cataloguePage(browser, army.runPrefix, "draft")).map((item) => item.id)).toEqual([draft.id]);
 
@@ -129,7 +129,7 @@ armyTest(
         browser, "POST", "/api/catalogue/supply-types", { name: takenName },
       );
       expect(duplicate.status).toBe(409);
-      expect(duplicate.body.error?.message).toBe(`Ce type de fourniture existe déjà : « ${supplyTypeName} ».`);
+      expect(duplicate.body.error?.message).toBe(`Cette famille existe déjà : « ${supplyTypeName} ».`);
     }
 
     // The catalogue screen: the draft is marked, validating it opens the form on what is missing.
@@ -144,14 +144,14 @@ armyTest(
     await screen.getByRole("button", `Actions pour ${draftDesignation}`, { exact: true }).tap();
     await screen.getByRole("menuitem", "Valider", { exact: true }).tap();
     await expect(
-      screen.getByText("Pour valider cet article, renseignez : le type d’article, la matière, le type de fourniture.", { exact: true }).first(),
+      screen.getByText("Pour valider cet article, renseignez : le type, la matière, la famille.", { exact: true }).first(),
     ).toBeVisible({ timeout: 15_000 });
 
     const completeAndValidate = screen.getByRole("button", "Enregistrer et valider", { exact: true });
     await expect(completeAndValidate).toBeDisabled({ timeout: 15_000 });
     await screen.getByLabel("Matière", { exact: true }).fill("Supportage");
-    await screen.getByLabel("Type d’article", { exact: true }).fill("Cheville mécanique");
-    await screen.getByLabel("Type de fourniture", { exact: true }).selectOption({ value: supplyType.id });
+    await screen.getByLabel("Type", { exact: true }).fill("Cheville mécanique");
+    await screen.getByLabel("Famille", { exact: true }).selectOption({ value: supplyType.id });
     await expect(completeAndValidate).toBeEnabled();
     await completeAndValidate.tap();
 

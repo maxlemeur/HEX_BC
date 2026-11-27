@@ -471,7 +471,7 @@ export function ProductSuppliers({
               aria-describedby={preferredHintId}
               onChange={(event) => void choosePreferred(event.target.value || null)}
             >
-              <option value="">Aucun : celui du type de fourniture</option>
+              <option value="">Aucun : celui de la famille</option>
               {preferredKnown ? null : <option value={preferred ?? ""}>Fournisseur retiré de l’article</option>}
               {active.map((item) => (
                 <option key={item.supplier_id} value={item.supplier_id}>
@@ -480,7 +480,7 @@ export function ProductSuppliers({
               ))}
             </NativeSelect>
             <p id={preferredHintId} className="text-xs text-muted-foreground">
-              Proposé avant le fournisseur du type sur les demandes de matériel.
+              Proposé avant le fournisseur de la famille sur les demandes de matériel.
             </p>
             <p role="status" className="text-xs text-success empty:hidden">
               {savedPreferred ? "Fournisseur privilégié enregistré." : ""}

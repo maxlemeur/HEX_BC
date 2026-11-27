@@ -26,7 +26,7 @@ export const ARTICLE_FINDINGS: Record<ArticleFinding, { label: string; short: st
   price_missing: { label: "Sans prix (0 €)", short: "sans prix" },
   unit_defaulted: { label: "Unité absente, « u » retenue", short: "unité par défaut" },
   supply_type_defaulted: { label: "Classé « divers » par défaut", short: "classé par défaut" },
-  without_supply_type: { label: "Sans type de fourniture", short: "sans type" },
+  without_supply_type: { label: "Sans famille", short: "sans famille" },
   material_missing: { label: "Sans matière", short: "sans matière" },
   unit_unknown: { label: "Unité non reconnue", short: "unité non reconnue" },
   reference_repeated: { label: "Référence répétée dans le classeur", short: "référence répétée" },
@@ -54,7 +54,7 @@ export function articleFindings(
 const MISSING_COLUMN_EFFECT: Partial<Record<CostingWorkbookColumn, string>> = {
   "PR. FO": "tous les articles seraient importés sans prix (0 €)",
   "Unité": "tous les articles prendraient l’unité « u »",
-  "Type FO": "le type de fourniture serait déduit du libellé seul",
+  "Type FO": "la famille serait déduite du libellé seul",
   "Fiabilité (/10)": "aucun article n’aurait de note de fiabilité",
   "Dimension": "aucun article n’aurait de dimension",
 };

@@ -65,7 +65,7 @@ export function validateDraftProducts(target: { ids: string[] } | { import_batch
 export function assignProductsSupplyType(ids: string[], supplyTypeId: string): Promise<BulkAssignResult> {
   return post(
     "/api/products/bulk", { action: "assign-supply-type", ids, supply_type_id: supplyTypeId },
-    "Le type de fourniture n’a pas pu être donné à ces articles.",
+    "La famille n’a pas pu être donnée à ces articles.",
   );
 }
 

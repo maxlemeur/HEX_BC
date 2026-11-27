@@ -105,21 +105,21 @@ describe("catalogue page, actions on several articles", () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
     await user.click(await screen.findByRole("checkbox", { name: `Sélectionner ${ITEMS[2].designation}` }));
-    expect(screen.getByRole("button", { name: "Donner ce type" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Donner cette famille" })).toBeDisabled();
     // The only article selected is validated: nothing to validate.
     expect(screen.queryByRole("button", { name: /^Valider \d/ })).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Type de fourniture à donner aux articles sélectionnés"), "Supportage");
-    await user.click(screen.getByRole("button", { name: "Donner ce type" }));
+    await user.selectOptions(screen.getByLabelText("Famille à donner aux articles sélectionnés"), "Supportage");
+    await user.click(screen.getByRole("button", { name: "Donner cette famille" }));
     await waitFor(() => expect(bulkWrites()).toEqual([{ action: "assign-supply-type", ids: [ITEMS[2].id], supply_type_id: SUPPLY_TYPE }]));
-    expect(await screen.findByText("Type de fourniture donné à 1 article.")).toBeVisible();
+    expect(await screen.findByText("Famille donnée à 1 article.")).toBeVisible();
   });
 
   it("offers an engineer the supply type but not the validation, and a viewer no selection (3)", async () => {
     const user = userEvent.setup({ delay: null });
     renderPage("engineer");
     await user.click(await screen.findByRole("checkbox", { name: "Sélectionner les articles de cette page" }));
-    expect(screen.getByRole("button", { name: "Donner ce type" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Donner cette famille" })).toBeVisible();
     expect(screen.queryByRole("button", { name: /^Valider \d/ })).not.toBeInTheDocument();
 
     cleanup();

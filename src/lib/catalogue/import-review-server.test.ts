@@ -292,7 +292,7 @@ describe("bulkUpdateProducts", () => {
       status: 403, message: "La validation d’un article en brouillon est réservée aux administrateurs.",
     });
     await expect(bulkUpdateProducts({ action: "assign-supply-type", ids: [uuid("9", 1)], supply_type_id: SUPPLY_TYPE })).rejects.toMatchObject({
-      status: 400, message: "Ce type de fourniture n’existe pas dans votre référentiel.",
+      status: 400, message: "Cette famille n’existe pas dans votre référentiel.",
     });
   });
 });

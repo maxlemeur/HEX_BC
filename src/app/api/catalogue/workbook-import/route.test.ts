@@ -392,19 +392,19 @@ describe("POST /api/catalogue/workbook-import", () => {
     };
     expect(drafts.get("Tub.X4so.25")).toMatchObject({
       ...common, designation: "Tube — Inox 304L soudé DN25", product_type: "Tube", material: "Inox 304L soudé",
-      grade: "304L", dimensions: "DN25", standard: "EN 10217-7", category: "Tuyauterie", unit: "ml",
+      grade: "304L", dimensions: "DN25", standard: "EN 10217-7", unit: "ml",
       unit_price_cents: 1259, reliability_score: 8, supply_type_id: supplyTypeId(TENANT, "tube"),
     });
     expect(drafts.get("Van.X.50")).toMatchObject({
-      ...common, designation: "Vanne à boisseau sphérique DN50", category: "Robinetterie", unit: "u",
+      ...common, designation: "Vanne à boisseau sphérique DN50", unit: "u",
       unit_price_cents: 4510, reliability_score: 6, supply_type_id: supplyTypeId(TENANT, "vanne"),
     });
     expect(drafts.get("Coq.K.25")).toMatchObject({
-      ...common, category: "Autres", unit: "ml", unit_price_cents: 0, reliability_score: null,
+      ...common, unit: "ml", unit_price_cents: 0, reliability_score: null,
       supply_type_id: supplyTypeId(TENANT, "calorifuge"),
     });
     expect(drafts.get("Div.1")).toMatchObject({
-      ...common, designation: "Vase expansion à membrane", category: "Autres", unit: "u", reliability_score: 3,
+      ...common, designation: "Vase expansion à membrane", unit: "u", reliability_score: 3,
       supply_type_id: supplyTypeId(TENANT, "divers"),
     });
 

@@ -475,7 +475,7 @@ describe("supply types", () => {
     for (const question of call.questions) expect(choicesOf(question)).toEqual([...types, "aucun"]);
     expect(call.questions[0].choices.map((choice) => choice.description)).toEqual([
       "Divers (code divers)", "Raccords (code raccord)", "Tubes (code tube)", "Vannes (code vanne)",
-      "Aucun de ces types de fourniture ne nomme ce genre de fourniture.",
+      "Aucune de ces familles ne nomme ce genre de fourniture.",
     ]);
     expect(result.items).toEqual([
       { key: "elbows", suggestion: { supply_type_id: supplyTypeId(TENANT, "raccord"), confidence: 1, source: "catalogue" } },

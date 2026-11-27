@@ -261,7 +261,7 @@ describe("ProductFormModal, suppliers of the article", () => {
     await user.click(screen.getByRole("button", { name: "Retirer Comptoir Bêta de l’article" }));
 
     await waitFor(() => expect(preferred).toHaveValue(""));
-    expect(preferred).toHaveDisplayValue("Aucun : celui du type de fourniture");
+    expect(preferred).toHaveDisplayValue("Aucun : celui de la famille");
     expect(screen.queryByText("privilégié")).not.toBeInTheDocument();
     expect(within(preferred).queryByRole("option", { name: "Fournisseur retiré de l’article" })).not.toBeInTheDocument();
   });
@@ -290,9 +290,9 @@ describe("ProductFormModal, suppliers of the article", () => {
 
     const preferred = await screen.findByLabelText("Fournisseur privilégié pour cet article");
     await waitFor(() => expect(preferred).toHaveValue(ALPHA));
-    expect(preferred).toHaveAccessibleDescription(expect.stringContaining("Proposé avant le fournisseur du type"));
+    expect(preferred).toHaveAccessibleDescription(expect.stringContaining("Proposé avant le fournisseur de la famille"));
     expect(within(preferred).getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "Aucun : celui du type de fourniture",
+      "Aucun : celui de la famille",
       "Négoce Alpha",
       "Comptoir Bêta",
     ]);

@@ -65,7 +65,7 @@ const ARTICLE_COLUMNS =
 
 const LINE_NOT_FOUND = "Ligne introuvable dans cette demande.";
 const ARTICLE_NOT_FOUND = "Article introuvable dans le catalogue.";
-const SUPPLY_TYPE_NOT_FOUND = "Ce type de fourniture n’existe pas dans votre référentiel.";
+const SUPPLY_TYPE_NOT_FOUND = "Cette famille n’existe pas dans votre référentiel.";
 const ALIAS_DELETE_REFUSAL = "Un nom usuel est retiré par un administrateur ou par le membre qui l’a appris.";
 const LINE_CHANGED = "La ligne a changé entre-temps : rechargez la demande, puis rattachez-la à nouveau.";
 /** What the link reads of a line beyond the contract: its version and its wording before the link. */
@@ -149,7 +149,7 @@ async function readSupplyTypeNames(context: MaterialRequestContext, ids: Readonl
     .select("id, name")
     .eq("tenant_id", context.tenantId)
     .in("id", wanted);
-  if (error) throw mapSupabaseError(error, "Impossible de charger les types de fourniture.");
+  if (error) throw mapSupabaseError(error, "Impossible de charger les familles.");
   return new Map((data ?? []).map((row) => [row.id, row.name]));
 }
 
@@ -205,7 +205,7 @@ async function loadCatalogue(context: MaterialRequestContext): Promise<LoadedCat
   if (products.error) throw mapSupabaseError(products.error, "Impossible de charger le catalogue.");
   if (skus.error) throw mapSupabaseError(skus.error, "Impossible de charger les références fournisseurs.");
   if (aliases.error) throw mapSupabaseError(aliases.error, "Impossible de charger les noms usuels.");
-  if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de charger les types de fourniture.");
+  if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de charger les familles.");
   const usual = packagings.error
     ? withoutUsualPackagings(packagings.error)
     : usualPackagingsOf((packagings.data ?? []) as UsualPackagingRow[]);
@@ -625,7 +625,7 @@ export async function createMaterialRequestLineArticle(
     .eq("id", input.supply_type_id)
     .eq("tenant_id", context.tenantId)
     .maybeSingle();
-  if (supplyTypeError) throw mapSupabaseError(supplyTypeError, "Impossible de vérifier le type de fourniture.");
+  if (supplyTypeError) throw mapSupabaseError(supplyTypeError, "Impossible de vérifier la famille.");
   if (!supplyType) throw badRequest(SUPPLY_TYPE_NOT_FOUND);
 
   const designation = input.designation

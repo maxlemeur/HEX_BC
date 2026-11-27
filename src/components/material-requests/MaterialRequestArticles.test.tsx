@@ -587,15 +587,15 @@ describe("linking request lines to catalogue articles", () => {
         },
       });
 
-      expect(within(panel).getByLabelText("Type d’article *")).toHaveValue("Tige");
+      expect(within(panel).getByLabelText("Type *")).toHaveValue("Tige");
       expect(within(panel).getByLabelText("Matière *")).toHaveValue("Acier");
       expect(within(panel).getByLabelText("Dimension")).toHaveValue("M10");
       expect(within(panel).getByLabelText("Unité *")).toHaveValue("u");
       expect(within(panel).getByLabelText("Désignation")).toHaveValue("");
       // The supply type is the operator's choice: nothing is chosen for them.
-      expect(within(panel).getByLabelText("Type de fourniture *")).toHaveValue("");
+      expect(within(panel).getByLabelText("Famille *")).toHaveValue("");
 
-      await user.selectOptions(within(panel).getByLabelText("Type de fourniture *"), "Fixation");
+      await user.selectOptions(within(panel).getByLabelText("Famille *"), "Fixation");
       await user.click(within(panel).getByRole("button", { name: "Créer et rattacher" }));
 
       await waitFor(() => expect(writes()).toHaveLength(1));
@@ -622,7 +622,7 @@ describe("linking request lines to catalogue articles", () => {
 
       await user.type(within(panel).getByLabelText("Référence"), "TG-10");
       await user.type(within(panel).getByLabelText("Désignation"), "Tige acier M10 longue");
-      await user.selectOptions(within(panel).getByLabelText("Type de fourniture *"), "Robinetterie");
+      await user.selectOptions(within(panel).getByLabelText("Famille *"), "Robinetterie");
       await user.click(within(panel).getByRole("button", { name: "Créer et rattacher" }));
 
       expect(await within(panel).findByRole("alert")).toHaveTextContent(
@@ -639,7 +639,7 @@ describe("linking request lines to catalogue articles", () => {
       });
       expect(within(panel).getByLabelText("Référence")).toHaveValue("TG-10");
       expect(within(panel).getByLabelText("Désignation")).toHaveValue("Tige acier M10 longue");
-      expect(within(panel).getByLabelText("Type de fourniture *")).toHaveValue(SUPPLY_B);
+      expect(within(panel).getByLabelText("Famille *")).toHaveValue(SUPPLY_B);
       // Nothing was linked: the line still offers its search, behind the open panel.
       expect(screen.getByRole("button", { name: "Chercher ou créer l’article, ligne 1", hidden: true })).toBeInTheDocument();
     });
@@ -658,18 +658,18 @@ describe("linking request lines to catalogue articles", () => {
       );
       await user.type(within(panel).getByLabelText("Désignation"), "Tige acier M10 longue");
 
-      const open = within(panel).getByRole("button", { name: "Nouveau type" });
+      const open = within(panel).getByRole("button", { name: "Nouvelle famille" });
       expect(open).toHaveAttribute("aria-expanded", "false");
       await user.click(open);
-      const name = within(panel).getByLabelText("Nom du nouveau type de fourniture");
+      const name = within(panel).getByLabelText("Nom de la nouvelle famille");
       expect(name).toHaveFocus();
       await user.type(name, "  Supportage {Enter}");
 
-      const select = within(panel).getByLabelText("Type de fourniture *");
+      const select = within(panel).getByLabelText("Famille *");
       await waitFor(() => expect(select).toHaveValue(SUPPLY_NEW));
       expect(select).toHaveDisplayValue("Supportage");
       expect(select).toHaveFocus();
-      expect(within(panel).queryByLabelText("Nom du nouveau type de fourniture")).not.toBeInTheDocument();
+      expect(within(panel).queryByLabelText("Nom de la nouvelle famille")).not.toBeInTheDocument();
       // Enter created the type only: the article was neither sent nor its typed values lost.
       expect(writes()).toEqual([{ method: "POST", path: "/api/catalogue/supply-types", body: { name: "Supportage" } }]);
       expect(screen.getByRole("dialog", { name: "Article de la ligne" })).toBeInTheDocument();
@@ -696,22 +696,22 @@ describe("linking request lines to catalogue articles", () => {
         {
           "POST /api/catalogue/supply-types": {
             status: 409,
-            error: { code: "CONFLICT", message: "Ce type de fourniture existe déjà : « Fixation »." },
+            error: { code: "CONFLICT", message: "Cette famille existe déjà : « Fixation »." },
           },
         },
         { canCreateSupplyType: true },
       );
-      await user.selectOptions(within(panel).getByLabelText("Type de fourniture *"), "Robinetterie");
+      await user.selectOptions(within(panel).getByLabelText("Famille *"), "Robinetterie");
 
-      await user.click(within(panel).getByRole("button", { name: "Nouveau type" }));
-      const name = within(panel).getByLabelText("Nom du nouveau type de fourniture");
+      await user.click(within(panel).getByRole("button", { name: "Nouvelle famille" }));
+      const name = within(panel).getByLabelText("Nom de la nouvelle famille");
       await user.type(name, "fixations");
       await user.click(within(panel).getByRole("button", { name: "Créer" }));
 
-      expect(await within(panel).findByRole("alert")).toHaveTextContent("Ce type de fourniture existe déjà : « Fixation ».");
+      expect(await within(panel).findByRole("alert")).toHaveTextContent("Cette famille existe déjà : « Fixation ».");
       expect(name).toHaveValue("fixations");
-      expect(name).toHaveAccessibleDescription("Ce type de fourniture existe déjà : « Fixation ».");
-      expect(within(panel).getByLabelText("Type de fourniture *")).toHaveValue(SUPPLY_B);
+      expect(name).toHaveAccessibleDescription("Cette famille existe déjà : « Fixation ».");
+      expect(within(panel).getByLabelText("Famille *")).toHaveValue(SUPPLY_B);
       expect(writes()).toHaveLength(1);
     });
 
@@ -722,10 +722,10 @@ describe("linking request lines to catalogue articles", () => {
         { canCreateSupplyType: true },
       );
 
-      await user.click(within(panel).getByRole("button", { name: "Nouveau type" }));
-      await user.type(within(panel).getByLabelText("Nom du nouveau type de fourniture"), "Câblage{Enter}");
+      await user.click(within(panel).getByRole("button", { name: "Nouvelle famille" }));
+      await user.type(within(panel).getByLabelText("Nom de la nouvelle famille"), "Câblage{Enter}");
 
-      const select = within(panel).getByLabelText("Type de fourniture *");
+      const select = within(panel).getByLabelText("Famille *");
       await waitFor(() => expect(select).toHaveValue(SUPPLY_NEW));
       expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
         "Choisir…",
@@ -738,9 +738,9 @@ describe("linking request lines to catalogue articles", () => {
     it("offers no supply type creation to a member who is not an administrator (17)", async () => {
       const { panel } = await openCreation({});
 
-      expect(within(panel).queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
-      expect(within(panel).queryByLabelText("Nom du nouveau type de fourniture")).not.toBeInTheDocument();
-      expect(within(panel).getByLabelText("Type de fourniture *")).toBeEnabled();
+      expect(within(panel).queryByRole("button", { name: "Nouvelle famille" })).not.toBeInTheDocument();
+      expect(within(panel).queryByLabelText("Nom de la nouvelle famille")).not.toBeInTheDocument();
+      expect(within(panel).getByLabelText("Famille *")).toBeEnabled();
     });
 
     it("says there is no supply type yet and that an administrator creates one (11, 17)", async () => {
@@ -754,12 +754,12 @@ describe("linking request lines to catalogue articles", () => {
       await user.click(within(panel).getByRole("button", { name: "Créer l’article" }));
 
       expect(
-        await within(panel).findByText("Aucun type de fourniture n’existe encore : un administrateur peut en créer un."),
+        await within(panel).findByText("Aucune famille n’existe encore : un administrateur peut en créer une."),
       ).toBeVisible();
-      expect(within(panel).getByLabelText("Type de fourniture *")).toHaveAccessibleDescription(
-        "Aucun type de fourniture n’existe encore : un administrateur peut en créer un.",
+      expect(within(panel).getByLabelText("Famille *")).toHaveAccessibleDescription(
+        "Aucune famille n’existe encore : un administrateur peut en créer une.",
       );
-      expect(within(panel).queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
+      expect(within(panel).queryByRole("button", { name: "Nouvelle famille" })).not.toBeInTheDocument();
       expect(within(panel).queryByRole("link", { name: "Ouvrir le catalogue" })).not.toBeInTheDocument();
       expect(within(panel).getByRole("button", { name: "Créer et rattacher" })).toBeDisabled();
     });
@@ -779,16 +779,16 @@ describe("linking request lines to catalogue articles", () => {
       const panel = await screen.findByRole("dialog", { name: "Article de la ligne" });
       await user.click(within(panel).getByRole("button", { name: "Créer l’article" }));
 
-      expect(await within(panel).findByText("Aucun type de fourniture n’existe encore. Créez-en un avec « Nouveau type ».")).toBeVisible();
+      expect(await within(panel).findByText("Aucune famille n’existe encore. Créez-en une avec « Nouvelle famille ».")).toBeVisible();
       expect(within(panel).getByRole("button", { name: "Créer et rattacher" })).toBeDisabled();
-      await user.click(within(panel).getByRole("button", { name: "Nouveau type" }));
-      await user.type(within(panel).getByLabelText("Nom du nouveau type de fourniture"), "Fixation");
+      await user.click(within(panel).getByRole("button", { name: "Nouvelle famille" }));
+      await user.type(within(panel).getByLabelText("Nom de la nouvelle famille"), "Fixation");
       await user.click(within(panel).getByRole("button", { name: "Créer" }));
 
-      await waitFor(() => expect(within(panel).getByLabelText("Type de fourniture *")).toHaveValue(SUPPLY_NEW));
+      await waitFor(() => expect(within(panel).getByLabelText("Famille *")).toHaveValue(SUPPLY_NEW));
       // Disabled while the list was empty, the select is enabled in time to take the focus back.
-      expect(within(panel).getByLabelText("Type de fourniture *")).toHaveFocus();
-      expect(within(panel).queryByText(/Aucun type de fourniture n’existe encore/)).not.toBeInTheDocument();
+      expect(within(panel).getByLabelText("Famille *")).toHaveFocus();
+      expect(within(panel).queryByText(/Aucune famille n’existe encore/)).not.toBeInTheDocument();
       expect(within(panel).getByRole("button", { name: "Créer et rattacher" })).toBeEnabled();
     });
   });

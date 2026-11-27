@@ -124,7 +124,7 @@ export function ProductCatalogueMenu({
         {onSupplyTypes ? (
           <DropdownMenuItem className="min-h-10 px-2" onClick={onSupplyTypes}>
             <LayersIcon aria-hidden="true" />
-            Types de fourniture
+            Familles
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem className="min-h-10 px-2" render={<Link href="/dashboard/suppliers" />}>
