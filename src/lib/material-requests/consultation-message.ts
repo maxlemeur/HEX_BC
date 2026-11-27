@@ -53,11 +53,6 @@ function text(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function quantityOf(line: ConsultationLine): string | null {
-  const quantity = line.quantity !== null && line.quantity > 0 ? formatDecimalInput(line.quantity) : null;
-  return [quantity, text(line.unit)].filter(Boolean).join(" ") || null;
-}
-
 /**
  * A word for a reference (« réf », « ref. », « Référence : »), and the code after it when it holds a digit
  * (« réf vanne » keeps « vanne »). Not inside another word (« préfabriqué », « réfrigérant »).
@@ -188,17 +183,19 @@ export function consultationText(value: string | null | undefined): string | nul
 export function consultationLineParts(
   line: ConsultationLine,
   withReferences: boolean,
-): { quantity: string | null; designation: string; reference: string | null } {
+) {
+  const quantityNumber = line.quantity !== null && line.quantity > 0 ? formatDecimalInput(line.quantity) : "";
   return {
-    quantity: quantityOf(line),
+    quantity: [quantityNumber, text(line.unit)].filter(Boolean).join(" ") || null,
+    hasQuantityNumber: quantityNumber !== "",
     designation: fullDesignation(line, withReferences).designation,
     reference: supplierSkuOf(line, withReferences),
   };
 }
 
 function itemOf(line: ConsultationLine, withReferences: boolean): string {
-  const { quantity, designation, reference } = consultationLineParts(line, withReferences);
-  return `- ${[quantity, designation, reference && `(réf. ${reference})`].filter(Boolean).join(" ")}`;
+  const { quantity, hasQuantityNumber, designation, reference } = consultationLineParts(line, withReferences);
+  return `- ${[quantity, hasQuantityNumber && "x", designation, reference && `(réf. ${reference})`].filter(Boolean).join(" ")}`;
 }
 
 /** The lines are written in the order given: the caller passes them in the request's order. */

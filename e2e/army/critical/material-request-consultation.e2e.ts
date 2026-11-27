@@ -217,8 +217,8 @@ armyTest(
     await openStep(2);
     const withReferences = [
       `Bonjour, pouvez-vous me faire un prix pour l’affaire ${army.projectName} :`,
-      `- 10 u Coude 90°, DN 50, Inox 316L (réf. ${sku})`,
-      "- 4 u Té égal, DN 50, Inox 316L",
+      `- 10 u x Coude 90°, DN 50, Inox 316L (réf. ${sku})`,
+      "- 4 u x Té égal, DN 50, Inox 316L",
       "Livraison : chantier",
       "Merci !",
     ].join("\n");
@@ -250,8 +250,8 @@ armyTest(
     await expect(screen.getByRole("button", `Retirer ${betaName} de la mise en concurrence`, { exact: true })).toBeVisible();
     const competition = [
       `Bonjour, pouvez-vous me faire un prix pour l’affaire ${army.projectName} :`,
-      "- 10 u Coude 90°, DN 50, Inox 316L",
-      "- 4 u Té égal, DN 50, Inox 316L",
+      "- 10 u x Coude 90°, DN 50, Inox 316L",
+      "- 4 u x Té égal, DN 50, Inox 316L",
       "Livraison : chantier",
       "Merci !",
     ].join("\n");

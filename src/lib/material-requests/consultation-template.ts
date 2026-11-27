@@ -39,9 +39,12 @@ import { usualPackagingConditionnement } from "./usual-packaging";
 
 export type ConsultationTemplate = { message: string; line: string };
 
+const DEFAULT_DESIGNATION = "{désignation}[ (réf. {référence})]";
+const DEFAULT_LINE_WITHOUT_QUANTITY_NUMBER = `- {quantité} ${DEFAULT_DESIGNATION}`;
+
 export const DEFAULT_CONSULTATION_TEMPLATE: ConsultationTemplate = {
   message: "Bonjour, pouvez-vous me faire un prix[ pour l’affaire {affaire}] :\n{lignes}\n{livraison}\nMerci !",
-  line: "- {quantité} {désignation}[ (réf. {référence})]",
+  line: `- [{quantité} x ]${DEFAULT_DESIGNATION}`,
 };
 
 /**
@@ -170,7 +173,11 @@ export function renderConsultationMessage(input: {
   const items = sumConsultationLines(input.lines, input.withReferences)
     .map((line) => {
       const parts = consultationLineParts(line, input.withReferences);
-      return renderTemplate(input.template.line, "line", new Map([
+      // {quantité} can hold a unit alone. The default keeps it without the separator.
+      const lineTemplate = input.template.line === DEFAULT_CONSULTATION_TEMPLATE.line && !parts.hasQuantityNumber
+        ? DEFAULT_LINE_WITHOUT_QUANTITY_NUMBER
+        : input.template.line;
+      return renderTemplate(lineTemplate, "line", new Map([
         ["quantité", parts.quantity ?? ""],
         ["désignation", parts.designation],
         ["référence", parts.reference ?? ""],

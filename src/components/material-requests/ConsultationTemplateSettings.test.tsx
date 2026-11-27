@@ -116,9 +116,9 @@ describe("« Message de consultation fournisseur » in the profile", () => {
     expect(message).toHaveValue("Bonjour {fournisseur} !{lignes}");
     const usual = screen.getByRole("figure", { name: /fournisseur habituel/ });
     const competition = screen.getByRole("figure", { name: /en concurrence/ });
-    expect(within(usual).getByText(/^Bonjour Négoce Alpha !- 10 u Coude 90°, DN 50, Inox 316L \(réf\. CD-50-316\)/)).toBeVisible();
+    expect(within(usual).getByText(/^Bonjour Négoce Alpha !- 10 u x Coude 90°, DN 50, Inox 316L \(réf\. CD-50-316\)/)).toBeVisible();
     const competitionText = competition.querySelector("pre")?.textContent ?? "";
-    expect(competitionText).toMatch(/^Bonjour Comptoir Bêta !- 10 u Coude 90°, DN 50, Inox 316L\n/);
+    expect(competitionText).toMatch(/^Bonjour Comptoir Bêta !- 10 u x Coude 90°, DN 50, Inox 316L\n/);
     expect(competitionText).not.toMatch(/CD-50-316|réf/);
 
     const line = field(/Modèle de chaque ligne/);
