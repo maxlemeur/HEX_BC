@@ -24,13 +24,17 @@ const ISSUE_LABELS = {
   missing_designation: "Désignation manquante",
   missing_reference: "Référence manquante",
   duplicate_reference: "Référence en double chez ce fournisseur",
+  supplier_differs_from_sheet: "Le fournisseur indiqué sur la ligne diffère du nom de la feuille",
   invalid_price: "Prix illisible",
-  inexact_price: "Le prix pour 100 unités comporte une fraction de centime",
+  text_price: "Le prix est enregistré comme texte dans Excel",
+  zero_price: "Prix à zéro, motif à confirmer",
+  inexact_price: "Le prix pour 100 comporte une fraction de centime",
   price_cents_overflow: "Prix supérieur au montant maximal du catalogue",
   missing_price_date: "Date du prix manquante",
   invalid_price_date: "Date du prix illisible",
   future_price_date: "Date du prix dans le futur",
   inactive_price_same_date: "Un prix désactivé existe à cette date",
+  different_price_same_date: "Une offre catalogue diffère à la même date",
   unknown_price_unit: "Unité de prix à préciser",
   invalid_packaging_quantity: "Quantité par conditionnement illisible ou invalide",
   invalid_packaging_price: "Prix du conditionnement illisible",
@@ -57,14 +61,14 @@ const GAP_LABELS = {
 const FRAGILE_LABELS = {
   old_version_missing_document: "Ancienne version, document manquant",
   ocr_scan: "Lecture OCR",
-  price_per_100: "Prix pour 100 unités",
+  price_per_100: "Prix pour 100 indiqué par le fournisseur",
 };
 const PRICE_ACTION_LABELS = {
   none: null,
   add: "Prix à ajouter",
   skip: "Date égale ou antérieure au prix existant",
   review: "Prix à vérifier",
-  per_lot: "Prix pour 100 unités à confirmer",
+  per_lot: "Prix pour 100 à confirmer",
 };
 const SKIPPED_SHEET_LABELS = {
   index: "Sommaire",
@@ -93,8 +97,14 @@ function supplierLabel(supplier: SupplierBaseGroup) {
   return supplier.supplier_label ?? (supplier.workbook_names.join(", ") || "Fournisseur sans nom");
 }
 
+function lotUnitLabel(unit: string | null) {
+  if (!unit) return "unités";
+  if (/^(pce|pc|pcs)$/iu.test(unit)) return "pièces";
+  return unit.replace(/^(pièce|unité|jour|forfait|bouteille|rouleau|sachet|sac|pack)$/iu, "$1s");
+}
+
 function PreviewRow({ item, lookup }: { item: SupplierBasePlannedRow; lookup: PreviewLookup }) {
-  const { row, known_reference, proposals, gaps, price_action } = item;
+  const { row, known_reference, proposals, gaps, price_action, different_catalogue_price } = item;
   const article = known_reference ? lookup.articles.get(known_reference.article_id) : undefined;
   const action = PRICE_ACTION_LABELS[price_action];
   return (
@@ -107,15 +117,21 @@ function PreviewRow({ item, lookup }: { item: SupplierBasePlannedRow; lookup: Pr
       <td className="w-[23%]">
         {row.price
           ? <div>
-              {row.price.decimal.replace(".", ",")} €
-              {row.price.per === 100 ? " pour 100 unités" : row.price_unit ? ` / ${row.price_unit}` : " par unité"}
-              {row.price.lot_price && (
+              {row.price.unit_decimal.replace(".", ",")} €{row.price_unit ? ` / ${row.price_unit}` : " par unité"}
+              {row.price.per === 100 && row.price.amount_cents !== null && (
                 <div className="text-xs text-muted-foreground">
-                  {MONEY.format(row.price.lot_price.amount_cents / 100)} pour {number(row.price.lot_price.units)} unités
+                  {MONEY.format(row.price.amount_cents / 100)} pour 100 {lotUnitLabel(row.price_unit)}
                 </div>
               )}
             </div>
-          : <div className="text-muted-foreground">Sans prix exploitable</div>}
+          : <div className="break-words text-muted-foreground">
+              {row.price_text === undefined ? "Sans prix exploitable" : `Cellule de prix « ${row.price_text} »`}
+            </div>}
+        {different_catalogue_price && (
+          <div className="break-words text-xs text-muted-foreground">
+            Catalogue à la même date · {MONEY.format(different_catalogue_price.amount_cents / 100)} / {different_catalogue_price.unit}
+          </div>
+        )}
         {row.price_date && <div>{dateLabel(row.price_date)}</div>}
         {row.document && <div className="break-words text-muted-foreground">
           {"text" in row.document ? row.document.text : `${row.document.kind} ${row.document.number}`}

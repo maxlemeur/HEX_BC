@@ -243,13 +243,17 @@ function readSheet(sheet: RawSheet, date1904: boolean, today: string) {
     const packagingQuantity = quantity !== null && quantity > 0 ? quantity : null;
     const observations = value("observations");
     const fragile = fragileReasons(observations);
-    const parsedPrice = readSupplierBasePrice(priceCell?.value, fragile.includes("price_per_100") ? 100 : 1);
+    const priceValue = priceCell?.value;
+    const parsedPrice = typeof priceValue === "number"
+      ? readSupplierBasePrice(priceValue, fragile.includes("price_per_100") ? 100 : 1) : null;
+    const priceText = typeof priceValue === "string" ? priceValue.trim() : undefined;
     const packPrice = cell("packPrice");
     const issues: SupplierBaseRow["issues"] = [];
     if (!supplier) issues.push("missing_supplier");
     if (!designation) issues.push("missing_designation");
     if (!reference) issues.push("missing_reference");
-    if (priceCell && !parsedPrice) issues.push("invalid_price");
+    if (priceText !== undefined) issues.push("text_price");
+    else if (priceCell && !parsedPrice) issues.push("invalid_price");
     if (parsedPrice?.issue) issues.push(parsedPrice.issue);
     if (priceCell && !cell("date")) issues.push("missing_price_date");
     if (cell("date") && !date) issues.push("invalid_price_date");
@@ -257,21 +261,18 @@ function readSheet(sheet: RawSheet, date1904: boolean, today: string) {
     if ((priceCell || cell("unit")) && !priceUnitCode) issues.push("unknown_price_unit");
     if (cell("quantity") && packagingQuantity === null) issues.push("invalid_packaging_quantity");
     if (parsedPrice && packagingQuantity !== null && packPrice) {
-      const issue = packagingPriceIssue(parsedPrice.decimal, parsedPrice.per, packagingQuantity, packPrice.value);
+      const issue = packagingPriceIssue(parsedPrice.price.unit_decimal, packagingQuantity, packPrice.value);
       if (issue) issues.push(issue);
     }
-    const price = parsedPrice ? {
-      decimal: parsedPrice.decimal, per: parsedPrice.per, unit_price_cents: parsedPrice.unit_price_cents, lot_price: parsedPrice.lot_price,
-    } : null;
     return [{
       sheet: sheet.name, row, supplier_name: supplier || null, designation, supplier_reference: reference,
-      price, price_unit: priceUnit, price_unit_code: priceUnitCode,
+      price: parsedPrice?.price ?? null, price_text: priceText, price_unit: priceUnit, price_unit_code: priceUnitCode,
       packaging_label: value("packaging"), packaging_quantity: packagingQuantity, price_date: date,
       document: readDocument(value("document")), observations, source_file_text: value("source"),
       fragile: fragile.length > 0, fragile_reasons: fragile, issues,
     }];
   });
-  return { rows, missingOptionalColumns };
+  return { rows, missingOptionalColumns, grouped };
 }
 
 export const supplierBaseReferenceKey = (reference: string) => reference.trim().replace(/\s+/gu, " ").toLocaleLowerCase("fr-FR");
@@ -298,9 +299,11 @@ export async function readSupplierBaseWorkbook(bytes: Buffer, signal?: AbortSign
     const workbook = await readWorkbook(bytes, signal);
     const today = new Date().toISOString().slice(0, 10);
     const rows: SupplierBaseRow[] = [];
+    const grouped_sheets: string[] = [];
     const sheet_warnings: SupplierBaseWorkbook["sheet_warnings"] = [];
     for (const sheet of workbook.sheets) {
       const parsed = readSheet(sheet, workbook.date1904, today);
+      if (parsed.grouped) grouped_sheets.push(sheet.name);
       rows.push(...parsed.rows);
       if (parsed.missingOptionalColumns.length > 0) {
         sheet_warnings.push({ sheet: sheet.name, missing_optional_columns: parsed.missingOptionalColumns });
@@ -308,7 +311,10 @@ export async function readSupplierBaseWorkbook(bytes: Buffer, signal?: AbortSign
     }
     if (rows.length > 4000) throw payloadTooLarge("Le classeur dépasse les 4 000 lignes utiles de l’aperçu.", undefined, "SUPPLIER_BASE_ROW_LIMIT");
     if (rows.length === 0) throw badRequest("Aucun article à lire dans ce classeur.");
-    return { rows: flagDuplicateSupplierReferences(rows, workbookSupplierNameKey), skipped_sheets: workbook.skipped, sheet_warnings };
+    return {
+      rows: flagDuplicateSupplierReferences(rows, workbookSupplierNameKey), skipped_sheets: workbook.skipped,
+      sheet_warnings, grouped_sheets, today,
+    };
   } finally {
     release();
   }

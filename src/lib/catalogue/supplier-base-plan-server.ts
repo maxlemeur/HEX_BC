@@ -13,6 +13,7 @@ import type {
   SupplierBaseGap, SupplierBaseGroup, SupplierBasePlannedRow, SupplierBasePreview, SupplierBaseProposal, SupplierBaseRow, SupplierBaseWorkbook,
 } from "./supplier-base-contract";
 import { createSupplierBaseMatcher, supplierBaseLinkedArticleGaps } from "./supplier-base-matching";
+import { sameSupplierBaseUnitPrice } from "./supplier-base-prices";
 import { flagDuplicateSupplierReferences, supplierBaseReferenceKey } from "./supplier-base-workbook";
 
 const ARTICLE_FIELDS = "id, reference, designation, product_type, material, grade, dimensions, standard, unit, catalogue_status, is_active, created_by";
@@ -33,20 +34,23 @@ type DirectoryEntry = Pick<SupplierBaseGroup, "key" | "supplier_id" | "supplier_
 
 async function loadSupplierDirectory({ supabase, tenantId }: AuthenticatedTenantContext) {
   const [suppliers, aliases] = await Promise.all([
-    readAllRows(() => supabase.from("suppliers").select("id, name, city, email, siret, created_at", { count: "exact" })
-      .eq("tenant_id", tenantId).eq("is_active", true), { concurrency: 4 }),
+    readAllRows(() => supabase.from("suppliers").select("id, name, city, email, siret, created_at, is_active", { count: "exact" })
+      .eq("tenant_id", tenantId), { concurrency: 4 }),
     readAllRows(() => supabase.from("supplier_aliases").select("id, alias_key, supplier_id", { count: "exact" })
       .eq("tenant_id", tenantId), { concurrency: 4 }),
   ]);
   if (suppliers.error) throw mapSupabaseError(suppliers.error, "Impossible de lire les fournisseurs.");
   if (aliases.error) throw mapSupabaseError(aliases.error, "Impossible de lire les noms associés aux fournisseurs.");
 
-  const labels = supplierPickerLabels(suppliers.data ?? []);
-  const byName = groupBy(suppliers.data ?? [], ({ name }) => workbookSupplierNameKey(name));
+  const directory = suppliers.data ?? [];
+  const activeSuppliers = directory.filter(({ is_active }) => is_active);
+  const labels = supplierPickerLabels(activeSuppliers);
+  const byName = groupBy(activeSuppliers, ({ name }) => workbookSupplierNameKey(name));
+  const supplierNameKeys = new Set(directory.map(({ name }) => workbookSupplierNameKey(name)));
   const aliasByName = new Map((aliases.data ?? []).map(({ alias_key, supplier_id }) => [alias_key, supplier_id]));
 
   // This resolution can later use the same link-or-create flow as material request workbooks.
-  return (name: string | null): DirectoryEntry => {
+  function resolve(name: string | null): DirectoryEntry {
     const nameKey = name ? workbookSupplierNameKey(name) : "";
     const alias = aliasByName.get(nameKey);
     const matches = byName.get(nameKey) ?? [];
@@ -60,7 +64,8 @@ async function loadSupplierDirectory({ supabase, tenantId }: AuthenticatedTenant
       resolution,
       candidates: resolution === "ambiguous" ? matches.slice(0, 20).map(({ id, name }) => ({ id, label: labels.get(id) ?? name })) : [],
     };
-  };
+  }
+  return { resolve, isSupplierNameKey: (key: string) => supplierNameKeys.has(key) || aliasByName.has(key) };
 }
 
 async function loadCatalogue(context: AuthenticatedTenantContext, supplierIds: string[]) {
@@ -96,23 +101,26 @@ async function loadCatalogue(context: AuthenticatedTenantContext, supplierIds: s
   };
 }
 
-async function loadPriceDates({ supabase, tenantId }: AuthenticatedTenantContext, ids: string[], today: string) {
+async function loadPriceDates(
+  { supabase, tenantId }: AuthenticatedTenantContext, ids: string[], workbookDates: ReadonlySet<string>, today: string,
+) {
   // The catalogue migration backfilled this FK on every price. sync_supplier_price_catalog_item maintains it.
   const prices = await readAllRowsInChunks(ids, (chunk) => supabase.from("supplier_pricebook")
-    .select("id, supplier_catalog_item_id, valid_from, is_active", { count: "exact" })
+    .select("id, supplier_catalog_item_id, valid_from, is_active, unit_price_cents, unit, estimate_unit_code, estimate_units_per_purchase_unit", { count: "exact" })
     .eq("tenant_id", tenantId).eq("currency", "EUR").in("supplier_catalog_item_id", chunk));
   if (prices.error) throw mapSupabaseError(prices.error, "Impossible de lire les dates des prix existants.");
   const latestActive = new Map<string, string>();
-  const inactiveDates = new Set<string>();
+  const onDate = groupBy(
+    (prices.data ?? []).filter((price) => workbookDates.has(pairKey(price.supplier_catalog_item_id, price.valid_from))),
+    (price) => pairKey(price.supplier_catalog_item_id, price.valid_from),
+  );
   for (const { supplier_catalog_item_id, valid_from, is_active } of prices.data ?? []) {
-    if (!is_active) {
-      inactiveDates.add(pairKey(supplier_catalog_item_id, valid_from));
-    } else if (valid_from <= today && valid_from > (latestActive.get(supplier_catalog_item_id) ?? "")) {
+    if (is_active && valid_from <= today && valid_from > (latestActive.get(supplier_catalog_item_id) ?? "")) {
       // Expiry is separate from deactivation. An expired offer still records the price observed that day.
       latestActive.set(supplier_catalog_item_id, valid_from);
     }
   }
-  return { latestActive, inactiveDates };
+  return { latestActive, onDate };
 }
 
 function asArticle({ id, reference, designation }: MatchArticle) {
@@ -124,14 +132,11 @@ function priceAction(
   known: SupplierBasePlannedRow["known_reference"],
   hasGaps: boolean,
 ): SupplierBasePlannedRow["price_action"] {
-  if (row.issues.includes("future_price_date") || row.issues.includes("inexact_price")
-    || row.issues.includes("price_cents_overflow")) return "review";
-  if (!row.price) return row.issues.includes("invalid_price") ? "review" : "none";
-  if (row.price_date && known?.latest_price_date && row.price_date <= known.latest_price_date) return "skip";
-  if (row.issues.includes("inactive_price_same_date")) return "review";
-  if (row.price.lot_price) return "per_lot";
-  if (hasGaps || row.fragile || !row.price.unit_price_cents || !row.price_date || !row.price_unit_code || row.issues.length > 0) return "review";
-  return "add";
+  if (!row.price) return row.issues.some((issue) => issue === "invalid_price" || issue === "text_price" || issue === "future_price_date")
+    ? "review" : "none";
+  if (hasGaps || row.fragile || row.price.amount_cents === null || !row.price_date || !row.price_unit_code || row.issues.length > 0) return "review";
+  if (known?.latest_price_date && row.price_date <= known.latest_price_date) return "skip";
+  return row.price.per === 100 ? "per_lot" : "add";
 }
 
 function flagSharedProposals(group: SupplierBaseGroup) {
@@ -148,9 +153,14 @@ export async function buildSupplierBasePreview(
   context: AuthenticatedTenantContext,
   workbook: SupplierBaseWorkbook,
 ): Promise<SupplierBasePreview> {
-  const resolve = await loadSupplierDirectory(context);
+  const { resolve, isSupplierNameKey } = await loadSupplierDirectory(context);
   const names = new Set(workbook.rows.map(({ supplier_name }) => supplier_name));
   const entries = new Map([...names].map((name) => [name, resolve(name)]));
+  const supplierNameKeys = new Set([...names].filter((name) => name !== null).map(workbookSupplierNameKey));
+  const namedSupplierSheets = new Set(workbook.grouped_sheets.filter((sheet) => {
+    const key = workbookSupplierNameKey(sheet);
+    return isSupplierNameKey(key) || supplierNameKeys.has(key);
+  }));
   const supplierIds = [...new Set([...entries.values()].flatMap(({ supplier_id }) => supplier_id ? [supplier_id] : []))];
   const catalogue = await loadCatalogue(context, supplierIds);
   const groups = new Map<string, SupplierBaseGroup>();
@@ -167,8 +177,10 @@ export async function buildSupplierBasePreview(
       ? catalogue.bySupplierSku.get(pairKey(supplier.supplier_id, supplierBaseReferenceKey(row.supplier_reference))) ?? [] : [];
     return { id: String(index), row, supplier, saved };
   });
-  const today = new Date().toISOString().slice(0, 10);
-  const priceDates = await loadPriceDates(context, rows.flatMap(({ saved }) => saved.length === 1 ? [saved[0].id] : []), today);
+  const knownRows = rows.filter(({ saved }) => saved.length === 1);
+  const workbookDates = new Set(knownRows.flatMap(({ row, saved }) => row.price_date && (row.price || row.price_text !== undefined)
+    ? [pairKey(saved[0].id, row.price_date)] : []));
+  const priceDates = await loadPriceDates(context, knownRows.map(({ saved }) => saved[0].id), workbookDates, workbook.today);
 
   const peers = new Map(rows.map((entry) => [entry.id, entry]));
   const workbookArticles = rows.flatMap(({ id, row }): MatchArticle[] => row.designation && row.supplier_name ? [{
@@ -260,11 +272,26 @@ export async function buildSupplierBasePreview(
       proposals.push(...byArticle.values(), ...workbookProposals);
     }
 
-    const inactivePriceOnDate = known && row.price && row.price_date && priceDates.inactiveDates.has(pairKey(known.id, row.price_date));
-    const normalizedRow: SupplierBaseRow = inactivePriceOnDate
-      ? { ...row, issues: [...row.issues, "inactive_price_same_date"] } : row;
+    const offersOnDate = known && row.price_date ? priceDates.onDate.get(pairKey(known.id, row.price_date)) ?? [] : [];
+    const price = row.price;
+    const differentOffer = price && offersOnDate.find((offer) => {
+      const catalogueUnit = offer.estimate_unit_code ?? offer.unit;
+      return unitsDiffer(row.price_unit_code ?? row.price_unit, catalogueUnit)
+        || !sameSupplierBaseUnitPrice(price.unit_decimal, offer.unit_price_cents, offer.estimate_units_per_purchase_unit ?? 1);
+    });
+    const issues = [...row.issues];
+    if (offersOnDate.some(({ is_active }) => !is_active) && !offersOnDate.some(({ is_active }) => is_active)) {
+      issues.push("inactive_price_same_date");
+    }
+    if (differentOffer) issues.push("different_price_same_date");
+    if (row.supplier_name && namedSupplierSheets.has(row.sheet)
+      && workbookSupplierNameKey(row.sheet) !== workbookSupplierNameKey(row.supplier_name)) {
+      issues.push("supplier_differs_from_sheet");
+    }
+    const normalizedRow = { ...row, issues };
     const planned = {
       row: normalizedRow, known_reference: known, proposals, gaps,
+      different_catalogue_price: differentOffer ? { amount_cents: differentOffer.unit_price_cents, unit: differentOffer.unit } : undefined,
       price_action: priceAction(normalizedRow, known, gaps.length > 0 || proposals.length > 0 || !supplier.supplier_id),
     };
     if (saved.length === 1) group.known.push(planned);

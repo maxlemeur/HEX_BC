@@ -60000,9 +60000,9 @@
                                   {
                                     "type": "object",
                                     "properties": {
-                                      "decimal": {
+                                      "unit_decimal": {
                                         "type": "string",
-                                        "description": "Montant décimal exact, en euros HT, pour le nombre d’unités indiqué par per."
+                                        "description": "Montant décimal exact pour une unité, en euros HT."
                                       },
                                       "per": {
                                         "anyOf": [
@@ -60016,7 +60016,7 @@
                                           }
                                         ]
                                       },
-                                      "unit_price_cents": {
+                                      "amount_cents": {
                                         "anyOf": [
                                           {
                                             "type": "integer",
@@ -60026,41 +60026,24 @@
                                           {
                                             "type": "null"
                                           }
-                                        ]
-                                      },
-                                      "lot_price": {
-                                        "anyOf": [
-                                          {
-                                            "type": "object",
-                                            "properties": {
-                                              "units": {
-                                                "type": "number",
-                                                "const": 100
-                                              },
-                                              "amount_cents": {
-                                                "type": "integer",
-                                                "minimum": 0,
-                                                "maximum": 2147483647
-                                              }
-                                            },
-                                            "required": [
-                                              "units",
-                                              "amount_cents"
-                                            ],
-                                            "additionalProperties": false
-                                          },
-                                          {
-                                            "type": "null"
-                                          }
                                         ],
-                                        "description": "Prix équivalent pour 100 unités lorsque le montant est exact en centimes."
+                                        "description": "Montant pour le nombre d’unités indiqué par per, lorsqu’il est exact en centimes."
+                                      },
+                                      "origin": {
+                                        "type": "string",
+                                        "enum": [
+                                          "unit",
+                                          "converted",
+                                          "supplier"
+                                        ],
+                                        "description": "Prix unitaire, conversion proposée pour 100, ou base 100 indiquée par le fournisseur."
                                       }
                                     },
                                     "required": [
-                                      "decimal",
+                                      "unit_decimal",
                                       "per",
-                                      "unit_price_cents",
-                                      "lot_price"
+                                      "amount_cents",
+                                      "origin"
                                     ],
                                     "additionalProperties": false
                                   },
@@ -60068,6 +60051,10 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "price_text": {
+                                "description": "Texte de la cellule de prix à vérifier.",
+                                "type": "string"
                               },
                               "price_unit": {
                                 "type": [
@@ -60184,13 +60171,17 @@
                                     "missing_designation",
                                     "missing_reference",
                                     "duplicate_reference",
+                                    "supplier_differs_from_sheet",
                                     "invalid_price",
+                                    "text_price",
+                                    "zero_price",
                                     "inexact_price",
                                     "price_cents_overflow",
                                     "missing_price_date",
                                     "invalid_price_date",
                                     "future_price_date",
                                     "inactive_price_same_date",
+                                    "different_price_same_date",
                                     "unknown_price_unit",
                                     "invalid_packaging_quantity",
                                     "invalid_packaging_price",
@@ -60268,6 +60259,25 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "different_catalogue_price": {
+                            "description": "Prix catalogue EUR à la date de la ligne et différent du prix importé, dans son unité d’achat.",
+                            "type": "object",
+                            "properties": {
+                              "amount_cents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "unit": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "amount_cents",
+                              "unit"
+                            ],
+                            "additionalProperties": false
                           },
                           "price_action": {
                             "type": "string",
@@ -60452,9 +60462,9 @@
                                   {
                                     "type": "object",
                                     "properties": {
-                                      "decimal": {
+                                      "unit_decimal": {
                                         "type": "string",
-                                        "description": "Montant décimal exact, en euros HT, pour le nombre d’unités indiqué par per."
+                                        "description": "Montant décimal exact pour une unité, en euros HT."
                                       },
                                       "per": {
                                         "anyOf": [
@@ -60468,7 +60478,7 @@
                                           }
                                         ]
                                       },
-                                      "unit_price_cents": {
+                                      "amount_cents": {
                                         "anyOf": [
                                           {
                                             "type": "integer",
@@ -60478,41 +60488,24 @@
                                           {
                                             "type": "null"
                                           }
-                                        ]
-                                      },
-                                      "lot_price": {
-                                        "anyOf": [
-                                          {
-                                            "type": "object",
-                                            "properties": {
-                                              "units": {
-                                                "type": "number",
-                                                "const": 100
-                                              },
-                                              "amount_cents": {
-                                                "type": "integer",
-                                                "minimum": 0,
-                                                "maximum": 2147483647
-                                              }
-                                            },
-                                            "required": [
-                                              "units",
-                                              "amount_cents"
-                                            ],
-                                            "additionalProperties": false
-                                          },
-                                          {
-                                            "type": "null"
-                                          }
                                         ],
-                                        "description": "Prix équivalent pour 100 unités lorsque le montant est exact en centimes."
+                                        "description": "Montant pour le nombre d’unités indiqué par per, lorsqu’il est exact en centimes."
+                                      },
+                                      "origin": {
+                                        "type": "string",
+                                        "enum": [
+                                          "unit",
+                                          "converted",
+                                          "supplier"
+                                        ],
+                                        "description": "Prix unitaire, conversion proposée pour 100, ou base 100 indiquée par le fournisseur."
                                       }
                                     },
                                     "required": [
-                                      "decimal",
+                                      "unit_decimal",
                                       "per",
-                                      "unit_price_cents",
-                                      "lot_price"
+                                      "amount_cents",
+                                      "origin"
                                     ],
                                     "additionalProperties": false
                                   },
@@ -60520,6 +60513,10 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "price_text": {
+                                "description": "Texte de la cellule de prix à vérifier.",
+                                "type": "string"
                               },
                               "price_unit": {
                                 "type": [
@@ -60636,13 +60633,17 @@
                                     "missing_designation",
                                     "missing_reference",
                                     "duplicate_reference",
+                                    "supplier_differs_from_sheet",
                                     "invalid_price",
+                                    "text_price",
+                                    "zero_price",
                                     "inexact_price",
                                     "price_cents_overflow",
                                     "missing_price_date",
                                     "invalid_price_date",
                                     "future_price_date",
                                     "inactive_price_same_date",
+                                    "different_price_same_date",
                                     "unknown_price_unit",
                                     "invalid_packaging_quantity",
                                     "invalid_packaging_price",
@@ -60720,6 +60721,25 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "different_catalogue_price": {
+                            "description": "Prix catalogue EUR à la date de la ligne et différent du prix importé, dans son unité d’achat.",
+                            "type": "object",
+                            "properties": {
+                              "amount_cents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "unit": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "amount_cents",
+                              "unit"
+                            ],
+                            "additionalProperties": false
                           },
                           "price_action": {
                             "type": "string",
@@ -60904,9 +60924,9 @@
                                   {
                                     "type": "object",
                                     "properties": {
-                                      "decimal": {
+                                      "unit_decimal": {
                                         "type": "string",
-                                        "description": "Montant décimal exact, en euros HT, pour le nombre d’unités indiqué par per."
+                                        "description": "Montant décimal exact pour une unité, en euros HT."
                                       },
                                       "per": {
                                         "anyOf": [
@@ -60920,7 +60940,7 @@
                                           }
                                         ]
                                       },
-                                      "unit_price_cents": {
+                                      "amount_cents": {
                                         "anyOf": [
                                           {
                                             "type": "integer",
@@ -60930,41 +60950,24 @@
                                           {
                                             "type": "null"
                                           }
-                                        ]
-                                      },
-                                      "lot_price": {
-                                        "anyOf": [
-                                          {
-                                            "type": "object",
-                                            "properties": {
-                                              "units": {
-                                                "type": "number",
-                                                "const": 100
-                                              },
-                                              "amount_cents": {
-                                                "type": "integer",
-                                                "minimum": 0,
-                                                "maximum": 2147483647
-                                              }
-                                            },
-                                            "required": [
-                                              "units",
-                                              "amount_cents"
-                                            ],
-                                            "additionalProperties": false
-                                          },
-                                          {
-                                            "type": "null"
-                                          }
                                         ],
-                                        "description": "Prix équivalent pour 100 unités lorsque le montant est exact en centimes."
+                                        "description": "Montant pour le nombre d’unités indiqué par per, lorsqu’il est exact en centimes."
+                                      },
+                                      "origin": {
+                                        "type": "string",
+                                        "enum": [
+                                          "unit",
+                                          "converted",
+                                          "supplier"
+                                        ],
+                                        "description": "Prix unitaire, conversion proposée pour 100, ou base 100 indiquée par le fournisseur."
                                       }
                                     },
                                     "required": [
-                                      "decimal",
+                                      "unit_decimal",
                                       "per",
-                                      "unit_price_cents",
-                                      "lot_price"
+                                      "amount_cents",
+                                      "origin"
                                     ],
                                     "additionalProperties": false
                                   },
@@ -60972,6 +60975,10 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "price_text": {
+                                "description": "Texte de la cellule de prix à vérifier.",
+                                "type": "string"
                               },
                               "price_unit": {
                                 "type": [
@@ -61088,13 +61095,17 @@
                                     "missing_designation",
                                     "missing_reference",
                                     "duplicate_reference",
+                                    "supplier_differs_from_sheet",
                                     "invalid_price",
+                                    "text_price",
+                                    "zero_price",
                                     "inexact_price",
                                     "price_cents_overflow",
                                     "missing_price_date",
                                     "invalid_price_date",
                                     "future_price_date",
                                     "inactive_price_same_date",
+                                    "different_price_same_date",
                                     "unknown_price_unit",
                                     "invalid_packaging_quantity",
                                     "invalid_packaging_price",
@@ -61172,6 +61183,25 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "different_catalogue_price": {
+                            "description": "Prix catalogue EUR à la date de la ligne et différent du prix importé, dans son unité d’achat.",
+                            "type": "object",
+                            "properties": {
+                              "amount_cents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "unit": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "amount_cents",
+                              "unit"
+                            ],
+                            "additionalProperties": false
                           },
                           "price_action": {
                             "type": "string",

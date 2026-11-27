@@ -10,8 +10,9 @@ export const supplierBaseUploadSchema = z.object({
 
 const rowIssueSchema = z.enum([
   "missing_supplier", "missing_designation", "missing_reference", "duplicate_reference",
-  "invalid_price", "inexact_price", "price_cents_overflow", "missing_price_date", "invalid_price_date", "future_price_date",
-  "inactive_price_same_date", "unknown_price_unit", "invalid_packaging_quantity",
+  "supplier_differs_from_sheet", "invalid_price", "text_price", "zero_price", "inexact_price",
+  "price_cents_overflow", "missing_price_date", "invalid_price_date", "future_price_date",
+  "inactive_price_same_date", "different_price_same_date", "unknown_price_unit", "invalid_packaging_quantity",
   "invalid_packaging_price", "packaging_price_mismatch",
 ]);
 
@@ -23,14 +24,12 @@ const workbookRowSchema = sourcePositionSchema.extend({
   designation: z.string().nullable(),
   supplier_reference: z.string().nullable(),
   price: z.object({
-    decimal: z.string().describe("Montant décimal exact, en euros HT, pour le nombre d’unités indiqué par per."),
+    unit_decimal: z.string().describe("Montant décimal exact pour une unité, en euros HT."),
     per: z.union([z.literal(1), z.literal(100)]),
-    unit_price_cents: centsSchema.nullable(),
-    lot_price: z.object({
-      units: z.literal(100),
-      amount_cents: centsSchema,
-    }).nullable().describe("Prix équivalent pour 100 unités lorsque le montant est exact en centimes."),
+    amount_cents: centsSchema.nullable().describe("Montant pour le nombre d’unités indiqué par per, lorsqu’il est exact en centimes."),
+    origin: z.enum(["unit", "converted", "supplier"]).describe("Prix unitaire, conversion proposée pour 100, ou base 100 indiquée par le fournisseur."),
   }).nullable(),
+  price_text: z.string().optional().describe("Texte de la cellule de prix à vérifier."),
   price_unit: z.string().nullable(),
   price_unit_code: z.string().nullable(),
   packaging_label: z.string().nullable(),
@@ -67,6 +66,10 @@ const plannedRowSchema = z.object({
     state: z.enum(["active", "pending_review", "archived"]),
     latest_price_date: priceDateSchema.nullable(),
   }).nullable(),
+  different_catalogue_price: z.object({
+    amount_cents: centsSchema,
+    unit: z.string(),
+  }).optional().describe("Prix catalogue EUR à la date de la ligne et différent du prix importé, dans son unité d’achat."),
   price_action: z.enum(["none", "add", "skip", "review", "per_lot"]),
   proposals: z.array(proposalSchema),
   gaps: z.array(gapSchema),
@@ -100,4 +103,8 @@ export type SupplierBaseGroup = SupplierBasePreview["suppliers"][number];
 export type SupplierBasePlannedRow = z.infer<typeof plannedRowSchema>;
 export type SupplierBaseProposal = z.infer<typeof proposalSchema>;
 export type SupplierBaseGap = z.infer<typeof gapSchema>;
-export type SupplierBaseWorkbook = Pick<SupplierBasePreview, "skipped_sheets" | "sheet_warnings"> & { rows: SupplierBaseRow[] };
+export type SupplierBaseWorkbook = Pick<SupplierBasePreview, "skipped_sheets" | "sheet_warnings"> & {
+  rows: SupplierBaseRow[];
+  grouped_sheets: string[];
+  today: string;
+};
