@@ -43,7 +43,8 @@ export function referenceMaterial(article: ProductReferenceIdentity) {
 }
 
 export function referenceAngle(article: ProductReferenceIdentity) {
-  return /\b(\d{2,3})\s*(?:°|deg)/.exec(foldText([article.product_type, article.designation].filter(Boolean).join(" ")))?.[1] ?? null;
+  // « 120 °C » is a temperature, not the angle of an elbow.
+  return /\b(\d{2,3})\s*(?:°(?!\s*c\b)|deg)/.exec(foldText([article.product_type, article.designation].filter(Boolean).join(" ")))?.[1] ?? null;
 }
 
 export function referencePressure(article: ProductReferenceIdentity) {

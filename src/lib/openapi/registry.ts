@@ -3034,7 +3034,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "get",
     path: "/api/products/reference-suggestion",
     summary: "Proposer une référence interne d’article",
-    description: "Suggestion provisoire réservée aux administrateurs et aux ingénieurs, qui ajoutent des articles. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant. « naming » est la nomenclature enregistrée et activée par l’entreprise : le formulaire en tire la référence d’un article d’après ses caractéristiques, et « reference », le numéro automatique, reste la valeur de repli.",
+    description: "Suggestion provisoire réservée aux administrateurs et aux ingénieurs, qui ajoutent des articles. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant. « naming » est la nomenclature enregistrée et activée par l’entreprise, absente sinon ou quand elle ne peut pas être lue : le formulaire en tire la référence d’un article d’après ses caractéristiques, et « reference », le numéro automatique, reste la valeur de repli.",
     tags: ["Catalogue"],
     responses: {
       "200": jsonResponse("Référence proposée.", schemaDefinition(
@@ -3139,7 +3139,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/prices",
     summary: "Gerer les prix fournisseurs",
     description:
-      "Cree atomiquement un article et/ou un fournisseur inconnus, leur fiche fournisseur unique et un tarif. Permet aussi de modifier un tarif ou sa fiche fournisseur par des actions distinctes.",
+      "Cree atomiquement un article et/ou un fournisseur inconnus, leur fiche fournisseur unique et un tarif. Permet aussi de modifier un tarif ou sa fiche fournisseur par des actions distinctes. La reference laissee vide d'un nouvel article suit la regle de POST /api/products : format de la nomenclature enregistree et activee par l'entreprise quand l'article indique ce que ce format demande, sinon numero automatique ; une reference deja prise repond 409 PRODUCT_REFERENCE_TAKEN avec l'article qui la porte quand il est lisible.",
     tags: ["Catalogue"],
     requestBody: supplierPricesActionBody,
     responses: {

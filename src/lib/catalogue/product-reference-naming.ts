@@ -16,6 +16,10 @@ const literalPattern = /^[A-Z0-9]{1,16}$/;
 /** A spreadsheet drops the leading zeros of a code made of digits: a format starts with a letter. */
 const prefixPattern = /^[A-Z][A-Z0-9]{0,15}$/;
 const MAX_REFERENCE_LENGTH = 80;
+/** What a built reference holds: upper-case letters and digits, fields joined by « - », a decimal point in a measure. */
+const referencePattern = /^[A-Z0-9]+(?:[.-][A-Z0-9]+)*$/;
+/** A number of the designation is a size only when it is written as one: a length or a temperature is not. */
+const statedSizePattern = /\bdn\s*-?\s*\d|[ø⌀]|\bdiam|\bm\s?\d{1,2}\b|\d\s*[x×]\s*\d/i;
 
 export const REFERENCE_ABBREVIATION_GROUPS = [
   { key: "matiere", label: "Matières" },
@@ -61,11 +65,17 @@ const connectionKeyByCode = new Map<string, string>(
   REFERENCE_ABBREVIATION_TERMS.filter((term) => term.group === "raccordement").map((term) => [term.code, term.key]),
 );
 
-const ruleSchema = z.string().trim().min(1).max(100).refine((pattern) => {
+const isFormat = (pattern: string) => {
   const parts = pattern.split("-");
-  return prefixPattern.test(parts[0] ?? "") && parts.includes("{dimension}")
+  return parts.includes("{dimension}") && parts.some((part) => literalPattern.test(part))
     && parts.every((part) => literalPattern.test(part) || tokenPattern.test(part));
-}, "Commencez par un préfixe en majuscules qui débute par une lettre, gardez {dimension} et séparez les champs proposés par des tirets.");
+};
+const ruleSchema = z.string().trim().min(1).max(100).refine(
+  (pattern) => isFormat(pattern) && prefixPattern.test(pattern.split("-")[0] ?? ""),
+  "Commencez par un préfixe en majuscules qui débute par une lettre, gardez {dimension} et séparez les champs proposés par des tirets.",
+);
+/** A format saved before the prefix rule: it keeps applying as it is, and the rule holds from the next save. */
+const storedRuleSchema = z.string().trim().min(1).max(100).refine(isFormat);
 
 const abbreviationsSchema = z.record(z.string(), z.string().regex(literalPattern, "Une abréviation compte 1 à 16 lettres majuscules ou chiffres, sans tiret."))
   .superRefine((abbreviations, context) => {
@@ -93,6 +103,11 @@ export const productReferenceNamingSchema = z.object({
   abbreviations: abbreviationsSchema.optional(),
 }).strict();
 export type ProductReferenceNaming = z.infer<typeof productReferenceNamingSchema>;
+
+/** What the database may hold: every setting a save accepted, including formats older than the prefix rule. */
+export const storedProductReferenceNamingSchema = productReferenceNamingSchema.extend({
+  patterns: z.object({ tube: storedRuleSchema, coude: storedRuleSchema, reduction: storedRuleSchema, vanne: storedRuleSchema }).strict(),
+});
 
 export const DEFAULT_PRODUCT_REFERENCE_PATTERNS: ProductReferenceNaming["patterns"] = {
   tube: "TUB-{matiere}-{dimension}-{variante}-{epaisseur}",
@@ -149,7 +164,11 @@ export function explainProductReference(rule: ProductReferenceNaming, article: P
     const term = key ? termByKey.get(key) : undefined;
     return term ? rule.abbreviations?.[term.key] ?? term.code : null;
   };
-  const size = referenceSize(article);
+  // The dimensions field is read as given. A designation gives a size only when it writes one (DN50, Ø28, 16x2):
+  // « longueur 3000 mm » is not a diameter.
+  const size = referenceSize(
+    statedSizePattern.test(article.designation ?? "") ? article : { ...article, designation: family },
+  );
   const pair = (primary: number, secondary: number | null) => `${primary}${secondary === null ? "" : `X${secondary}`}`;
   // A reduction names both of its ends. Sizes given by outside diameter keep that notation even when a DN can be inferred.
   const dimension = !size || (family === "reduction" && size.reduce === null && size.reduceOd === null) ? null
@@ -175,7 +194,8 @@ export function explainProductReference(rule: ProductReferenceNaming, article: P
   const missing = [...new Set(parts.filter(isToken).filter((token) => token !== "variante" && values[token] === null))];
   if (missing.length > 0) return { family, reference: null, missing };
   const reference = parts.flatMap((part) => (isToken(part) ? values[part] ?? [] : part)).join("-");
-  return { family, reference: reference.length <= MAX_REFERENCE_LENGTH ? reference : null, missing: [] };
+  const wellFormed = reference.length <= MAX_REFERENCE_LENGTH && referencePattern.test(reference);
+  return { family, reference: wellFormed ? reference : null, missing: [] };
 }
 
 export function proposeProductReference(rule: ProductReferenceNaming, article: ProductReferenceIdentity): string | null {

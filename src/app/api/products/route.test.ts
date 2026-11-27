@@ -68,10 +68,14 @@ function createProductsSupabase(options: {
   currentRow?: { id: string; reference: string | null } | null;
   /** The article that already holds a refused reference; null = not readable. */
   holder?: { id: string; reference: string; designation: string } | null;
+  /** The read of the article before an update fails. */
+  currentReadError?: { message: string; code?: string };
 } = {}) {
   const inserted: unknown[] = [];
   const updated: Array<{ id: string; payload: unknown }> = [];
   const policyReads = { count: 0 };
+  const holderFilters: Array<[string, unknown]> = [];
+  const updateFilters: Array<[string, string, unknown]> = [];
   const insertSingle = vi.fn(async () => options.insertResult ?? {
     data: { id: PRODUCT_ID, ...VALID_PRODUCT },
     error: null,
@@ -118,8 +122,14 @@ function createProductsSupabase(options: {
           const row = columns === "id, reference" ? options.currentRow
             : columns === "id, reference, designation" ? options.holder
             : options.readableRow;
-          const read: Record<string, unknown> = { maybeSingle: vi.fn(async () => ({ data: row ?? null, error: null })) };
-          read.eq = vi.fn(() => read);
+          const failed = columns === "id, reference" ? options.currentReadError : undefined;
+          const read: Record<string, unknown> = {
+            maybeSingle: vi.fn(async () => (failed ? { data: null, error: failed } : { data: row ?? null, error: null })),
+          };
+          read.eq = vi.fn((column: string, value: unknown) => {
+            if (columns === "id, reference, designation") holderFilters.push([column, value]);
+            return read;
+          });
           return read;
         }),
         insert: vi.fn((payload: unknown) => {
@@ -133,18 +143,23 @@ function createProductsSupabase(options: {
         update: vi.fn((payload: unknown) => ({
           eq: vi.fn((_column: string, id: string) => {
             updated.push({ id, payload });
-            return {
-              select: vi.fn(() => ({
-                maybeSingle: updateMaybeSingle,
-              })),
-            };
+            const write: Record<string, unknown> = { select: vi.fn(() => ({ maybeSingle: updateMaybeSingle })) };
+            // Further filters guard the write on the reference the article held when it was read.
+            write.eq = vi.fn((column: string, value: unknown) => { updateFilters.push(["eq", column, value]); return write; });
+            write.is = vi.fn((column: string, value: unknown) => { updateFilters.push(["is", column, value]); return write; });
+            return write;
           }),
         })),
       };
     }),
   };
 
-  return { supabase, inserted, updated, policyReads };
+  return { supabase, inserted, updated, policyReads, holderFilters, updateFilters };
+}
+
+function membershipBuilderFor(table: string) {
+  if (table !== "tenant_memberships") throw new Error(`Unexpected table: ${table}`);
+  return membershipBuilder("engineer");
 }
 
 function postRequest(body: unknown) {
@@ -385,7 +400,7 @@ describe("POST /api/products", () => {
     });
 
     it("says which article already holds a refused reference", async () => {
-      const { supabase } = createProductsSupabase({
+      const { supabase, holderFilters } = createProductsSupabase({
         naming: NAMING,
         insertResult: { data: null, error: { code: "23505", message: "PRODUCT_REFERENCE_CONFLICT" } },
         holder: { id: PRODUCT_ID, reference: "TUB-304L-DN15", designation: "Tube inox 304L DN15" },
@@ -400,6 +415,8 @@ describe("POST /api/products", () => {
         message: "La référence « TUB-304L-DN15 » est déjà celle de l’article « Tube inox 304L DN15 ». S’il s’agit du même article, utilisez sa fiche ; sinon complétez la fiche ou saisissez une autre référence.",
         details: { product_id: PRODUCT_ID, reference: "TUB-304L-DN15" },
       });
+      // The holder is looked for in the caller's company, under the reference as the database compares it.
+      expect(holderFilters).toEqual([["tenant_id", TENANT_ID], ["reference_normalized", "tub-304l-dn15"]]);
     });
 
     it("keeps the plain refusal when the article that holds the reference cannot be read", async () => {
@@ -432,20 +449,92 @@ describe("POST /api/products", () => {
       expect(updated).toEqual([]);
     });
 
-    it("lets an engineer save a sheet whose reference is unchanged, or give one to an article without", async () => {
-      for (const [held, sent] of [["TUB-15", "TUB-15"], [null, "TUB-16"], ["  ", "TUB-16"]] as const) {
-        const { supabase, updated } = createProductsSupabase({
+    it("does not write again the unchanged reference of a sheet an engineer saves", async () => {
+      // Written again, a sheet opened before an administrator corrected the reference would undo the correction.
+      const { supabase, updated, updateFilters } = createProductsSupabase({
+        role: "engineer", currentRow: { id: PRODUCT_ID, reference: "TUB-15" },
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(
+        postRequest({ action: "update", id: PRODUCT_ID, item: { reference: "TUB-15", designation: "Tube DN16" } })
+      );
+
+      expect(response.status).toBe(200);
+      expect(updated).toEqual([{ id: PRODUCT_ID, payload: { designation: "Tube DN16" } }]);
+      expect(updateFilters).toEqual([]);
+    });
+
+    it("answers a save that names only the unchanged reference without writing", async () => {
+      const { supabase, updated } = createProductsSupabase({
+        role: "engineer", currentRow: { id: PRODUCT_ID, reference: "TUB-15" }, readableRow: { id: PRODUCT_ID },
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "update", id: PRODUCT_ID, item: { reference: "TUB-15" } }));
+
+      expect(response.status).toBe(200);
+      expect(updated).toEqual([]);
+    });
+
+    it("lets an engineer give a reference only to an article that still has none", async () => {
+      for (const [held, filter] of [[null, ["is", "reference", null]], ["  ", ["eq", "reference", "  "]]] as const) {
+        const { supabase, updated, updateFilters } = createProductsSupabase({
           role: "engineer", currentRow: { id: PRODUCT_ID, reference: held },
         });
         vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
         const response = await POST(
-          postRequest({ action: "update", id: PRODUCT_ID, item: { reference: sent, designation: "Tube DN16" } })
+          postRequest({ action: "update", id: PRODUCT_ID, item: { reference: "TUB-16", designation: "Tube DN16" } })
         );
 
         expect(response.status).toBe(200);
-        expect(updated).toEqual([{ id: PRODUCT_ID, payload: { reference: sent, designation: "Tube DN16" } }]);
+        expect(updated).toEqual([{ id: PRODUCT_ID, payload: { reference: "TUB-16", designation: "Tube DN16" } }]);
+        // The write holds only while the article still has no reference.
+        expect(updateFilters).toEqual([filter]);
       }
+    });
+
+    it("does not apply a reference to an article that received one in the meantime", async () => {
+      const { supabase } = createProductsSupabase({
+        role: "engineer", updateResult: { data: null, error: null },
+      });
+      // No reference at the first read, one at the read that follows the empty write.
+      let reads = 0;
+      const products = supabase.from("products") as { select: (columns: string) => unknown };
+      vi.mocked(supabase.from).mockImplementation(((table: string) => {
+        if (table !== "products") return membershipBuilderFor(table);
+        return {
+          ...products,
+          select: vi.fn(() => {
+            const row = { id: PRODUCT_ID, reference: reads++ === 0 ? null : "TUB-99" };
+            const read: Record<string, unknown> = { maybeSingle: vi.fn(async () => ({ data: row, error: null })) };
+            read.eq = vi.fn(() => read);
+            return read;
+          }),
+        };
+      }) as never);
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "update", id: PRODUCT_ID, item: { reference: "TUB-16" } }));
+
+      expect(response.status).toBe(409);
+      expect((await response.json()).error).toMatchObject({
+        code: "PRODUCT_REFERENCE_LOCKED",
+        message: "Cet article vient de recevoir une référence. Rechargez sa fiche avant de l’enregistrer.",
+      });
+    });
+
+    it("writes nothing when the reference the article holds cannot be read", async () => {
+      const { supabase, updated } = createProductsSupabase({
+        role: "engineer", currentReadError: { message: "connection reset" },
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "update", id: PRODUCT_ID, item: { reference: "TUB-16" } }));
+
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      expect(updated).toEqual([]);
     });
 
     it("lets an administrator correct a reference", async () => {

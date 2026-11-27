@@ -36,7 +36,8 @@ import type {
   UpdateSupplierOfferInput,
 } from "./schemas";
 import { asRecord } from "@/lib/value-guards";
-import { compactRecord } from "@/lib/catalogue/product-writes";
+import { PRODUCT_REFERENCE_TAKEN, compactRecord } from "@/lib/catalogue/product-writes";
+import { productReferenceTaken, proposeStoredProductReference } from "@/lib/catalogue/product-reference-naming-server";
 import { foldWords } from "@/lib/text/fold";
 
 type JsonRecord = Record<string, unknown>;
@@ -1546,13 +1547,21 @@ export async function createSupplierPrice(input: CreateSupplierPriceInput) {
   const { supabase } = await getAuthenticatedContext();
   const productId = resolveProductId(input);
   const validity = validatePriceValidity(input.valid_from, input.valid_to);
+  // A new article created with its offer follows the same rule as one created from the catalogue: a blank
+  // reference takes the company's format when its sheet states what the format needs.
+  let newProduct = input.new_product;
+  if (newProduct && !newProduct.reference) {
+    const tenant = await getAuthenticatedTenantContext();
+    const proposed = await proposeStoredProductReference(tenant.supabase, tenant.tenantId, newProduct);
+    if (proposed) newProduct = { ...newProduct, reference: proposed };
+  }
 
   const { data, error } = await supabase.rpc(CREATE_SUPPLIER_CATALOG_PRICE_RPC, {
     payload: {
       supplier_id: input.supplier_id,
       new_supplier: input.new_supplier,
       product_id: productId,
-      new_product: input.new_product,
+      new_product: newProduct,
       supplier_sku: input.supplier_sku,
       product_url: input.product_url,
       price: {
@@ -1571,6 +1580,10 @@ export async function createSupplierPrice(input: CreateSupplierPriceInput) {
   });
 
   if (error) {
+    if (error.code === "23505" && newProduct?.reference && error.message.includes("PRODUCT_REFERENCE_CONFLICT")) {
+      const tenant = await getAuthenticatedTenantContext();
+      throw await productReferenceTaken(tenant.supabase, tenant.tenantId, newProduct.reference, PRODUCT_REFERENCE_TAKEN);
+    }
     throw mapSupabaseError(error, "Impossible de créer le prix fournisseur.");
   }
 

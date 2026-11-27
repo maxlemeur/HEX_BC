@@ -4,7 +4,8 @@ import { productReferenceConflicts } from "./product-reference-identity";
 import {
   DEFAULT_PRODUCT_REFERENCE_PATTERNS, REFERENCE_ABBREVIATION_TERMS, REFERENCE_NAMING_EXAMPLES,
   UNSAVED_PRODUCT_REFERENCE_NAMING, compactReferenceAbbreviations, explainProductReference,
-  productReferenceNamingSchema, proposeProductReference, type ProductReferenceNaming,
+  productReferenceNamingSchema, proposeProductReference, storedProductReferenceNamingSchema,
+  type ProductReferenceNaming,
 } from "./product-reference-naming";
 
 const ENABLED: ProductReferenceNaming = { enabled: true, patterns: DEFAULT_PRODUCT_REFERENCE_PATTERNS };
@@ -43,6 +44,41 @@ describe("company product reference naming", () => {
     expect(explainProductReference(ENABLED, { designation: "Vanne papillon", dimensions: "DN50" }).missing).toEqual(["pression"]);
     // A reduction names both of its ends.
     expect(explainProductReference(ENABLED, { designation: "Réduction inox 304L soudée", dimensions: "DN50" }).missing).toEqual(["dimension"]);
+  });
+
+  it("does not read an angle in a temperature, nor a diameter in a length", () => {
+    expect(explainProductReference(ENABLED, { designation: "Coude inox DN50 120°C" }))
+      .toEqual({ family: "coude", reference: null, missing: ["angle"] });
+    expect(explainProductReference(ENABLED, { designation: "Coude inox 316L soudé DN50 120 °C 90°" }).reference)
+      .toBe("COU-90-316L-DN50-SD");
+    expect(explainProductReference(withTube("TUB-{dimension}"), { designation: "Tube longueur 3000 mm" }))
+      .toEqual({ family: "tube", reference: null, missing: ["dimension"] });
+    // A size written as one in the designation is read, and the dimensions field is read as given.
+    expect(proposeProductReference(withTube("TUB-{dimension}"), { designation: "Tube inox DN50 longueur 3000 mm" })).toBe("TUB-DN50");
+    expect(proposeProductReference(withTube("TUB-{dimension}"), { designation: "Tube cuivre Ø28" })).toBe("TUB-D28");
+    expect(proposeProductReference(withTube("TUB-{dimension}"), { designation: "Tube longueur 3000 mm", dimensions: "DN40" })).toBe("TUB-DN40");
+  });
+
+  it("keeps the decimal point of a measure and nothing else outside letters, digits and dashes", () => {
+    expect(proposeProductReference(ENABLED, { designation: "Tube multicouche", material: "Multicouche", dimensions: "16x2,5" }))
+      .toBe("TUB-MULTICOUCHE-D16-E2.5");
+    expect(proposeProductReference(ENABLED, { designation: "Tube Inox 316L soudé", dimensions: "DN50 — 60,3x2,6" }))
+      .toBe("TUB-316L-DN50-SD-E2.6");
+    expect(proposeProductReference(ENABLED, { designation: "Vanne papillon PN 2,5", dimensions: "DN50" })).toBe("VAN-PAP-DN50-PN2.5");
+    for (const article of [REFERENCE_NAMING_EXAMPLES.tube, REFERENCE_NAMING_EXAMPLES.coude, REFERENCE_NAMING_EXAMPLES.reduction, REFERENCE_NAMING_EXAMPLES.vanne]) {
+      expect(proposeProductReference(ENABLED, article)).toMatch(/^[A-Z0-9]+(?:[.-][A-Z0-9]+)*$/);
+    }
+  });
+
+  it("keeps applying a format saved before the prefix rule, which holds from the next save", () => {
+    const legacy = withTube("{dimension}-TUB");
+    expect(productReferenceNamingSchema.safeParse(legacy).success).toBe(false);
+    const stored = storedProductReferenceNamingSchema.parse(legacy);
+    expect(proposeProductReference(stored, { designation: "Tube inox", dimensions: "DN50" })).toBe("DN50-TUB");
+    // Still not anything: a stored value no save could have written is refused.
+    expect(storedProductReferenceNamingSchema.safeParse(withTube("TUB-{prix}-{dimension}")).success).toBe(false);
+    expect(storedProductReferenceNamingSchema.safeParse(withTube("{dimension}")).success).toBe(false);
+    expect(storedProductReferenceNamingSchema.safeParse({ ...legacy, abbreviations: { multicouche: "mec" } }).success).toBe(false);
   });
 
   it("asks only for what the company's format names", () => {
