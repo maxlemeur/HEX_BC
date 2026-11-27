@@ -1,5 +1,6 @@
 "use client";
 
+import { canChooseEntryScope } from "@/lib/takeoff/item-entry-choice";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -56,7 +57,10 @@ import {
   withFrozenSelection,
   type ItemSelection,
 } from "@/lib/takeoff/item-table-selection";
-import type { QuantityEntry } from "@/lib/takeoff/quantity-entry";
+import { EntryBatchResult, type EntryBatch } from "./EntryBatchResult";
+import { useEntryReconciliation } from "./useEntryReconciliation";
+import { EntryScopeActions } from "./EntryScopeActions";
+import { EntryDialog } from "@/components/takeoff/item-table/EntryDialog";
 import { JourneyPanel } from "@/components/journey/JourneyPage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,7 +68,6 @@ import { NativeSelect } from "@/components/ui/native-select";
 
 import {
   AcceptMeasuredDialog,
-  EntryDialog,
   ReinstateDialog,
   RemeasureDialog,
   SetAsideDialog,
@@ -108,7 +111,7 @@ const PREFIX = "poste";
 /** The line an address focuses, marked as the sheets of the application mark the line shown beside them. */
 const FOCUSED_ROW = "bg-primary/5 shadow-[inset_3px_0_0_var(--color-primary)]";
 type Gesture = "accept" | "set_aside" | "reinstate" | "entry" | "remeasure";
-type Draft = { quantity: string; unit: string };
+type Draft = { quantity: string; unit: string; needsRead?: boolean };
 type Notice = { tone: "success" | "info" | "danger"; text: string };
 
 const fetchTable = ([, , projectId, address]: readonly [string, string, string, ItemTableAddress]) => fetchItemTable(projectId, address);
@@ -145,7 +148,7 @@ function readStoredDrafts(key: string, scopeKey: string): StoredDrafts {
     return Object.fromEntries(Object.entries(stored.drafts as Record<string, unknown>).flatMap(([itemId, value]) => {
       const draft = value as Partial<Draft & { line: ItemTableResponseLine }> | null;
       return draft && typeof draft.quantity === "string" && typeof draft.unit === "string" && draft.line?.itemId === itemId
-        ? [[itemId, { quantity: draft.quantity, unit: draft.unit, line: draft.line }]] : [];
+        ? [[itemId, { quantity: draft.quantity, unit: draft.unit, line: draft.line, needsRead: draft.needsRead === true }]] : [];
     }));
   } catch {
     return {};
@@ -297,11 +300,13 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   useEffect(() => {
     const stored = readStoredDrafts(draftsKey, scopeKey);
     setDraftsState(stored);
-    void readDraftTargets(Object.keys(stored));
+    void readDraftTargets(Object.keys(stored).filter(id => !stored[id].needsRead));
+    const uncertain = Object.values(stored).filter(d => d.needsRead).map(d => ({ id: d.line.itemId, label: d.line.label }));
+    if (uncertain.length) void reconciliation.reconcile(uncertain);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- read back once per scope, then read their lines again
   }, [draftsKey, scopeKey]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string; seen?: ItemRemeasureSeen }>(null);
+  const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string; screen?: string; resume?: EntryBatch; seen?: ItemRemeasureSeen }>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null }>({ value: null, error: null });
@@ -312,6 +317,14 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   // member, the affaire, the scope) and the selection held, or the selection with its filter — and changes what is shown
   // only if that is still what is shown; a selection cleared or changed meanwhile stays as the member left it.
   const screenKey = `${viewerKey}|${projectId}|${scopeKey}`;
+  const [lastBatch, setLastBatch] = useState<{ screen: string; batch: EntryBatch } | null>(null);
+  const receipt = lastBatch?.screen === screenKey ? lastBatch.batch : null;
+  const reconciliation = useEntryReconciliation(projectId, screenKey, address, withdrawOnRefusal, async (id, line, allowed) => {
+    if (line) setDrafts(current => current[id] ? { ...current, [id]: { ...current[id], line, needsRead: false } } : current);
+    setHistoryVersion(version => version + 1);
+    await mutate(current => current && ({ ...current, canReview: allowed, page: { ...current.page,
+      lines: current.page.lines.flatMap(old => old.itemId !== id ? [old] : line ? [line] : []) } }), { revalidate: false });
+  });
   const filterKey = JSON.stringify(address.filter);
   const forSelection = useCompletions({ screen: screenKey, item: selectionToken(selection) });
   const forFilter = useCompletions({ screen: screenKey, item: selectionToken(selection), reading: filterKey });
@@ -346,10 +359,10 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const canReview = data?.canReview === true;
   const plans = data?.plans ?? [];
   const label = scopeLabel(address.scope, plans);
-  const entryValues = Object.entries(drafts).flatMap(([itemId, draft]) => {
+  const entryValues = Object.values(drafts).flatMap((draft) => {
     const quantity = parseDecimal(draft.quantity);
     const unit = draft.unit.trim() || draft.line.expectedUnit || "";
-    return quantity !== null && unit ? [{ itemId, label: draft.line.label, quantity, unit, target: draft.line.targets }] : [];
+    return !draft.needsRead && !reconciliation.blocked(draft.line.itemId) && quantity !== null && unit ? [{ line: draft.line, quantity, unit }] : [];
   });
 
   /** The selection read again as it is stored now: applied only to the selection it was read for, if still held. */
@@ -612,7 +625,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                   </Button>
                 ) : null}
                 {entryValues.length > 0 ? (
-                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => setDialog({ gesture: "entry", intentKey: newIntent() })}>
+                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => setDialog({ gesture: "entry", intentKey: newIntent(), screen: screenKey })}>
                     Enregistrer les saisies ({entryValues.length})
                   </Button>
                 ) : null}
@@ -643,6 +656,18 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                 {notice.text}
               </p>
             ) : null}
+
+            {receipt && <div><EntryBatchResult rows={receipt.rows} />
+              {canReview && receipt.remaining.length > 0 && !receipt.rows.some(r => reconciliation.blocked(r.id)) &&
+                <Button variant="outline" size="sm" onClick={() => setDialog({ gesture: "entry", screen: screenKey, intentKey: newIntent(),
+                  resume: receipt })}>Reprendre les saisies du lot</Button>}
+            </div>}
+            {Object.values(reconciliation.reads).map(read => <p key={read.id} role="status">
+              {read.label} · {read.state === "read" ? `Après relecture · ${read.facts}` : read.state === "absent" ? "Poste absent de cette portée" : "État inconnu"}
+              {read.state === "reading" && " · Relecture en cours…"}
+              {read.state === "failed" && <Button size="sm" variant="outline" onClick={() => void reconciliation.reconcile([read])}>
+                Relire {read.label}</Button>}
+            </p>)}
 
             {data.page.total === 0 ? (
               <p className="text-sm">
@@ -683,10 +708,12 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                   <tbody>
                     {pageLines.map((line) => {
                       const draft = drafts[line.itemId];
+                      if (reconciliation.blocked(line.itemId)) return <tr key={line.itemId}><th scope="row">{line.label}</th>
+                        <td colSpan={columns - 1}>État inconnu{draft && ` · Brouillon : ${draft.quantity} ${draft.unit || line.expectedUnit || ""}`}</td></tr>;
                       const sourceFind = sourceByItem.get(line.itemId);
                       const focused = line.itemId === focusId;
                       const open = expanded[line.itemId] === true;
-                      const entryOpen = canReview && line.eligibility.enter_quantity.eligible;
+                      const entryOpen = canReview && canChooseEntryScope(line);
                       const typedQuantity = draft?.quantity ?? "";
                       const typedUnit = draft?.unit ?? "";
                       const quantityUnreadable = typedQuantity.trim() !== "" && parseDecimal(typedQuantity) === null;
@@ -813,6 +840,10 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                           {open ? (
                             <tr id={`poste-detail-ligne-${line.itemId}`}>
                               <td colSpan={columns} className="whitespace-normal">
+                                {canReview && <EntryScopeActions key={screenKey + line.itemId} projectId={projectId} viewerKey={viewerKey}
+                                  line={line} filtered={address.scope.kind === "plan"} version={historyVersion}
+                                  onRefused={withdrawOnRefusal} onRefresh={uncertain => uncertain
+                                    ? void reconciliation.reconcile([{ id: line.itemId, label: line.label }]) : void refresh()} />}
                                 <ItemTableLineDetail line={line} projectId={projectId} viewerKey={viewerKey} names={data.names} canReview={canReview} busy={busy}
                                   historyVersion={historyVersion} onRefused={withdrawOnRefusal}
                                   onChooseQuantity={(choice) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION,
@@ -884,16 +915,34 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
         <ReinstateDialog scopeLabel={label} busy={busy} eligible={counts.reinstate} onClose={() => setDialog(null)}
           onConfirm={() => void runCommand({ ...base(dialog.intentKey), gesture: "reinstate" }, "réintégré", dropApplied)} />
       ) : null}
-      {dialog?.gesture === "entry" ? (
-        <EntryDialog scopeLabel={label} busy={busy} values={entryValues} onClose={() => setDialog(null)}
-          onConfirm={(entry: QuantityEntry) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: dialog.intentKey,
-            scope: address.scope, gesture: "enter_quantity", targets: entryValues.map(({ target }) => target),
-            values: entryValues.map(({ itemId, quantity, unit }) => ({ item_id: itemId, quantity, unit })), entry }, "saisi",
-          (result) => setDrafts((current) => {
-            const copy = { ...current };
-            for (const { itemId } of result.applied) delete copy[itemId];
-            return copy;
-          }))} />
+      {canReview && dialog?.gesture === "entry" && dialog.screen === screenKey ? (
+        <EntryDialog key={screenKey + dialog.intentKey} projectId={projectId} viewScope={address.scope}
+          onRefused={withdrawOnRefusal} values={entryValues} resume={dialog.resume} onClose={() => setDialog(null)}
+          onFinished={(result, batch, error) => {
+            setLastBatch({ screen: screenKey, batch });
+            reconciliation.clear(batch.rows.map(row => row.id));
+            setDrafts(current => {
+              const next = { ...current };
+              for (const row of batch.rows) {
+                const draft = next[row.id];
+                if (row.state === "État inconnu" && draft) next[row.id] = { ...draft, needsRead: true };
+                if (row.state === "Enregistré" && draft && parseDecimal(draft.quantity) === row.quantity
+                  && (draft.unit.trim() || draft.line.expectedUnit) === row.unit) delete next[row.id];
+              }
+              return next;
+            });
+            setDialog(null);
+            const unknown = batch.rows.filter(row => row.state === "État inconnu");
+            if (unknown.length) {
+              setNotice(null);
+              void reconciliation.reconcile(unknown);
+            } else if (error && !result.applied.length) void failure(error, selection);
+            else {
+              setNotice(resultNotice(result, "saisi"));
+              if (batch.rows.some(row => row.state === "Refusé")) void readDraftTargets(batch.rows.filter(row => row.state === "Refusé").map(row => row.id));
+            }
+            if (!unknown.length || result.applied.length) void refresh();
+          }} />
       ) : null}
       {/* Withdrawn on the freshest read of the table: another scope, the right gone, or its plan now sent. */}
       {sending && sending.scope === scopeKey && canReview && !sends.some((send) => send.jobId === sending.jobId && send.sent) ? (

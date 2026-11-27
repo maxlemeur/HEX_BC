@@ -9,6 +9,7 @@ import { ITEM_TABLE_PAGE_SIZES } from "./item-table-contracts";
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const normalizePlanKey = (key: string) => UUID.test(key) ? key.toLowerCase() : key;
 const MAX_VALUES = 50;
 
 export type ItemTableAddress = {
@@ -38,7 +39,7 @@ export function readItemTableAddress(params: Params, prefix = ""): ItemTableAddr
   const limit = Number(params.get(key("limit")));
   const focus = params.get(key("focus"));
   return {
-    scope: plan && plan.length <= 200 ? { kind: "plan", planKey: plan } : { kind: "affaire" },
+    scope: plan && plan.length <= 200 ? { kind: "plan", planKey: normalizePlanKey(plan) } : { kind: "affaire" },
     filter: {
       ...(states.length ? { states } : {}),
       ...(families.length ? { families } : {}),

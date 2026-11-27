@@ -30,8 +30,12 @@ export function itemHistoryLabel(event: ItemHistoryEvent): string {
       return after.restored === "changed" ? "Réintégré : une ligne avait changé entre-temps, à décider de nouveau"
         : after.kind === "accepted" ? "Réintégré tel qu’il était, accepté" : "Réintégré, à décider";
     case "entered": {
-      const quantity = number(after.quantity);
-      return quantity === null ? "Quantité saisie" : `Quantité saisie : ${formatItemQuantity(quantity, text(after.unit))}`;
+      const action = after.scope_action;
+      const label = action === "attach" ? "Saisie rattachée au plan" : action === "withdraw" ? "Saisie de l’affaire retirée"
+        : action === "replace" ? "Saisie du plan remplacée" : "Quantité saisie";
+      const value = action === "withdraw" ? event.before : after;
+      const quantity = number(value?.quantity);
+      return quantity === null ? label : `${label} : ${formatItemQuantity(quantity, text(value?.unit))}`;
     }
     case "entry_included": return "Hypothèse saisie incluse";
     case "row_verified": return "Ligne de l’analyse vérifiée";

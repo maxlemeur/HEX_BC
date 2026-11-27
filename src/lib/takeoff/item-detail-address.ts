@@ -1,5 +1,5 @@
 import type { ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
-import { itemTableAddressParams, readItemTableAddress, withItemTableParams } from "@/lib/takeoff/item-table-query";
+import { normalizePlanKey, itemTableAddressParams, readItemTableAddress, withItemTableParams } from "@/lib/takeoff/item-table-query";
 import { type TakeoffItemDetailHrefInput, TAKEOFF_ITEM_DETAIL_PARAMS as P, takeoffItemDetailHref, withoutTakeoffItemDetail } from "@/lib/takeoff/review-href";
 
 /**
@@ -75,9 +75,10 @@ export function readItemDetailAddress(params: Params): ItemDetailAddressRead {
     const jobId = uuid(params, P.measureJobId);
     const namesReceipt = params.getAll(P.measureRequestId).length + params.getAll(P.measureJobId).length > 0;
     if (namesReceipt && !(requestId && jobId)) return { kind: "invalid" };
+    const planKey = opaque(params, P.planKey, PLAN_KEY_MAX);
     const address: ItemDetailAddress = {
       itemId,
-      planKey: opaque(params, P.planKey, PLAN_KEY_MAX),
+      planKey: planKey && normalizePlanKey(planKey),
       jobId: uuid(params, P.jobId),
       page,
       source: documentId ? { documentId, generation } : null,

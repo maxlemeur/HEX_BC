@@ -7268,6 +7268,118 @@
         }
       }
     },
+    "/api/affaires/{projectId}/takeoff/items/{itemId}/entry-scope": {
+      "post": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Rattacher ou retirer la saisie de l’affaire",
+        "description": "Compare les révisions du total et de la destination. Une collision exige une confirmation distincte pour remplacer la saisie du plan.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ChangeTakeoffEntryScopeProjectIdParameter"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "description": "Poste.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ChangeTakeoffEntryScopeItemIdParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Geste choisi et révisions vues.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeTakeoffEntryScopeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Résultat du geste.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffEntryScope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/takeoff/items/{itemId}/history": {
       "get": {
         "tags": [
@@ -53852,6 +53964,242 @@
         ],
         "additionalProperties": false
       },
+      "ChangeTakeoffEntryScopeProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ChangeTakeoffEntryScopeItemIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ChangeTakeoffEntryScopeRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "intent_key": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "entry_revision": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "action": {
+                "type": "string",
+                "const": "withdraw"
+              }
+            },
+            "required": [
+              "intent_key",
+              "entry_revision",
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "intent_key": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "entry_revision": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "plan_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "plan_entry_revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "action": {
+                "type": "string",
+                "const": "attach"
+              }
+            },
+            "required": [
+              "intent_key",
+              "entry_revision",
+              "plan_id",
+              "plan_entry_revision",
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "intent_key": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "entry_revision": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "plan_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "plan_entry_revision": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "action": {
+                "type": "string",
+                "const": "replace"
+              }
+            },
+            "required": [
+              "intent_key",
+              "entry_revision",
+              "plan_id",
+              "plan_entry_revision",
+              "action"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ApiTakeoffEntryScope": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "outcome": {
+                    "type": "string",
+                    "const": "applied"
+                  },
+                  "command_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "replayed": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "outcome",
+                  "command_id",
+                  "replayed"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "outcome": {
+                    "type": "string",
+                    "enum": [
+                      "stale",
+                      "sent",
+                      "ineligible"
+                    ]
+                  }
+                },
+                "required": [
+                  "outcome"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "outcome": {
+                    "type": "string",
+                    "const": "collision"
+                  },
+                  "entry": {
+                    "type": "object",
+                    "properties": {
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "category": {
+                        "type": "string",
+                        "enum": [
+                          "site_survey",
+                          "other_drawing",
+                          "dpgf_cctp",
+                          "written_confirmation",
+                          "documented_calculation",
+                          "hypothesis"
+                        ]
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "actor_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "entered_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      "author": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "quantity",
+                      "unit",
+                      "category",
+                      "revision",
+                      "actor_id",
+                      "entered_at",
+                      "author"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "outcome",
+                  "entry"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "GetAffaireTakeoffItemHistoryProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -57427,6 +57775,10 @@
       "FreezeAffaireTakeoffItemSelectionRequest": {
         "type": "object",
         "properties": {
+          "entry_plans": {
+            "type": "boolean",
+            "const": true
+          },
           "command_version": {
             "type": "number",
             "const": 1
@@ -57665,6 +58017,167 @@
                         "answers"
                       ],
                       "additionalProperties": false
+                    },
+                    "entryPlans": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200,
+                            "description": "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans) : stable d’une copie à l’autre."
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "answerId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "eligible": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "entry": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "quantity": {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                  },
+                                  "unit": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64
+                                  },
+                                  "category": {
+                                    "type": "string",
+                                    "enum": [
+                                      "site_survey",
+                                      "other_drawing",
+                                      "dpgf_cctp",
+                                      "written_confirmation",
+                                      "documented_calculation",
+                                      "hypothesis"
+                                    ]
+                                  },
+                                  "at": {
+                                    "type": "string"
+                                  },
+                                  "revision": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "note": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "author": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "quantity",
+                                  "unit",
+                                  "category",
+                                  "at",
+                                  "revision",
+                                  "note",
+                                  "author"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "name",
+                          "answerId",
+                          "eligible",
+                          "entry"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "wholeEntry": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "quantity": {
+                              "type": "number",
+                              "exclusiveMinimum": 0
+                            },
+                            "unit": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64
+                            },
+                            "category": {
+                              "type": "string",
+                              "enum": [
+                                "site_survey",
+                                "other_drawing",
+                                "dpgf_cctp",
+                                "written_confirmation",
+                                "documented_calculation",
+                                "hypothesis"
+                              ]
+                            },
+                            "at": {
+                              "type": "string"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "note": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "author": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "quantity",
+                            "unit",
+                            "category",
+                            "at",
+                            "revision",
+                            "note",
+                            "author"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "eligible": {
                       "type": "array",

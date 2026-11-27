@@ -11,7 +11,7 @@ export function ItemQuantityChoiceButtons({ options, disabled, onChoose }: {
     <div role="group" aria-label="Quantité retenue pour ce poste sur ce plan" className="space-y-1.5">
       <p className="text-sm">{options.verifiedQuantity === null
         ? "Le comptage reste à vérifier. Vous pouvez retenir la saisie de ce plan pour le devis."
-        : "La quantité retenue sera envoyée au devis pour ce poste sur ce plan."}</p>
+        : "L’aperçu de l’envoi indique si la quantité retenue peut partir avec ce plan."}</p>
       <div className="flex flex-wrap gap-2">
         {options.alternativeQuantity !== null ? (
           <Button variant="outline" size="sm" disabled={disabled || !options.allowAlternative} onClick={() => choose(options.alternativeSource)}>

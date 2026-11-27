@@ -185,11 +185,12 @@ describe("TakeoffItemDetailScreen, the decisions", () => {
     fireEvent.click(evidence().getByRole("button", { name: "Saisir une quantité" }));
     fireEvent.change(dialog().getByLabelText("Quantité"), { target: { value: "2,5" } });
     fireEvent.click(dialog().getByRole("button", { name: "Continuer" }));
+    fireEvent.change(dialog().getByLabelText("Portée de la saisie"), { target: { value: PLAN_RDC } });
     fireEvent.change(dialog().getByLabelText("Ce qui fonde ces quantités"), { target: { value: "site_survey" } });
     fireEvent.click(dialog().getByRole("button", { name: "Enregistrer" }));
     await settle();
     expect(client.sendItemReviewCommand).toHaveBeenLastCalledWith(DETAIL_PROJECT, expect.objectContaining({
-      gesture: "enter_quantity", values: [{ item_id: ITEMS.notFound, quantity: 2.5, unit: "u" }],
+      gesture: "enter_quantity", scope: { kind: "plan", planKey: PLAN_RDC }, values: [{ item_id: ITEMS.notFound, quantity: 2.5, unit: "u" }],
       entry: { category: "site_survey" } }));
   });
 
@@ -849,4 +850,47 @@ describe("the retention panel checks the current measure", () => {
     await screen.findByText("Retenu sur ce plan · 4 u");
     expect(evidence().queryByText(expiry)).toBeNull();
   });
+});
+
+it("keeps F2's uncertain entry and retries the identical command before refreshing its detail", async () => {
+  client.sendItemReviewCommand.mockRejectedValueOnce(new TypeError("response lost"))
+    .mockResolvedValue({ outcome: "replayed", applied: [{ itemId: ITEMS.notFound, label: "Poste", answers: 1 }], skipped: [] });
+  open(ITEMS.notFound, PLAN_RDC, JOB_RDC);
+  await settle();
+  fireEvent.keyDown(screen.getByRole("listbox"), { key: "F2" });
+  fireEvent.change(dialog().getByLabelText("Quantité"), { target: { value: "2" } });
+  fireEvent.click(dialog().getByRole("button", { name: "Continuer" }));
+  fireEvent.change(dialog().getByLabelText("Portée de la saisie"), { target: { value: PLAN_RDC } });
+  fireEvent.change(dialog().getByLabelText("Ce qui fonde ces quantités"), { target: { value: "site_survey" } });
+  fireEvent.click(dialog().getByRole("button", { name: "Enregistrer" }));
+  await settle();
+  fireEvent.click(dialog().getByRole("button", { name: "Réessayer la même saisie" }));
+  await settle();
+  expect(client.sendItemReviewCommand.mock.calls).toHaveLength(2);
+  expect(client.sendItemReviewCommand.mock.calls[1]).toEqual(client.sendItemReviewCommand.mock.calls[0]);
+  expect(screen.getByTestId("poste-detail-decision")).toHaveTextContent("Poste saisi");
+});
+
+it("withholds the former entry and F2 when rereading an uncertain withdrawal fails, then reads its disappearance", async () => {
+  scenario.entries = [{ itemId: ITEMS.notFound, scope: "affaire", planKey: null, quantity: 4, unit: "u", category: "site_survey",
+    actorId: JOB_RDC, revision: 1, at: "2026-11-22T08:00:00Z", previous: null, note: null, included: true }];
+  const send = vi.spyOn(itemClient, "sendEntryScope").mockRejectedValueOnce(new TypeError("response lost"));
+  open(ITEMS.notFound, PLAN_RDC, JOB_RDC);
+  await settle();
+  fireEvent.click(evidence().getByRole("button", { name: "Retirer la saisie de l’affaire" }));
+  fireEvent.click(dialog().getByRole("button", { name: "Retirer" }));
+  await dialog().findByRole("alert");
+  client.fetchItemLine.mockRejectedValueOnce(new TypeError("offline"));
+  fireEvent.click(dialog().getByRole("button", { name: "Annuler" }));
+  const retry = await screen.findByRole("button", { name: "Relire le poste" });
+  expect(screen.getByRole("alert")).toHaveTextContent("État inconnu");
+  expect(screen.queryByText("Retirer la saisie de l’affaire")).toBeNull();
+  fireEvent.keyDown(document.activeElement!, { key: "F2" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  scenario.entries = [];
+  fireEvent.click(retry);
+  await screen.findByRole("button", { name: "Saisir une quantité" });
+  expect(screen.queryByText("Retirer la saisie de l’affaire")).toBeNull();
+  expect(send).toHaveBeenCalledOnce();
+  send.mockRestore();
 });

@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { TakeoffItemDetail, type ItemDetailGestureRequest, type ItemDetailShown } from "@/components/takeoff/item-detail/TakeoffItemDetail";
 import { forgetItemDetailOpener, rememberItemDetailOpener } from "@/components/takeoff/item-detail/ItemDetailOpenerFocus";
 import { isRightRefusal, useCompletions } from "@/components/takeoff/item-detail/useCompletions";
-import { AcceptMeasuredDialog, EntryDialog, SetAsideDialog } from "@/components/takeoff/item-table/ItemTableGestureDialogs";
+import { AcceptMeasuredDialog, SetAsideDialog } from "@/components/takeoff/item-table/ItemTableGestureDialogs";
 import { isTakeoffReadRefusal } from "@/components/takeoff/useTakeoffRequestActivity";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ import { itemReviewStaleLines, sendItemReviewCommand } from "@/lib/takeoff/item-
 import { ITEM_REVIEW_COMMAND_VERSION, type ItemReviewCommand, type ItemReviewResult } from "@/lib/takeoff/item-table-contracts";
 import { ITEM_INELIGIBILITY_LABELS } from "@/lib/takeoff/item-table-labels";
 import { readItemTableAddress } from "@/lib/takeoff/item-table-query";
-import type { QuantityEntry } from "@/lib/takeoff/quantity-entry";
+import { EntryDialog } from "@/components/takeoff/item-table/EntryDialog";
 import { TAKEOFF_ITEM_UNIT_MAX_LENGTH } from "@/lib/takeoff/types";
 
 /**
@@ -145,8 +145,8 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
     return refused;
   }, []);
   /** The last command's item, read again when it ends (`version` counts the commands). */
-  const [refresh, setRefresh] = useState<{ version: number; itemId: string } | null>(null);
-  const refreshItem = (itemId: string) => setRefresh((current) => ({ version: (current?.version ?? 0) + 1, itemId }));
+  const [refresh, setRefresh] = useState<{ version: number; itemId: string; uncertain?: boolean } | null>(null);
+  const refreshItem = (itemId: string, uncertain = false) => setRefresh((current) => ({ version: (current?.version ?? 0) + 1, itemId, uncertain }));
   const [shown, setShown] = useState<ItemDetailShown | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const scopeKey = JSON.stringify(tableAddress.scope);
@@ -283,11 +283,16 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
           onConfirm={(value) => setPending({ ...pending!, value })} />
       ) : null}
       {active?.gesture === "enter_quantity" && active.value ? (
-        <EntryDialog scopeLabel={scopeLabel} busy={busy} onClose={close}
-          values={[{ itemId: active.line.itemId, label: active.line.label, ...active.value }]}
-          onConfirm={(entry: QuantityEntry) => void runCommand({ ...base(active.line, active.intentKey), gesture: "enter_quantity",
-            values: [{ item_id: active.line.itemId, quantity: active.value!.quantity, unit: active.value!.unit }], entry }, "saisi",
-            pending)} />
+        <EntryDialog key={active.intentKey} projectId={projectId} viewScope={scope} onRefused={withdrawOnRefusal}
+          onClose={close} values={[{ line: active.line, ...active.value }]}
+          onFinished={(result, batch, error) => {
+            const uncertain = batch.rows.some(row => row.state === "État inconnu");
+            setPending(null);
+            setNotice(error || uncertain ? { tone: "danger", text: itemReviewStaleLines(error)
+              ? "Le poste a changé. Vérifiez la saisie après relecture."
+              : "La saisie n’a pas été confirmée. Vérifiez le poste après relecture." } : resultNotice(result, "saisi"));
+            refreshItem(active.line.itemId, uncertain);
+          }} />
       ) : null}
     </div>
   );

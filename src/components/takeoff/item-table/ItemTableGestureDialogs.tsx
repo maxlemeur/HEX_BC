@@ -7,17 +7,9 @@ import { ITEM_SET_ASIDE_REASONS, type ItemSetAsideReason } from "@/lib/takeoff/i
 import { ITEM_SET_ASIDE_NOTE, type ItemRemeasurePreview } from "@/lib/takeoff/item-table-contracts";
 import {
   formatItemCount,
-  formatItemQuantity,
   ITEM_INELIGIBILITY_LABELS,
   ITEM_SET_ASIDE_REASON_LABELS,
 } from "@/lib/takeoff/item-table-labels";
-import {
-  HYPOTHESIS_NOTE,
-  QUANTITY_ENTRY_CATEGORIES,
-  quantityEntryError,
-  type QuantityEntry,
-  type QuantityEntryCategory,
-} from "@/lib/takeoff/quantity-entry";
 import { noteLength, noteText } from "@/lib/takeoff/rules/verification";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,7 +22,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 
 /**
@@ -41,7 +32,7 @@ import { Textarea } from "@/components/ui/textarea";
 type Base = { scopeLabel: string; busy: boolean; onClose: () => void };
 
 /** Enter confirms from a field or a choice (never from a button, which confirms by itself). */
-function confirmOnEnter(confirm: () => void) {
+export function confirmOnEnter(confirm: () => void) {
   return (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== "Enter" || event.shiftKey || (event.target as HTMLElement).closest("button")) return;
     event.preventDefault();
@@ -139,63 +130,6 @@ export function ReinstateDialog({ scopeLabel, busy, onClose, eligible, onConfirm
         <DialogFooter>
           <DialogClose disabled={busy} render={<Button variant="outline" />}>Annuler</DialogClose>
           <Button disabled={busy || eligible === 0} onClick={onConfirm}>Réintégrer</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-const CATEGORIES = Object.keys(QUANTITY_ENTRY_CATEGORIES) as QuantityEntryCategory[];
-
-export function EntryDialog({ scopeLabel, busy, onClose, values, onConfirm }: Base & {
-  values: Array<{ itemId: string; label: string; quantity: number; unit: string }>;
-  onConfirm: (entry: QuantityEntry) => void;
-}) {
-  const categoryId = useId();
-  const noteId = useId();
-  const [category, setCategory] = useState<QuantityEntryCategory | "">("");
-  const [note, setNote] = useState("");
-  const text = noteText(note);
-  const entry: QuantityEntry | null = category ? { category, ...(text ? { note: text } : {}) } : null;
-  const error = entry ? quantityEntryError(entry) : null;
-  const complete = entry !== null && error === null && values.length > 0;
-  const confirm = () => { if (complete && !busy) onConfirm(entry!); };
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent size="md">
-        <DialogHeader>
-          <DialogTitle>Enregistrer les quantités saisies</DialogTitle>
-          <DialogDescription>
-            {scopeLabel} · {formatItemCount(values.length, "valeur", "valeurs")}, chacune sur son poste. Ce qui les fonde est choisi
-            une fois et écrit sur chacune, avec son auteur et sa date. Le résultat de la lecture reste consultable. Rien n’est
-            envoyé au devis.
-          </DialogDescription>
-        </DialogHeader>
-        <ul className="max-h-40 list-disc space-y-0.5 overflow-y-auto pl-5 text-sm">
-          {values.map((value) => <li key={value.itemId}>{value.label} : {formatItemQuantity(value.quantity, value.unit)}</li>)}
-        </ul>
-        <div className="flex flex-col gap-3" onKeyDown={confirmOnEnter(confirm)}>
-          <Field>
-            <FieldLabel htmlFor={categoryId}>Ce qui fonde ces quantités</FieldLabel>
-            <NativeSelect id={categoryId} value={category} onChange={(event) => setCategory(event.target.value as QuantityEntryCategory | "")}>
-              <option value="">Choisir…</option>
-              {CATEGORIES.map((value) => <option key={value} value={value}>{QUANTITY_ENTRY_CATEGORIES[value]}</option>)}
-            </NativeSelect>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={noteId}>{category === "hypothesis" ? "Ce qui est supposé (obligatoire)" : "Note (facultative)"}</FieldLabel>
-            <Textarea id={noteId} rows={2} value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} />
-            <FieldDescription>
-              {category === "hypothesis"
-                ? `${HYPOTHESIS_NOTE.min} à ${HYPOTHESIS_NOTE.max} caractères. Une hypothèse saisie ne compte qu’une fois incluse, poste par poste.`
-                : "La même note est écrite sur chaque poste : ne la donnez que si elle vaut pour chacun."}
-            </FieldDescription>
-            {entry && error ? <p className="text-sm text-danger" role="alert">{error}</p> : null}
-          </Field>
-        </div>
-        <DialogFooter>
-          <DialogClose disabled={busy} render={<Button variant="outline" />}>Annuler</DialogClose>
-          <Button disabled={!complete || busy} onClick={confirm}>Enregistrer</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

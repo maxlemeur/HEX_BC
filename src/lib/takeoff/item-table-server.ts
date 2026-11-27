@@ -1,4 +1,6 @@
 import "server-only";
+import { selectInChunks } from "@/lib/supabase/in-chunks";
+import { entryPlans, entryFacts } from "./item-entry-choice";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -219,26 +221,23 @@ async function countMarksRevisions(client: Client, answerIds: readonly string[])
   return revisions;
 }
 
-async function markedQuantities(access: AffaireAccess, revisions: ReadonlyMap<string, number>, answers: ReadonlyMap<string, TakeoffItemAnswer>) {
+async function markedQuantities(access: AffaireAccess, revisions: ReadonlyMap<string, number>, answers: ReadonlyMap<string, TakeoffItemAnswer>,
+  scopedItemIds: string[] | null) {
   const client = access.context.supabase as unknown as Client;
   const marks = new Map<string, NonNullable<ItemReadingInput["verifiedMarks"]>>();
   const decisions = new Map<string, NonNullable<ItemReadingInput["quantityDecision"]>>();
-  const whole = new Map<string, NonNullable<ItemTableRow["wholeEntry"]>>();
+  const whole = new Map<string, ItemEntryView>();
   const marked = [...revisions].filter(([, revision]) => revision > 0).map(([answerId]) => answerId);
   // A PostgREST IN filter carries these UUIDs in the URL.
   const batchSize = 100;
   for (let start = 0; start < marked.length; start += batchSize) {
     const ids = marked.slice(start, start + batchSize);
-    const items = [...new Set(ids.flatMap((id) => answers.get(id)?.itemId ?? []))];
-    const [summaries, choices, totals] = await Promise.all([
+    const [summaries, choices] = await Promise.all([
       readCountMarkSummariesForAccess(access, ids),
       client.from("takeoff_item_answer_decisions").select("answer_id,quantity_source,marks_revision,chosen_entry_revision")
         .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("kind", "accepted").in("answer_id", ids),
-      client.from("takeoff_item_entries").select("item_id,quantity,unit,included").eq("tenant_id", access.context.tenantId)
-        .eq("project_id", access.project.id).is("plan_logical_id", null).in("item_id", items),
     ]);
     if (choices.error) readFailure(choices.error);
-    if (totals.error) readFailure(totals.error);
     for (const [id, summary] of Object.entries(summaries)) marks.set(id, { revision: summary.revision, counted: summary.counted,
       unit: summary.unit, verified: summary.state === "verified", quantity: summary.quantity,
       pages: summary.pages.filter((page) => page.retained > 0).map((page) => page.page) });
@@ -248,8 +247,13 @@ async function markedQuantities(access: AffaireAccess, revisions: ReadonlyMap<st
         decisions.set(row.answer_id, { source, marksRevision: row.marks_revision, entryRevision: row.chosen_entry_revision });
       }
     }
-    for (const row of totals.data ?? []) whole.set(row.item_id, { quantity: row.quantity, unit: row.unit, included: row.included });
   }
+  // A filtered row contains the plan entry. Read whole totals for the page together so a member can correct one from that view.
+  const items = scopedItemIds ?? [...new Set(marked.flatMap(id => answers.get(id)?.itemId ?? []))];
+  const totals = await selectInChunks(items, ids => client.from("takeoff_item_entries").select("item_id,quantity,unit,included,category,revision,note,actor_id,entered_at")
+    .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).is("plan_logical_id", null).in("item_id", ids));
+  if (totals.error) readFailure(totals.error);
+  for (const row of totals.data) whole.set(row.item_id, entryOf(row)!);
   return { marks, decisions, whole };
 }
 
@@ -280,7 +284,7 @@ function laterAttempt(reading: Record<string, unknown>, answerJobId: string | nu
 }
 
 /** The rows of the database as the model reads them, with each answer's anomalies. */
-async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Promise<ItemTableRow[]> {
+async function tableRows(access: AffaireAccess, rows: readonly TableRow[], scope: ItemTableScope): Promise<Array<ItemTableRow & { wholeEntryFacts?: ItemEntryView }>> {
   const client = access.context.supabase as unknown as Client;
   const answers = new Map<string, TakeoffItemAnswer>();
   for (const row of rows) {
@@ -307,8 +311,9 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
     readTakeoffVisibleSources({ supabase: access.context.supabase, tenantId: access.context.tenantId, projectId: access.project.id,
       ids: uncertainPlanFiles }),
   ]);
-  const sources = await markedQuantities(access, marksRevisions, answers);
-  return rows.map((row): ItemTableRow => {
+  const sources = await markedQuantities(access, marksRevisions, answers, scope.kind === "plan" ? rows.map(row => row.item_id) : null);
+  return rows.map((row): ItemTableRow & { wholeEntryFacts?: ItemEntryView } => {
+    const total = sources.whole.get(row.item_id);
     if (!isState(row.state) || !isDecision(row.decision)) throw new TypeError("Poste illisible.");
     const readings = rawReadings(row).map((reading): ItemReadingInput => {
       const answer = reading.answer ? answers.get(String(asRecord(reading.answer)?.answer_id)) ?? null : null;
@@ -351,7 +356,7 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
       decision: row.decision,
       readings,
       entry: entryOf(row.entry),
-      ...(sources.whole.has(row.item_id) ? { wholeEntry: sources.whole.get(row.item_id) } : {}),
+      ...(total && { wholeEntryFacts: total, wholeEntry: { quantity: total.quantity, unit: total.unit, included: total.included } }),
     };
   });
 }
@@ -420,11 +425,11 @@ async function reviewerRight(access: AffaireAccess) {
   return data === true;
 }
 
-async function memberNames(client: Client, lines: readonly ItemTableLine[]) {
-  const people = [...new Set(lines.flatMap((line) => [
+async function memberNames(client: Client, lines: readonly ItemTableLine[], extraAuthors: string[] = []) {
+  const people = [...new Set([...extraAuthors, ...lines.flatMap((line) => [
     ...(line.entry ? [line.entry.actorId] : []),
     ...line.readings.flatMap(({ decision, entry }) => [...(decision ? [decision.actorId] : []), ...(entry ? [entry.actorId] : [])]),
-  ]))].filter(Boolean);
+  ])])].filter(Boolean);
   const names: Record<string, string> = {};
   if (!people.length) return names;
   const { data, error } = await client.from("profiles").select("id, full_name").in("id", people);
@@ -447,7 +452,7 @@ export async function loadItemLines(access: AffaireAccess, input: { scope: ItemT
     input.withPlans ? latestList(access) : Promise.resolve(null),
   ]);
   const plans = plansOf(facets);
-  return { lines: buildItemLines(await tableRows(access, rows), { plans, scope: input.scope }), plans, list };
+  return { lines: buildItemLines(await tableRows(access, rows, input.scope), { plans, scope: input.scope }), plans, list };
 }
 
 /** A page of the table for any reader of the affaire; the gestures it offers are for its takeoff operators. */
@@ -458,7 +463,7 @@ export async function readAffaireItemTable(projectId: string, query: ItemTableQu
   // A page past the end (the filter shrank since the address was written) reads the first page.
   if (list && !rows.length && query.offset > 0) rows = await readRows(access, { ...query, offset: 0, limit: query.limit });
   const plans = plansOf(facets);
-  const lines = buildItemLines(await tableRows(access, rows), { plans, scope: query.scope });
+  const lines = buildItemLines(await tableRows(access, rows, query.scope), { plans, scope: query.scope });
   const detailPlans = detail && canReview && list && lines.some((line) => line.coverage.answered === 0)
     ? await readFirstMeasurePlans(access.context, access.project.id) : plans;
   return {
@@ -495,6 +500,7 @@ export async function readAffaireItemLine(projectId: string, itemId: string, det
  * the revisions its command will name, the count and what each gesture may do with it. Above its bound it is refused.
  */
 export async function freezeAffaireItemSelection(projectId: string, input: {
+  entryPlans?: boolean;
   scope: ItemTableScope;
   selection: { kind: "filter"; filter: ItemTableFilter } | { kind: "items"; itemIds: string[] };
 }): Promise<ItemSelectionResponse> {
@@ -505,8 +511,15 @@ export async function freezeAffaireItemSelection(projectId: string, input: {
     // The count SQL gives, never the rows returned: a page of the Data API holds 1 000 rows at most, so 1 001 items
     // matching would arrive as 1 000. Above the bound the selection is refused before anything is built.
     if (Math.max(rows.length, rows[0]?.matching_items ?? 0) > ITEM_REVIEW_LIMITS.items) throw new RangeError(ITEM_SELECTION_TOO_LARGE);
-    const lines = buildItemLines(await tableRows(access, rows), { plans: [], scope: input.scope });
-    return freezeItemSelection(lines, input.selection.kind === "items" ? input.selection.itemIds : null);
+    const scopedRows = await tableRows(access, rows, input.scope);
+    const lines = buildItemLines(scopedRows, { plans: [], scope: input.scope });
+    const frozen = freezeItemSelection(lines, input.selection.kind === "items" ? input.selection.itemIds : null);
+    if (!input.entryPlans) return frozen;
+    const totals = new Map(scopedRows.map(row => [row.item.id, input.scope.kind === "plan" ? row.wholeEntryFacts ?? null : row.entry]));
+    const names = await memberNames(access.context.supabase as unknown as Client, lines, [...totals.values()].flatMap(entry => entry ? [entry.actorId] : []));
+    return { ...frozen, items: frozen.items.map((item, index) => ({
+      ...item, entryPlans: entryPlans(lines[index], names), wholeEntry: entryFacts(totals.get(item.itemId) ?? null, names),
+    })) };
   } catch (error) {
     if (error instanceof RangeError) throw unprocessableEntity(error.message, undefined, "TAKEOFF_ITEM_SELECTION_TOO_LARGE");
     throw error;

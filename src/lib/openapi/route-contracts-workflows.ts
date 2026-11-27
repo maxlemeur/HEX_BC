@@ -1,3 +1,4 @@
+import { entryScopeCommandSchema, entryScopeResultSchema } from "@/lib/takeoff/entry-scope-contracts";
 import { measureReviewSchema, retainedMeasureSchema, retainCommandSchema } from "@/lib/takeoff/measure-review-contracts";
 import { takeoffItemBatchPatchResponseSchema } from "@/lib/takeoff/item-response-contracts";
 import { takeoffItemBatchPatchSchema as takeoffItemsPatchSchema } from "@/lib/takeoff/item-patch-preparation";
@@ -824,6 +825,15 @@ const takeoffOperationsContracts: RouteContract[] = [
     body: { schema: retainCommandSchema, description: "Intention, révision vue et confirmations du membre." },
     success: [{ status: "200", description: "Mesure retenue.", schema: { schemaName: "ApiTakeoffRetainedMeasure",
       schema: z.object({ ok: z.literal(true), data: retainedMeasureSchema }), io: "output" } }],
+  },
+  {
+    id: "change-takeoff-entry-scope", method: "post", path: "/api/affaires/{projectId}/takeoff/items/{itemId}/entry-scope",
+    summary: "Rattacher ou retirer la saisie de l’affaire", description: "Compare les révisions du total et de la destination. Une collision exige une confirmation distincte pour remplacer la saisie du plan.",
+    tags: ["Takeoff"], pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire." },
+      { name: "itemId", schema: uuidSchema, description: "Poste." }],
+    body: { schema: entryScopeCommandSchema, description: "Geste choisi et révisions vues." },
+    success: [{ status: "200", description: "Résultat du geste.", schema: { schemaName: "ApiTakeoffEntryScope",
+      schema: z.object({ ok: z.literal(true), data: entryScopeResultSchema }), io: "output" } }],
   },
   {
     id: "review-affaire-takeoff-items",

@@ -95,7 +95,7 @@ const NOT_SENT_MESSAGES: Record<ItemSendNotSentReason, string> = {
   unit_incompatible: "Unité ou base de mesure incompatible avec le poste.",
   hypothesis_not_included: "Hypothèse saisie, pas encore retenue par sa propre décision.",
   rule_skip: "Ignoré par une règle de correspondance.",
-  affaire_entry: "Une quantité est saisie pour toute l’affaire : la mesure d’un plan ne s’y ajoute jamais.",
+  affaire_entry: "Une quantité est saisie pour toute l’affaire : la mesure d’un plan ne s’y ajoute jamais. Dans le détail du poste, choisissez « Rattacher cette saisie à un plan » ou « Retirer la saisie de l’affaire ».",
   no_answer: "Aucune réponse enregistrée pour ce poste sur ce plan.",
   left_out: "Laissé de côté par votre choix.",
   entry_suspended: "La quantité saisie est inférieure à la quantité retenue : la ligne n’est pas écrite tant qu’une décision ne la tranche pas.",
