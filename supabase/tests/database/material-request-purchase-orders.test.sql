@@ -101,6 +101,13 @@ insert into public.material_requests (id, project_id, technician_id, requested_o
     '2026-11-10', 'counter', 'Inox 304L', true, 'a9310000-0000-4000-8000-000000000001'),
   ('a9310000-0000-4000-8000-000000000602', 'a9310000-0000-4000-8000-000000000202', null, '2026-11-10', null, null, false,
     'a9310000-0000-4000-8000-000000000005');
+-- requested_at is now() and material_confirmed_at clock_timestamp(): in this one test transaction the confirmation would
+-- follow every consultation, and the retaining writes the sheet's material only when it was confirmed before
+-- (20261127022446). It is dated back, as it stands across two real requests.
+set local session_replication_role = replica;
+update public.material_requests set material_confirmed_at = material_confirmed_at - interval '1 day'
+where id = 'a9310000-0000-4000-8000-000000000601';
+set local session_replication_role = origin;
 -- Request 601: L1 elbow (article 501), L2 screws (article 502, the sheet's material), L3 gloves (overhead), L4 tube,
 -- L5 without supplier, L6 still a draft, L7 with a supplier but no retained quote. Request 602 (affaire 202): L8.
 insert into public.material_request_lines (id, request_id, position, quantity, unit, dimension, no_dimension, product_type,

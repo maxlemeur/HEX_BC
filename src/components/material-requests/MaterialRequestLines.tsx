@@ -193,7 +193,6 @@ export function MaterialRequestLines({
   headingId,
   orderedLine,
   orderStatusKnown,
-  onReviewPresumedMaterial,
   toolbar,
   canEditCatalogue = false,
   canCreateSupplyType = false,
@@ -204,7 +203,6 @@ export function MaterialRequestLines({
   /** The purchase order each ordered line went into (TI-691, delivery 3a). */
   orderedLine?: (lineId: string) => MaterialRequestOrderLink | null;
   orderStatusKnown: boolean;
-  onReviewPresumedMaterial: () => void;
   /** Actions shown beside the lines (original, message, previous requests). */
   toolbar?: ReactNode;
   /** May set a supply type's preferred supplier here (admins and engineers): the gap is filled in place. */
@@ -476,10 +474,7 @@ export function MaterialRequestLines({
               disabled={busy}
               className="rounded-sm text-sm font-semibold text-warning underline underline-offset-4 hover:no-underline focus-visible:outline-2 focus-visible:outline-ring"
               title={attentionAlert.message}
-              onClick={() => {
-                if (attentionAlert.code === "material_unconfirmed") onReviewPresumedMaterial();
-                else focusLineAlert(attentionLine, attentionAlert);
-              }}
+              onClick={() => focusLineAlert(attentionLine, attentionAlert)}
             >
               {heldLines.length > 0 ? `${heldLines.length} à compléter` : plural(remarkCount, "remarque à vérifier", "remarques à vérifier")}
             </button>

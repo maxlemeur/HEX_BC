@@ -68,9 +68,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     quote was open), and the leftover stays; a quote's PDF (a supplier's document) is served inline.
  * 13. A deadlock during a quote write answers a bare 400 instead of « réessayez »; a message of 300 lines (more
  *     than 4 000 characters) is refused.
- * 14. (Codex review of #279) A project line without its own material, quoted in the request's presumed material, is
- *     retained without it (a later header change would turn it into another material at the same price), or retained
- *     while that material is not confirmed; an overhead line takes the request's material.
+ * 14. (Codex review of #279) A project line without its own material, quoted in the request's confirmed presumed
+ *     material, is retained without it (a later header change would turn it into another material at the same price);
+ *     a line retained while that material is missing or not confirmed is refused (the material is optional since
+ *     2026-11-27) or takes it; an overhead line takes the request's material.
  * 15. (Codex review of #279) A quote is retained while one of its lines is a draft (it may lack a quantity, unit, type
  *     or dimension, which the freeze would then lock for good), or the refusal does not name it; a priced line reopened
  *     to draft cannot be validated again.
@@ -231,20 +232,18 @@ function retainQuoteInDatabase(actor: string): FakeRpcHandler {
       return { data: null, error: { code: "23514", message: "MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED",
         details: JSON.stringify(drafts.map((entry) => Number(entry?.position)).sort((a, b) => a - b)) } };
     }
-    // A project line without its own material takes the request's presumed material, which must be confirmed.
+    // A project line without its own material takes the request's presumed material when it is confirmed, else none.
     const request = (tables.material_requests ?? []).find((row) => row.id === target.request_id);
+    const confirmedMaterial = request?.material_confirmed === true && String(request.presumed_material ?? "").trim()
+      ? request.presumed_material : null;
     const unmaterialized = mine.map((row) => lines.find((entry) => entry.id === row.line_id))
-      .filter((entry) => entry?.imputation === "project" && !String(entry.material ?? "").trim());
-    if (unmaterialized.length > 0 && (!String(request?.presumed_material ?? "").trim() || request?.material_confirmed !== true)) {
-      return { data: null, error: { code: "23514", message: "MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED",
-        details: JSON.stringify(unmaterialized.map((entry) => Number(entry?.position)).sort((a, b) => a - b)) } };
-    }
+      .filter((entry) => confirmedMaterial !== null && entry?.imputation === "project" && !String(entry.material ?? "").trim());
     Object.assign(target, { status: "retained", retained_at: now(), retained_by: actor });
     for (const row of mine) {
       const entry = lines.find((candidate) => candidate.id === row.line_id);
       Object.assign(entry ?? {}, {
         supplier_id: target.supplier_id, unit_price_ht_cents: row.unit_price_ht_cents, price_per: row.price_per, price_quote_id: target.id,
-        ...(unmaterialized.includes(entry) ? { material: request?.presumed_material } : {}),
+        ...(unmaterialized.includes(entry) ? { material: confirmedMaterial } : {}),
       });
     }
     const shared = new Set(mine.map((row) => row.line_id));
@@ -723,13 +722,12 @@ describe("retaining a quote", () => {
   it.each<[string, string | null]>([
     ["not confirmed", "Inox 304L"],
     ["missing", null],
-  ])("refuses to retain a quote asked in the request's material while that material is %s", async (_label, presumed) => {
-    const fake = inPresumedMaterial(false, presumed);
-    const { status, error } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA));
-    expect([status, error?.code, error?.message, error?.details]).toEqual([422, "MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED",
-      "La ligne Coude 90° DN 50 n’a pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.",
-      { positions: [1], line_ids: [LINE_ELBOW] }]);
-    expect(fake.rpcCalls).toEqual([]);
+  ])("retains a quote whose project line has no material while the request's material is %s, and writes none", async (_label, presumed) => {
+    inPresumedMaterial(false, presumed);
+    const { status, data } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA));
+    expect(status).toBe(200);
+    expect((data as MaterialRequestQuoteRetained).lines.map((entry) => [entry.id, entry.material, entry.status, entry.unit_price_ht_cents]))
+      .toEqual([[LINE_ELBOW, null, "validated", 1250], [LINE_TEE, null, "validated", 3400]]);
   });
 
   it.each<[string, string[], string, number[]]>([

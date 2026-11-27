@@ -8,9 +8,10 @@ import { toNonEmptyString } from "@/lib/value-guards";
  * hand; these rules say, line by line, what is still missing or doubtful. A line with a blocking alert
  * cannot be validated, and it blocks alone: the rest of the request goes on.
  *
- * Nothing here decides for the operator. A material presumed for the whole sheet is a proposal until it
- * is confirmed; a line that names another material keeps it; a possible duplicate is shown, never merged.
- * The server applies the same function before it validates a line.
+ * Nothing here decides for the operator. The material is optional (owner decision of 2026-11-27): it never
+ * blocks a validation, and a line that names a material other than the one presumed for the sheet is only
+ * pointed out. A possible duplicate is shown, never merged. The server applies the same function before it
+ * validates a line.
  */
 
 export type MaterialRequestLineAlertCode =
@@ -19,7 +20,9 @@ export type MaterialRequestLineAlertCode =
   | "unit_missing"
   | "type_missing"
   | "dimension_missing"
+  /** No longer raised (the material is optional): kept for the refusals of a database not yet migrated. */
   | "material_missing"
+  /** No longer raised (the material is optional): kept for the refusals of a database not yet migrated. */
   | "material_unconfirmed"
   | "material_conflict"
   | "possible_duplicate";
@@ -43,14 +46,17 @@ function comparable(value: string | null | undefined): string {
 
 /**
  * The material a line is ordered in: its own, else the sheet's once the operator has confirmed it.
- * An unconfirmed presumption is not a material.
+ * An unconfirmed presumption is not a material. A line priced by a retained quote has only its own: the
+ * retaining wrote on it the sheet's material it was consulted in, if any, and its order carries nothing
+ * else, so a material confirmed on the sheet afterwards does not reach it.
  */
 export function effectiveLineMaterial(
-  line: Pick<MaterialRequestLine, "material">,
+  line: Pick<MaterialRequestLine, "material" | "price_quote_id">,
   request: AlertContext["request"],
 ): { material: string | null; source: "line" | "presumed" | null } {
   const own = toNonEmptyString(line.material);
   if (own) return { material: own, source: "line" };
+  if (line.price_quote_id !== null) return { material: null, source: null };
   const presumed = toNonEmptyString(request.presumed_material);
   if (presumed && request.material_confirmed) return { material: presumed, source: "presumed" };
   return { material: null, source: null };
@@ -93,15 +99,12 @@ export function materialRequestLineAlerts(
     block("dimension_missing", "dimension", "Dimension à renseigner, ou indiquer « sans dimension ».");
   }
 
-  // Overhead (PPE, small tooling) is not ordered in the sheet's material.
+  // The material is optional: a line without one, or relying on a presumed material nobody confirmed, is
+  // validated as it is. Overhead (PPE, small tooling) is not ordered in the sheet's material.
   if (line.imputation === "project") {
     const own = toNonEmptyString(line.material);
     const presumed = toNonEmptyString(context.request.presumed_material);
-    if (!own && !presumed) {
-      block("material_missing", "material", "Matière à renseigner.");
-    } else if (!own && presumed && !context.request.material_confirmed) {
-      block("material_unconfirmed", "material", `Matière présumée « ${presumed} » à confirmer.`);
-    } else if (own && presumed && comparable(own) !== comparable(presumed)) {
+    if (own && presumed && comparable(own) !== comparable(presumed)) {
       alerts.push({
         code: "material_conflict",
         field: "material",
@@ -156,7 +159,6 @@ function questionsFor(line: MaterialRequestLine, context: AlertContext): string[
       questions.push(`c’est bien ${formatQuantity(line.quantity)} ?`);
     }
     if (alert.code === "dimension_missing") questions.push("quelle dimension ?");
-    if (alert.code === "material_missing") questions.push("en quelle matière ?");
   }
   return questions;
 }

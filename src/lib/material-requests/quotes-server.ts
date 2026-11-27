@@ -428,20 +428,9 @@ async function retainRefusal(access: MaterialRequestAccess, request: MaterialReq
       MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED,
     );
   }
-  // A project line without its own material was consulted in the request's presumed material: the retaining writes
-  // that material on it, so that its price stays tied to it, and only once the office has confirmed it.
-  const unconfirmed = asked.filter((line) => line.imputation === "project" && !(line.material ?? "").trim());
-  if (unconfirmed.length > 0 && (!(request.presumed_material ?? "").trim() || !request.material_confirmed)) {
-    const { positions, line_ids, named } = positionsOf(unconfirmed);
-    return unprocessableEntity(
-      named(
-        "n’a pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.",
-        "n’ont pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.",
-      ),
-      { positions, line_ids },
-      MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED,
-    );
-  }
+  // The material is optional (owner decision of 2026-11-27): a project line without its own material is retained
+  // as it is. The retaining writes on it the request's presumed material only when that material was confirmed before
+  // the quote was requested and has not changed since (the database decides).
   return null;
 }
 
@@ -473,6 +462,15 @@ export async function retainMaterialRequestQuote(
         "La remise de ce devis dépasse le montant de ses lignes et de son port, hors taxes ou TVA comprise : corrigez-la avant de le retenir.",
         { shipping_ht_cents: now.shipping_ht_cents, discount_ht_cents: now.discount_ht_cents },
         MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE,
+      );
+    }
+    // A database not yet migrated to the optional material (20261127022446) still refuses a project line without
+    // material while the request's presumed material is not confirmed.
+    if (error.message === MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED) {
+      throw unprocessableEntity(
+        "Une ligne de ce devis n’a pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.",
+        undefined,
+        MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED,
       );
     }
     // Another session changed the quote or its lines since they were read: the refusal says what stands now.

@@ -223,9 +223,9 @@ export type MaterialRequestListItem = MaterialRequestSummary & {
 };
 
 /**
- * Answer of a change to a request's header. Changing, clearing or un-confirming the presumed material
- * returns to draft every validated line that relied on it (no material of its own, not overhead):
- * their ids are listed, an empty array when there are none.
+ * Answer of a change to a request's header. The material is optional (owner decision of 2026-11-27):
+ * changing, clearing or un-confirming the presumed material returns no line to draft, so
+ * reopened_line_ids is empty. It stays in the answer for the clients that read it.
  */
 export type MaterialRequestUpdateResult = {
   request: MaterialRequest;
