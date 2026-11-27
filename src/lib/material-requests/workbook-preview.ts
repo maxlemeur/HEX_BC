@@ -7,7 +7,12 @@ import { readXlsxArchiveWithinBudget } from "@/lib/affaires/intake-office-archiv
 import { formatDecimalInput, parseDecimalInput } from "@/lib/numeric-input/parsers";
 import { foldWords } from "@/lib/text/fold";
 
-import { MATERIAL_REQUEST_MAX_LINES, materialRequestLineInputSchema, type MaterialRequestLine } from "./contracts";
+import {
+  MATERIAL_REQUEST_MAX_LINES,
+  MATERIAL_REQUEST_QUANTITY_MAX,
+  materialRequestLineInputSchema,
+  type MaterialRequestLine,
+} from "./contracts";
 import {
   WORKBOOK_ROLES,
   WORKBOOK_ROLE_LABELS,
@@ -18,13 +23,23 @@ import {
   roundUpWorkbookQuantity,
   workbookColumnIndex,
   workbookColumnLetter,
+  workbookNumericReferenceText,
   workbookReferenceCode,
   type WorkbookMapping,
   type WorkbookRole,
 } from "./workbook-mapping";
-import type { MaterialRequestWorkbookColumns, MaterialRequestWorkbookPreview, MaterialRequestWorkbookRow } from "./workbook-preview-contract";
+import {
+  MATERIAL_REQUEST_WORKBOOK_FIRST_ROWS,
+  MATERIAL_REQUEST_WORKBOOK_HEADER_SCAN_ROWS as HEADER_SCAN_ROWS,
+  type MaterialRequestWorkbookColumns,
+  type MaterialRequestWorkbookPreview,
+  type MaterialRequestWorkbookRow,
+} from "./workbook-preview-contract";
 
-const HEADER_SCAN_ROWS = 50;
+/** Columns read from a sheet, from A: enough for any needs list, bounded for a sheet with stray far cells. */
+const MAX_COLUMNS = 200;
+/** The longest supplier name kept, as a supplier's own name column. */
+const SUPPLIER_NAME_MAX = 255;
 const EXAMPLE_SCAN_ROWS = 20;
 const EXAMPLE_MAX_LENGTH = 60;
 const PARSE_TIMEOUT_MS = 10_000;
@@ -34,7 +49,7 @@ const WORKER_SCRIPT = `
 const { parentPort, workerData } = require("node:worker_threads");
 const xlsx = require("xlsx");
 try {
-  const workbook = xlsx.read(workerData.bytes, { type: "array", cellHTML: false, cellDates: true, sheetStubs: true });
+  const workbook = xlsx.read(workerData.bytes, { type: "array", cellHTML: false, cellDates: true, cellNF: true, sheetStubs: true });
   parentPort.postMessage(workbook);
 } catch {
   parentPort.postMessage(null);
@@ -48,8 +63,10 @@ type Cells = Map<number, CellObject>;
 export type MaterialRequestWorkbookExistingLine = Pick<MaterialRequestLine, "original_text" | "product_type" | "dimension" | "material" | "quantity" | "unit">;
 
 export type MaterialRequestWorkbookPreviewOptions = {
-  /** Exact sheet name; the first recognized sheet otherwise. */
+  /** Exact sheet name; the first recognized sheet otherwise, else the first visible sheet. */
   sheet?: string;
+  /** Excel number of the header row, chosen by hand; recognized automatically otherwise. */
+  headerRow?: number;
   /** Explicit columns by role; automatic recognition otherwise. */
   mapping?: WorkbookMapping;
   /** The lines the request holds: a row matching one is proposed unticked. */
@@ -115,14 +132,36 @@ function collectRows(sheet: WorkSheet, include: (row: number, column: number) =>
   return [...rows].sort(([a], [b]) => a - b);
 }
 
+/** A reference cell: a stored whole number is read as its digits, unless its format pads it with zeros. */
+function referenceText(cell: CellObject | undefined) {
+  if (cell?.t === "n" && typeof cell.v === "number") {
+    return workbookNumericReferenceText(cell.v, typeof cell.z === "string" ? cell.z : undefined, cell.w);
+  }
+  return cellText(cell);
+}
+
+function headersOf(cells: Cells) {
+  return [...cells].map(([column, cell]) => ({ column, text: cellText(cell) })).filter(({ text }) => text);
+}
+
 function findHeader(sheet: WorkSheet) {
-  for (const [row, cells] of collectRows(sheet, (r) => r < HEADER_SCAN_ROWS)) {
-    const headers = [...cells].map(([column, cell]) => ({ column, text: cellText(cell) })).filter(({ text }) => text);
+  for (const [row, cells] of collectRows(sheet, (r, c) => r < HEADER_SCAN_ROWS && c < MAX_COLUMNS)) {
+    const headers = headersOf(cells);
     const columns = detectWorkbookColumns(headers);
     if (isWorkbookHeaderRow(columns)) return { row, headers, columns };
   }
   return null;
 }
+
+function hasCells(sheet: WorkSheet) {
+  return Object.keys(sheet).some((address) => !address.startsWith("!"));
+}
+
+function shorten(text: string) {
+  return text.length > EXAMPLE_MAX_LENGTH ? `${text.slice(0, EXAMPLE_MAX_LENGTH - 1)}…` : text;
+}
+
+const NO_COLUMNS: Columns = {};
 
 function toLetters(columns: Columns): MaterialRequestWorkbookColumns {
   return Object.fromEntries(WORKBOOK_ROLES.map((role) => [role, columns[role] === undefined ? null : workbookColumnLetter(columns[role])])) as MaterialRequestWorkbookColumns;
@@ -147,6 +186,10 @@ function sameMaterial(left: string | null | undefined, right: string | null | un
 }
 
 const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
+
+function tooLong(role: WorkbookRole, column: number, limit: number) {
+  return `La cellule « ${WORKBOOK_ROLE_LABELS[role]} » (colonne ${workbookColumnLetter(column)}) dépasse ${limit} caractères. Raccourcissez-la dans le classeur. Ligne écartée.`;
+}
 
 export async function previewMaterialRequestWorkbook(
   bytes: Buffer,
@@ -174,31 +217,70 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
     throw new MaterialRequestWorkbookError("Ce classeur Excel est illisible ou trop volumineux pour l’aperçu.");
   }
 
-  const tables = workbook.SheetNames.flatMap((name, index) => {
+  const sheets = workbook.SheetNames.flatMap((name, index) => {
     const sheet = workbook.Sheets[name];
-    if (!sheet || workbook.Workbook?.Sheets?.[index]?.Hidden) return [];
-    const header = findHeader(sheet);
-    return header ? [{ name, sheet, header }] : [];
+    return sheet && !workbook.Workbook?.Sheets?.[index]?.Hidden && hasCells(sheet) ? [{ name, sheet }] : [];
   });
-  if (!tables.length) {
-    throw new MaterialRequestWorkbookError("Ajoutez une colonne « Désignation » et au moins une autre colonne reconnue, par exemple « Quantité », dans les 50 premières lignes d’une feuille.");
-  }
-  const table = options.sheet === undefined ? tables[0] : tables.find(({ name }) => name === options.sheet);
-  if (!table) throw new MaterialRequestWorkbookError("Cette feuille ne contient pas de tableau reconnu.");
+  if (!sheets.length) throw new MaterialRequestWorkbookError("Ce classeur ne contient aucune feuille visible avec des cellules.");
+  const table = options.sheet === undefined
+    ? sheets.find(({ sheet }) => findHeader(sheet)) ?? sheets[0]
+    : sheets.find(({ name }) => name === options.sheet);
+  if (!table) throw new MaterialRequestWorkbookError("Cette feuille n’existe pas ou est masquée.");
 
-  const { row: headerRow, headers, columns: detected } = table.header;
+  const scanned = collectRows(table.sheet, (r, c) => r < HEADER_SCAN_ROWS && c < MAX_COLUMNS);
+  const first_rows = scanned.flatMap(([row, cells]) => {
+    const texts = [...cells].sort(([a], [b]) => a - b).flatMap(([column, cell]) => {
+      const text = cellText(cell);
+      return text ? [{ column: workbookColumnLetter(column), text: shorten(text) }] : [];
+    });
+    return texts.length ? [{ row_number: row + 1, cells: texts }] : [];
+  }).slice(0, MATERIAL_REQUEST_WORKBOOK_FIRST_ROWS);
+
+  // The header row: the one chosen by hand, else the one recognized; without either, the user chooses it.
+  const chosenRow = options.headerRow === undefined ? undefined : options.headerRow - 1;
+  const header = chosenRow === undefined
+    ? findHeader(table.sheet)
+    : (() => {
+      const headers = headersOf(scanned.find(([row]) => row === chosenRow)?.[1] ?? new Map());
+      return { row: chosenRow, headers, columns: detectWorkbookColumns(headers) };
+    })();
+
+  const preview: MaterialRequestWorkbookReading = {
+    sheet_name: table.name,
+    sheet_names: sheets.map(({ name }) => name),
+    header_row: header ? header.row + 1 : null,
+    header_detected: header !== null && chosenRow === undefined,
+    first_rows,
+    columns: [],
+    detected_columns: toLetters(header?.columns ?? NO_COLUMNS),
+    mapped_columns: toLetters(NO_COLUMNS),
+    rows: [],
+    issues: [],
+    omitted_rows: 0,
+  };
+  if (!header) return preview;
+
+  const { row: headerRow, headers, columns: detected } = header;
   const columns = options.mapping ? toIndexes(options.mapping) : detected;
-  const included = new Set(Object.values(columns));
+  preview.mapped_columns = toLetters(columns);
 
-  // Example values for the mapping step: the first non-empty cells under each header.
+  // The columns to choose from: those with a header cell and those with values under the header row without one,
+  // each with example values from the first data rows.
+  const headerByColumn = new Map(headers.map(({ column, text }) => [column, text]));
   const examples = new Map<number, string[]>(headers.map(({ column }) => [column, []]));
-  for (const [, cells] of collectRows(table.sheet, (r, c) => r > headerRow && r <= headerRow + EXAMPLE_SCAN_ROWS && examples.has(c))) {
+  for (const [, cells] of collectRows(table.sheet, (r, c) => r > headerRow && r <= headerRow + EXAMPLE_SCAN_ROWS && c < MAX_COLUMNS)) {
     for (const [column, cell] of cells) {
       const text = cellText(cell);
-      const list = examples.get(column);
-      if (text && list && list.length < 3) list.push(text.length > EXAMPLE_MAX_LENGTH ? `${text.slice(0, EXAMPLE_MAX_LENGTH - 1)}…` : text);
+      if (!text) continue;
+      const list = examples.get(column) ?? [];
+      examples.set(column, list);
+      if (list.length < 3) list.push(shorten(text));
     }
   }
+  preview.columns = [...examples.keys()].sort((a, b) => a - b)
+    .map((column) => ({ column: workbookColumnLetter(column), header: headerByColumn.get(column) ?? "", examples: examples.get(column) ?? [] }));
+  if (columns.designation === undefined) return preview;
+  const included = new Set(Object.values(columns));
 
   const existing = new Map<string, MaterialRequestWorkbookExistingLine[]>();
   for (const line of options.existingLines ?? []) {
@@ -208,17 +290,6 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
     }
   }
 
-  const preview: MaterialRequestWorkbookReading = {
-    sheet_name: table.name,
-    sheet_names: tables.map(({ name }) => name),
-    header_row: headerRow + 1,
-    columns: headers.map(({ column, text }) => ({ column: workbookColumnLetter(column), header: text, examples: examples.get(column) ?? [] })),
-    detected_columns: toLetters(detected),
-    mapped_columns: toLetters(columns),
-    rows: [],
-    issues: [],
-    omitted_rows: 0,
-  };
   let seen = 0;
   for (const [row, cells] of collectRows(table.sheet, (r, c) => r > headerRow && included.has(c))) {
     const cell = (role: WorkbookRole) => columns[role] === undefined ? undefined : cells.get(columns[role]);
@@ -242,10 +313,15 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
     const rounding = roundUpWorkbookQuantity(
       quantityCell?.t === "n" || quantityCell?.t === "s" ? parseDecimalInput(quantityCell.v) : null,
     );
-    // A quantity the request cannot hold (past its ceiling) is one to complete, as an unreadable one.
-    const { quantity, roundedFrom } = materialRequestLineInputSchema.shape.quantity.safeParse(rounding.quantity).success
-      ? rounding : { quantity: null, roundedFrom: null };
-    const writtenReference = text("reference");
+    // A quantity past the ceiling of a line is imported without quantity, and the row says so with the limit.
+    const tooLarge = rounding.quantity !== null && rounding.quantity > MATERIAL_REQUEST_QUANTITY_MAX ? rounding.quantity : null;
+    const { quantity, roundedFrom } = tooLarge === null ? rounding : { quantity: null, roundedFrom: null };
+    const supplierName = text("supplier");
+    if (supplierName && supplierName.length > SUPPLIER_NAME_MAX && columns.supplier !== undefined) {
+      preview.issues.push({ row_number, message: tooLong("supplier", columns.supplier, SUPPLIER_NAME_MAX) });
+      continue;
+    }
+    const writtenReference = referenceText(cell("reference")) || undefined;
     const reference = workbookReferenceCode(writtenReference);
     const line = materialRequestLineInputSchema.safeParse({
       original_text: designation,
@@ -258,13 +334,18 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
       zone: text("zone"),
     });
     if (!line.success) {
-      const issue = line.error.issues[0];
-      const role = ROLE_OF_FIELD[String(issue?.path[0])];
-      const limit = issue?.code === "too_big" ? Number(issue.maximum) : null;
+      const tooBig = line.error.issues.flatMap((issue) => {
+        const role = ROLE_OF_FIELD[String(issue.path[0])];
+        return issue.code === "too_big" && role ? [{ role, limit: Number(issue.maximum) }] : [];
+      });
+      const role = tooBig[0]?.role;
+      // A column can feed two fields (the designation: original text and type): the smallest limit is the one to meet.
+      const limit = Math.min(...tooBig.filter((entry) => entry.role === role).map((entry) => entry.limit));
+      const column = role === undefined ? undefined : columns[role];
       preview.issues.push({
         row_number,
-        message: role && limit && columns[role] !== undefined
-          ? `La cellule « ${WORKBOOK_ROLE_LABELS[role]} » (colonne ${workbookColumnLetter(columns[role])}) dépasse ${limit} caractères. Raccourcissez-la dans le classeur. Ligne écartée.`
+        message: role && column !== undefined && Number.isFinite(limit)
+          ? tooLong(role, column, limit)
           : "Une cellule de cette ligne est illisible. Ligne écartée.",
       });
       continue;
@@ -273,7 +354,13 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
     const remarks: MaterialRequestWorkbookRow["remarks"] = [];
     let selected = true;
     if (roundedFrom !== null) remarks.push({ code: "rounded", message: `Arrondi de ${formatDecimalInput(roundedFrom)}` });
-    if (quantity === null) {
+    if (tooLarge !== null) {
+      remarks.push({
+        code: "quantity_too_large",
+        message: `Quantité ${quantityFormat.format(tooLarge)} au-delà de la limite de ${quantityFormat.format(MATERIAL_REQUEST_QUANTITY_MAX)} : importée sans quantité`,
+      });
+      selected = false;
+    } else if (quantity === null) {
       remarks.push({ code: "no_quantity", message: "Sans quantité" });
       selected = false;
     }
@@ -290,7 +377,7 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
       });
       selected = false;
     }
-    preview.rows.push({ row_number, line: line.data, supplier_name: text("supplier") ?? null, selected, remarks });
+    preview.rows.push({ row_number, line: line.data, supplier_name: supplierName ?? null, selected, remarks });
   }
   return preview;
 }

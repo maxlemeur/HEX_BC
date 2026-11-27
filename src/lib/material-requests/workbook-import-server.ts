@@ -23,7 +23,7 @@ export async function previewMaterialRequestWorkbookImport(
   projectId: string,
   requestId: string,
   fileId: string,
-  options: { sheet?: string; mapping?: WorkbookMapping },
+  options: { sheet?: string; headerRow?: number; mapping?: WorkbookMapping },
   signal?: AbortSignal,
 ): Promise<MaterialRequestWorkbookPreview> {
   const access = await requireProjectAccess(projectId, "write");
@@ -34,14 +34,22 @@ export async function previewMaterialRequestWorkbookImport(
   const { supabase, tenantId, tenantRole } = access.context;
   const mayEdit = canAddToCatalogue(tenantRole);
   const rights = { can_link: mayEdit, can_create: mayEdit, reason: mayEdit ? null : SUPPLIER_RIGHTS_REFUSAL };
-  if (!reading.rows.some((row) => row.supplier_name)) return resolveWorkbookSuppliers(reading, { suppliers: [], aliases: [] }, rights);
+  if (!reading.rows.some((row) => row.supplier_name)) {
+    return resolveWorkbookSuppliers(reading, { suppliers: [], inactiveSuppliers: [], aliases: [] }, rights);
+  }
 
+  // readAllRows pages by `id`: every projection names it.
   const [suppliers, aliases] = await Promise.all([
-    readAllRows(() => supabase.from("suppliers").select("id, name, city, email, siret, created_at", { count: "exact" })
-      .eq("tenant_id", tenantId).eq("is_active", true)),
-    readAllRows(() => supabase.from("supplier_aliases").select("alias_key, supplier_id", { count: "exact" }).eq("tenant_id", tenantId)),
+    readAllRows(() => supabase.from("suppliers").select("id, name, city, email, siret, created_at, is_active", { count: "exact" })
+      .eq("tenant_id", tenantId)),
+    readAllRows(() => supabase.from("supplier_aliases").select("id, alias_key, supplier_id", { count: "exact" }).eq("tenant_id", tenantId)),
   ]);
   if (suppliers.error) throw mapSupabaseError(suppliers.error, "Impossible de lire les fournisseurs.");
   if (aliases.error) throw mapSupabaseError(aliases.error, "Impossible de lire les noms associés aux fournisseurs.");
-  return resolveWorkbookSuppliers(reading, { suppliers: suppliers.data ?? [], aliases: aliases.data ?? [] }, rights);
+  const all = suppliers.data ?? [];
+  return resolveWorkbookSuppliers(reading, {
+    suppliers: all.filter((supplier) => supplier.is_active),
+    inactiveSuppliers: all.filter((supplier) => !supplier.is_active),
+    aliases: aliases.data ?? [],
+  }, rights);
 }

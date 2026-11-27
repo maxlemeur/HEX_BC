@@ -1,10 +1,23 @@
-import { ApiError, ok, toErrorResponse, unprocessableEntity } from "@/lib/http/api-response";
+import type { z } from "zod";
+
+import { ApiError, badRequest, ok, toErrorResponse, unprocessableEntity } from "@/lib/http/api-response";
 import { fileParamsSchema } from "@/lib/material-requests/http";
 import { previewMaterialRequestWorkbookImport } from "@/lib/material-requests/workbook-import-server";
 import { MaterialRequestWorkbookBusyError, MaterialRequestWorkbookError } from "@/lib/material-requests/workbook-preview";
-import { materialRequestWorkbookColumnsParamSchema } from "@/lib/material-requests/workbook-preview-contract";
+import {
+  materialRequestWorkbookColumnsParamSchema,
+  materialRequestWorkbookHeaderRowParamSchema,
+} from "@/lib/material-requests/workbook-preview-contract";
 
 export const runtime = "nodejs";
+
+/** A query parameter read with its schema; a refusal carries its first French reason, which the screen shows as is. */
+function queryValue<Schema extends z.ZodType>(schema: Schema, value: string | null): z.output<Schema> | undefined {
+  if (value === null) return undefined;
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message ?? "Paramètre invalide.");
+  return parsed.data;
+}
 
 type Context = { params: Promise<{ projectId: string; requestId: string; fileId: string }> };
 
@@ -14,9 +27,9 @@ export async function GET(request: Request, { params }: Context) {
     const { projectId, requestId, fileId } = fileParamsSchema.parse(await params);
     const query = new URL(request.url).searchParams;
     const sheet = query.get("sheet") ?? undefined;
-    const columns = query.get("columns");
-    const mapping = columns === null ? undefined : materialRequestWorkbookColumnsParamSchema.parse(columns);
-    response = ok(await previewMaterialRequestWorkbookImport(projectId, requestId, fileId, { sheet, mapping }, request.signal));
+    const mapping = queryValue(materialRequestWorkbookColumnsParamSchema, query.get("columns"));
+    const headerRow = queryValue(materialRequestWorkbookHeaderRowParamSchema, query.get("header_row"));
+    response = ok(await previewMaterialRequestWorkbookImport(projectId, requestId, fileId, { sheet, headerRow, mapping }, request.signal));
   } catch (error) {
     if (error instanceof MaterialRequestWorkbookBusyError) {
       response = toErrorResponse(new ApiError({ status: 503, code: "MATERIAL_REQUEST_WORKBOOK_BUSY", message: error.message }));

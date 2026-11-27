@@ -13,9 +13,17 @@ import type { MaterialRequestWorkbookReading } from "./workbook-preview";
 export type WorkbookSupplierDirectory = {
   /** Active suppliers of the company. */
   suppliers: ReadonlyArray<SupplierIdentity>;
+  /** Deactivated suppliers of the company, to name the one an association still points to. */
+  inactiveSuppliers: ReadonlyArray<{ id: string; name: string }>;
   /** Associations of the company: spelling key to supplier, whether active or not. */
   aliases: ReadonlyArray<{ alias_key: string; supplier_id: string }>;
 };
+
+/** Where an association is withdrawn today: the catalogue's workbook import, view « Noms associés ». */
+function inactiveAliasRemark(supplierName: string | undefined) {
+  const named = supplierName ? `au fournisseur désactivé « ${supplierName} »` : "à un fournisseur désactivé";
+  return `Ce nom est associé ${named}. Réactivez ce fournisseur dans le catalogue, ou retirez l’association dans Catalogue, Import du classeur, vue « Noms associés ». En attendant, ces lignes sont importées sans fournisseur.`;
+}
 
 const MAX_CANDIDATES = 20;
 
@@ -32,6 +40,7 @@ export function resolveWorkbookSuppliers(
     byName.set(key, [...(byName.get(key) ?? []), supplier]);
   }
   const aliasByKey = new Map(directory.aliases.map((alias) => [alias.alias_key, alias.supplier_id]));
+  const inactiveById = new Map(directory.inactiveSuppliers.map((supplier) => [supplier.id, supplier.name]));
 
   const names = new Map<string, MaterialRequestWorkbookSupplier>();
   const rows = reading.rows.map((row) => {
@@ -46,14 +55,18 @@ export function resolveWorkbookSuppliers(
         ? byName.get(key) ?? []
         : activeById.has(aliasTarget) ? [activeById.get(aliasTarget)!] : [];
       const [only] = matches;
+      // The spelling stands for a supplier that is no longer active: neither a link (the spelling is taken) nor a
+      // creation (it would add a homonym the association still hides) settles it here.
+      const deactivated = aliasTarget !== undefined && matches.length === 0;
       entry = {
         name: row.supplier_name,
-        status: matches.length === 1 ? "recognized" : matches.length > 1 ? "ambiguous" : "unknown",
+        status: deactivated ? "inactive_alias" : matches.length === 1 ? "recognized" : matches.length > 1 ? "ambiguous" : "unknown",
         supplier_id: matches.length === 1 && only ? only.id : null,
         candidates: matches.length > 1
           ? matches.slice(0, MAX_CANDIDATES).map((supplier) => ({ id: supplier.id, label: labels.get(supplier.id) ?? supplier.name }))
           : [],
         row_count: 1,
+        remark: deactivated ? inactiveAliasRemark(inactiveById.get(aliasTarget)) : null,
       };
       names.set(key, entry);
     }

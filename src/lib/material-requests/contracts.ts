@@ -263,12 +263,15 @@ function optionalText(max: number) {
     });
 }
 
+/** The largest quantity a line holds. */
+export const MATERIAL_REQUEST_QUANTITY_MAX = 1_000_000;
+
 const quantity = z
   .union([
     z
       .number()
       .positive("La quantité doit être supérieure à zéro.")
-      .max(1_000_000, "Quantité trop grande.")
+      .max(MATERIAL_REQUEST_QUANTITY_MAX, "Quantité trop grande.")
       .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-6, {
         message: "Trois décimales au plus.",
       }),

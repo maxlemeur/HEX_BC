@@ -11,18 +11,34 @@ const mappingSchema = z.object(
 );
 
 export const MATERIAL_REQUEST_WORKBOOK_REMARK_CODES = [
-  "rounded", "no_quantity", "reference_dropped", "written_doubt", "already_present",
+  "rounded", "no_quantity", "quantity_too_large", "reference_dropped", "written_doubt", "already_present",
 ] as const;
 
-export const MATERIAL_REQUEST_WORKBOOK_SUPPLIER_STATUSES = ["recognized", "unknown", "ambiguous"] as const;
+/** `inactive_alias`: the spelling is associated with a deactivated supplier; only the catalogue can change that. */
+export const MATERIAL_REQUEST_WORKBOOK_SUPPLIER_STATUSES = ["recognized", "unknown", "ambiguous", "inactive_alias"] as const;
+
+/** Rows of the sheet shown to choose a header row by hand: the first rows that hold something, within the scan. */
+export const MATERIAL_REQUEST_WORKBOOK_FIRST_ROWS = 20;
+/** The header row is searched, and may be chosen, within these first rows of a sheet. */
+export const MATERIAL_REQUEST_WORKBOOK_HEADER_SCAN_ROWS = 50;
 
 export const materialRequestWorkbookPreviewSchema = z.object({
   sheet_name: z.string(),
-  /** Visible sheets with a recognized header row. */
+  /** Every visible sheet that holds a cell. */
   sheet_names: z.array(z.string()),
-  /** Excel number of the header row found in the chosen sheet. */
-  header_row: z.number().int().positive(),
-  /** The columns of the header row, with up to three example values read from the first data rows. */
+  /** Excel number of the header row: recognized, or chosen with `header_row`; null when neither. */
+  header_row: z.number().int().positive().nullable(),
+  /** Whether the header row was recognized automatically (false when chosen by hand or absent). */
+  header_detected: z.boolean(),
+  /** The first rows of the sheet that hold something, to choose the header row by hand. */
+  first_rows: z.array(z.object({
+    row_number: z.number().int().positive(),
+    cells: z.array(z.object({ column: columnLetter, text: z.string() })),
+  })).max(MATERIAL_REQUEST_WORKBOOK_FIRST_ROWS),
+  /**
+   * The columns under the header row: those with a header cell and those holding values without one (`header` is
+   * then empty), with up to three example values read from the first data rows. Empty without a header row.
+   */
   columns: z.array(z.object({ column: columnLetter, header: z.string(), examples: z.array(z.string()).max(3) })),
   /** What automatic recognition assigns to each role. */
   detected_columns: mappingSchema,
@@ -48,6 +64,8 @@ export const materialRequestWorkbookPreviewSchema = z.object({
     /** Suppliers of the same name, for an ambiguous one. */
     candidates: z.array(z.object({ id: z.string().uuid(), label: z.string() })),
     row_count: z.number().int().positive(),
+    /** What the user should know about this name, for example why it cannot be linked or created here. */
+    remark: z.string().nullable(),
   })),
   /** What the caller may do with an unknown name; `reason` says why a choice is absent. */
   supplier_rights: z.object({ can_link: z.boolean(), can_create: z.boolean(), reason: z.string().nullable() }),
@@ -57,6 +75,12 @@ export type MaterialRequestWorkbookPreview = z.output<typeof materialRequestWork
 export type MaterialRequestWorkbookRow = MaterialRequestWorkbookPreview["rows"][number];
 export type MaterialRequestWorkbookSupplier = MaterialRequestWorkbookPreview["suppliers"][number];
 export type MaterialRequestWorkbookColumns = MaterialRequestWorkbookPreview["mapped_columns"];
+
+/** The `header_row` query parameter: the Excel number of the header row, within the first rows a sheet is searched in. */
+export const materialRequestWorkbookHeaderRowParamSchema = z.coerce.number({ error: "Numéro de ligne d’en-tête invalide." })
+  .int("Numéro de ligne d’en-tête invalide.")
+  .min(1, "Numéro de ligne d’en-tête invalide.")
+  .max(MATERIAL_REQUEST_WORKBOOK_HEADER_SCAN_ROWS, `La ligne d’en-tête se choisit parmi les ${MATERIAL_REQUEST_WORKBOOK_HEADER_SCAN_ROWS} premières lignes.`);
 
 const ROLE_PAIR = new RegExp(`^(${WORKBOOK_ROLES.join("|")}):([A-Z]{1,3})$`);
 

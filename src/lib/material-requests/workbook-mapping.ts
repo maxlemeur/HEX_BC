@@ -49,14 +49,21 @@ for (const role of WORKBOOK_ROLES) {
 /** Footnote marks: superscript digits and letters, daggers, asterisks, and a bracketed number such as « (1) » or « [2] ». */
 const FOOTNOTES = /[¹²³⁰-₟†‡*]+|[([]\s*\d{1,2}\s*[)\]]/gu;
 
-/** The header as recognition compares it: footnote marks, trailing punctuation and a trailing aside in brackets removed, then folded. */
+/** The header as recognition compares it: footnote marks and punctuation removed, then folded. */
 export function normalizeWorkbookHeader(text: string): string {
-  return foldWords(text.replace(FOOTNOTES, " ").replace(/\s*\([^()]*\)\s*$/u, ""));
+  return foldWords(text.replace(FOOTNOTES, " "));
 }
 
-/** The roles a header could serve, with how well (0 is best). */
+/**
+ * The roles a header could serve, with how well (0 is best). The whole header is tried first, so « Quantité (à
+ * consulter) » ranks as « quantité à consulter »; a trailing aside in brackets is dropped only when the whole header
+ * is not a synonym (« Quantité (u) »).
+ */
 function headerRoles(text: string) {
-  return rankByLabel.get(normalizeWorkbookHeader(text)) ?? [];
+  const withoutNotes = text.replace(FOOTNOTES, " ");
+  return rankByLabel.get(foldWords(withoutNotes))
+    ?? rankByLabel.get(foldWords(withoutNotes.replace(/\s*\([^()]*\)\s*$/u, "")))
+    ?? [];
 }
 
 export type WorkbookHeaderCell = { column: number; text: string };
@@ -108,6 +115,22 @@ export function formatWorkbookMapping(mapping: WorkbookMapping): string {
   return WORKBOOK_ROLES.flatMap((role) => (mapping[role] ? [`${role}:${mapping[role]}`] : [])).join(",");
 }
 
+/**
+ * A mapping where a column serves one role at most: a later role that repeats a column already taken loses it.
+ * Used on what comes back from the browser's storage, which the user may have edited or an older version written.
+ */
+export function distinctWorkbookMapping(mapping: WorkbookMapping): WorkbookMapping {
+  const next: WorkbookMapping = {};
+  const taken = new Set<string>();
+  for (const role of WORKBOOK_ROLES) {
+    const letter = mapping[role];
+    if (!letter || taken.has(letter)) continue;
+    next[role] = letter;
+    taken.add(letter);
+  }
+  return next;
+}
+
 export function sameWorkbookMapping(left: WorkbookMapping, right: WorkbookMapping): boolean {
   return formatWorkbookMapping(left) === formatWorkbookMapping(right);
 }
@@ -134,18 +157,36 @@ export function roundUpWorkbookQuantity(value: number | null): { quantity: numbe
 
 /** One token of a code: letters, digits and the separators codes use, with at least one digit. */
 const CODE_TOKEN = /^(?=[^\d]*\d)[A-Za-z0-9][A-Za-z0-9.\-_/+]*$/u;
+/** What Excel shows for a long number in General format (« 3.24506E+12 »): its digits are lost, it is no code. */
+const SCIENTIFIC = /^[-+]?\d+(?:[.,]\d+)?e[-+]?\d+$/iu;
 
 /**
  * The reference is kept only when the cell holds a single code and nothing else: a slash inside a code and one
  * space between two parts of it are allowed (« RMP16LFM18X1/2 », « TSP04L 28X1.2 »); alternatives (« ou », « / »
- * between spaces), remarks in brackets, a second sentence or words without digits are not a code.
+ * between spaces, two numbers side by side), remarks in brackets, a second sentence, words without digits or a
+ * number in scientific notation are not a code.
  */
 export function workbookReferenceCode(text: string | undefined): string | null {
   const value = text?.trim() ?? "";
-  if (!value || value.length > 120) return null;
+  if (!value || value.length > 120 || SCIENTIFIC.test(value)) return null;
   const tokens = value.split(" ");
   if (tokens.length > 2 || tokens.some((token) => !CODE_TOKEN.test(token))) return null;
+  if (tokens.length === 2 && tokens.every((token) => /^\d+$/u.test(token))) return null;
   return value;
+}
+
+/**
+ * The text of a numeric reference cell. Excel's shown text loses digits in General format (« 3.24506E+12 ») and adds
+ * separators with a thousands format (« 8 199 »): for General and plain number formats the stored whole number is
+ * read as its digits. A zero-padded format (« 000000 ») keeps its shown text, leading zeros included.
+ */
+export function workbookNumericReferenceText(value: number, format: string | undefined, shown: string | undefined): string {
+  const pattern = (format ?? "General").trim();
+  const integerPart = pattern.split(".")[0]?.replace(/,/g, "") ?? "";
+  const padded = /^0{2,}$/u.test(integerPart);
+  const plain = /^general$/iu.test(pattern) || /^[#0,]+(?:\.[#0]+)?$/u.test(pattern);
+  if (!padded && plain && Number.isSafeInteger(value)) return String(value);
+  return (shown ?? String(value)).trim();
 }
 
 /** Wording that says the author still doubts: kept as written, flagged for the office to remove. */
