@@ -5,6 +5,7 @@ import {
   isTakeoffLaunchReason,
   TAKEOFF_GROUPED_UNIT_KEY,
   TAKEOFF_KEY_LIMIT_REACHED_NOTE,
+  takeoffRequestStoppedAtKeyLimit,
   type TakeoffLaunchPiece,
 } from "@/lib/takeoff/launch-request";
 import {
@@ -25,7 +26,7 @@ import type {
   TakeoffRequestActivityJob,
   TakeoffRequestActivityResponse,
 } from "@/lib/takeoff/request-activity-contracts";
-import { isTakeoffKeyStopMessage, storedTakeoffFailureMessage } from "@/lib/takeoff/visible-status";
+import { storedTakeoffFailureMessage } from "@/lib/takeoff/visible-status";
 
 /**
  * What the affaire's activity shows of its launch requests (migration 20261121170448_takeoff_launch_requests.sql): each
@@ -336,11 +337,10 @@ export function buildTakeoffRequestActivity(input: {
       : [{ planFileId: null, name: `Plan ${index + 1}`, pages: [] }];
   });
   const unitJobs = new Set(units?.units.map((unit) => unit.jobId) ?? []);
-  const jobs = input.jobs.filter((job) => job.launch_request_id === request.id && unitJobs.has(job.id))
-    .map((job) => toActivityJob(job, input.viewer, input.now, manifest?.itemList === true && input.writesItems === true));
+  const shown = input.jobs.filter((job) => job.launch_request_id === request.id && unitJobs.has(job.id));
   // Closed at a limit of the key that paid it: a plan shown here says which, as its worker recorded it; the note names
-  // none of them. A request whose shown plans carry none of those texts keeps the budget's note.
-  const keyLimit = reason?.code === "BUDGET_EXHAUSTED" && jobs.some((job) => isTakeoffKeyStopMessage(job.failureMessage));
+  // none of them.
+  const keyLimit = takeoffRequestStoppedAtKeyLimit(reason?.code, shown);
 
   return {
     id: request.id,
@@ -362,7 +362,7 @@ export function buildTakeoffRequestActivity(input: {
     plansOmitted: request.admitted_at && manifest ? manifest.omitted.map((entry, index) => ({
       name: isTakeoffSourceVisible(visible, entry.id) ? entry.name : `Plan ${index + 1}`, reason: entry.reason,
     })) : [],
-    jobs,
+    jobs: shown.map((job) => toActivityJob(job, input.viewer, input.now, manifest?.itemList === true && input.writesItems === true)),
     action: input.action ?? null,
     dossierChanged: input.dossierChanged ?? null,
   };

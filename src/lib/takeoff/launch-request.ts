@@ -1,6 +1,7 @@
 import { getAffaireDossierState, type AffaireDossierState, type AffaireIntakeReviewableDocument } from "@/lib/affaires/intake";
 import type { TakeoffExecutionSelection, TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 import { describePosteReadingBounds, type PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
+import { isTakeoffKeyStopMessage } from "@/lib/takeoff/visible-status";
 
 /**
  * The launch requests of a takeoff (migration 20261121170448_takeoff_launch_requests.sql): one execution of an affaire's
@@ -427,6 +428,20 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
  * confirmed calls or one call over its bound. Which one is said on each plan, as its worker recorded it.
  */
 export const TAKEOFF_KEY_LIMIT_REACHED_NOTE = "Métré arrêté — une limite de cette demande payée avec la clé API OpenAI est atteinte. Le motif est indiqué sur chaque plan.";
+
+/**
+ * Whether a request closed under BUDGET_EXHAUSTED stopped at a limit of the key that paid it: one of its jobs the member
+ * reads carries one of the three texts the key's worker records, compared as written. The stored texts stay on the
+ * server: only this answer, or the note it chooses, reaches the screen. Otherwise the request keeps its budget's note.
+ */
+export function takeoffRequestStoppedAtKeyLimit(reason: string | null | undefined,
+  jobs: Iterable<{ error_code?: string | null; error_message?: string | null }>): boolean {
+  if (reason !== "BUDGET_EXHAUSTED") return false;
+  for (const job of jobs) {
+    if (job.error_code === "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" && isTakeoffKeyStopMessage(job.error_message)) return true;
+  }
+  return false;
+}
 
 /**
  * A reason that tells the member to resume « avec votre forfait », for a member whose gesture reads « avec ma clé API »
