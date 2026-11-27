@@ -53,7 +53,10 @@ const jobSchema = z.object({
   errorCode: z.string().nullable().describe(
     "Code de diagnostic s’il a un motif public en français, sinon OTHER ; l’écran affiche le motif, jamais le code.",
   ),
-  failureMessage: z.string().optional().describe("Motif public fixe lorsque la réponse du fournisseur est inexploitable."),
+  failureMessage: z.string().optional().describe(
+    "Motif public fixe : réponse du fournisseur inexploitable, ou arrêt d’une demande payée avec la clé API OpenAI "
+    + "(plafond en dollars atteint, appels payants confirmés tous utilisés, appel plus coûteux que le montant réservé).",
+  ),
   retryCount: count,
   resume: takeoffActivityResumeSchema.nullable().describe("Décision de reprise d’une analyse arrêtée, la même que son détail."),
   canCancel: z.boolean(),

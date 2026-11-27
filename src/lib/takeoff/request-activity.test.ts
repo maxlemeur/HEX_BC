@@ -441,6 +441,35 @@ describe("buildTakeoffRequestActivity: public codes only", () => {
     expect(view.jobs[1]).not.toHaveProperty("failureMessage");
     expect(JSON.stringify(view)).not.toContain("FICTIONAL_PLAN_MARKER");
   });
+  // Follow-up of #684's review: a request a key paid closes under BUDGET_EXHAUSTED for its dollars, its confirmed calls or
+  // one call over its bound; its note names none of them and sends the member to its plans, which say which.
+  it.each(Object.entries(TAKEOFF_KEY_STOP_MESSAGES))("gives a request a key paid, closed at a limit, a note that names none (%s)",
+    (_reason, message) => {
+      const closed = { state: "closed", outcome: "partial", reason_code: "BUDGET_EXHAUSTED", closed_at: "2026-11-21T09:30:00.000Z" };
+      const view = activity([unit("a", 1, { state: "succeeded" }), unit("b", 2, { state: "failed", reasonCode: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" })], [
+        memberJob("a", { status: "completed", analysis_outcome: "success" }),
+        memberJob("b", { status: "failed", analysis_outcome: "failure", error_code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", error_message: message }),
+      ], operator, closed);
+      expect(view.reason).toEqual({ code: "BUDGET_EXHAUSTED",
+        message: "Métré arrêté — une limite de cette demande payée avec la clé API OpenAI est atteinte. Le motif est indiqué sur chaque plan." });
+      expect(view.jobs[1].failureMessage).toBe(message);
+    });
+  it("keeps the budget's note for a request paid by a ChatGPT plan, and for one whose shown plans carry no key stop", () => {
+    const closed = { state: "closed", outcome: "failure", reason_code: "BUDGET_EXHAUSTED", closed_at: "2026-11-21T09:30:00.000Z" };
+    const budget = "Métré arrêté — le budget de cette analyse est épuisé. Une nouvelle analyse se lance depuis les options du métré.";
+    const failure = { status: "failed" as const, analysis_outcome: "failure", error_code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" };
+    const planText = activity([unit("a", 1, { state: "failed" })], [
+      memberJob("a", { ...failure, error_message: "Le budget de cette analyse était épuisé avant la lecture de ce plan." }),
+    ], operator, closed);
+    expect(planText.reason?.message).toBe(budget);
+    // The same stored text under another code, or a plan of another request, is no key stop of this one.
+    const otherCode = activity([unit("a", 1, { state: "failed" })], [
+      memberJob("a", { ...failure, error_code: "AI_PROVIDER", error_message: TAKEOFF_KEY_STOP_MESSAGES.confirmedCalls }),
+    ], operator, closed);
+    expect(otherCode.reason?.message).toBe(budget);
+    const unread = activity([unit("a", 1, { state: "failed" })], [], reader, closed);
+    expect(unread.reason?.message).toBe(budget);
+  });
   it("replaces a code without a public reason by the generic one", () => {
     const view = activity([unit("a", 1, { state: "failed" })], [memberJob("a", { status: "failed", analysis_outcome: "failure",
       error_code: "PROVIDER said: secret detail" })]);

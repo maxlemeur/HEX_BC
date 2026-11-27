@@ -3,6 +3,7 @@ import { formatTakeoffCompletionDate, TAKEOFF_COMPLETION_LABELS, type TakeoffAna
 import {
   describeTakeoffLaunchReason,
   describeTakeoffLaunchReasonWithKey,
+  TAKEOFF_KEY_LIMIT_REACHED_NOTE,
   TAKEOFF_LAUNCH_TRANSIENT_REASONS,
   type TakeoffLaunchPiece,
   type TakeoffLaunchReason,
@@ -70,6 +71,11 @@ export type AffaireTakeoffZoneRequest = {
   };
   /** The event of its end: the members' notification and its e-mail. */
   completionEventId: string | null;
+  /**
+   * Closed under BUDGET_EXHAUSTED at a limit of the key that paid it, as one of its jobs this member reads says
+   * (takeoffRequestStoppedAtKeyLimit, decided on the server): its note names no limit. Never the stored text itself.
+   */
+  keyLimitReached?: boolean;
 };
 
 export type AffaireTakeoffZoneData = {
@@ -201,7 +207,8 @@ export function describeAffaireTakeoffPlanProgress(units: Pick<AffaireTakeoffZon
 }
 
 export function describeAffaireTakeoffRequest(request: Pick<AffaireTakeoffZoneRequest,
-  "state" | "reason" | "pieces" | "readingBounds" | "hasPayer" | "createdAt" | "admittedAt" | "closedAt" | "outcome" | "units" | "jobs">): RequestState {
+  "state" | "reason" | "pieces" | "readingBounds" | "hasPayer" | "createdAt" | "admittedAt" | "closedAt" | "outcome" | "units" | "jobs"
+  | "keyLimitReached">): RequestState {
   const facts: string[] = [];
   const reasonText = request.reason ? describeTakeoffLaunchReason(request.reason, request.pieces, request.readingBounds ?? null) : null;
   switch (request.state) {
@@ -231,7 +238,9 @@ export function describeAffaireTakeoffRequest(request: Pick<AffaireTakeoffZoneRe
     }
     case "closed": {
       if (request.closedAt) facts.push(`Terminée le ${formatTakeoffCompletionDate(request.closedAt)}`);
-      if (request.reason === "BUDGET_EXHAUSTED") return { tone: "danger", status: "Échoué", message: reasonText, facts };
+      if (request.reason === "BUDGET_EXHAUSTED") {
+        return { tone: "danger", status: "Échoué", message: request.keyLimitReached ? TAKEOFF_KEY_LIMIT_REACHED_NOTE : reasonText, facts };
+      }
       if (request.outcome === "success") {
         return { tone: "success", status: "Terminé", message: request.jobs.some((entry) => entry.status === "review_required")
           ? "Analyse terminée : des écarts sont à revoir avant l’envoi au devis."

@@ -6,11 +6,12 @@ vi.mock("@/lib/takeoff/launch-request-server", () => ({ readAffaireTakeoffLaunch
 vi.mock("@/lib/takeoff/preparation-repository", () => ({ assertPreparationProjectAccess: vi.fn() }));
 
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { buildAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone";
+import { buildAffaireTakeoffZone, describeAffaireTakeoffRequest } from "@/lib/takeoff/affaire-takeoff-zone";
 import { readAffaireTakeoffZone, toAffaireTakeoffCoverage } from "@/lib/takeoff/affaire-takeoff-zone-server";
 import { readAffaireTakeoffLaunchState } from "@/lib/takeoff/launch-request-server";
 import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
 import { createSupabaseFake, filterValue, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
+import { TAKEOFF_KEY_STOP_MESSAGES } from "@/lib/takeoff/visible-status";
 
 const TENANT = "bbbbbbbb-0000-4000-8000-000000000010";
 const PROJECT = "bbbbbbbb-0000-4000-8000-000000000020";
@@ -170,6 +171,50 @@ describe("readAffaireTakeoffZone", () => {
     canStart = true;
     expect((await read({ owner: true })).request?.canStart).toBe(true);
     expect(canStartAsked).toEqual([{ p_request_id: REQUEST, p_actor: VIEWER }, { p_request_id: REQUEST, p_actor: VIEWER }]);
+  });
+
+  // Follow-up of #684's review: a request a key paid, closed at one of its limits, names none of them in the zone either.
+  // The zone reads its request's stored messages on the server, under the member's rights, and sends only the answer.
+  describe("the note of a request closed under BUDGET_EXHAUSTED", () => {
+    const BUDGET = "Métré arrêté — le budget de cette analyse est épuisé. Une nouvelle analyse se lance depuis les options du métré.";
+    const NEUTRAL = "Métré arrêté — une limite de cette demande payée avec la clé API OpenAI est atteinte. Le motif est indiqué sur chaque plan.";
+    const stopped = (error_code: string, error_message: string | null) => ({ id: JOB, status: "failed", estimate_version_id: null,
+      plan_set_id: PLAN_SET, launch_unit_key: "plan:f1", source_file_name: "plan.pdf", source_file_path: null,
+      processing_strategy: "sync", provider_batch_state: null, error_code, error_message, created_at: "2026-11-21T08:05:00Z",
+      completed_at: "2026-11-21T08:30:00Z", analysis_finished_at: "2026-11-21T08:30:00Z" });
+    async function note(rows: unknown[], reason = "BUDGET_EXHAUSTED") {
+      const state = await readAffaireTakeoffLaunchState({} as never, PROJECT);
+      vi.mocked(readAffaireTakeoffLaunchState).mockResolvedValue({ ...state,
+        request: { ...state.request!, reason, outcome: "failure", units: { expected: 1, succeeded: 0, failed: 1, canceled: 0 } } } as never);
+      const asked: Array<string | null> = [];
+      const data = await read({ owner: true }, (query) => {
+        if (filterValue(query, "launch_request_id") !== REQUEST) return [];
+        asked.push(query.columns);
+        return rows;
+      });
+      return { data, asked, message: describeAffaireTakeoffRequest(data.request!).message };
+    }
+
+    it.each(Object.entries(TAKEOFF_KEY_STOP_MESSAGES))("names no limit of a request a key paid (%s), and sends no stored text", async (_reason, text) => {
+      const { data, asked, message } = await note([stopped("TAKEOFF_REQUEST_BUDGET_EXHAUSTED", text)]);
+      expect(message).toBe(NEUTRAL);
+      expect(data.request?.keyLimitReached).toBe(true);
+      expect(asked[0]).toContain("error_message");
+      expect(JSON.stringify(data)).not.toContain(text);
+      expect(data.request?.jobs[0]).not.toHaveProperty("error_message");
+    });
+
+    it("keeps the budget's note on a plan's subscription, without a readable key stop, and for any other stored text", async () => {
+      // A ChatGPT plan's request: its ledger records its own text.
+      expect((await note([stopped("TAKEOFF_REQUEST_BUDGET_EXHAUSTED", "Le budget de cette analyse était épuisé avant la lecture de ce plan.")])).message)
+        .toBe(BUDGET);
+      // No job of the request this member reads.
+      expect((await note([])).message).toBe(BUDGET);
+      // A key's text under another code, or a text that differs by a character, is no key stop.
+      expect((await note([stopped("AI_PROVIDER", TAKEOFF_KEY_STOP_MESSAGES.confirmedCalls)])).message).toBe(BUDGET);
+      expect((await note([stopped("TAKEOFF_REQUEST_BUDGET_EXHAUSTED", `${TAKEOFF_KEY_STOP_MESSAGES.dollarCeiling} `)])).message).toBe(BUDGET);
+      expect((await note([stopped("TAKEOFF_REQUEST_BUDGET_EXHAUSTED", null)])).data.request?.keyLimitReached).toBe(false);
+    });
   });
 
   // One analysis per plan: the request's analyses come in the order its manifest records (its plans' names), so that the
