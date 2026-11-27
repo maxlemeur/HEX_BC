@@ -57,5 +57,5 @@ export function buildAffaireJourney(input: JourneyInput) {
     { key: "remise" as const, label: "Remise", description: "Validation, PDF et email client" },
     ...(showPurchases ? [{ key: "achats" as const, label: "Achats", description: "Brouillons de commandes fournisseurs" }] : []),
   ];
-  return { current, stages, reviewCount, processingCount, briefConfirmed, canShowOutput, showPurchases, issued, accepted, steps };
+  return { current, stages, reviewCount, processingCount, briefConfirmed, canShowOutput, showPurchases, issued, accepted };
 }
