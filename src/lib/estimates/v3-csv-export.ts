@@ -72,7 +72,7 @@ export const OFFER_CHOICE_EXPORT_HEADER = "Réserve dans l'offre";
 export const PROVISIONAL_QUANTITY_EXPORT_HEADER = "Mention provisionnelle";
 
 export function estimateV3CsvHeader(currency: string, laborSplit = false): string[] {
-  return ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", `Prix unitaire HT (${currency})`, "Type FO",
+  return ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", `Prix unitaire HT (${currency})`, "Famille FO",
     "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO / unité", MAJORATION_PERCENT_HEADER, "Rôle MO", "K MO",
     `PU HT (${currency})`, `Total HT (${currency})`, "TVA (%)", "Transport FO", ...(laborSplit ? LABOR_SPLIT_HEADER : []),
     TAKEOFF_PROVISION_EXPORT_HEADER, STATUS_REASON_EXPORT_HEADER, OFFER_CHOICE_EXPORT_HEADER, PROVISIONAL_QUANTITY_EXPORT_HEADER];

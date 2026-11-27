@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildClipboardPreviewRows, parseClipboardNumber, parseTsvMatrix, serializeSelectedRowsToTsv, suggestClipboardColumnMapping, type ClipboardColumnMapping } from "@/lib/estimates/clipboard";
+import { buildClipboardPreviewRows, detectClipboardFormat, parseClipboardNumber, parseTsvMatrix, serializeSelectedRowsToTsv, suggestClipboardColumnMapping, type ClipboardColumnMapping } from "@/lib/estimates/clipboard";
 import { NUMERIC_INPUT_ERROR } from "@/lib/numeric-input/parsers";
 
 describe("clipboard tsv parsing", () => {
@@ -32,13 +32,13 @@ describe("clipboard tsv parsing", () => {
 
 describe("clipboard mapping suggestions", () => {
 
-  it("prioritizes canonical bdc headers", () => {
+  it.each(["Type FO", "Famille FO"])("prioritizes canonical BDC headers with %s", (familyHeader) => {
     const headers = [
       "Designation",
       "Quantité",
       "Unité",
       "Prix unitaire HT (EUR)",
-      "Type FO",
+      familyHeader,
       "K FO",
       "h MO",
       "K MO",
@@ -51,19 +51,22 @@ describe("clipboard mapping suggestions", () => {
     expect(mapping["Quantité"]).toBe("quantity");
     expect(mapping["Unité"]).toBe("unit");
     expect(mapping["Prix unitaire HT (EUR)"]).toBe("unit_price_ht");
-    expect(mapping["Type FO"]).toBe("supply_type");
+    expect(mapping[familyHeader]).toBe("supply_type");
     expect(mapping["K FO"]).toBe("k_fo");
     expect(mapping["h MO"]).toBe("h_mo");
     expect(mapping["K MO"]).toBe("k_mo");
     expect(mapping["Majoration MO (%)"]).toBe("h_mo_majoration");
   });
 
-  it("maps bdc PR.FO header to unit_price_ht", () => {
-    const headers = ["Designation", "Quantité", "PR.FO", "Type FO"];
+  it.each(["Type FO", "Famille FO"])("recognizes a partial BDC selection with %s", (familyHeader) => {
+    const headers = ["Designation", "PR.FO", familyHeader];
+
+    expect(detectClipboardFormat(headers)).toBe("bdc_v1_1");
 
     const mapping = suggestClipboardColumnMapping(headers);
 
     expect(mapping["PR.FO"]).toBe("unit_price_ht");
+    expect(mapping[familyHeader]).toBe("supply_type");
   });
 });
 
@@ -109,6 +112,7 @@ describe("clipboard preview rows", () => {
 
     expect(result.rows[0]?.lineNumber).toBe(2);
     expect(result.rows[0]?.status).toBe("valid");
+    expect(result.rows[0]?.values.supply_type).toBe("Bois");
     expect(result.rows[0]?.values.h_mo_majoration).toBeCloseTo(1.25, 6);
 
     expect(result.rows[1]?.lineNumber).toBe(3);
@@ -214,14 +218,15 @@ describe("2.3 grid copy re-reads through the paste preview (D11)", () => {
   it("keeps three-decimal quantities, hours, coefficients and the majoration", () => {
     const tsv = serializeSelectedRowsToTsv([{
       designation: "Ligne copiée", quantity: 1.234, unit: "ml", unit_price_ht: 12.5,
-      supply_type: null, k_fo: 1.125, h_mo: 0.125, k_mo: 1, h_mo_majoration: 1.125,
+      supply_type: "Fixations", k_fo: 1.125, h_mo: 0.125, k_mo: 1, h_mo_majoration: 1.125,
     }]);
     const matrix = parseTsvMatrix(tsv);
+    expect(matrix.headers).toContain("Famille FO");
     const row = buildClipboardPreviewRows(matrix, suggestClipboardColumnMapping(matrix.headers)).rows[0];
     expect(row).toMatchObject({
       status: "valid",
       reasons: [],
-      values: { quantity: 1.234, unit_price_ht: 12.5, k_fo: 1.125, h_mo: 0.125, k_mo: 1, h_mo_majoration: 1.125 },
+      values: { quantity: 1.234, unit_price_ht: 12.5, supply_type: "Fixations", k_fo: 1.125, h_mo: 0.125, k_mo: 1, h_mo_majoration: 1.125 },
     });
   });
 });

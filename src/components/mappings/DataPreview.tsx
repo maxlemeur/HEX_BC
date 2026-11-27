@@ -178,7 +178,7 @@ export function DataPreview({
               <th scope="col">Quantité</th>
               <th scope="col">Unité</th>
               <th scope="col">Prix fourniture</th>
-              <th scope="col">Type FO</th>
+              <th scope="col">Famille FO</th>
               <th scope="col">Majoration MO</th>
               <th scope="col">État</th>
             </tr>

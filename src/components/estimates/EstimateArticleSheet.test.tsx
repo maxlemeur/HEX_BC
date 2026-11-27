@@ -58,6 +58,8 @@ describe("EstimateArticleSheet", () => {
           unit_price_cents: 4200,
           is_active: false,
           material: "Mélaminé",
+          product_type: "Plateau",
+          supply_type_id: "panels",
         },
       ],
     });
@@ -69,6 +71,7 @@ describe("EstimateArticleSheet", () => {
         versionId="version-1"
         lineTitle="Plateau"
         productId={suggestion.product_id}
+        supplyTypeById={new Map([["panels", { name: "Panneaux" }]])}
         currency="EUR"
         isReadOnly={false}
         onClose={vi.fn()}
@@ -85,6 +88,11 @@ describe("EstimateArticleSheet", () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(screen.getByText("Article archivé")).toBeInTheDocument();
+    expect(screen.getAllByRole("term").map((term) => term.textContent)).toEqual([
+      "Référence", "Unité", "Famille", "Type", "Matière",
+    ]);
+    expect(screen.getByText("Panneaux")).toBeInTheDocument();
+    expect(fetchApi).toHaveBeenCalledTimes(1);
   });
 
   // TI-690. Failure modes: the deliberate search does not ask for drafts, so an imported article cannot be
@@ -107,6 +115,7 @@ describe("EstimateArticleSheet", () => {
         versionId="version-1"
         lineTitle="Plateau"
         productId={null}
+        supplyTypeById={new Map()}
         currency="EUR"
         isReadOnly={false}
         onClose={vi.fn()}

@@ -202,6 +202,7 @@ const BDC_HEADER_MARKERS = new Set<string>([
   "pr fo",
   "pr fo eur",
   "unit price ht eur",
+  "famille fo",
   "type fo",
   "k fo",
   "h mo",
@@ -226,7 +227,7 @@ const BDC_CANONICAL_HEADERS: Partial<Record<ClipboardTargetField, string[]>> = {
   quantity: ["quantite", "quantity"],
   unit: ["unite", "unit"],
   unit_price_ht: ["prix unitaire ht eur", "unit price ht eur", "pr fo", "pr fo eur"],
-  supply_type: ["type fo"],
+  supply_type: ["famille fo", "type fo"],
   k_fo: ["k fo"],
   h_mo: ["h mo"],
   k_mo: ["k mo"],
@@ -258,7 +259,7 @@ const CLIPBOARD_COPY_HEADERS: Record<ClipboardTargetField, string> = {
   quantity: "Quantité",
   unit: "Unité",
   unit_price_ht: "Prix unitaire HT",
-  supply_type: "Type FO",
+  supply_type: "Famille FO",
   k_fo: "K FO",
   h_mo: "h MO",
   k_mo: "K MO",
@@ -273,7 +274,7 @@ const FIELD_LABELS: Record<ClipboardTargetField, string> = {
   quantity: "Quantité",
   unit: "Unité",
   unit_price_ht: "Prix unitaire HT",
-  supply_type: "Type FO",
+  supply_type: "Famille FO",
   k_fo: "K FO",
   h_mo: "h MO",
   k_mo: "K MO",
@@ -670,7 +671,8 @@ export function detectClipboardFormat(headers: string[]): ClipboardFormat {
   if (normalizedHeaders.some((header) => header.includes("temps major"))) {
     optimaScore += 2;
   }
-  if (normalizedHeaders.some((header) => header.includes("famille fo"))) {
+  // The two exact supply headers are shared by both formats.
+  if (normalizedHeaders.some((header) => header !== "famille fo" && header.includes("famille fo"))) {
     optimaScore += 2;
   }
 

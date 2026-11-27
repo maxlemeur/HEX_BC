@@ -76,7 +76,7 @@ export async function saveFoCoefficientSettings(input: FoCoefficientChange[]) {
     .eq("tenant_id", tenantId)
     .in("id", ids);
   if (types.error || (types.data ?? []).length !== ids.length)
-    throw new Error("Type de fourniture introuvable.");
+    throw new Error("Famille de fourniture introuvable.");
 
   for (const change of company) {
     const result = await supabase

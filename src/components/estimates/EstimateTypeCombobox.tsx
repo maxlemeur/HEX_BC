@@ -206,7 +206,7 @@ export function EstimateTypeCombobox({
             event.stopPropagation();
           }}
         >
-          {choices.length === 0 ? <p className="p-2 text-muted-foreground">Aucun type correspondant</p> : null}
+          {choices.length === 0 ? <p className="p-2 text-muted-foreground">Aucune famille correspondante</p> : null}
           {choices.map((option) => (
             <div
               key={option.id}

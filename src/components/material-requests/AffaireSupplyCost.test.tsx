@@ -37,7 +37,7 @@ function totals(): string[] {
 
 /** The table per supply type opens under the totals, on demand. */
 async function openDetail() {
-  const toggle = await screen.findByRole("button", { name: "Détail par type de fourniture" });
+  const toggle = await screen.findByRole("button", { name: "Détail par famille de fourniture" });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(screen.queryByRole("table")).toBeNull();
   fireEvent.click(toggle);
@@ -45,7 +45,7 @@ async function openDetail() {
 }
 
 function cells(rowName: string): string[] {
-  const table = screen.getByRole("table", { name: "Budget et commandé par type de fourniture" });
+  const table = screen.getByRole("table", { name: "Budget et commandé par famille de fourniture" });
   const row = within(table).getAllByRole("row").find((candidate) =>
     plain(within(candidate).queryByRole("rowheader")?.textContent ?? null) === rowName);
   if (!row) throw new Error(`Ligne absente : ${rowName}`);

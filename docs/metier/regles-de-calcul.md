@@ -77,7 +77,7 @@ déboursé_ligne = arrondi(Q × (FO_unitaire + MO_unitaire))
 Le **K FO unique** (TI-534) intègre les pertes, le transport et l’ajustement de
 volume ; l’utilisateur peut y intégrer d’autres éléments prévus pour son
 chiffrage. Les nouvelles lignes v3 portent `fo_provision = 1` : aucun second
-coefficient visible ne double ces frais. Les bases entreprise initiales, paramétrables par type de fourniture, sont 1,13 pour les
+coefficient visible ne double ces frais. Les bases entreprise initiales, paramétrables par famille de fourniture, sont 1,13 pour les
 tubes (10 % de pertes + 3 % de transport), 1,02 pour les autres familles
 (raccords, supports, calorifuges et isolants compris) et les lignes sans type.
 Les pertes des tubes ne se reportent pas aux raccords, supports ou calorifuges. La préférence du propriétaire de l’affaire remplace
@@ -95,7 +95,7 @@ Exemples de fourniture validés par Maxime le 11/11/2026, avant marge et
 arrondis au centime : tube fonte Ø100 **142,43 × 1,13 = 160,95 €** ;
 robinet DN 25 **58,43 × 1,02 = 59,60 €** ; pose seule WC
 **175,50 × 1 = 175,50 €**. Le 1,13 est une base configurée, pas un
-coefficient imposé au calcul quand le réglage du type de fourniture change.
+coefficient imposé au calcul quand le réglage de la famille de fourniture change.
 
 Le volume est intégré dans ce coefficient : 1,13 × 0,90 = 1,017 et
 1,13 × 0,95 = 1,0735. K FO conserve jusqu’à six décimales. Les pertes portent
@@ -160,7 +160,7 @@ rien sur une ligne à coût chantier. La copie d'une section vers un autre devis
 emporte le coût et sa source ; la reprise de prix copie le prix sans sa source.
 **POSE SEULE** (TI-539, TI-541) : une ligne POSE SEULE ne prend ni pertes ni
 transport. Son K FO automatique vaut 1 tant qu'elle garde cette nature, quel que
-soit son type de fourniture, y compris sur la petite fourniture nécessaire à la
+soit sa famille de fourniture, y compris sur la petite fourniture nécessaire à la
 pose (supportage) qu'elle peut porter, saisie à la main ou en coût chantier.
 Quand la ligne quitte POSE SEULE, son K FO automatique se redérive du type (base
 entreprise ou préférence) ; un K FO saisi reste. Exemple : pose d'un appareil à

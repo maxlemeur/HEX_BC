@@ -417,7 +417,7 @@ export async function getEstimateVersionDetails(
   if (supplyTypesResult.error) {
     throw mapSupabaseError(
       supplyTypesResult.error,
-      "Impossible de charger les types de fourniture."
+      "Impossible de charger les familles de fourniture."
     );
   }
 

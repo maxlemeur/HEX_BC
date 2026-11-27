@@ -7,9 +7,9 @@ pour cette recette.
 
 ## 1. Coefficient et aide
 
-Dans le chiffrage, afficher Type FO, prix d’achat, K FO et prix de vente.
+Dans le chiffrage, afficher Famille FO, prix d’achat, K FO et prix de vente.
 Créer un tube : quantité **101 m**, prix d’achat **100 €**, main-d’œuvre **0**,
-coefficient de vente fourniture **1,30**. Sélectionner le Type FO **Tube**.
+coefficient de vente fourniture **1,30**. Sélectionner la Famille FO **Tube**.
 
 | Action | K FO attendu | PU de vente HT | Total HT pour 101 m |
 | --- | ---: | ---: | ---: |

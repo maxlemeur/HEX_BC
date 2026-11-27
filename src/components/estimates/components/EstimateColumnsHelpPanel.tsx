@@ -102,8 +102,8 @@ const HELP_SECTIONS: HelpSection[] = [
         kind: "Saisie",
       },
       {
-        label: "Type FO",
-        description: COLUMN_HEADER_TOOLTIPS["Type FO"],
+        label: "Famille FO",
+        description: COLUMN_HEADER_TOOLTIPS["Famille FO"],
         kind: "Saisie",
       },
       {
@@ -205,7 +205,7 @@ const HELP_SECTIONS_V3: HelpSection[] = [
     tone: "supply",
     items: [
       { label: "PR FO", description: V3_TIP["PR FO"], kind: "Saisie" },
-      { label: "Type FO", description: COLUMN_HEADER_TOOLTIPS["Type FO"], kind: "Saisie" },
+      { label: "Famille FO", description: COLUMN_HEADER_TOOLTIPS["Famille FO"], kind: "Saisie" },
       { label: "K FO", description: V3_TIP["K FO"], kind: "Saisie" },
     ],
   },

@@ -2628,6 +2628,7 @@ export function EstimateEditorTable({
           lineTitle={activeArticleItem.title}
           {...resolveEstimateArticleSheetUnit(Boolean(v3Grid), activeArticleItem, mergedUnitDrafts[activeArticleItem.id])}
           productId={activeArticleItem.product_id ?? null}
+          supplyTypeById={supplyTypeById}
           currency={currency}
           isReadOnly={isReadOnly}
           onClose={() => setArticleSheet(null)}

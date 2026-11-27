@@ -16,7 +16,7 @@ export const COLUMN_HEADER_TOOLTIPS: Record<string, string> = {
   "K MO": "Coefficient de rendement main d'œuvre, propre à l'ouvrage — majore le coût MO selon la difficulté d'exécution. Ex : travail en hauteur → K = 1.30, soit +30% de temps MO",
   "PU": "PU = Prix total ÷ Qté. Les heures MO comptent une fois pour toute la ligne, quelle que soit la quantité. Si le taux horaire du rôle vaut 0 €/h, la MO contribue 0 €.",
   "Prix total": "Prix total HT de la ligne = (Qté × PR FO × K FO + h MO × Majoration MO × K MO × taux horaire) × coefficient de marge, avec h MO les heures totales de la ligne.",
-  "Type FO": "Type / catégorie de fourniture",
+  "Famille FO": "Famille de fourniture",
   "Type MO": "Rôle / type de main d'œuvre et taux horaire utilisé dans le calcul",
   "h MO atelier": "Heures de main d'œuvre atelier : heures totales de la ligne, et non par unité",
   "Type MO atelier": "Rôle / type de main d'œuvre atelier",

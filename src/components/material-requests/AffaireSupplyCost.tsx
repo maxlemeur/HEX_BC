@@ -21,7 +21,7 @@ import { plural } from "@/lib/text/plural";
 function rowLabel(row: AffaireSupplyCostRow): string {
   if (row.kind === "unclassified") return "Non classé";
   if (row.kind === "shipping_discount") return "Port et remises";
-  return row.name ?? row.code ?? "Type de fourniture";
+  return row.name ?? row.code ?? "Famille de fourniture";
 }
 
 function budgetSource(cost: SupplyCost): string {
@@ -102,10 +102,10 @@ function SupplyCostTable({ cost }: Readonly<{ cost: SupplyCost }>) {
     <div className="overflow-x-auto rounded-lg border border-border">
       {/* A sheet of cells, as the lines of a request: grid lines between the columns, one row per supply type. */}
       <table className="sheet-table w-full min-w-[640px] border-collapse text-left text-sm">
-        <caption className="sr-only">Budget et commandé par type de fourniture</caption>
+        <caption className="sr-only">Budget et commandé par famille de fourniture</caption>
         <thead className="border-b border-border bg-surface-subtle text-xs font-medium text-muted-foreground">
           <tr>
-            <th scope="col" className="px-3 py-2">Type de fourniture</th>
+            <th scope="col" className="px-3 py-2">Famille de fourniture</th>
             <th scope="col" className="px-3 py-2 text-right">Budget</th>
             <th scope="col" className="px-3 py-2 text-right">Commandé</th>
             <th scope="col" className="px-3 py-2 text-right">En cours</th>
@@ -161,7 +161,7 @@ function SupplyCostBody({ cost }: Readonly<{ cost: SupplyCost }>) {
         hasRows ? (
           <Button type="button" variant="outline" size="sm" aria-expanded={open} aria-controls={detailId} onClick={() => setOpen((current) => !current)}>
             <ChevronDown aria-hidden="true" className={`transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
-            Détail par type de fourniture
+            Détail par famille de fourniture
           </Button>
         ) : null
       }

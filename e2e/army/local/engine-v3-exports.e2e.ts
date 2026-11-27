@@ -178,7 +178,7 @@ const totalsOf = (state: ArmyEstimate) => [state.version.total_ht_cents, state.v
 const CURRENCY_FORMATS = { EUR: "#,##0.00 \"€\"", USD: "\"$\"#,##0.00", GBP: "\"£\"#,##0.00" } as const;
 type Currency = keyof typeof CURRENCY_FORMATS;
 const dpgfHeader = (currency: Currency) => ["Type", "AID", "Désignation", "Quantité", "Unité", "Statut", "TVA (%)",
-  `Prix unitaire HT ${currency}`, "Type FO", "K FO", "h MO / unité", "K MO", "Majoration MO (%)", "Rôle MO", "Catégorie",
+  `Prix unitaire HT ${currency}`, "Famille FO", "K FO", "h MO / unité", "K MO", "Majoration MO (%)", "Rôle MO", "Catégorie",
   "h MO Atelier / unité", "K MO Atelier", "Rôle MO Atelier", "h MO Chantier / unité", "K MO Chantier", "Rôle MO Chantier",
   `PU vente HT ${currency}`, `Total HT brut ${currency}`, "Transport FO"];
 const FOOTER_FIELD = /^(Total HT brut|Remise commerciale|Arrondi commercial|Total HT net|TVA |Total TVA|Total TTC)/u;
@@ -489,7 +489,7 @@ async function downloadFrom(browser: Browser, url: RegExp, trigger: () => Promis
   return { status: response.status, url: response.url, filename: file.suggestedFilename, path: absolutePath, bytes, sha256: digest(bytes) };
 }
 
-const V3_CSV_HEADER = ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", "Prix unitaire HT (EUR)", "Type FO",
+const V3_CSV_HEADER = ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", "Prix unitaire HT (EUR)", "Famille FO",
   "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO / unité", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
   "Total HT (EUR)", "TVA (%)", "Transport FO"];
 // TI-682 lot C : colonne interne ajoutée après toutes les autres, ventilation atelier/chantier comprise.
@@ -501,7 +501,7 @@ const V3_CSV_RESERVE_HEADER = "Réserve dans l'offre";
 // TI-682 lot C, PR 5 : puis la quantité provisionnelle d'une ligne chiffrée sur hypothèse, dernière colonne (vide sans elle).
 const V3_CSV_PROVISIONAL_HEADER = "Mention provisionnelle";
 // En-tête BDC V1.1 (bdc-export.ts) : inchangé et dans cet ordre pour toute version ; une v3 ajoute ses colonnes à la fin.
-const BDC_V11_HEADER = ["Type", "Position", "AID", "Désignation", "Unité", "Quantité", "Type FO", "PU FO HT EUR", "PR FO HT EUR", "K FO",
+const BDC_V11_HEADER = ["Type", "Position", "AID", "Désignation", "Unité", "Quantité", "Famille FO", "PU FO HT EUR", "PR FO HT EUR", "K FO",
   "h MO", "K MO", "Taux horaire MO EUR", "Rôle MO", "Catégorie", "Total FO HT EUR", "Total MO HT EUR", "Total HT EUR",
   "Fournisseur 1 Nom", "Fournisseur 1 Prix EUR", "Fournisseur 1 Ref", "Fournisseur 1 URL", "Fournisseur 2 Nom", "Fournisseur 2 Prix EUR",
   "Fournisseur 2 Ref", "Fournisseur 2 URL", "Fournisseur 3 Nom", "Fournisseur 3 Prix EUR", "Fournisseur 3 Ref", "Fournisseur 3 URL", "Ref interne"];
@@ -521,7 +521,7 @@ function expectedBdcLine(line: (typeof ROUND_TRIP)[number], supplier: { name: st
   const label = STATUS_LABELS[line.status];
   const split = ROUND_TRIP_SPLIT[line.ref];
   return {
-    "Type": "line", "Unité": line.unit, "Quantité": line.quantity, "Type FO": "", "PU FO HT EUR": priced ? line.prFo / 100 : null,
+    "Type": "line", "Unité": line.unit, "Quantité": line.quantity, "Famille FO": "", "PU FO HT EUR": priced ? line.prFo / 100 : null,
     "PR FO HT EUR": priced ? line.prFo / 100 : null, "K FO": 1.01, "h MO": null, "K MO": 1, "Taux horaire MO EUR": null,
     "Rôle MO": line.hPerUnit > 0 ? "Tuyauteur" : "", "Catégorie": "", "Total FO HT EUR": split.fo / 100, "Total MO HT EUR": split.mo / 100,
     "Total HT EUR": line.gross / 100, "Fournisseur 1 Nom": supplier?.name ?? "", "Fournisseur 1 Prix EUR": supplier?.price ?? null,
@@ -529,7 +529,7 @@ function expectedBdcLine(line: (typeof ROUND_TRIP)[number], supplier: { name: st
     "PU vente HT EUR": priced ? line.pu! / 100 : null,
   };
 }
-const BDC_LINE_COLUMNS = ["Type", "Unité", "Quantité", "Type FO", "PU FO HT EUR", "PR FO HT EUR", "K FO", "h MO", "K MO", "Taux horaire MO EUR",
+const BDC_LINE_COLUMNS = ["Type", "Unité", "Quantité", "Famille FO", "PU FO HT EUR", "PR FO HT EUR", "K FO", "h MO", "K MO", "Taux horaire MO EUR",
   "Rôle MO", "Catégorie", "Total FO HT EUR", "Total MO HT EUR", "Total HT EUR", "Fournisseur 1 Nom", "Fournisseur 1 Prix EUR",
   "Fournisseur 1 Ref", "Statut", "h MO / unité", "PU vente HT EUR"] as const;
 
@@ -776,14 +776,14 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
           formats: bdcRow ? ["PU FO HT EUR", "PR FO HT EUR", "Total FO HT EUR", "Total HT EUR"].map((column) => bdcRow.cells[column]?.numFmt ?? null) : null },
       };
       const expected = {
-        csv: { serverCalls: 0, header: ["Chemin chapitre", "Désignation", "Flags qualité", "Unité", "Quantité", "Prix unitaire HT (EUR)", "Type FO",
+        csv: { serverCalls: 0, header: ["Chemin chapitre", "Désignation", "Flags qualité", "Unité", "Quantité", "Prix unitaire HT (EUR)", "Famille FO",
           "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
           "Total HT (EUR)", "TVA (%)", "Total TTC (EUR)"],
           line: ["ARMY section 1", "ml", "2", "15", "1.2", "0", "18", "36", "20", "43.2"] },
         // Valeurs relues du BDC V1.1 actuel (avant 2.7b) : désignation indentée de deux espaces sous sa section, texte vide
         // écrit "" (relu ""), prix fournisseur absent relu null.
         bdc: { sheets: ["BDC_V1_1"], header: BDC_V11_HEADER,
-          line: { "Type": "line", "Désignation": `  ${lineTitle}`, "Unité": "ml", "Quantité": 2, "Type FO": "", "PU FO HT EUR": 15, "PR FO HT EUR": 18,
+          line: { "Type": "line", "Désignation": `  ${lineTitle}`, "Unité": "ml", "Quantité": 2, "Famille FO": "", "PU FO HT EUR": 15, "PR FO HT EUR": 18,
             "K FO": 1.2, "h MO": 0, "K MO": 1, "Taux horaire MO EUR": 0, "Rôle MO": "", "Catégorie": "", "Total FO HT EUR": 36,
             "Total MO HT EUR": 0, "Total HT EUR": 36, "Fournisseur 1 Nom": "", "Fournisseur 1 Prix EUR": null, "Fournisseur 1 Ref": "",
             "Fournisseur 1 URL": "", "Fournisseur 2 Nom": "", "Fournisseur 2 Prix EUR": null, "Fournisseur 2 Ref": "", "Fournisseur 2 URL": "",
@@ -852,7 +852,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       const view = bdc.status === 200 ? bdcView(await readSheets(bdc.bytes), titles) : null;
       const bdcLine = (unit: string, quantity: number, pr: number, kMo: number, roleMo: string, fo: number, mo: number, hoursPerUnit: number,
         pu: number) => ({
-        "Type": "line", "Unité": unit, "Quantité": quantity, "Type FO": "", "PU FO HT EUR": pr, "PR FO HT EUR": pr, "K FO": 1.02, "h MO": null,
+        "Type": "line", "Unité": unit, "Quantité": quantity, "Famille FO": "", "PU FO HT EUR": pr, "PR FO HT EUR": pr, "K FO": 1.02, "h MO": null,
         "K MO": kMo, "Taux horaire MO EUR": null, "Rôle MO": roleMo, "Catégorie": "", "Total FO HT EUR": fo, "Total MO HT EUR": mo,
         "Total HT EUR": Math.round((fo + mo) * 100) / 100, "Fournisseur 1 Nom": "", "Fournisseur 1 Prix EUR": null, "Fournisseur 1 Ref": "",
         "Statut": "Chiffrée", "h MO / unité": hoursPerUnit, "PU vente HT EUR": pu });

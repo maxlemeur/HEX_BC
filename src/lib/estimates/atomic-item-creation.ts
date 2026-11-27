@@ -189,7 +189,7 @@ async function persistAtomicEstimateV3Item(input: Parameters<typeof persistAtomi
     // TI-534 : provision FO que le déclencheur donne à la ligne neuve (jamais envoyée : p_item reste inchangé).
     const { provisions, error: provisionError } = await loadSupplyTypeFoProvisions(supabase, tenantId, [pricedItem.supply_type_id], input.projectUserId);
     if (provisionError) {
-      throw mapSupabaseError(provisionError, "Impossible de lire le type de fourniture.");
+      throw mapSupabaseError(provisionError, "Impossible de lire la famille de fourniture.");
     }
     lines.push({
       ...projectUnifiedKfo(pricedItem, provisions),

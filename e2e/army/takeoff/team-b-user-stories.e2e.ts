@@ -1188,8 +1188,8 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
       // Its 12 units at 21,00 € count even while the source version is still a draft.
       const costsPath = `/dashboard/affaires/${projectId}/demandes-materiel`;
       const costSection = page.getByRole("region", { name: "Coût des fournitures", exact: true });
-      const detail = costSection.getByRole("button", { name: "Détail par type de fourniture", exact: true });
-      const table = costSection.getByRole("table", { name: "Budget et commandé par type de fourniture", exact: true });
+      const detail = costSection.getByRole("button", { name: "Détail par famille de fourniture", exact: true });
+      const table = costSection.getByRole("table", { name: "Budget et commandé par famille de fourniture", exact: true });
       const costs = [];
       for (const [status, ordered, pending] of [
         ["draft", 0, 25200],

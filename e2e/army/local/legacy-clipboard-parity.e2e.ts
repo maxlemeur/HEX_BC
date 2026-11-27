@@ -13,7 +13,7 @@ import { querySql } from "./calculation-gate-support";
 
 type Ui = { app: App; browser: Browser; screen: Screen };
 const options = { session: "army", tags: ["critical", "local", "legacy-clipboard"], timeout: 240_000 } as const;
-const headers = ["Désignation", "Quantité", "Unité", "Prix unitaire HT", "Type FO", "K FO", "h/u", "K MO", "Majoration MO (%)"];
+const headers = ["Désignation", "Quantité", "Unité", "Prix unitaire HT", "Famille FO", "K FO", "h/u", "K MO", "Majoration MO (%)"];
 const gridName = "Lignes de devis";
 const previewName = "Aperçu du collage";
 

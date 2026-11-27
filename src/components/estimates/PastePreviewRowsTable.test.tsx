@@ -24,7 +24,7 @@ vi.mock("@/hooks/useVirtualList", () => ({
 
 const HEADER = 97;
 const ROW = 64;
-const BDC_COLUMNS = ["Désignation", "Quantité", "Unité", "Prix unitaire HT", "Type FO", "K FO", "h/u", "K MO", "Majoration MO (%)"];
+const BDC_COLUMNS = ["Désignation", "Quantité", "Unité", "Prix unitaire HT", "Famille FO", "K FO", "h/u", "K MO", "Majoration MO (%)"];
 
 type MockItem = { index: number; key: number; start: number; size: number; end: number; lane: number };
 

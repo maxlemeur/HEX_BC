@@ -82,7 +82,7 @@ const CLIPBOARD_TARGET_FIELD_LABELS: Record<ClipboardMappingTarget, string> = {
   quantity: "Quantité",
   unit: "Unité",
   unit_price_ht: "Prix unitaire HT",
-  supply_type: "Type FO",
+  supply_type: "Famille FO",
   k_fo: "K FO",
   h_mo: "h MO",
   k_mo: "K MO",

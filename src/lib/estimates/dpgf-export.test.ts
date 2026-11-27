@@ -368,7 +368,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
 
   // DPGF exports written before this fix carry the raw coefficient under « Majoration MO ».
   it("reads the legacy « Majoration MO » column of its earlier exports as a coefficient", () => {
-    const keys = ["Type", "AID", "Désignation", "Quantité", "Unité", "Prix unitaire HT EUR", "Type FO", "K FO", "h MO", "K MO", "Majoration MO", "Rôle MO"]
+    const keys = ["Type", "AID", "Désignation", "Quantité", "Unité", "Prix unitaire HT EUR", "Famille FO", "K FO", "h MO", "K MO", "Majoration MO", "Rôle MO"]
       .map((header, index) => normalizeHeaderValue(header, index));
     const profile = detectImportProfile(keys);
     expect(profile?.id).toBe("dpgf_export");

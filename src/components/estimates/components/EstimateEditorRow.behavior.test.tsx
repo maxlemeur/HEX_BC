@@ -305,14 +305,14 @@ describe("EstimateEditorRow behavior", () => {
       id: "type-tube", code: "TUB", name: "Tube", default_fo_provision: 1.03, preferred_supplier_id: null, tenant_id: "tenant-1", created_at: "", updated_at: "",
     };
     renderRow(createItem({ supply_type_id: type.id }), { supplyTypeById: new Map([[type.id, type]]) });
-    const input = screen.getByRole("combobox", { name: /Type de fourniture/ });
+    const input = screen.getByRole("combobox", { name: /Famille FO/ });
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "inconnu" } });
     fireEvent.blur(input);
     expect(input).toHaveValue("Tube");
     expect(rowActionSpies.onPatchItem).not.toHaveBeenCalled();
     fireEvent.focus(input);
-    fireEvent.click(screen.getByRole("option", { name: "Aucun type" }));
+    fireEvent.click(screen.getByRole("option", { name: "Aucune famille" }));
     expect(rowActionSpies.onPatchItem).toHaveBeenCalledExactlyOnceWith("line-1", { supply_type_id: null }, { persist: true });
   });
 });
