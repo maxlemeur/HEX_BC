@@ -64,15 +64,6 @@ export const TAKEOFF_COUNT_MARK_REASON_LABELS: Record<TakeoffCountMarkRemovalRea
   same_object: "Même objet qu'un repère retenu",
 };
 
-/**
- * The member's word when a gesture would leave a retained mark beside another retained mark of the same answer within 4
- * points (a possible duplicate): « same » (retain and restore only, with same_as, the retained mark: the proposals join
- * it, this mark is withdrawn for the answer) or « distinct » (any gesture: add, move, retain, restore, reattribute; both
- * stand, and the pair is recorded). The machine never decides it.
- */
-export const TAKEOFF_COUNT_MARK_OBJECT_WORDS = { same: "Même objet", distinct: "Objet distinct" } as const;
-export type TakeoffCountMarkObjectWord = keyof typeof TAKEOFF_COUNT_MARK_OBJECT_WORDS;
-
 /** The gestures of an edit, as public.edit_takeoff_count_marks takes them (every verify after every other gesture). */
 export type TakeoffCountMarkBox = readonly [number, number, number, number];
 export type TakeoffCountPageGeometry = {
@@ -85,6 +76,12 @@ export type TakeoffCountPageGeometry = {
   width: number;
   height: number;
 };
+/**
+ * The member's word when a gesture would leave a retained mark beside another retained mark of the same answer within 4
+ * points (a possible duplicate): « same » (retain and restore only, with same_as, the retained mark: the proposals join
+ * it, this mark is withdrawn for the answer) or « distinct » (any gesture: add, move, retain, restore, reattribute; both
+ * stand, and the pair is recorded). The machine never decides it.
+ */
 export type TakeoffCountMarkObjectDecision =
   | { object?: undefined; same_as?: undefined }
   | { object: "distinct"; same_as?: undefined }
@@ -125,18 +122,6 @@ export const TAKEOFF_COUNT_MARK_EDIT_REFUSALS = {
     "Ce plan a déjà été envoyé au devis : ses repères se consultent ici, une correction passera par une révision de l’apport.",
 } as const;
 export type TakeoffCountMarkEditRefusal = keyof typeof TAKEOFF_COUNT_MARK_EDIT_REFUSALS;
-
-/** The refusals of the worker's publication (public.publish_takeoff_count_marks), each with nothing written. */
-export const TAKEOFF_COUNT_MARK_PUBLICATION_REFUSALS = [
-  "TAKEOFF_MARKS_INVALID",
-  "TAKEOFF_MARKS_LEASE_INVALID",
-  "TAKEOFF_MARKS_ALREADY_PUBLISHED",
-  "TAKEOFF_MARKS_ITEM_FOREIGN",
-  "TAKEOFF_MARKS_OBSERVATION_FOREIGN",
-  "TAKEOFF_MARKS_PAGE_OUTSIDE",
-  "TAKEOFF_MARKS_PAGE_GEOMETRY_REQUIRED",
-  "TAKEOFF_MARKS_PAGE_GEOMETRY_CONFLICT",
-] as const;
 
 /** The edit refusal a database error names, when it is one of the command's own. */
 export function takeoffCountMarkEditRefusal(message: string | null | undefined): TakeoffCountMarkEditRefusal | null {

@@ -80,24 +80,6 @@ export async function readCountMarkSummariesForAccess(access: AffaireAccess, ans
     Record<string, TakeoffCountMarkSummary>;
 }
 
-/** The marks of one answer on one page of its scope, paged, with the server's total apart from the number loaded. */
-export async function readAnswerCountMarks(projectId: string, query: {
-  answerId: string;
-  page: number;
-  /** proposed, to attribute and retained by default; removed and pending on demand. */
-  states?: readonly TakeoffCountMarkState[];
-  afterMarkId?: string | null;
-  limit?: number;
-}): Promise<TakeoffCountMarksPage | null> {
-  return marksPage(await requireAffaireAccess(projectId, "read"), query);
-}
-
-/** The server-side count of each answer given (at most 500), by answer. */
-export async function readAnswerCountMarkSummaries(projectId: string, answerIds: readonly string[]):
-  Promise<Record<string, TakeoffCountMarkSummary>> {
-  return readCountMarkSummariesForAccess(await requireAffaireAccess(projectId, "read"), answerIds);
-}
-
 /**
  * The operator rule of the database's edit (private.can_access_takeoff_scope with write: an administrator of the tenant,
  * or the engineer who owns the affaire), for what the screen offers; the command checks it again under its locks.
@@ -246,20 +228,6 @@ async function runEdit(access: AffaireAccess, command: { intentKey: string; revi
 }
 
 /**
- * An operator's edit of N gestures at once, under the expected marks revision of every answer it changes; the same
- * intention key with the same content answers the same, replayed. A refusal of the command is answered in French with
- * its own code; nothing is written.
- */
-export async function editAnswerCountMarks(projectId: string, command: {
-  intentKey: string;
-  /** Every answer the edit changes, with the marks revision it was shown. */
-  revisions: Record<string, number>;
-  gestures: readonly TakeoffCountMarkGesture[];
-}): Promise<TakeoffCountMarkEditResult> {
-  return runEdit(await requireAffaireAccess(projectId, "write"), command);
-}
-
-/**
  * The edit of the detail of an item: the database's command. It refuses a plan already sent to an estimate
  * (TAKEOFF_MARKS_PLAN_SENT) itself, under its locks and after the replay of the intention: a send and an edit exclude
  * each other, and the same intention sent again after a lost answer gets its receipt even once the plan is sent.
@@ -271,13 +239,6 @@ export async function editCountMarksAsMember(projectId: string, command: CountMa
   // The database names answers in lower case; an answer named twice in two cases is refused, never merged (the schema).
   const revisions = Object.fromEntries(Object.entries(command.revisions).map(([answerId, revision]) => [answerId.toLowerCase(), revision]));
   return runEdit(access, { intentKey: command.intentKey, revisions, gestures: command.gestures as readonly TakeoffCountMarkGesture[] });
-}
-
-/** The journal of an answer's marks, in order, after the position given. */
-export async function readAnswerCountMarkEvents(projectId: string, query: {
-  answerId: string; after?: { revision: number; ordinal: number } | null; limit?: number;
-}) {
-  return events(await requireAffaireAccess(projectId, "read"), query);
 }
 
 async function events(access: AffaireAccess, query: { answerId: string; after?: { revision: number; ordinal: number } | null;
