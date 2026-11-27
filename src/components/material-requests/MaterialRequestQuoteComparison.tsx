@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ScanSearch } from "lucide-react";
 
 import { loadPhotoAnalysisModelOptions } from "@/app/dashboard/_actions/chatgpt";
-import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
+import { AssistantAiFeatureSettings, effectiveAiChoice, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -139,6 +139,7 @@ export function MaterialRequestQuoteComparison({
   visible: boolean;
 }>) {
   const settingsId = useId();
+  const common = useAssistantAiSettings();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsFailed, setSettingsFailed] = useState(false);
   const [selectedId, setSelectedId] = useState(files[0]?.id ?? "");
@@ -164,15 +165,23 @@ export function MaterialRequestQuoteComparison({
 
   useEffect(() => () => pending.current?.abort(), []);
 
+  const sources = settings ? { [settings.billingSource]: {
+    available: true, models: settings.models, preferences: settings.preferences,
+    message: settings.billingSource === "chatgpt_plan" ? "Abonnement ChatGPT" : "Clé API OpenAI",
+  } } : {};
+  const aiSelection = settings ? effectiveAiChoice(common?.choice,
+    { source: settings.billingSource, preferences: settings.preferences }, sources, true) : undefined;
+  const preferences = aiSelection?.preferences ?? null;
+
   const run = async () => {
-    if (availability.status !== "available" || !file || !settings?.preferences || pending.current) return;
+    if (availability.status !== "available" || !file || !settings || !preferences || pending.current) return;
     const controller = new AbortController();
     pending.current = controller;
     setBusy(true);
     setResults((current) => ({ ...current, [file.id]: undefined }));
     try {
       const result = await compareMaterialRequestQuoteFile(projectId, requestId, quoteId, file.id, {
-        preferences: settings.preferences,
+        preferences,
         billingSource: settings.billingSource,
         connectionId: settings.connectionId ?? undefined,
       }, controller.signal);
@@ -189,7 +198,7 @@ export function MaterialRequestQuoteComparison({
   };
 
   if (!file || availability.status === "disabled") return null;
-  const showSettings = availability.status === "available" && settings?.preferences;
+  const showSettings = availability.status === "available" && settings && (preferences || common);
   const settingsText = availability.status !== "available"
     ? availability.message
     : settingsFailed
@@ -205,9 +214,9 @@ export function MaterialRequestQuoteComparison({
         </NativeSelect>
       ) : null}
       {showSettings && settings ? (
-        <AiRequestSettings id={settingsId} messageId={settingsId} defaultSource={settings.billingSource}
-          sources={{ [settings.billingSource]: { available: true, models: settings.models, message: "Abonnement ChatGPT" } }}
-          value={{ source: settings.billingSource, preferences: settings.preferences }}
+        <AssistantAiFeatureSettings fixedSource id={settingsId} messageId={settingsId} defaultSource={settings.billingSource}
+          sources={sources}
+          value={aiSelection}
           locked={busy} onChange={(value) => {
             if (value.preferences) setSettings({ ...settings, preferences: value.preferences });
           }}
@@ -216,7 +225,7 @@ export function MaterialRequestQuoteComparison({
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" variant="outline" loading={busy}
-          disabled={availability.status !== "available" || !settings?.preferences}
+          disabled={availability.status !== "available" || !preferences}
           aria-describedby={settingsId} onClick={() => void run()}>
           <ScanSearch aria-hidden="true" />
           {shown && "result" in shown ? "Relancer la comparaison" : "Comparer le devis à la demande"}

@@ -5,6 +5,9 @@ import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { expect } from "e2e";
+import * as XLSX from "xlsx";
+
+import { COSTING_WORKBOOK_SHEET } from "@/lib/catalogue/costing-workbook";
 
 import {
   apiRequest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, restrictCriticalBrowser,
@@ -14,7 +17,7 @@ import { fillTakeoffPreparation, openTakeoffOptions, saveTakeoffPreparation, tak
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
 import {
-  chatGptLocalServer, isAbsorbedClientAbort, LAB_VECTOR_DOCUMENT, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture,
+  chatGptLocalServer, isAbsorbedClientAbort, LAB_VECTOR_DOCUMENT, liveProbePath, localChatGptClient, openProjectAssistant, writeDecisionsControl, writePlanFixture,
   type ChatGptLiveProbe,
 } from "./chatgpt-local-journey-support";
 import { compileChatGptRoutes, createLocalChatGptOwner, TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
@@ -52,6 +55,47 @@ for (const wave of TAKEOFF_JOURNEY_WAVES) beforeAll(() => server.compileTakeoffR
 beforeAll(() => compileChatGptRoutes(localOrigin, fixtureEmail, "takeoff-activity"));
 
 afterAll(() => server.stop(fixtureStore));
+
+test("ASSIST05 workbook reliability filters Excel in the assistant and requires confirmation", {
+  tags: ["critical", "local", "chatgpt", "catalogue"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  const prefix = "ARMY-assistant-reliability-" + Date.now();
+  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+  const directory = path.join(path.dirname(transportLog), "workbook-reliability");
+  await mkdir(directory, { recursive: true });
+  const filename = path.join(directory, "fiabilite.xlsx");
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ["ID", "Type_ligne", "Caractéristique", "Matériau", "Unité", "PR. FO", "Fiabilité (/10)"],
+    [prefix + "-ZERO", "Art", "Tube à écarter", "Inox", "m", 10, 0],
+    [prefix + "-NOTE", "Art", "Tube à garder", "Inox", "m", 10, 8],
+    [prefix + "-VIDE", "Art", "Tube sans note", "Inox", "m", 10, null],
+  ]), COSTING_WORKBOOK_SHEET);
+  await writeFile(filename, XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }) as Buffer);
+  const callsBefore = await readFile(transportLog, "utf8");
+
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+  await hydratedUi({ app, screen, browser }, localOrigin).app.open("/dashboard/products/import-workbook");
+  await screen.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(filename);
+  await screen.getByRole("dialog", "Colonnes à afficher", { exact: true })
+    .getByRole("button", "Afficher l’aperçu", { exact: true }).tap(DEV_SERVER_WORK);
+  const importThree = screen.getByRole("button", "Importer 3 brouillons", { exact: true });
+  await expect(importThree).toBeEnabled(DEV_SERVER_WORK);
+  const entry = screen.getByRole("banner").getByTestId("assistant-toggle");
+  await expect(entry).toHaveAttribute("aria-expanded", "false");
+  await entry.click();
+  await expect(entry).toHaveAttribute("aria-expanded", "true");
+  await screen.getByRole("textbox", "Votre message à l’assistant", { exact: true }).fill("Écarte les lignes dont la fiabilité est à zéro");
+  await screen.getByRole("button", "Envoyer", { exact: true }).click();
+  const preview = screen.getByRole("dialog", "Lignes dont la fiabilité Excel est à zéro", { exact: true });
+  await expect(preview.getByText("1 ligne proposée sur 3 lignes analysées", { exact: true })).toBeVisible();
+  await expect(preview.getByRole("button", "Écarter les lignes sélectionnées", { exact: true })).toBeDisabled();
+  await preview.getByRole("checkbox", /^Ligne Excel 2\b/).check();
+  await preview.getByRole("button", "Écarter 1 ligne de l’import", { exact: true }).click();
+  await expect(screen.getByRole("button", "Importer 2 brouillons", { exact: true })).toBeEnabled(DEV_SERVER_WORK);
+  expect(await readFile(transportLog, "utf8")).toBe(callsBefore);
+  await recordEvidence(army, "assistant-workbook-reliability", { analysed: 3, retained: 2, excludedExcelRow: 2, providerRequests: 0 });
+});
 
 if (!existsSync(liveProbePath)) test("LOCALREV01 a chosen plan revision supplies both detailed and vector reads with the pinned profile", {
   tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 240_000,
@@ -189,7 +233,7 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
   try {
     await setDecisionsControl({ timeoutWriting: true });
     await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
-    await expect(dialog.getByText(/L.assistance ChatGPT a dépassé son délai/)).toBeVisible();
+    await expect(dialog.getByText(/L.assistance ChatGPT a dépassé son délai/)).toBeVisible(DEV_SERVER_WORK);
     await expect(dialog.getByRole("link", "Ouvrir Mon profil", { exact: true })).toHaveAttribute("href", "/dashboard/profile");
     await expect(classifications.getByText("Plans · À confirmer", { exact: true })).toBeVisible();
     expect(await read()).toEqual(before);
@@ -549,13 +593,17 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     await setDecisionsControl({ materialPhotoModels: true });
     const choosePhotoModel = async (modelId: string, reasoningEffort: string) => {
       const original = screen.getByRole("dialog", "Original de la demande", { exact: true });
-      const model = original.getByRole("combobox", "Modèle d’analyse", { exact: true });
-      const effort = original.getByRole("combobox", "Effort de raisonnement", { exact: true });
+      const settings = original.getByRole("button", "Réglages IA", { exact: true });
+      await settings.click(DEV_SERVER_WORK);
+      const options = screen.getByRole("dialog", "Réglages IA", { exact: true });
+      const model = options.getByRole("combobox", "Modèle d’analyse", { exact: true });
+      const effort = options.getByRole("combobox", "Effort de raisonnement", { exact: true });
       await model.selectOption({ value: modelId });
       await expect(model).toHaveValue(modelId);
       await expect(effort.getByRole("option", "Sans raisonnement", { exact: true })).toHaveCount(0);
       await effort.selectOption({ value: reasoningEffort });
       await expect(effort).toHaveValue(reasoningEffort);
+      await settings.click();
     };
 
     type RequestLine = { id: string; position: number; original_text: string | null; quantity: number | null; quantity_doubtful: boolean;
@@ -771,12 +819,17 @@ if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the esti
 
     await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
     const question = "Quel est le total de ce devis ?";
-    await screen.getByTestId("assistant-toggle").click();
-    const panel = screen.getByTestId("assistant-panel");
-    await expect(panel).toBeVisible();
-    await expect(panel.getByLabel("Source IA", { exact: true })).toHaveValue("chatgpt_plan", DEV_SERVER_WORK);
-    await expect(panel.getByLabel("Modèle", { exact: true })).toHaveValue("army-plan-model");
-    await panel.getByLabel("Effort de raisonnement", { exact: true }).selectOption({ value: "high" });
+    const panel = await openProjectAssistant(screen);
+    const settings = screen.getByRole("region", "Assistant MergeOne", { exact: true })
+      .getByRole("button", "Réglages IA", { exact: true });
+    await settings.click();
+    await expect(screen.getByLabel("Source d’IA", { exact: true })).toHaveValue("chatgpt_plan", DEV_SERVER_WORK);
+    await settings.click();
+    const modelOptions = screen.getByRole("button", { name: "Modèle et effort", exact: true });
+    await modelOptions.click();
+    await expect(screen.getByLabel("Modèle", { exact: true })).toHaveValue("army-plan-model");
+    await screen.getByLabel("Effort de raisonnement", { exact: true }).selectOption({ value: "high" });
+    await modelOptions.click();
     await panel.getByTestId("assistant-input").fill(question);
     await panel.getByTestId("assistant-send").click();
     const answer = panel.getByTestId("assistant-message-assistant");
@@ -814,7 +867,7 @@ if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the esti
     await citation.click();
     await expect(ui.browser).toHaveURL(new RegExp(`focusItemId=${line.id}`));
     await ui.browser.reload();
-    await screen.getByTestId("assistant-toggle").click();
+    await openProjectAssistant(screen);
     await expect(panel.getByTestId("assistant-empty")).toBeVisible();
     await panel.getByTestId("assistant-thread-select").selectOption({ label: question });
     await expect(panel.getByTestId("assistant-message-assistant")).toContainText(`Le total HT du devis est de ${total}.`, DEV_SERVER_WORK);
@@ -854,8 +907,7 @@ if (!existsSync(liveProbePath)) test("ASSIST02 takeoff review reads its job and 
     expect(detail.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "Tuyauterie cuivre DN20", quantity: 12.5, unit: "m" })]));
     const other = await createEstimateViaWizard(ui, { projectName: `${prefix}-other`, title: "Autre affaire" }, army);
     await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
-    await screen.getByTestId("assistant-toggle").click();
-    const panel = screen.getByTestId("assistant-panel");
+    const panel = await openProjectAssistant(screen);
     await panel.getByTestId("assistant-input").fill(`ASSIST02 ${jobId}`);
     await panel.getByTestId("assistant-send").click();
     const answer = panel.getByTestId("assistant-message-assistant");
@@ -864,7 +916,7 @@ if (!existsSync(liveProbePath)) test("ASSIST02 takeoff review reads its job and 
     await expect(answer.getByTestId("assistant-activity")).toContainText("Lecture du métré");
     const screenshot = await app.screenshot("assistant-takeoff-answer");
     await ui.app.open(`/dashboard/estimates/${other.versionId}/edit`);
-    await screen.getByTestId("assistant-toggle").click();
+    await openProjectAssistant(screen);
     await panel.getByTestId("assistant-input").fill(`ASSIST02 ${jobId}`);
     await panel.getByTestId("assistant-send").click();
     await expect(answer).toContainText("Ce métré n’appartient pas à l’affaire de cette conversation.", DEV_SERVER_WORK);
@@ -892,8 +944,7 @@ if (!existsSync(liveProbePath)) test("ASSIST03 timeout is explained and retry ke
     const total = (await readEstimate(browser, ids.versionId)).version.total_ht_cents;
     const euros = `${Math.trunc(total / 100)},${String(total % 100).padStart(2, "0")} €`;
     await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
-    await screen.getByTestId("assistant-toggle").click();
-    const panel = screen.getByTestId("assistant-panel");
+    const panel = await openProjectAssistant(screen);
     const question = "Quel est le total après délai ?";
     await setDecisionsControl({ timeoutWriting: true });
     await panel.getByTestId("assistant-input").fill(question);

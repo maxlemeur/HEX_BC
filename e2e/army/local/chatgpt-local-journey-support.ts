@@ -5,7 +5,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { expect } from "e2e";
+import { expect, type Screen } from "e2e";
 
 import { LAB_DATASET_LAYOUT } from "@/lib/takeoff/lab/contracts";
 import {
@@ -29,6 +29,18 @@ export const LAB_VECTOR_DOCUMENT = "fictif-plan-calques";
 /** The fixture also logs a client that left a proxied request; the server absorbs it and keeps serving (TI-667). */
 export const isAbsorbedClientAbort = (entry: Record<string, unknown>) => entry.provider === "process-diagnostic"
   && entry.kind === "uncaught" && entry.nodeCode === "ECONNRESET" && entry.messageKind === "aborted";
+
+export async function openProjectAssistant(screen: Screen) {
+  const options = { timeout: 60_000 };
+  await screen.getByTestId("assistant-toggle").click(options);
+  await screen.getByRole("region", "Assistant MergeOne", { exact: true })
+    .getByRole("button", "Réglages IA", { exact: true }).click(options);
+  await screen.getByRole("dialog", "Réglages IA", { exact: true })
+    .getByRole("button", "Fils de l’affaire", { exact: true }).click(options);
+  const panel = screen.getByTestId("assistant-panel");
+  await expect(panel).toBeVisible(options);
+  return panel;
+}
 
 export type ChatGptLocalServer = {
   origin: string;

@@ -158,13 +158,21 @@ export async function verifyPriceReuseArbitration(ui: Ui, army: ArmyState, owner
   const referenceBefore = await readEstimate(ui.browser, fixture.reference.versionId);
   const dialog = await openAndCompare(ui, army, fixture, "prx02");
   const status = dialog.getByTestId("price-reuse-ai-status");
-  const source = dialog.getByLabel("Source d’IA", { exact: true });
+  const settings = dialog.getByRole("button", "Réglages IA", { exact: true });
+  const options = ui.screen.getByRole("dialog", "Réglages IA", { exact: true });
+  const source = options.getByLabel("Source d’IA", { exact: true });
+  const model = options.getByLabel("Modèle", { exact: true });
+  await settings.tap();
   await expect(source).toHaveValue("chatgpt_plan");
-  await expect(dialog.getByLabel("Modèle", { exact: true })).toHaveValue("army-plan-model");
+  await expect(model).toHaveValue("army-plan-model");
+  await settings.tap();
   const arbitrate = async (provider: "Decisions" | "ChatGPT", value: string) => {
     const start = (await readTransport()).length;
+    await settings.tap();
     await source.selectOption({ value });
-    if (value === "chatgpt_plan") await dialog.getByLabel("Effort de raisonnement", { exact: true }).selectOption({ value: "high" });
+    if (value === "chatgpt_plan") await options.getByLabel("Effort de raisonnement", { exact: true }).selectOption({ value: "high" });
+    else await expect(model).toHaveCount(0);
+    await settings.tap();
     await dialog.getByRole("button", "Départager", { exact: true }).tap();
     await expect(status).toHaveText(`${provider} : 1 proposition pour 1 ligne à vérifier.`, { timeout: 120_000 });
     return { calls: (await readTransport()).slice(start), rows: await readRows(ui) };
@@ -172,7 +180,6 @@ export async function verifyPriceReuseArbitration(ui: Ui, army: ArmyState, owner
   // The matcher proposes R3 (tie, first); both fixtures answer the last candidate, R6: the row shows the AI's choice.
   expect((await readRows(ui))[T3.id]).toMatchObject({ reference: R3.id, origin: "À confirmer" });
   const decisions = await arbitrate("Decisions", "decisions");
-  await expect(dialog.getByLabel("Modèle", { exact: true })).toHaveCount(0);
   const chatgpt = await arbitrate("ChatGPT", "chatgpt_plan");
   await recordEvidence(army, "prx02-arbitrations", { decisions, chatgpt });
   expect({ calls: decisions.calls, t3: decisions.rows[T3.id] }).toEqual({

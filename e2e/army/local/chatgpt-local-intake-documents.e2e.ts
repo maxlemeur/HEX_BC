@@ -11,7 +11,7 @@ import { localDriveStore } from "../critical/google-drive-local-store";
 import { hydratedUi, signIn } from "../critical/hydration-support";
 import { readPlanFiles, readPlanSets } from "../critical/plans-support";
 import {
-  chatGptLocalServer, isAbsorbedClientAbort, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture, type ChatGptLiveProbe, type ChatGptLocalServer,
+  chatGptLocalServer, isAbsorbedClientAbort, liveProbePath, localChatGptClient, openProjectAssistant, writeDecisionsControl, writePlanFixture, type ChatGptLiveProbe, type ChatGptLocalServer,
 } from "./chatgpt-local-journey-support";
 import { createLocalChatGptOwner, TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
 import { querySql } from "./calculation-gate-support";
@@ -148,8 +148,7 @@ if (!existsSync(liveProbePath)) test("ASSIST04 the assistant reads a dossier PDF
 
     await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
     const question = "ASSIST04 Que dit le CCTP sur la tuyauterie ?";
-    await screen.getByTestId("assistant-toggle").click();
-    const panel = screen.getByTestId("assistant-panel");
+    const panel = await openProjectAssistant(screen);
     await panel.getByTestId("assistant-input").fill(question);
     await panel.getByTestId("assistant-send").click();
     const answer = panel.getByTestId("assistant-message-assistant");
@@ -192,7 +191,7 @@ if (!existsSync(liveProbePath)) test("ASSIST04 the assistant reads a dossier PDF
 
     // From another affaire the member owns, the same document is refused before any byte of it is read.
     await ui.app.open(`/dashboard/estimates/${other.versionId}/edit`);
-    await screen.getByTestId("assistant-toggle").click();
+    await openProjectAssistant(screen);
     await panel.getByTestId("assistant-input").fill(`ASSIST04-AUTRE ${documentId}`);
     await panel.getByTestId("assistant-send").click();
     const refused = panel.getByTestId("assistant-message-assistant");
@@ -1124,8 +1123,7 @@ test("INTOCR02 the analysis retry reads a stopped transcription again after its 
     const assistantBefore = (await readTransport()).filter((entry) => entry.task === "assistant").length;
     await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
     const question = "INTOCR02 Que mentionne le bon de livraison ?";
-    await screen.getByTestId("assistant-toggle").click();
-    const panel = screen.getByTestId("assistant-panel");
+    const panel = await openProjectAssistant(screen);
     await panel.getByTestId("assistant-input").fill(question);
     await panel.getByTestId("assistant-send").click();
     const answer = panel.getByTestId("assistant-message-assistant");

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
+import { AssistantAiFeatureSettings, effectiveAiChoice, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
 import { LoadingState } from "@/components/layout/loading-state";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -90,8 +90,9 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
   const [compareError, setCompareError] = useState<string | null>(null);
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [filter, setFilter] = useState<Filter>("all");
+  const common = useAssistantAiSettings();
   const [aiSelection, setAiSelection] = useState<AiRequestSettingsValue>();
-  const [keyAnswered, setKeyAnswered] = useState<ReadonlySet<string>>();
+  const [keyProgress, setKeyProgress] = useState<{ settings: string; answered: ReadonlySet<string> }>();
   const [arbitrating, setArbitrating] = useState(false);
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -144,7 +145,10 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
   const aiSources = preview ? {
     chatgpt_plan: preview.arbiters.chatgpt, personal_api_key: preview.arbiters.personal_api_key, decisions: preview.arbiters.decisions,
   } : {};
-  const aiSettings = aiSelection ?? defaultAiRequestSettings(preview?.default_billing_source ?? null, aiSources);
+  const aiSettings = effectiveAiChoice(aiSelection?.source === "decisions" ? undefined : common?.choice,
+    aiSelection ?? defaultAiRequestSettings(preview?.default_billing_source ?? null, aiSources), aiSources);
+  const settingsKey = JSON.stringify(aiSettings);
+  const keyAnswered = keyProgress?.settings === settingsKey ? keyProgress.answered : undefined;
   const isBusy = isComparing || isSubmitting || arbitrating;
   // A row already retained or chosen by hand stays the user's choice.
   const eligibleLines = toArbitrate.filter((line) => !rows[line.line_id]?.checked && rows[line.line_id]?.origin !== "manual");
@@ -162,7 +166,7 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
     setSubmitError(null);
     setAiStatus(null);
     setAiSelection(undefined);
-    setKeyAnswered(undefined);
+    setKeyProgress(undefined);
     // A new comparison replaces the previous one: its rows are no longer shown nor selectable meanwhile.
     setPreview(null);
     setRows({});
@@ -216,7 +220,7 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
         if (onKey) {
           const answeredIds = new Set(continueOnKey ? keyAnswered : undefined);
           for (const reply of replies) answeredIds.add(reply.line_id);
-          setKeyAnswered(answeredIds);
+          setKeyProgress({ settings: settingsKey, answered: answeredIds });
         }
         setRows((current) => {
           const next = { ...current };
@@ -316,11 +320,11 @@ export function PriceReuseDialog({ isOpen, targetVersionId, onClose, prepareComp
                     L’IA ne reçoit que ces lignes et leurs articles candidats ; sa réponse reste une proposition à retenir.
                   </p>
                   <div className="mt-2 flex flex-wrap items-start gap-3">
-                    <AiRequestSettings sources={aiSources} defaultSource={preview.default_billing_source}
+                    <AssistantAiFeatureSettings sources={aiSources} defaultSource={preview.default_billing_source}
                       value={aiSettings} sourcePicker={{ label: "Source d’IA" }} locked={isBusy}
                       onChange={(settings) => {
                         setAiSelection(settings);
-                        setKeyAnswered(undefined);
+                        setKeyProgress(undefined);
                         setAiStatus(null);
                       }}
                       keyCeiling={{ nanoUsd: AI_REQUEST_CEILINGS_NANO_USD.shortQuestion }} />

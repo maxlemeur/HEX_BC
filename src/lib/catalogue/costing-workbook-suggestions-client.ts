@@ -1,6 +1,8 @@
 import {
   costingWorkbookSuggestionProvidersResponseSchema,
   costingWorkbookSuggestionsResponseSchema,
+  WORKBOOK_AI_SESSION_HEADER,
+  type WorkbookAiSession,
   type CostingWorkbookSuggestionProvidersResponse,
   type CostingWorkbookSuggestionsRequest,
   type CostingWorkbookSuggestionsResponseOf,
@@ -28,9 +30,12 @@ export async function fetchSuggestionProviders(signal?: AbortSignal): Promise<Co
 export async function requestWorkbookSuggestions<Task extends CostingWorkbookSuggestionTask>(
   request: Extract<CostingWorkbookSuggestionsRequest, { task: Task }>,
   signal?: AbortSignal,
+  session?: WorkbookAiSession,
 ): Promise<CostingWorkbookSuggestionsResponseOf<Task>> {
   const answer = await requestJsonUncoordinated<unknown>(
-    PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request), signal }, UNREADABLE,
+    PATH, { method: "POST", headers: { "Content-Type": "application/json",
+      ...(session ? { [WORKBOOK_AI_SESSION_HEADER]: JSON.stringify(session) } : {}) },
+      body: JSON.stringify(request), signal }, UNREADABLE,
   );
   const parsed = costingWorkbookSuggestionsResponseSchema.safeParse(answer);
   if (!parsed.success || parsed.data.task !== request.task) throw new Error(UNREADABLE);

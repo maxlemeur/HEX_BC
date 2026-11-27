@@ -13,7 +13,6 @@ import type { EstimateEditorData } from "@/lib/estimates/editor-read-contracts";
 import type { EstimateExportMode } from "@/lib/estimates/export-client";
 import type { Database } from "@/types/database";
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
-import { AssistantToggle } from "@/components/assistant/AssistantDock";
 import type { EstimateEditorToolbarProps } from "@/hooks/estimate-editor-view-props";
 
 // Rendered inside the "Plus d’actions" menu only: load it when the menu opens.
@@ -658,7 +657,6 @@ export function EstimateEditorToolbar({
           className="flex items-center gap-2"
           data-testid="estimate-page-toolbar-actions"
         >
-          <AssistantToggle />
           <MoreActionsDropdown
             showAutoSaveControls={showAutoSaveStatus}
             isAutoSaveEnabled={isAutoSaveEnabled}

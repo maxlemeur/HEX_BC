@@ -73,6 +73,21 @@ describe("AI request resolver", () => {
     expect(readLocalChatGptModelOptions).toHaveBeenCalledWith(OWNER);
   });
 
+  it("offers a saved API key with compatible models before the member saves any preferences", async () => {
+    access.state.mockResolvedValue({ ...savedKey(), analysisPreferences: undefined });
+
+    const { defaultSource, options } = await readAiRequestOptions(OWNER, POLICY);
+    expect(defaultSource).toBe("chatgpt_plan");
+    expect(options.personal_api_key).toMatchObject({
+      ok: true, models: [{ id: MODEL.id }, { id: OTHER.id }],
+      preferences: { model: MODEL.id, reasoningEffort: "medium" },
+    });
+    expect(await resolveAiRequest(OWNER, POLICY, { source: "personal_api_key", model: OTHER.id })).toMatchObject({
+      ok: true, source: "personal_api_key", preferences: { model: OTHER.id, reasoningEffort: "low" },
+      connection: { id: "connexion-fictive", version: 7 },
+    });
+  });
+
   it.each(["notice", "exception"] as const)("leaves the payer unset when reading the profile produces a %s", async (failure) => {
     if (failure === "notice") access.state.mockResolvedValue({ ...EMPTY, notice: "Fichier illisible." });
     else access.state.mockRejectedValue(new Error("private failure details"));

@@ -99,9 +99,9 @@ function resolveAiRequestSource(
 
 export function aiRequestApiKeyOptions(state: ApiKeyAccessState, usage?: AiAnalysisUsage): SourceOptions {
   if (state.status === "unavailable") return refusal("source_unavailable", state.message);
-  if (state.status !== "saved" || !state.analysisPreferences) return refusal("source_unavailable", AI_REQUEST_KEY_MISSING);
+  if (state.status !== "saved") return refusal("source_unavailable", AI_REQUEST_KEY_MISSING);
   const models = state.connection.offeredModels;
-  const preferences = resolveApiAnalysisPreferences(state.analysisPreferences, models, usage);
+  const preferences = resolveApiAnalysisPreferences(state.analysisPreferences ?? DEFAULT_AI_ANALYSIS_PREFERENCES, models, usage);
   if (!preferences) return refusal("no_model", AI_REQUEST_KEY_MISSING);
   return {
     ok: true, message: "Clé API OpenAI enregistrée.", models, preferences,
@@ -168,6 +168,9 @@ export async function resolveAiRequest(owner: Owner, policy: RequestPolicy, requ
     ? undefined : await readProfile(owner, access);
   const source = resolveAiRequestSource(profile?.defaultSource ?? null, policy, requested.source);
   if (typeof source !== "string") return source;
+  if (source === "personal_api_key" && profile?.key.status === "saved" && !profile.key.analysisPreferences && !requested.model) {
+    return refusal("no_model", AI_REQUEST_KEY_MISSING);
+  }
   const options = await sourceOptions(owner, access, source, policy.usage, profile);
   if (!options.ok) return options;
   if (requested.expectedConnectionId !== undefined && options.connection?.id !== requested.expectedConnectionId) {

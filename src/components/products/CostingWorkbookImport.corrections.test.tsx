@@ -339,9 +339,45 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     ] }));
     expect(await screen.findByRole("dialog", { name: "Colonnes à afficher" })).toBeVisible();
     expect(previews()).toHaveLength(1);
+    expect(screen.queryByText("1 correction lue dans en-tete.xlsx.")).not.toBeInTheDocument();
     await showWorkbookPreview(user);
     expect(await screen.findByRole("table", { name: "Articles proposés en brouillon" })).toBeVisible();
     expect(previews()[1].body?.rows?.[0]?.[0]).toBe("ID");
+    expect(screen.getByText("1 correction lue dans en-tete.xlsx.")).toBeVisible();
+  });
+
+  it("preserves exclusions from the supplier preview through the first article layout, corrections and import", async () => {
+    const user = userEvent.setup();
+    const workbook = costingWorkbook(SHEET_ROWS.map((row, index) => [...row, ["Fiabilité (/10)", 0, 8][index]]));
+    answers.articles = () => respond(200, { ok: true, data: articleReport({
+      articles: 1, new_articles: 1, proposed_articles: [{ row: 3, without_supply_type: true }],
+    }) });
+    renderImport();
+    await user.click(screen.getByRole("tab", { name: "Références fournisseur" }));
+    await user.upload(fileInput(), workbook);
+    const criterion = await screen.findByRole("textbox", { name: "Quelles lignes souhaitez-vous supprimer ?" });
+    await user.type(criterion, "Fiabilité à zéro");
+    await user.click(screen.getByRole("button", { name: "Analyser 2 lignes" }));
+    const proposal = within(await screen.findByRole("dialog", { name: "Lignes dont la fiabilité Excel est à zéro" }));
+    expect(proposal.getByText("Ligne Excel 2")).toBeVisible();
+    await user.click(proposal.getByRole("checkbox"));
+    await user.click(proposal.getByRole("button", { name: "Écarter 1 ligne de l’import" }));
+    await waitFor(() => expect(supplierPreviews()).toHaveLength(2));
+    expect(supplierPreviews()[1].body?.rows?.[1]).toEqual([]);
+
+    await user.click(screen.getByRole("tab", { name: "Articles en brouillon" }));
+    expect(await screen.findByRole("dialog", { name: "Colonnes à afficher" })).toBeVisible();
+    expect(previews()).toHaveLength(0);
+    await showWorkbookPreview(user);
+    const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
+    await user.click(within(table).getByRole("button", { name: "Corriger la cellule E3" }));
+    await user.type(screen.getByLabelText("Nouvelle valeur de la cellule E3"), "9,90{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Importer 1 brouillon" }));
+
+    await waitFor(() => expect(previews()).toHaveLength(3));
+    expect(previews().map(({ body }) => [body?.confirm, body?.rows?.[1], body?.rows?.[2]?.[4]])).toEqual([
+      [false, [], null], [false, [], "9,90"], [true, [], "9,90"],
+    ]);
   });
 
   it("refuses an oversized corrections file before reading it", async () => {

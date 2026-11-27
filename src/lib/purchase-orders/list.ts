@@ -1,5 +1,5 @@
 import { readAllRows } from "@/lib/supabase/read-all";
-import { readAuthenticatedUser } from "@/lib/auth/tenant-context";
+import { readAuthenticatedUser, type AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { ApiError, badRequest, conflict, internalError, payloadTooLarge, unauthorized } from "@/lib/http/api-response";
 
 import type { OrderStatus } from "@/lib/purchase-orders/lifecycle";
@@ -88,11 +88,12 @@ function referenceSearchPattern(value: string) {
     .join("");
 }
 
-function filteredOrders(supabase: Client, query: OrdersListQueryInput, columns: string) {
+function filteredOrders(supabase: Client, query: OrdersListQueryInput, columns: string, tenantId?: string) {
   // An empty embed is used only for EXISTS/NOT EXISTS. Keeping it separate
   // from the count embed also handles orders with zero children correctly.
   let request = supabase.from("purchase_orders")
     .select(columns + (query.has_devis ? ",devis_filter:purchase_order_devis()" : ""), { count: "exact" });
+  if (tenantId) request = request.eq("tenant_id", tenantId);
   if (query.q) request = request.regexIMatch("reference", referenceSearchPattern(query.q));
   if (query.status.length) request = request.in("status", query.status);
   if (query.supplier_id) request = request.eq("supplier_id", query.supplier_id);
@@ -118,10 +119,10 @@ function orderListRows(data: unknown): PurchaseOrderListItem[] {
   });
 }
 
-export async function listOrdersPage(query: OrdersListQueryInput): Promise<OrdersListResponse> {
-  const supabase = await getAuthenticatedClient();
+export async function listOrdersPage(query: OrdersListQueryInput, scope?: AuthenticatedTenantContext): Promise<OrdersListResponse> {
+  const supabase = scope?.supabase ?? await getAuthenticatedClient();
   const offset = (query.page - 1) * query.size;
-  const { data, error, count } = await filteredOrders(supabase, query, LIST_COLUMNS).range(offset, offset + query.size - 1);
+  const { data, error, count } = await filteredOrders(supabase, query, LIST_COLUMNS, scope?.tenantId).range(offset, offset + query.size - 1);
   if (error) throw badRequest(error.message);
   if (count === null || !Number.isSafeInteger(count) || count < 0) throw internalError("Le nombre de commandes est indisponible.");
   const rows = orderListRows(data);

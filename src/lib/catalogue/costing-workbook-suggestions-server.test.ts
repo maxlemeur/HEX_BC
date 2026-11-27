@@ -21,6 +21,7 @@ import {
   costingWorkbookSuggestionsRequestSchema,
   costingWorkbookSuggestionsResponseSchema,
   type CostingWorkbookSuggestionsRequest,
+  type CostingWorkbookSuggestionsResponseOf,
 } from "@/lib/catalogue/costing-workbook-suggestions-contract";
 import {
   COSTING_WORKBOOK_SUGGESTION_TASKS,
@@ -176,10 +177,13 @@ const asked = () => vi.mocked(askChoiceQuestions).mock.calls.map(([input]) => in
 const choicesOf = (question: ChoiceQuestion) => question.choices.map((choice) => choice.value);
 
 /** Through the contract, as the route does; the answer must be one the screen can parse. */
-async function suggest(body: CostingWorkbookSuggestionsRequest) {
+async function suggest<Request extends CostingWorkbookSuggestionsRequest>(
+  body: Request,
+): Promise<CostingWorkbookSuggestionsResponseOf<Request["task"]>> {
   const result = await suggestForWorkbook(costingWorkbookSuggestionsRequestSchema.parse(body));
   expect(costingWorkbookSuggestionsResponseSchema.safeParse(result).success).toBe(true);
-  return result;
+  expect(result.task).toBe(body.task);
+  return result as CostingWorkbookSuggestionsResponseOf<Request["task"]>;
 }
 
 const DETERMINISTIC = { provider: null, model: null, status: "deterministic", message: "Propositions du rapprochement automatique, sans IA." };
@@ -510,7 +514,7 @@ describe("columns", () => {
     header(27, "Note prix", ["8", "6"]),
     header(30, "   "),
   ];
-  const request = (provider?: ChoiceProvider): CostingWorkbookSuggestionsRequest => ({ task: "columns", missing, headers, provider });
+  const request = (provider?: ChoiceProvider) => ({ task: "columns", missing, headers, provider } satisfies CostingWorkbookSuggestionsRequest);
 
   it("matches a header by the column's name or a synonym, and proposes nothing on a tie, without a read or a provider (2, 6)", async () => {
     const fake = seed();
@@ -664,6 +668,32 @@ describe("supplier codes", () => {
   });
 });
 
+describe("row exclusions", () => {
+  it("counts only valid answers and proposes only supplied rows explicitly marked for exclusion", async () => {
+    const fake = seed();
+    const criterion = "Les articles galvanisés";
+    const lines = [
+      { row: 3, description: "Tube galvanisé" },
+      { row: 5, description: "Coude inox" },
+      { row: 6, description: "Tube laiton" },
+      { row: 9, description: "Bride inox" },
+    ];
+    arbiter(byId({
+      "3": { choice: "exclude" },
+      "5": { choice: "keep" },
+      "6": { choice: "delete" },
+    }), { status: "partial" });
+    const result = await suggest({ task: "row_exclusions", provider: "personal_api_key", model: "modele-fictif", criterion, lines });
+    const [call] = asked();
+    expect(call).toMatchObject({ provider: "personal_api_key", model: "modele-fictif", task: "catalogue-workbook-row-exclusions" });
+    expect(call.questions.map((question) => [question.id, question.subject, choicesOf(question)])).toEqual(
+      lines.map(({ row, description }) => [String(row), { ligne_excel: row, critere_de_suppression: criterion, cellules: description }, ["exclude", "keep"]]),
+    );
+    expect(result).toMatchObject({ task: "row_exclusions", status: "partial", analysed: 2, items: [{ row: 3 }] });
+    expect(fake.reads).toEqual(["tenant_memberships"]);
+  });
+});
+
 describe("rights (1)", () => {
   const requests: CostingWorkbookSuggestionsRequest[] = [
     { task: "suppliers", provider: "chatgpt_plan", names: ["Pt.P"] },
@@ -671,6 +701,7 @@ describe("rights (1)", () => {
     { task: "supply_types", provider: "chatgpt_plan", groups: [{ key: "a", family_code: null, product_type: "Tube", material: null, samples: [], count: 1 }] },
     { task: "columns", provider: "chatgpt_plan", missing: ["Type FO"], headers: [{ index: 9, text: "Catégorie", samples: [] }] },
     { task: "supplier_codes", provider: "chatgpt_plan", values: ["NB-50"] },
+    { task: "row_exclusions", provider: "chatgpt_plan", criterion: "Les articles galvanisés", lines: [{ row: 3, description: "Tube galvanisé" }] },
   ];
 
   it.each([["viewer", VIEWER], ["director", DIRECTOR]] as const)("refuses a %s before any read of the catalogue or any provider", async (role, actor) => {

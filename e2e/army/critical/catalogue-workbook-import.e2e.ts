@@ -7,6 +7,7 @@ import { expect, type Screen } from "e2e";
 
 import { COSTING_WORKBOOK_SHEET } from "@/lib/catalogue/costing-workbook";
 import type { CostingWorkbookImportReport, CostingWorkbookSupplierReferenceReport } from "@/lib/catalogue/costing-workbook-contract";
+import type { CostingWorkbookSuggestionsRequest } from "@/lib/catalogue/costing-workbook-suggestions-contract";
 import type { CatalogueImportBatchPage } from "@/lib/catalogue/import-review-contract";
 
 import { apiRequest, armyTest, recordEvidence } from "./fixtures";
@@ -72,6 +73,145 @@ function workbookColumnDialog(screen: Screen) {
 async function showWorkbookPreview(screen: Screen) {
   await workbookColumnDialog(screen).getByRole("button", "Afficher l’aperçu", { exact: true }).tap({ timeout: 30_000 });
 }
+
+armyTest(
+  "CAT06 the costing workbook previews row exclusions with the personal API key and imports only the rows the user keeps",
+  { session: "army", tags: ["critical", "catalogue"], timeout: 180_000 },
+  async ({ app, screen, browser, army }) => {
+    const refs = ["GALVA-A", "GALVA-B", "INOX"].map((suffix) => `${army.runPrefix}-${suffix}`);
+    const sheet = [
+      ["Classeur fictif"],
+      HEADERS,
+      row({ ID: refs[0], "Type_ligne": "Art", "Caractéristique": "Tube acier galvanisé", "Matériau": "Acier galvanisé", "Unité": "ml", "PR. FO": 12,
+        F1_nom: `${army.runPrefix} Fournisseur fictif`, F1_ref: "TG-12" }),
+      [],
+      row({ ID: refs[1], "Type_ligne": "Art", "Caractéristique": "Coude galvanisé", "Matériau": "Acier galvanisé", "Unité": "u", "PR. FO": 9,
+        F1_nom: `${army.runPrefix} Fournisseur fictif`, F1_ref: "CG-09" }),
+      row({ ID: refs[2], "Type_ligne": "Art", "Caractéristique": "Tube inox", "Matériau": "Inox 304L", "Unité": "ml", "PR. FO": 18 }),
+    ];
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(sheet), COSTING_WORKBOOK_SHEET);
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
+    await mkdir(directory, { recursive: true });
+    const filename = path.join(directory, "bible-exclusions-ia.xlsx");
+    await writeFile(filename, XLSX.write(book, { bookType: "xlsx", type: "buffer" }) as Buffer);
+
+    const criterion = "Supprime les articles en acier galvanisé.";
+    const requests: CostingWorkbookSuggestionsRequest[] = [];
+    const firstResponse = Promise.withResolvers<void>();
+    let keyRegistered = false;
+    await browser.route("**/api/catalogue/workbook-import/suggestions", async (route) => {
+      if (route.request.method === "GET") {
+        await route.fulfill({ json: { ok: true, data: {
+          defaultProvider: "chatgpt_plan",
+          providers: {
+            chatgpt_plan: { available: true, message: "", models: [
+              { id: "plan-a", name: "Forfait A", reasoningEfforts: ["low"], defaultReasoningEffort: "low" },
+              { id: "plan-b", name: "Forfait B", reasoningEfforts: ["medium"], defaultReasoningEffort: "medium" },
+            ], preferences: { model: "plan-a", reasoningEffort: "low" } },
+            personal_api_key: keyRegistered ? {
+              available: true, message: "Clé API OpenAI enregistrée.", models: [
+                { id: "key-a", name: "API A", reasoningEfforts: ["low"], defaultReasoningEffort: "low" },
+                { id: "key-b", name: "API B", reasoningEfforts: ["medium"], defaultReasoningEffort: "medium" },
+              ], preferences: { model: "key-a", reasoningEffort: "low" },
+            } : { available: false, message: "Configurez votre clé API OpenAI dans Mon profil.", models: [], preferences: null },
+            decisions: { available: false, message: "" },
+          },
+        } } });
+        return;
+      }
+      const request = JSON.parse(route.request.postData ?? "{}") as CostingWorkbookSuggestionsRequest;
+      requests.push(request);
+      if (requests.length === 1) await firstResponse.promise;
+      await route.fulfill({ json: { ok: true, data: {
+        task: "row_exclusions", provider: "personal_api_key", model: "key-b", analysed: 3, status: "available", message: "",
+        items: [{ row: 3 }, { row: 5 }],
+      } } });
+    });
+
+    await app.open("/dashboard/products/import-workbook");
+    await screen.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(filename);
+    await showWorkbookPreview(screen);
+    const importThree = screen.getByRole("button", "Importer 3 brouillons", { exact: true });
+    await expect(importThree).toBeEnabled({ timeout: 30_000 });
+    const settings = screen.getByRole("button", "Réglages IA", { exact: true });
+    const dialog = screen.getByRole("dialog", "Supprimer des lignes avec l’IA", { exact: true });
+    const instruction = screen.getByRole("textbox", "Quelles lignes souhaitez-vous supprimer ?", { exact: true });
+    const analyseButton = screen.getByRole("button", "Analyser 3 lignes", { exact: true });
+    const results = screen.getByRole("button", "Consulter les résultats de l’analyse IA", { exact: true });
+    async function analyse() {
+      await analyseButton.tap();
+      await results.tap();
+      await expect(dialog.getByText("2 lignes proposées sur 3 lignes analysées", { exact: true })).toBeVisible();
+      await expect(dialog.getByRole("button", "Écarter les lignes sélectionnées", { exact: true })).toBeDisabled();
+    }
+    await instruction.fill(criterion);
+    await settings.tap();
+    const apiKeySetup = screen.getByRole("link", /^Configurer la clé API/);
+    await expect(apiKeySetup).toHaveAttribute("href", "/dashboard/profile#section-cle-api");
+    await expect(apiKeySetup).toHaveAttribute("target", "_blank");
+    keyRegistered = true;
+    await screen.getByRole("button", "Actualiser les sources d’IA", { exact: true }).tap();
+    await expect(screen.getByRole("link", /^Gérer la clé API/)).toBeVisible();
+    await expect(instruction).toHaveValue(criterion);
+    await screen.getByRole("combobox", "Propositions", { exact: true }).selectOption({ value: "personal_api_key" });
+    await screen.getByRole("combobox", "Modèle", { exact: true }).selectOption({ value: "key-b" });
+    await settings.tap();
+    const running = screen.getByRole("button", "Analyse IA en cours · 0 / 3", { exact: true });
+    try {
+      await analyseButton.tap();
+      await expect(running).toBeEnabled();
+      await running.tap();
+      await dialog.getByRole("button", "Fermer les résultats", { exact: true }).tap();
+      await expect(running).toBeEnabled();
+      await expect(instruction).toHaveValue(criterion);
+      await running.tap();
+      await expect(dialog.getByText("0 sur 3 lignes analysées…", { exact: true })).toBeVisible();
+      await dialog.getByRole("button", "Fermer les résultats", { exact: true }).tap();
+    } finally {
+      firstResponse.resolve();
+    }
+    await expect(results).toBeEnabled();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      task: "row_exclusions", criterion, provider: "personal_api_key", model: "key-b", reasoning_effort: "medium",
+      lines: refs.map((ref, index) => ({ row: [3, 5, 6][index], description: expect.stringContaining(ref) })),
+    });
+    await expect(importThree).toBeEnabled();
+    expect(await cataloguePage(browser, army.runPrefix, "draft")).toEqual([]);
+
+    async function excludeOne() {
+      await dialog.getByRole("checkbox", /^Ligne Excel 3\b/).check();
+      await dialog.getByRole("button", "Écarter 1 ligne de l’import", { exact: true }).tap();
+      await expect(screen.getByText("1 ligne écartée de l’import", { exact: true })).toBeVisible();
+      await expect(screen.getByRole("button", "Importer 2 brouillons", { exact: true })).toBeEnabled({ timeout: 30_000 });
+    }
+    await results.tap();
+    await expect(dialog.getByText("2 lignes proposées sur 3 lignes analysées", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", "Écarter les lignes sélectionnées", { exact: true })).toBeDisabled();
+    await excludeOne();
+    await screen.getByRole("button", "Réintégrer les lignes écartées", { exact: true }).tap();
+    await expect(importThree).toBeEnabled({ timeout: 30_000 });
+    await expect(instruction).toHaveValue(criterion);
+    await settings.tap();
+    await expect(screen.getByRole("combobox", "Modèle", { exact: true })).toHaveValue("key-b");
+    await settings.tap();
+    await analyse();
+    await excludeOne();
+    const [supplierPreview] = await Promise.all([
+      browser.waitForResponse("**/api/catalogue/workbook-import/supplier-references"),
+      screen.getByRole("tab", "Références fournisseur", { exact: true }).tap(),
+    ]);
+    expect(supplierPreview.status).toBe(200);
+    const { data } = await supplierPreview.json<Envelope<CostingWorkbookSupplierReferenceReport>>();
+    expect(data.for_decision).toMatchObject([{ row: 5, slot: 1 }]);
+    await screen.getByRole("tab", "Articles en brouillon", { exact: true }).tap();
+    await screen.getByRole("button", "Importer 2 brouillons", { exact: true }).tap();
+    await expect(screen.getByText("Import terminé : 2 brouillons créés.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    const persisted = await cataloguePage(browser, army.runPrefix, "draft");
+    expect(persisted.map(({ reference }) => reference).sort()).toEqual(refs.slice(1).sort());
+  },
+);
 
 armyTest(
   "CAT02 filters workbook display columns without changing the imported draft",
@@ -295,8 +435,11 @@ armyTest(
       fileInput.setInputFiles(workbookPath).then(() => showWorkbookPreview(screen)),
     ]);
     expect(previewResponse.status).toBe(200);
-    await expect(importPage.getByRole("combobox", "Propositions", { exact: true })).toHaveValue("");
-    await expect(importPage.getByText(/^Source par défaut indisponible : /)).toBeVisible();
+    const aiSettings = importPage.getByRole("button", "Réglages IA", { exact: true });
+    await aiSettings.tap();
+    await expect(screen.getByRole("combobox", "Propositions", { exact: true })).toHaveValue("");
+    await expect(screen.getByText(/^Source par défaut indisponible : /)).toBeVisible();
+    await aiSettings.tap();
     const unitIssue = { row: 5, reference: valveRef, message: "Unité absente : « u » retenue." };
     const expectedPreview: CostingWorkbookImportReport = {
       confirmed: false, articles: 4, new_articles: 3, already_in_catalogue: 1, without_supply_type: withoutSupplyType,

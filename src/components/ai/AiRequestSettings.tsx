@@ -20,6 +20,7 @@ type Props = Readonly<{
   value?: AiRequestSettingsValue;
   onChange: (value: AiRequestSettingsValue) => void;
   sourcePicker?: { label: ReactNode; rulesOnlyLabel?: string };
+  fields?: "all" | "source" | "model";
   modelLabel?: string;
   fieldsClassName?: string;
   locked?: boolean;
@@ -30,7 +31,7 @@ type Props = Readonly<{
 
 /** The options come from the server. Changes only apply to the current screen's requests. */
 export function AiRequestSettings({
-  id, sources, defaultSource, value = defaultAiRequestSettings(defaultSource, sources), onChange, sourcePicker,
+  id, sources, defaultSource, value = defaultAiRequestSettings(defaultSource, sources), onChange, sourcePicker, fields = "all",
   modelLabel = "Modèle", fieldsClassName = "flex flex-wrap items-end gap-3", locked = false,
   effortFallback = "model_default", keyCeiling, messageId,
 }: Props) {
@@ -55,7 +56,7 @@ export function AiRequestSettings({
   return (
     <div className="space-y-1.5">
       <div className={fieldsClassName}>
-        {sourcePicker ? (
+        {fields !== "model" && sourcePicker ? (
           <div className="min-w-0 space-y-1.5">
             <FieldLabel htmlFor={selectId} className="inline-flex items-center gap-1">{sourcePicker.label}</FieldLabel>
             <NativeSelect id={selectId} value={source ?? ""} disabled={locked}
@@ -76,11 +77,11 @@ export function AiRequestSettings({
             </NativeSelect>
           </div>
         ) : null}
-        {models && preferences ? (
+        {fields !== "source" && models && preferences ? (
           <>
             <div className="min-w-0 space-y-1.5">
               <FieldLabel htmlFor={`${selectId}-model`}>{modelLabel}</FieldLabel>
-              <NativeSelect id={`${selectId}-model`} value={preferences.model} disabled={locked}
+              <NativeSelect id={`${selectId}-model`} value={selectedModel?.id ?? ""} disabled={locked}
                 onChange={(event) => {
                   const model = models.find((entry) => entry.id === event.currentTarget.value);
                   if (locked || !model) return;
@@ -88,6 +89,7 @@ export function AiRequestSettings({
                     : effortFallback === "automatic" ? null : model.defaultReasoningEffort;
                   onChange({ source, preferences: { model: model.id, reasoningEffort } });
                 }}>
+                {!selectedModel ? <option value="" disabled>Choisir un modèle</option> : null}
                 {models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
               </NativeSelect>
             </div>
@@ -99,7 +101,7 @@ export function AiRequestSettings({
           </>
         ) : null}
       </div>
-      {message ? <p id={infoId} className="text-xs text-muted-foreground">{message}</p> : null}
+      {message && fields !== "model" ? <p id={infoId} className="text-xs text-muted-foreground">{message}</p> : null}
     </div>
   );
 }

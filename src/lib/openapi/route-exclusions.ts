@@ -121,6 +121,11 @@ export const openApiRouteExclusions = [
       "Flux d'evenements de l'assistant, servi seulement par MergeOne local (MERGEONE_ASSISTANT et forfait ChatGPT sur 127.0.0.1), hors contrat applicatif public tant que le site heberge ne l'ouvre pas.",
   },
   {
+    path: "/api/assistant/session/messages",
+    methods: ["POST"],
+    reason: "Flux d’événements de l’assistant général utilisé par l’interface de MergeOne local lorsqu’elle est activée (MERGEONE_ASSISTANT).",
+  },
+  {
     path: "/api/ai-access/api-key",
     methods: ["GET", "PUT", "PATCH", "DELETE"],
     reason: LOCAL_AI_API_KEY,

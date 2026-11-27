@@ -79,6 +79,12 @@ export function applyWorkbookEdits(rows: Rows, edits: readonly WorkbookEdit[]): 
   return next;
 }
 
+/** Blank excluded data rows so Excel coordinates and all other cell corrections keep their positions. */
+export function excludeWorkbookRows(rows: Rows, excluded: ReadonlySet<number>, headerRow: number | null): Rows {
+  if (excluded.size === 0 || headerRow === null) return rows;
+  return rows.map((cells, index) => index + 1 > headerRow && excluded.has(index + 1) ? [] : cells);
+}
+
 /**
  * The journal after new corrections: one entry per cell, the latest value. A correction that gives a cell back
  * the value the sheet holds leaves the journal.

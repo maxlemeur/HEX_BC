@@ -5,7 +5,9 @@ import { createContext, useContext, useRef, useState } from "react";
 import { SparklesIcon } from "lucide-react";
 
 import { AiRequestSettings } from "@/components/ai/AiRequestSettings";
+import { effectiveAiChoice, useAssistantAiSettings } from "@/components/ai/AssistantAiSettings";
 import { Button } from "@/components/ui/button";
+import { supportsReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { AI_REQUEST_CEILINGS_NANO_USD } from "@/lib/ai/request-ceilings";
 import { AI_REQUEST_SOURCE_LABELS, defaultAiRequestSettings, type AiRequestSettingsValue } from "@/lib/ai/request-settings";
 import { fetchSuggestionProviders } from "@/lib/catalogue/costing-workbook-suggestions-client";
@@ -32,7 +34,7 @@ export type WorkbookAssistant = {
   settingsLocked: boolean;
   lockSettings: () => (() => void) | null;
   chooseSettings: (selection: AiRequestSettingsValue) => void;
-  loadProviders: () => void;
+  loadProviders: (refresh?: boolean) => void;
 };
 
 const NO_ASSISTANT: WorkbookAssistant = {
@@ -46,12 +48,17 @@ export const useWorkbookAssistant = () => useContext(WorkbookAssistantContext);
 
 /** The choices last as long as the page. */
 export function useWorkbookAssistantState(): WorkbookAssistant {
+  const shared = useAssistantAiSettings();
   const [sources, setSources] = useState<WorkbookAssistant["sources"]>(null);
   const [selection, setSelection] = useState<AiRequestSettingsValue>();
   const [settingsLocked, setSettingsLocked] = useState(false);
   const settingsLock = useRef(false);
+  const loadingSources = useRef(false);
   const loaded = typeof sources === "object" ? sources : null;
-  const { source: provider, preferences } = selection ?? defaultAiRequestSettings(loaded?.defaultProvider ?? null, loaded?.providers ?? {});
+  const current = loaded
+    ? effectiveAiChoice(selection ? undefined : shared?.choice, selection ?? defaultAiRequestSettings(loaded.defaultProvider, loaded.providers), loaded.providers)
+    : { source: null, preferences: null };
+  const { source: provider, preferences } = current;
 
   function lockSettings() {
     if (settingsLock.current) return null;
@@ -63,20 +70,37 @@ export function useWorkbookAssistantState(): WorkbookAssistant {
     };
   }
 
-  function loadProviders() {
-    if (settingsLock.current || (sources !== null && sources !== "error")) return;
+  function loadProviders(refresh = false) {
+    if (settingsLock.current || loadingSources.current || (!refresh && sources !== null && sources !== "error")) return;
+    loadingSources.current = true;
     setSources("loading");
     void fetchSuggestionProviders().then((answer) => {
+      setSelection((current) => {
+        if (!current?.source) return current;
+        const option = answer.providers[current.source];
+        if (option.available && current.source === "decisions") return current;
+        if (option.available && "models" in option && current.preferences) {
+          const model = option.models.find(({ id }) => id === current.preferences?.model);
+          if (model && supportsReasoningEffort(model, current.preferences.reasoningEffort)) return current;
+        }
+        return { source: null, preferences: null };
+      });
       setSources(answer);
-    }, () => setSources("error"));
+    }, () => setSources("error")).finally(() => {
+      loadingSources.current = false;
+    });
   }
 
   function chooseSettings(next: AiRequestSettingsValue) {
-    if (!settingsLock.current) setSelection(next);
+    if (settingsLock.current) return;
+    if (shared && next.source && next.source !== "decisions") {
+      shared.choose(next);
+      setSelection(undefined);
+    } else setSelection(next);
   }
 
   const requestOptions = provider ? { provider, ...(preferences && { model: preferences.model, reasoning_effort: preferences.reasoningEffort }) } : {};
-  return { sources, provider, selection, requestOptions, settingsLocked, lockSettings, chooseSettings, loadProviders };
+  return { sources, provider, selection: loaded ? current : undefined, requestOptions, settingsLocked, lockSettings, chooseSettings, loadProviders };
 }
 
 export function confidenceLabel(confidence: number | null) {
@@ -90,7 +114,7 @@ export function AssistantProviderSelect() {
     return (
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span role="alert">Les sources d’IA n’ont pas pu être lues. Les propositions suivent les règles seules.</span>
-        <Button variant="ghost" size="xs" disabled={settingsLocked} onClick={loadProviders}>Recharger les sources d’IA</Button>
+        <Button variant="ghost" size="xs" disabled={settingsLocked} onClick={() => loadProviders()}>Recharger les sources d’IA</Button>
       </div>
     );
   }

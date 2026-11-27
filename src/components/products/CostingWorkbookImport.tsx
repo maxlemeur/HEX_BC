@@ -32,6 +32,7 @@ import {
   type WorkbookCorrectionsRead,
 } from "@/lib/catalogue/costing-workbook-corrections";
 import {
+  excludeWorkbookRows,
   mergeWorkbookEdits,
   workbookEditEntries,
   type WorkbookEdit,
@@ -53,10 +54,11 @@ import { asRecord } from "@/lib/value-guards";
 
 import type { DuplicateSearch } from "./costing-workbook/ArticleDuplicates";
 import { ArticlePreview, type SupplyTypeChoices } from "./costing-workbook/ArticlePreview";
-import { AssistantProviderSelect, useWorkbookAssistantState, WorkbookAssistantProvider } from "./costing-workbook/assistant";
+import { useWorkbookAssistantState, WorkbookAssistantProvider } from "./costing-workbook/assistant";
 import { ColumnsPanel } from "./costing-workbook/ColumnsPanel";
 import { CorrectionsJournal } from "./costing-workbook/CorrectionsJournal";
 import { RejectedWorkbookEdits } from "./costing-workbook/RejectedWorkbookEdits";
+import { RowExclusions } from "./costing-workbook/RowExclusions";
 import { boundedPage, DECISIONS_PER_PAGE, formatCount, plural, ReviewPager, WorkbookEditorProvider, type WorkbookReview } from "./costing-workbook/shared";
 import { SupplierReferenceReview } from "./costing-workbook/SupplierReferenceReview";
 import { useWorkbookColumnPreferences, WorkbookPreviewColumnDialog } from "./costing-workbook/WorkbookPreviewColumns";
@@ -71,6 +73,7 @@ import { useWorkbookColumnPreferences, WorkbookPreviewColumnDialog } from "./cos
  */
 
 export type CostingWorkbookImportProps = {
+  visible?: boolean;
   catalogueHref: string;
   draftsHref: string;
   /** Drafts were created: the catalogue's list no longer holds. */
@@ -182,6 +185,7 @@ export function CostingWorkbookImport({
   draftsHref,
   onImported,
   onImportRecorded,
+  visible = true,
 }: Readonly<CostingWorkbookImportProps>) {
   const profile = useOptionalUserContext()?.profile;
   const isAdmin = profile?.tenant_role === "admin";
@@ -189,9 +193,11 @@ export function CostingWorkbookImport({
   const [mode, setMode] = useState<Mode>("articles");
   const modeRef = useRef<Mode>("articles");
   const [fileName, setFileName] = useState<string | null>(null);
+  const [fileGeneration, setFileGeneration] = useState(0);
   /** The sheet as the file holds it, and the corrections made here: the import reads the first with the second. */
   const [baseRows, setBaseRows] = useState<CostingWorkbookRows | null>(null);
   const [edits, setEdits] = useState<WorkbookEdit[]>([]);
+  const [excludedRows, setExcludedRows] = useState<ReadonlySet<number>>(new Set());
   const [supplyTypeChoices, setSupplyTypeChoices] = useState<SupplyTypeChoices>(() => new Map());
   const [supplyTypeRows, setSupplyTypeRows] = useState<SupplyTypeRows>({});
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
@@ -223,15 +229,19 @@ export function CostingWorkbookImport({
   const importingRef = useRef(false);
 
   const assistant = useWorkbookAssistantState();
-  const rows = useMemo(() => (baseRows ? applyWorkbookFileEdits(baseRows, edits) : null), [baseRows, edits]);
-  const inspection = useMemo(() => (rows ? inspectCostingWorkbookColumns(rows) : null), [rows]);
+  const mappedRows = useMemo(() => (baseRows ? applyWorkbookFileEdits(baseRows, edits) : null), [baseRows, edits]);
+  const inspection = useMemo(() => (mappedRows ? inspectCostingWorkbookColumns(mappedRows) : null), [mappedRows]);
   const headerRow = inspection?.headerRow ?? null;
+  const rows = useMemo(
+    () => (mappedRows ? excludeWorkbookRows(mappedRows, excludedRows, headerRow) : null),
+    [mappedRows, excludedRows, headerRow],
+  );
   const originalRows = useMemo(
     () => (baseRows ? workbookFileOriginalRows(baseRows, edits, headerRow) : null), [baseRows, edits, headerRow],
   );
   const journal = useMemo(
-    () => (originalRows && rows ? workbookEditEntries(originalRows, edits, headerRow, rows) : []),
-    [originalRows, rows, edits, headerRow],
+    () => (originalRows && mappedRows ? workbookEditEntries(originalRows, edits, headerRow, mappedRows) : []),
+    [originalRows, mappedRows, edits, headerRow],
   );
 
   function setPhase(next: Phase) {
@@ -265,7 +275,7 @@ export function CostingWorkbookImport({
   }, []);
 
   // Leaving loses a running import's answer, and the corrections made here: they live in this page only.
-  const warnBeforeLeaving = phase === "importing" || edits.length > 0 || rejectedWorkbookEdits.length > 0;
+  const warnBeforeLeaving = phase === "importing" || edits.length > 0 || excludedRows.size > 0 || rejectedWorkbookEdits.length > 0;
   useEffect(() => {
     if (!warnBeforeLeaving) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
@@ -427,26 +437,43 @@ export function CostingWorkbookImport({
   /** The journal changed: every preview read the sheet without it, and a result is no longer what the screen shows. */
   function commitEdits(nextEdits: WorkbookEdit[]) {
     if (!baseRows || isBusy || phaseRef.current !== "idle" || !isCurrentRevision(revision)) return;
-    previewEdits(baseRows, nextEdits);
+    previewWorkbookChanges(baseRows, nextEdits);
   }
 
-  function previewEdits(base: CostingWorkbookRows, nextEdits: WorkbookEdit[], onApply?: () => void) {
-    const nextRows = applyWorkbookFileEdits(base, nextEdits);
+  function previewWorkbookChanges(
+    base: CostingWorkbookRows,
+    nextEdits: WorkbookEdit[],
+    { exclusions = excludedRows, onApply }: { exclusions?: ReadonlySet<number>; onApply?: () => void } = {},
+  ) {
+    const mapped = applyWorkbookFileEdits(base, nextEdits);
+    const nextInspection = inspectCostingWorkbookColumns(mapped);
+    const nextRows = excludeWorkbookRows(mapped, exclusions, nextInspection.headerRow);
+    const readable = nextInspection.missingRequired.length === 0;
     // A preview is drawn from the rows: once they lose a required column (a header mapping undone), the one on
     // screen can no longer be read against them, and the next answer is the format refusal.
-    const readable = inspectCostingWorkbookColumns(nextRows).missingRequired.length === 0;
+    const canKeepPreview = exclusions === excludedRows && readable;
     function showPreview() {
       onApply?.();
       advanceRevision();
       setDuplicateSearch(null);
       setEdits(nextEdits);
-      setPreviews((previous) => (readable ? { [mode]: previous[mode] } : {}));
+      setPreviews((previous) => (canKeepPreview ? { [mode]: previous[mode] } : {}));
       setResults({});
       void runPreview(mode, nextRows);
     }
     if (mode === "articles" && fileName && readable && inspection?.missingRequired.length
       && offerColumnChoice(fileName, base, nextRows, showPreview)) return;
     showPreview();
+  }
+
+  function updateRowExclusions(selection: readonly number[] | null) {
+    if (!baseRows || !rows || editorDirty || phaseRef.current !== "idle" || !isCurrentRevision(revision)) return false;
+    const next = new Set(selection ? [...excludedRows, ...selection] : []);
+    setExcludedRows(next);
+    setKnownDuplicateRows(new Set());
+    setNotice(null);
+    previewWorkbookChanges(baseRows, edits, { exclusions: next });
+    return true;
   }
 
   function applyEdits(added: WorkbookEdit[]) {
@@ -483,8 +510,10 @@ export function CostingWorkbookImport({
     try {
       const next: Replacement = { rows: await readCostingWorkbookFile(await file.arrayBuffer()), name: file.name };
       if (!isCurrentRevision(expected)) return;
-      if (edits.length > 0 && originalRows && rows) {
-        setReplacement({ ...next, replay: reapplyWorkbookJournal(workbookJournalRows(journal, originalRows, rows), next.rows) });
+      if (edits.length > 0 && originalRows && mappedRows) {
+        setReplacement({ ...next, replay: reapplyWorkbookJournal(workbookJournalRows(journal, originalRows, mappedRows), next.rows) });
+      } else if (excludedRows.size > 0) {
+        setReplacement(next);
       } else {
         configureWorkbook(next, false);
       }
@@ -525,9 +554,11 @@ export function CostingWorkbookImport({
     setColumnChoice(null);
     setBaseRows(next.rows);
     setFileName(next.name);
+    setFileGeneration((current) => current + 1);
     assistant.loadProviders();
     fileNameRef.current = next.name;
     setEdits(nextEdits);
+    setExcludedRows(new Set());
     forgetSupplyTypes();
     setDismissed(new Set());
     setDuplicateSearch(null);
@@ -546,7 +577,7 @@ export function CostingWorkbookImport({
   async function chooseCorrectionsFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     event.target.value = "";
-    if (!file || !baseRows || !rows || isBusy || editorDirty || phaseRef.current !== "idle") return;
+    if (!file || !baseRows || !mappedRows || isBusy || editorDirty || phaseRef.current !== "idle") return;
     if (file.size > COSTING_WORKBOOK_MAX_FILE_BYTES) {
       setError("Ce fichier de corrections dépasse 20 Mo.");
       return;
@@ -557,7 +588,7 @@ export function CostingWorkbookImport({
     setNotice(null);
     setSkippedCorrections([]);
     try {
-      const read = await readWorkbookCorrectionsFile(await file.arrayBuffer(), rows);
+      const read = await readWorkbookCorrectionsFile(await file.arrayBuffer(), mappedRows);
       if (!isCurrentRevision(expected)) return;
       setPhase("idle");
       setSkippedCorrections(read.skipped);
@@ -570,8 +601,9 @@ export function CostingWorkbookImport({
         return;
       }
       const original = workbookFileOriginalRows(baseRows, [...edits, ...read.edits], headerRow);
-      previewEdits(baseRows, mergeWorkbookEdits(original, edits, read.edits), () => {
-        setNotice(`${formatCount(read.edits.length)} ${plural(read.edits.length, "correction lue", "corrections lues")} dans ${file.name}${left ? ` ; ${left}` : ""}.`);
+      const correctionNotice = `${formatCount(read.edits.length)} ${plural(read.edits.length, "correction lue", "corrections lues")} dans ${file.name}${left ? ` ; ${left}` : ""}.`;
+      previewWorkbookChanges(baseRows, mergeWorkbookEdits(original, edits, read.edits), {
+        onApply: () => setNotice(correctionNotice),
       });
     } catch (readError) {
       if (!isCurrentRevision(expected)) return;
@@ -587,7 +619,7 @@ export function CostingWorkbookImport({
   const toImport = articlePreview?.new_articles ?? supplierReport?.to_import ?? 0;
 
   async function runImport(selectedRows?: readonly number[]) {
-    if (!rows || !preview || toImport === 0 || isBusy || editorDirty || phaseRef.current !== "idle") return;
+    if (!visible || !rows || !preview || toImport === 0 || isBusy || editorDirty || phaseRef.current !== "idle") return;
     const expectedTenantId = selectedRows ? articlePreview?.review_tenant_id : undefined;
     if (selectedRows && (!isAdmin || !expectedTenantId || selectedRows.length === 0)) return;
     importingRef.current = true;
@@ -771,7 +803,17 @@ export function CostingWorkbookImport({
               <p className="text-xs text-muted-foreground">
                 {`${fileName} · ${formatCount(baseRows.length)} ${plural(baseRows.length, "ligne lue", "lignes lues")} dans l’onglet « ${COSTING_WORKBOOK_SHEET} »`}
               </p>
-              <AssistantProviderSelect />
+            </div>
+          ) : null}
+
+          {excludedRows.size > 0 ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <p role="status" className="text-sm text-muted-foreground">
+                {formatCount(excludedRows.size)} {plural(excludedRows.size, "ligne écartée de l’import", "lignes écartées de l’import")}
+              </p>
+              <Button size="xs" variant="outline" disabled={isBusy || editorDirty} onClick={() => updateRowExclusions(null)}>
+                Réintégrer les lignes écartées
+              </Button>
             </div>
           ) : null}
 
@@ -823,7 +865,7 @@ export function CostingWorkbookImport({
           <CorrectionsJournal
             entries={journal}
             rows={originalRows ?? []}
-            mapped={rows ?? []}
+            mapped={mappedRows ?? []}
             busy={isBusy}
             onUndo={(entry) => commitEdits(edits.filter((edit) => edit.row !== entry.row || edit.column !== entry.column))}
             onUndoAll={() => commitEdits([])}
@@ -858,7 +900,7 @@ export function CostingWorkbookImport({
                     setKnownDuplicateRows((previous) => new Set(complete ? found : [...previous, ...found]));
                   }}
                   onShowSupplierReferences={() => changeMode("supplier-references")}
-                  onValidate={isAdmin && articlePreview.review_tenant_id ? (selection) => void runImport(selection) : undefined}
+                  onValidate={visible && isAdmin && articlePreview.review_tenant_id ? (selection) => void runImport(selection) : undefined}
                   editorDirty={editorDirty}
                   columnPreferences={columnPreferences}
                   onColumnPreferencesChange={setColumnPreferences}
@@ -890,13 +932,17 @@ export function CostingWorkbookImport({
           </WorkbookEditorProvider>
         ) : null}
       </Tabs>
-      {columnChoice ? (
+      {rows && originalRows && inspection ? (
+        <RowExclusions key={fileGeneration} rows={rows} originalRows={originalRows} inspection={inspection} visible={visible} disabled={isBusy || editorDirty}
+          onApply={updateRowExclusions} />
+      ) : null}
+      {visible && columnChoice ? (
         <WorkbookPreviewColumnDialog fileName={columnChoice.fileName} rows={columnChoice.rows}
           inspection={columnChoice.inspection} preferences={columnPreferences}
           onCancel={() => { setColumnChoice(null); setPhase("idle"); }}
           onConfirm={(next) => { setColumnPreferences(next); setColumnChoice(null); columnChoice.showPreview(); }} />
       ) : null}
-      <AlertDialog open={replacement !== null} onOpenChange={(open) => {
+      <AlertDialog open={visible && replacement !== null} onOpenChange={(open) => {
         if (!open && replacement) {
           setReplacement(null);
           setPhase("idle");
@@ -905,13 +951,22 @@ export function CostingWorkbookImport({
         <AlertDialogContent>
           <AlertDialogTitle>Changer de classeur ?</AlertDialogTitle>
           <AlertDialogDescription>
-            Des corrections sont en cours. Vous pouvez les reprendre si l’article, la colonne et la valeur d’origine correspondent dans le nouveau classeur.
+            {replacement?.replay
+              ? "Des corrections sont en cours. Vous pouvez les reprendre si l’article, la colonne et la valeur d’origine correspondent dans le nouveau classeur."
+              : "Le changement de classeur effacera les exclusions de lignes de cet aperçu."}
+            {replacement?.replay && excludedRows.size > 0 ? " Les exclusions de lignes seront effacées." : null}
           </AlertDialogDescription>
           <RejectedWorkbookEdits entries={replacement?.replay?.skipped ?? []} />
           <AlertDialogFooter className="sm:flex-wrap">
             <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <Button variant="outline" onClick={() => { if (replacement) configureWorkbook(replacement, false); }}>Abandonner les corrections</Button>
-            <Button onClick={() => { if (replacement) configureWorkbook(replacement, true); }}>Reprendre les corrections</Button>
+            {replacement?.replay ? (
+              <>
+                <Button variant="outline" onClick={() => configureWorkbook(replacement, false)}>Abandonner les corrections</Button>
+                <Button onClick={() => configureWorkbook(replacement, true)}>Reprendre les corrections</Button>
+              </>
+            ) : (
+              <Button onClick={() => { if (replacement) configureWorkbook(replacement, false); }}>Changer de classeur</Button>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

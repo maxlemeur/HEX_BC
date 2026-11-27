@@ -361,7 +361,7 @@ export function ArticlePreview({
                       ))}
                     </NativeSelect>
                   </label>
-                  <div role="group" aria-label="État des articles" className="flex flex-wrap gap-1">
+                  <div role="group" aria-label="État des articles" className="flex flex-wrap gap-1 [&>button]:scroll-mt-20">
                     <Button size="sm" variant="outline" aria-pressed={!review.filter} onClick={() => filterBy(undefined)}>Tous</Button>
                     <Button size="sm" variant="outline" aria-pressed={review.filter === "ready"} onClick={() => filterBy("ready")}>
                       {`Prêts à valider · ${formatCount(ready)}`}
@@ -693,7 +693,7 @@ export function ArticlePreview({
           </>
         ) : null}
       </WorkbookReviewLayout>
-      <AlertDialog open={pending !== null} onOpenChange={(open) => { if (!open) setPending(null); }}>
+      <AlertDialog open={Boolean(onValidate && pending)} onOpenChange={(open) => { if (!open) setPending(null); }}>
         <AlertDialogContent>
           <AlertDialogTitle>Valider les articles sélectionnés ?</AlertDialogTitle>
           <AlertDialogDescription>
