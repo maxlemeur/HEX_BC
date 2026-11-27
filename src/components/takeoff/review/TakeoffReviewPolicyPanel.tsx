@@ -9,10 +9,9 @@ import type { TakeoffJobItem } from "@/lib/takeoff/types";
 import { TAKEOFF_COMPARISON_DEFERRED } from "@/lib/takeoff/apply-readiness";
 import { Button } from "@/components/ui/button";
 import { formatEUR } from "@/lib/money";
+import { asRecord } from "@/lib/value-guards";
 
 const money = (value: number | null) => value === null ? "Montant inconnu" : formatEUR(value);
-const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
-  ? value as Record<string, unknown> : {};
 
 /**
  * The takeoff's review context (amounts of its posts, its lines' prices), read again once a line changed: the panel's
@@ -50,7 +49,7 @@ export function TakeoffReviewPolicyPanel({ items, providerMeta, context, error, 
   hasDestination?: boolean; context: TakeoffReviewContext | null; error: string | null; onFocusItem: (id: string) => void;
 }) {
   const coverage = useMemo(() => {
-    const parsed = takeoffPreparationSchema.safeParse(record(record(providerMeta).preparation_snapshot).preparation);
+    const parsed = takeoffPreparationSchema.safeParse((asRecord((asRecord(providerMeta) ?? {}).preparation_snapshot) ?? {}).preparation);
     return takeoffScopeCoverage(parsed.success ? parsed.data : null, items);
   }, [items, providerMeta]);
   const highlighted = context?.posts.filter(post => post.recommend_review !== false || (post.impact_cents ?? 0) > 0) ?? [];

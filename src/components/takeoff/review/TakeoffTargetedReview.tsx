@@ -65,6 +65,7 @@ import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS, isUndecidedHypothesis } from "@/l
 import { exclusionReasonText } from "@/lib/takeoff/comparison-selection";
 import type { TakeoffItemPatchField, TakeoffJobDetailResponse, TakeoffJobItem } from "@/lib/takeoff/types";
 import { cn } from "@/lib/utils";
+import { asRecord } from "@/lib/value-guards";
 
 // Targeted review of a takeoff job (TI-664 step 4), a « tool » screen (TI-658 « Mise en page outil »): only the lines
 // the apply guard rejects or finds uncertain (lib/takeoff/targeted-review.ts), one decision at a time, each saved at
@@ -93,8 +94,6 @@ type Job = TakeoffJobDetailResponse["job"];
 type Line = TargetedReviewLine<TakeoffJobItem>;
 
 const RIGHT_MIN = 340;
-const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
-  ? value as Record<string, unknown> : {};
 const metres = (value: number) => `${new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 3 }).format(value)} m`;
 
 /** A shortcut shown on its button; the button names it with aria-keyshortcuts, so it is not read twice. */
@@ -251,7 +250,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
   const pricingPending = versionId !== null && reviewContext.context === null && reviewContext.error === null
     && (filters.large || filters.unpriced || filters.network.some((value) => value.startsWith(LOT_VALUE_PREFIX)));
   const sources = useMemo(() => {
-    const parsed = takeoffPreparationSchema.safeParse(record(record(providerMeta).preparation_snapshot).preparation);
+    const parsed = takeoffPreparationSchema.safeParse((asRecord((asRecord(providerMeta) ?? {}).preparation_snapshot) ?? {}).preparation);
     return parsed.success ? parsed.data.sources : [];
   }, [providerMeta]);
   const facts = useMemo(() => targetedReviewFacts(review.lines, { pricing, sources }), [pricing, review.lines, sources]);

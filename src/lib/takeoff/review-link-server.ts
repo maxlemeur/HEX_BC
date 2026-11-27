@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
 import type { TakeoffLinkJobFacts } from "./review-link";
+import { UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 /**
  * What the server proves of a link's job, with the member's session (the rules of the jobs, their requests, the answers
@@ -15,7 +16,6 @@ import type { TakeoffLinkJobFacts } from "./review-link";
 
 type Client = SupabaseClient<Database>;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CHUNK = 200;
 
 function readFailure(error: { code?: string; message: string }): never {

@@ -1,4 +1,4 @@
-import { isRecord } from "@/lib/value-guards";
+import { isRecord, UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 /** Exact, account-scoped requests retained until the server outcome is known. */
 export type EstimateBatchIdentity = {
@@ -22,7 +22,6 @@ export type EstimateBatchAttempt = {
 };
 
 const PREFIX = "estimate:batch-pending:v1:";
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const listeners = new Set<() => void>();
 const sending = new Set<string>();
 

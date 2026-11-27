@@ -1,6 +1,7 @@
 import { estimateLineTakeoffItemIds } from "@/lib/takeoff/page-contributions";
 import { lengthFactor, unitKey } from "@/lib/takeoff/page-replacement";
 import type { TakeoffSendDestination, TakeoffSendBlocker } from "@/lib/takeoff/send-contracts";
+import { asRecord } from "@/lib/value-guards";
 
 // Lot 2, M2: what « Envoyer au tableau de chiffrage » proposes for a takeoff of an affaire, computed from what the server
 // read. Pure: the server reads, this module decides, the send command checks the same facts again under its locks.
@@ -164,7 +165,6 @@ export type TakeoffSendSectionLine = {
 };
 
 const thousandths = (value: number) => Math.round(value * 1000);
-const record = (value: unknown) => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
 
 /**
  * Which lines of this takeoff add to an earlier takeoff line of the section instead of a new line: plan A sent 3
@@ -199,7 +199,7 @@ export function proposeTakeoffSendAccumulations(input: {
     const same = [...(byKey.get(`${title}\u0000code:${unit}`) ?? []), ...(byKey.get(`${title}\u0000text:${sent.unit.trim()}`) ?? [])];
     if (same.length !== 1) continue;
     const line = same[0];
-    const metadata = record(line.source_metadata);
+    const metadata = asRecord(line.source_metadata) ?? {};
     if (line.source_provider !== "takeoff" || input.pageLineIds.has(line.id) || "takeoff_length_rounding" in metadata
       || "takeoff_provision" in metadata) continue;
     const sources = estimateLineTakeoffItemIds(line.source_metadata, line.source_job_id);

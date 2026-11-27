@@ -14,11 +14,9 @@ import {
 import {
   canonicalGeneratedOuvrageCandidates, readGeneratedOuvrageRequest, type GeneratedOuvrageRequest,
 } from "@/lib/estimates/generated-ouvrage-request";
+import { isRecord, UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 const UNKNOWN = "L'application des ouvrages reste à vérifier. Vérifiez son résultat avant de reprendre.";
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const record = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
 const timestamp = (value: unknown): value is string => typeof value === "string" && Number.isFinite(Date.parse(value));
 const sameToken = (left: string, right: string) =>
   !isOlderEstimateVersionToken(left, right) && !isOlderEstimateVersionToken(right, left);
@@ -41,34 +39,34 @@ function requireCurrentIdentity(expected: EstimateBatchIdentity) {
   }
 }
 function version(value: unknown, expectedId: string) {
-  if (!record(value) || value.id !== expectedId || !timestamp(value.updatedAt)) return unknownOutcome();
+  if (!isRecord(value) || value.id !== expectedId || !timestamp(value.updatedAt)) return unknownOutcome();
   return { id: expectedId, updatedAt: value.updatedAt };
 }
 
 function parseResult(payload: unknown, request: GeneratedOuvrageRequest, identity: EstimateBatchIdentity): InsertGeneratedOuvragesResult {
-  if (!record(payload) || payload.ok !== true || payload.versionId !== request.versionId ||
+  if (!isRecord(payload) || payload.ok !== true || payload.versionId !== request.versionId ||
     typeof payload.projectId !== "string" || !UUID.test(payload.projectId) ||
     payload.insertedCount !== request.acceptedCandidates.length ||
     !["partially_applied", "applied"].includes(String(payload.draftStatus)) ||
-    typeof payload.replayed !== "boolean" || !record(payload.receipt) ||
+    typeof payload.replayed !== "boolean" || !isRecord(payload.receipt) ||
     payload.receipt.operationKey !== request.operationKey || payload.receipt.actorId !== identity.actorId ||
     payload.receipt.versionId !== request.versionId || payload.receipt.draftId !== request.draftId ||
     !timestamp(payload.receipt.expectedUpdatedAt) || !sameToken(payload.receipt.expectedUpdatedAt, request.expectedUpdatedAt) ||
     !timestamp(payload.receipt.committedAt) || !Array.isArray(payload.applications) ||
-    payload.applications.length !== request.acceptedCandidates.length || !record(payload.totals)) return unknownOutcome();
+    payload.applications.length !== request.acceptedCandidates.length || !isRecord(payload.totals)) return unknownOutcome();
   try {
     if (JSON.stringify(canonicalGeneratedOuvrageCandidates(payload.receipt.acceptedCandidates)) !==
       JSON.stringify(request.acceptedCandidates)) return unknownOutcome();
   } catch { return unknownOutcome(); }
   const historical = version(payload.version, request.versionId);
   const current = version(payload.currentVersion, request.versionId);
-  if (!record(payload.currentVersion) || !["draft", "sending", "sent", "accepted", "archived"].includes(String(payload.currentVersion.status)) ||
+  if (!isRecord(payload.currentVersion) || !["draft", "sending", "sent", "accepted", "archived"].includes(String(payload.currentVersion.status)) ||
     isOlderEstimateVersionToken(historical.updatedAt, request.expectedUpdatedAt) ||
     isOlderEstimateVersionToken(current.updatedAt, historical.updatedAt) ||
     (!payload.replayed && !sameToken(current.updatedAt, historical.updatedAt))) return unknownOutcome();
   const identities = ["subdetailId", "assemblyId", "estimateItemId", "applicationId", "snapshotId"];
   for (const [index, application] of payload.applications.entries()) {
-    if (!record(application) || application.candidateId !== request.acceptedCandidates[index].candidateId ||
+    if (!isRecord(application) || application.candidateId !== request.acceptedCandidates[index].candidateId ||
       identities.some((key) => typeof application[key] !== "string" || !UUID.test(application[key] as string))) return unknownOutcome();
   }
   for (const key of identities) {
@@ -81,8 +79,8 @@ function parseResult(payload: unknown, request: GeneratedOuvrageRequest, identit
 }
 
 function parseOutcome(payload: unknown, request: GeneratedOuvrageRequest, identity: EstimateBatchIdentity): GeneratedOuvrageApplicationOutcome {
-  if (!record(payload) || payload.outcome !== "abandoned") return parseResult(payload, request, identity);
-  if (payload.ok !== true || !record(payload.receipt) ||
+  if (!isRecord(payload) || payload.outcome !== "abandoned") return parseResult(payload, request, identity);
+  if (payload.ok !== true || !isRecord(payload.receipt) ||
     payload.receipt.operationKey !== request.operationKey || payload.receipt.actorId !== identity.actorId ||
     payload.receipt.versionId !== request.versionId || payload.receipt.draftId !== request.draftId ||
     !timestamp(payload.receipt.expectedUpdatedAt) || !sameToken(payload.receipt.expectedUpdatedAt, request.expectedUpdatedAt) ||
@@ -92,7 +90,7 @@ function parseOutcome(payload: unknown, request: GeneratedOuvrageRequest, identi
       JSON.stringify(request.acceptedCandidates)) return unknownOutcome();
   } catch { return unknownOutcome(); }
   const current = version(payload.currentVersion, request.versionId);
-  if (!record(payload.currentVersion) || !["draft", "sending", "sent", "accepted", "archived"].includes(String(payload.currentVersion.status)) ||
+  if (!isRecord(payload.currentVersion) || !["draft", "sending", "sent", "accepted", "archived"].includes(String(payload.currentVersion.status)) ||
     isOlderEstimateVersionToken(current.updatedAt, request.expectedUpdatedAt)) return unknownOutcome();
   return payload as unknown as GeneratedOuvrageApplicationOutcome;
 }
@@ -116,7 +114,7 @@ async function submit(intention: EstimateBatchIntention, recovering: boolean) {
     let response: unknown;
     try { response = await insertGeneratedOuvrages({ ...request, draftLockSessionId }); }
     catch { return unknownOutcome(); }
-    if (record(response) && response.ok === false && record(response.error) &&
+    if (isRecord(response) && response.ok === false && isRecord(response.error) &&
       typeof response.error.status === "number" && [400, 401, 403, 404, 409, 413, 422].includes(response.error.status) &&
       typeof response.error.code === "string" && response.error.code !== "GENERATED_OUVRAGE_OUTCOME_UNKNOWN" &&
       typeof response.error.message === "string") {
@@ -157,7 +155,7 @@ export async function inspectGeneratedOuvrageReceipt(identity: EstimateBatchIden
   let response: unknown;
   try { response = await getGeneratedOuvrageApplicationReceipt({ versionId: identity.versionId, operationKey: intention.operationKey }); }
   catch { return unknownOutcome(); }
-  if (!record(response) || response.ok !== true) return unknownOutcome();
+  if (!isRecord(response) || response.ok !== true) return unknownOutcome();
   return response.data === null ? null : parseOutcome(response.data, readGeneratedOuvrageRequest(JSON.parse(intention.body)), identity);
 }
 
@@ -179,6 +177,6 @@ export async function abandonPendingGeneratedOuvrageApplication(identity: Estima
   let response: unknown;
   try { response = await abandonGeneratedOuvrageApplication(request); }
   catch { return unknownOutcome(); }
-  if (!record(response) || response.ok !== true) return unknownOutcome();
+  if (!isRecord(response) || response.ok !== true) return unknownOutcome();
   return parseOutcome(response.data, request, identity);
 }

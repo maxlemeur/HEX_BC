@@ -1,5 +1,5 @@
 import { isTakeoffUnitState, type TakeoffUnitState } from "@/lib/takeoff/launch-request-coverage";
-import { asFiniteNumber, asRecord } from "@/lib/value-guards";
+import { asFiniteNumber, asRecord, UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 /**
  * The stored answers of the items of a sealed list on a plan (lot 4, migration 20261122080845_takeoff_item_answers.sql):
@@ -121,8 +121,6 @@ export type TakeoffItemReadingLine = {
   coverage: { expected: number; answered: number; inFlight: number; ended: number };
   readings: TakeoffItemPlanReading[];
 };
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function invalid(what: string): never {
   throw new TypeError(`Réponse de poste illisible : ${what}.`);

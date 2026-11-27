@@ -3,12 +3,11 @@ import { notFound } from "next/navigation";
 import { MaterialRequestEditor } from "@/components/material-requests/MaterialRequestEditor";
 
 import { loadMaterialRequestAffaire } from "../_lib/affaire";
+import { UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 type Props = {
   params: Promise<{ projectId: string; requestId: string }>;
 };
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default async function AffaireMaterialRequestPage({ params }: Props) {
   const { projectId, requestId } = await params;

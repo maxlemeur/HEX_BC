@@ -12,13 +12,11 @@ import {
 import {
   getEstimateEditorMutationIdentity, runEstimateEditorMutation,
 } from "@/lib/estimates/editor-mutations";
+import { isRecord } from "@/lib/value-guards";
 
 type Transport = (path: string, init: RequestInit, message: string) => Promise<unknown>;
 type RequestBody = { operation_key?: string; concurrency_token: string; dry_run?: boolean; operations: BatchOperationInput[] };
 const UNKNOWN_MESSAGE = "Le résultat de l'opération n'a pas pu être confirmé. Vérifiez son résultat avant de reprendre.";
-function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 function unknownOutcome(): never { throw new EstimateBatchOutcomeUnknownError(UNKNOWN_MESSAGE); }
 
 function parseResponse(payload: unknown, body: RequestBody, versionId: string, identity?: EstimateBatchIdentity): EstimateBatchResult {
@@ -46,7 +44,7 @@ function parseResponse(payload: unknown, body: RequestBody, versionId: string, i
 
 function isConfirmedRefusal(error: unknown) {
   // Only an explicit application error can establish that the SQL call refused.
-  return record(error) && typeof error.status === "number" && [400, 401, 403, 404, 409, 413, 422].includes(error.status) &&
+  return isRecord(error) && typeof error.status === "number" && [400, 401, 403, 404, 409, 413, 422].includes(error.status) &&
     typeof error.code === "string" && error.code !== "BATCH_OUTCOME_UNKNOWN";
 }
 function requireIdentity(versionId: string) {
@@ -121,7 +119,7 @@ export async function executeClientEstimateBatch(input: {
     structural: result.committed && operations.some((operation) => operation.op !== "update"),
     totals: result.committed && !result.replayed ? result.totals : undefined,
     deletedIds: result.committed ? result.results.flatMap((entry) => entry.status === "ok" &&
-      record(entry.data) && Array.isArray(entry.data.deleted_ids) ? entry.data.deleted_ids as string[] : []) : [],
+      isRecord(entry.data) && Array.isArray(entry.data.deleted_ids) ? entry.data.deleted_ids as string[] : []) : [],
   };
 }
 

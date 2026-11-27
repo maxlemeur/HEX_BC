@@ -4,8 +4,7 @@ import { ok } from "@/lib/http/api-response";
 import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import { TAKEOFF_REQUEST_ACTIVITY_VIEWS, type TakeoffRequestActivityView } from "@/lib/takeoff/request-activity-contracts";
 import { readTakeoffRequestActivity, toRequestActivityReadError } from "@/lib/takeoff/request-activity-server";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 function badRequest(message: string) {
   return NextResponse.json({ ok: false, error: { code: "BAD_REQUEST", message, retryable: false } }, { status: 400 });

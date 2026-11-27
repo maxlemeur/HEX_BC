@@ -1,5 +1,8 @@
 /** Guards for values of unknown shape: JSON bodies, form fields, database rows. */
 
+/** A UUID of any version, in either case. Without the global flag, one shared instance keeps no state between tests. */
+export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
