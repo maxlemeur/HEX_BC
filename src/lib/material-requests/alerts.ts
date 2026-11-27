@@ -46,14 +46,17 @@ function comparable(value: string | null | undefined): string {
 
 /**
  * The material a line is ordered in: its own, else the sheet's once the operator has confirmed it.
- * An unconfirmed presumption is not a material.
+ * An unconfirmed presumption is not a material. A line priced by a retained quote has only its own: the
+ * retaining wrote on it the sheet's material it was consulted in, if any, and its order carries nothing
+ * else, so a material confirmed on the sheet afterwards does not reach it.
  */
 export function effectiveLineMaterial(
-  line: Pick<MaterialRequestLine, "material">,
+  line: Pick<MaterialRequestLine, "material" | "price_quote_id">,
   request: AlertContext["request"],
 ): { material: string | null; source: "line" | "presumed" | null } {
   const own = toNonEmptyString(line.material);
   if (own) return { material: own, source: "line" };
+  if (line.price_quote_id !== null) return { material: null, source: null };
   const presumed = toNonEmptyString(request.presumed_material);
   if (presumed && request.material_confirmed) return { material: presumed, source: "presumed" };
   return { material: null, source: null };
