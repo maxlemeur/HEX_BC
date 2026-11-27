@@ -2,14 +2,16 @@
 -- (public.supply_types, which already drives the K FO and the preferred supplier) and its type is
 -- products.product_type. The free-text products.category stops being written and read by the application.
 --
--- This migration only adds: the column, its index and the summary's « categories » stay, and the page still
--- accepts p_categories and returns « category », so the application deployed before this change keeps working.
--- A later migration drops them once no client reads them.
+-- The column, its index and the summary's « categories » stay, and the page still accepts p_categories and
+-- returns « category », so the application deployed before this change keeps working. The free-text family is
+-- no longer searched: until that application is replaced, its search finds an article by its supply type's name
+-- instead. A later migration drops what is left once no client reads it.
 
 -- 1. Catalogue page: filter by supply type, and search its name where the free-text family was searched.
 drop function public.catalogue_products_page(text, text[], text[], text[], text[], text[], text, text, integer, integer, text[]);
 
--- Copied from 20261111224927; adds p_supply_type_ids and the supply type's name to the searched text.
+-- Copied from 20261111224927; adds p_supply_type_ids, and searches the supply type's name where the free-text
+-- family was searched.
 create function public.catalogue_products_page(
   p_q text default null,
   p_materials text[] default '{}'::text[],
@@ -141,7 +143,6 @@ as $$
       or public.catalogue_normalize_search(
         coalesce(enriched.reference, '') || ' ' ||
         coalesce(enriched.designation, '') || ' ' ||
-        coalesce(enriched.category, '') || ' ' ||
         coalesce(enriched.supply_type_name, '') || ' ' ||
         coalesce(enriched.product_type, '') || ' ' ||
         coalesce(enriched.material, '') || ' ' ||

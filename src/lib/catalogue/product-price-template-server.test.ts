@@ -62,7 +62,7 @@ function authenticatedClient() {
 const TUBE_ID = "44444444-4444-4444-8444-444444444444";
 const RACCORD_ID = "55555555-5555-4555-8555-555555555555";
 
-/** A catalogue with one article, already filed under « Raccord », and no supplier. */
+/** A catalogue with one article and no supplier. */
 function catalogueClient(writes: { upsert: ReturnType<typeof vi.fn>; insert: ReturnType<typeof vi.fn> }) {
   return {
     ...authenticatedClient(),
@@ -70,7 +70,7 @@ function catalogueClient(writes: { upsert: ReturnType<typeof vi.fn>; insert: Ret
       if (table === "products") {
         return {
           select: vi.fn().mockResolvedValue({
-            data: [{ id: PRODUCT_ID, reference: "COU-15", unit: "u", supply_type_id: RACCORD_ID }],
+            data: [{ id: PRODUCT_ID, reference: "COU-15", unit: "u" }],
             error: null,
           }),
           ...writes,
@@ -96,7 +96,7 @@ describe("product price template server", () => {
     });
   });
 
-  it("files a new article under the family its row names, and keeps the family of an article whose row names none", async () => {
+  it("files an article under the family its row names, and leaves the family of an article whose row names none untouched", async () => {
     const writes = { upsert: vi.fn().mockResolvedValue({ error: null }), insert: vi.fn().mockResolvedValue({ error: null }) };
     vi.mocked(createSupabaseServerClient).mockResolvedValue(catalogueClient(writes) as never);
 
@@ -110,13 +110,29 @@ describe("product price template server", () => {
     });
 
     expect(writes.insert).toHaveBeenCalledWith([expect.objectContaining({ reference: "TUB-I4L-SOUDE-15", supply_type_id: TUBE_ID })]);
+    // The update does not name the column: a family given in the catalogue since the file was read stays.
+    expect(writes.upsert).toHaveBeenCalledTimes(1);
+    expect(writes.upsert.mock.calls[0][0]).toEqual([expect.objectContaining({ id: PRODUCT_ID, designation: "Coude 90° DN15" })]);
+    expect(writes.upsert.mock.calls[0][0][0]).not.toHaveProperty("supply_type_id");
+    // The former free-text family is never written.
+    expect(writes.insert.mock.calls[0][0][0]).not.toHaveProperty("category");
+    expect(writes.insert.mock.calls[0][0][0]).not.toHaveProperty("family");
+  });
+
+  it("gives an existing article the family its row names, in a statement of its own", async () => {
+    const writes = { upsert: vi.fn().mockResolvedValue({ error: null }), insert: vi.fn().mockResolvedValue({ error: null }) };
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(catalogueClient(writes) as never);
+
+    await importProductPriceTemplate({
+      products: [{ ...productRow, reference: "COU-15", designation: "Coude 90° DN15", unit: "u", family: "Raccord" }],
+      prices: [],
+    });
+
+    expect(writes.insert).not.toHaveBeenCalled();
     expect(writes.upsert).toHaveBeenCalledWith(
       [expect.objectContaining({ id: PRODUCT_ID, supply_type_id: RACCORD_ID })],
       { onConflict: "id" },
     );
-    // The former free-text family is never written.
-    expect(writes.insert.mock.calls[0][0][0]).not.toHaveProperty("category");
-    expect(writes.insert.mock.calls[0][0][0]).not.toHaveProperty("family");
   });
 
   it("refuses the whole file, before any write, when a row names a family the catalogue does not have", async () => {

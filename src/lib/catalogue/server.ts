@@ -665,11 +665,11 @@ function normalizeCatalogueRecord(row: JsonRecord): CatalogueItemRecord {
         ? row.hex_code
         : null;
 
-  return {
-    ...(row as CatalogueItemRecord),
-    reference,
-    hex_code: reference,
-  };
+  const record: JsonRecord = { ...row, reference, hex_code: reference };
+  // The former free-text family (products.category) is no longer part of an article: its column, kept until
+  // the clients that read it are replaced, is not answered.
+  delete record.category;
+  return record as CatalogueItemRecord;
 }
 
 function normalizeSupplierPriceRecord(row: JsonRecord): SupplierPriceRecord {

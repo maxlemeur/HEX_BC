@@ -129,6 +129,8 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         "id, designation, reference, supply_types(name), product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at, reference_transport_mode, catalogue_status"
       )
       .eq("tenant_id", input.tenantId)
+      // The family is read in the company of the article, as the catalogue page joins it.
+      .eq("supply_types.tenant_id", input.tenantId)
       .in("id", productIds);
 
     if (productsError) {
@@ -475,6 +477,7 @@ export async function suggestEstimateCataloguePrices(
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .in("catalogue_status", suggestedStatuses)
+      .eq("supply_types.tenant_id", tenantId)
       .or(productPrefixFilter)
       .order("designation", { ascending: true })
       .limit(40),
@@ -484,6 +487,7 @@ export async function suggestEstimateCataloguePrices(
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .in("catalogue_status", suggestedStatuses)
+      .eq("supply_types.tenant_id", tenantId)
       .or(productContainsFilter)
       .order("designation", { ascending: true })
       .limit(80),
@@ -494,6 +498,7 @@ export async function suggestEstimateCataloguePrices(
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .in("catalogue_status", suggestedStatuses)
+      .eq("supply_types.tenant_id", tenantId)
       .ilike("supply_types.name", `%${safeSearch}%`)
       .order("designation", { ascending: true })
       .limit(80),

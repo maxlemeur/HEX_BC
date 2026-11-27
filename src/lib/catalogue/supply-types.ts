@@ -19,13 +19,18 @@ export function supplyTypeCodeFromName(name: string): string | null {
   return code.length > 0 ? code : null;
 }
 
+const UNACCENT_LETTERS: Record<string, string> = {
+  œ: "oe", Œ: "OE", æ: "ae", Æ: "AE", ß: "ss", ø: "o", Ø: "O", ł: "l", Ł: "L", đ: "d", Đ: "D",
+};
+
 /**
  * The key two names of the same supply type share: folded, punctuation as one underscore, a final « s » dropped
  * (« Tubes » is « Tube »). Mirrors private.supply_type_name_key, which keeps two such names from coexisting; an
  * import matches the family it reads with it.
  */
 export function supplyTypeNameKey(name: string): string {
-  const key = supplyTypeCodeFromName(name) ?? "";
+  // PostgreSQL's unaccent spells out the letters Unicode does not decompose: « Œillets » is « Oeillets ».
+  const key = supplyTypeCodeFromName(name.replace(/[œŒæÆßøØłŁđĐ]/g, (letter) => UNACCENT_LETTERS[letter])) ?? "";
   return key.length > 1 && key.endsWith("s") ? key.slice(0, -1) : key;
 }
 

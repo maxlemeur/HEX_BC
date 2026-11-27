@@ -774,7 +774,8 @@ describe("catalogue page", () => {
     const fake = seed(OWNER, "engineer");
     const rows = [TEE, ELBOW].map((id, index) => ({
       id, designation: `Article ${index}`, reference: null, unit_price_cents: 0, is_active: true, catalogue_status: "draft",
-      price_status: "none", supplier_price_count: 0, total_count: 2,
+      // The database function still returns the former free-text family, for the clients deployed before.
+      category: "Ancienne famille", price_status: "none", supplier_price_count: 0, total_count: 2,
     }));
     const original = fake.supabase.rpc;
     fake.supabase.rpc = (async (name: string) =>
@@ -783,5 +784,7 @@ describe("catalogue page", () => {
     const payload = (await page.json()) as { data: { items: Array<{ id: string; created_from_material_request: boolean }> } };
     expect(page.status).toBe(200);
     expect(payload.data.items.map((item) => [item.id, item.created_from_material_request])).toEqual([[TEE, true], [ELBOW, false]]);
+    // It is not answered any more.
+    for (const item of payload.data.items) expect(item).not.toHaveProperty("category");
   });
 });

@@ -59,7 +59,6 @@ type ExistingProduct = {
   id: string;
   reference: string | null;
   unit: string;
-  supply_type_id: string | null;
 };
 
 type ExistingSupplier = {
@@ -199,7 +198,7 @@ export async function importProductPriceTemplate(
 
   const namesFamilies = input.products.some((product) => product.family);
   const [productsResult, suppliersResult, supplyTypes] = await Promise.all([
-    readAllRows(() => supabase.from("products").select("id, reference, unit, supply_type_id", { count: "exact" })),
+    readAllRows(() => supabase.from("products").select("id, reference, unit", { count: "exact" })),
     readAllRows(() => supabase.from("suppliers").select("id, name", { count: "exact" }).eq("is_active", true)),
     // Row policies show a member the supply types of every company they belong to: this read is the active one's.
     namesFamilies ? listSupplyTypes().then((answer) => answer.items) : [],
@@ -236,7 +235,7 @@ export async function importProductPriceTemplate(
   const unknownSuppliers = new Set<string>();
   const ambiguousFamilies = new Set<string>();
   const unknownFamilies = new Set<string>();
-  // The family a row names is one of the company's supply types; a row without one leaves the article's as it is.
+  // The family a row names is one of the company's supply types.
   const supplyTypeIdByFamily = new Map<string, string>();
 
   for (const product of input.products) {
@@ -321,7 +320,10 @@ export async function importProductPriceTemplate(
 
   if (input.products.length > 0) {
     const productsToCreate: Array<Record<string, unknown>> = [];
+    // An update whose row names no family does not send the column at all: writing back the family read above
+    // would undo a reclassification made in the catalogue meanwhile. One statement takes rows of the same columns.
     const productsToUpdate: Array<Record<string, unknown>> = [];
+    const productsToReclassify: Array<Record<string, unknown>> = [];
 
     for (const product of input.products) {
       const existing = productLookup.values.get(normalizedReference(product.reference));
@@ -332,8 +334,6 @@ export async function importProductPriceTemplate(
         ...(existing ? { id: existing.id } : {}),
         reference: existing?.reference ?? product.reference,
         designation: product.designation,
-        supply_type_id:
-          (product.family ? supplyTypeIdByFamily.get(product.family) : undefined) ?? existing?.supply_type_id ?? null,
         product_type: product.product_type,
         material: product.material,
         grade: product.grade,
@@ -344,12 +344,15 @@ export async function importProductPriceTemplate(
         is_active: true,
       };
 
-      if (existing) productsToUpdate.push(payload);
-      else productsToCreate.push(payload);
+      const supplyTypeId = product.family ? (supplyTypeIdByFamily.get(product.family) ?? null) : null;
+      if (!existing) productsToCreate.push({ ...payload, supply_type_id: supplyTypeId });
+      else if (supplyTypeId) productsToReclassify.push({ ...payload, supply_type_id: supplyTypeId });
+      else productsToUpdate.push(payload);
     }
 
-    if (productsToUpdate.length > 0) {
-      const { error } = await supabase.from("products").upsert(productsToUpdate, {
+    for (const rows of [productsToUpdate, productsToReclassify]) {
+      if (rows.length === 0) continue;
+      const { error } = await supabase.from("products").upsert(rows, {
         onConflict: "id",
       });
 

@@ -541,7 +541,7 @@ export function ArticlePreview({
             {companyTypes.length === 0 ? (
               <Alert variant="warning">
                 L’entreprise n’a aucune famille : les brouillons seraient importés sans famille et ne pourraient pas être validés.
-                Un administrateur les crée depuis le catalogue, menu « Familles ».
+                Un administrateur les crée depuis la fiche d’un article, avec « Nouvelle famille ».
               </Alert>
             ) : null}
             <div className="overflow-x-auto rounded-md border border-border">
@@ -578,7 +578,7 @@ export function ArticlePreview({
                             value={selected}
                             onChange={(event) => choose(event.currentTarget.value)}
                           >
-                            <option value="">{own ? `${own.name} (type proposé)` : kinds.size === 1 ? "Aucun : à préciser sur chaque brouillon" : "Types proposés par article"}</option>
+                            <option value="">{own ? `${own.name} (famille proposée)` : kinds.size === 1 ? "Aucune : à préciser sur chaque brouillon" : "Familles proposées par article"}</option>
                             {companyTypes.filter((type) => type.id !== own?.id).map((type) => (
                               <option key={type.id} value={type.id}>{type.name}</option>
                             ))}

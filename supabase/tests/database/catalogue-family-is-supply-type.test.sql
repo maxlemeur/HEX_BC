@@ -5,7 +5,7 @@
 --     article d'une autre famille ou sans famille ;
 --  2. chercher le nom d'une famille ne trouve pas ses articles quand leur désignation ne le dit pas ;
 --  3. l'application déployée avant ce changement (p_categories, colonne « category ») cesse de fonctionner tant
---     que la colonne n'est pas supprimée ;
+--     que la colonne n'est pas supprimée, ou l'ancienne famille en texte libre reste trouvée par la recherche ;
 --  4. l'ancienne signature de la page reste appelable à côté de la nouvelle, ou la nouvelle s'ouvre aux anonymes ;
 --  5. créer un article avec une offre fournisseur échoue (la fonction nommait products.tax_rate_bp, supprimée),
 --     ne retient pas la famille choisie, ou écrit encore l'ancienne famille en texte libre ;
@@ -105,6 +105,12 @@ select results_eq(
       p_q => 'F1FAM', p_categories => array['Ancienne famille F1'])$$,
   $$values ('F1FAM-COUDE'::text, 'Ancienne famille F1'::text)$$,
   'l''ancien filtre en texte libre et sa colonne restent servis jusqu''à la suppression de la colonne'
+);
+
+select is(
+  (select count(*)::integer from public.catalogue_products_page(p_q => 'Ancienne famille F1')),
+  0,
+  'l''ancienne famille en texte libre n''est plus cherchée'
 );
 
 -- 4. Une seule signature, fermée aux anonymes.

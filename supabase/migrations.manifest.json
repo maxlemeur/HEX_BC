@@ -417,6 +417,6 @@
     "20261126230300_catalogue_reference_naming_abbreviations.sql": "0c8710cd12e8321193163923b3f3f91452f0f2c9f6117f2343ff8ad5f62dfbcf",
     "20261126233223_takeoff_api_dollar_ceiling.sql": "30c69d0dd59d05ca35ad33d381fe3c117eb0955b8c9ed7c025625207c3801b8e",
     "20261127022446_material_request_optional_material.sql": "8496de6a76b105a51bca50b01f18729805b2f5842f1dcef30cd7f5698bdfc8a0",
-    "20261127120151_catalogue_family_is_supply_type.sql": "99fa2e6ab0066888f750061d3dd2236df2595825f76a813e3d00e710bb4a1c3a"
+    "20261127120151_catalogue_family_is_supply_type.sql": "c2c8c1a919ddde832383eebf28e17348d9a1d01b0b954bfdf1792818b152a29c"
   }
 }

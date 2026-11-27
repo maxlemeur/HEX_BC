@@ -48,6 +48,9 @@ describe("matchSupplyTypeByName", () => {
     ["Raccords à sertir", "raccords_a_sertir"],
     ["Raccord à sertirs", "raccord_a_sertir"],
     ["s", "s"],
+    // unaccent spells out the ligature: a file typed without it names the same family.
+    ["Œillets", "oeillet"],
+    ["Oeillets", "oeillet"],
   ])("gives « %s » the key %s, as the database does", (name, key) => {
     expect(supplyTypeNameKey(name)).toBe(key);
   });
