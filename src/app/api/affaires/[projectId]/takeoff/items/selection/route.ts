@@ -16,7 +16,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     if (!body.success) throw unprocessableEntity("Sélection invalide.", undefined, "VALIDATION_ERROR");
     const { scope, selection } = body.data;
     return ok(await freezeAffaireItemSelection(parsed.data.projectId, {
-      scope,
+      scope, ...(body.data.entry_plans && { entryPlans: true }),
       selection: selection.kind === "filter" ? selection : { kind: "items", itemIds: selection.item_ids.map((id) => id.toLowerCase()) },
     }));
   } catch (error) {

@@ -1,3 +1,4 @@
+import { entryScopeResultSchema, type EntryScopeCommand } from "./entry-scope-contracts";
 import { measureReviewSchema, retainedMeasureSchema, type retainCommandSchema } from "./measure-review-contracts";
 import type { TakeoffPaymentChoice } from "./payment-choice";
 import { findReceiptSchema, findsViewSchema, type FindCommand } from "./unlisted-finds";
@@ -83,11 +84,16 @@ export function fetchItemLine(projectId: string, itemId: string, detail = false)
 }
 
 export function fetchFrozenItemSelection(projectId: string, scope: ItemTableScope,
-  selection: { kind: "filter"; filter: ItemTableFilter } | { kind: "items"; itemIds: string[] }) {
+  selection: { kind: "filter"; filter: ItemTableFilter } | { kind: "items"; itemIds: string[] }, entryPlans = false) {
   return call(`${base(projectId)}/selection`, { method: "POST", body: JSON.stringify({
-    command_version: ITEM_REVIEW_COMMAND_VERSION, scope,
+    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, ...(entryPlans && { entry_plans: true }),
     selection: selection.kind === "filter" ? selection : { kind: "items", item_ids: selection.itemIds },
   }) }, itemSelectionResponseSchema, READ_FAILURE, TAKEOFF_READ_REQUEST_TIMEOUT_MS);
+}
+
+export function sendEntryScope(project: string, item: string, command: EntryScopeCommand) {
+  return call(`${base(project)}/${encodeURIComponent(item)}/entry-scope`, { method: "POST", body: JSON.stringify(command) },
+    entryScopeResultSchema, "Impossible de modifier la portée de la saisie.", TAKEOFF_WRITE_REQUEST_TIMEOUT_MS);
 }
 
 export function sendItemReviewCommand(projectId: string, command: ItemReviewCommand) {

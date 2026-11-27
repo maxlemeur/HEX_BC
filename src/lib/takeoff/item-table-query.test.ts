@@ -28,3 +28,9 @@ describe("the address of a view of the table of items", () => {
     expect(readItemTableAddress(next, "poste")).toMatchObject({ scope: { kind: "plan", planKey: "plan-a" }, filter: { states: ["uncertain"] } });
   });
 });
+
+it("normalises UUID plan addresses while preserving case in opaque logical keys", () => {
+  expect(readItemTableAddress(new URLSearchParams({ postePlan: FOCUS }), "poste").scope)
+    .toEqual({ kind: "plan", planKey: FOCUS.toLowerCase() });
+  expect(readItemTableAddress(new URLSearchParams({ plan: "Plan-A" })).scope).toEqual({ kind: "plan", planKey: "Plan-A" });
+});

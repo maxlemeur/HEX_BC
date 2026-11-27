@@ -1,6 +1,6 @@
 -- Seal a committed revision to exercise both the receipt recovery path and the
 -- draft-only write path on the same issued version.
-create function pg_temp.replay_after_issue() returns jsonb language plpgsql as $$
+create function pg_temp.replay_after_issue(check_entry_scope boolean default false) returns jsonb language plpgsql as $$
 declare
   m record; t uuid:=pg_temp.tenant(); actor_ uuid:=pg_temp.f(1); proj uuid:=pg_temp.f(21); intent_ uuid:=gen_random_uuid();
   digest_ text; confirmed jsonb; replay_ jsonb; replay_error text; new_error text; conflict_error text; role_error text; actual jsonb;
@@ -15,6 +15,14 @@ begin
     set local session_replication_role=replica;
     update public.estimate_versions set status='sent',seal_hash=repeat('1',64) where id=m.draft;
     set local session_replication_role=origin;
+    if check_entry_scope then
+      select jsonb_build_array(
+        count(*) = 1 and bool_and(p.version_id=m.draft and v.status='sent' and v.seal_hash is not null),
+        pg_temp.scope_after_send())
+        into actual from public.takeoff_item_send_parts p join public.estimate_versions v on v.id=p.version_id
+        where p.project_id=proj and p.item_id=pg_temp.f(310) and p.state='live';
+      raise sqlstate 'P4444';
+    end if;
     delete from public.draft_locks where version_id=m.draft;
     begin replay_:=public.confirm_takeoff_contribution_revision(t,actor_,proj,m.draft,m.receipt,true,intent_,digest_,'{}');
     exception when others then replay_error:=sqlerrm; end;
@@ -34,6 +42,8 @@ begin
   exception when sqlstate 'P4444' then return actual; end;
 end;
 $$;
+select is(pg_temp.replay_after_issue(true),'[true,["stale","sent","sent"]]'::jsonb,
+  'a sole live part in the issued and sealed version refuses both attachment and withdrawal of the whole entry');
 select is(pg_temp.replay_after_issue(),'[true,true,null,"TAKEOFF_REVISION_SEALED","TAKEOFF_REVISION_INTENT_CONFLICT","42501",1,2]'::jsonb,
   'an authorized identical retry recovers the whole receipt after issue; new, conflicting and unauthorized intentions cannot write');
 

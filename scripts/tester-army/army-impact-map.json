@@ -1073,6 +1073,27 @@
       ]
     },
     {
+      "id": "takeoff-poste-entry-scope",
+      "note": "POSTE-PORTEE01 à 06 couvrent le choix de portée, le rattachement, le retrait, le remplacement et les parts déjà au devis.",
+      "paths": [
+        "src/components/takeoff/item-detail/**",
+        "src/components/takeoff/item-table/**",
+        "src/lib/takeoff/entry-scope*.ts",
+        "src/lib/takeoff/item-entry-choice.ts",
+        "src/lib/takeoff/item-table*.ts",
+        "src/lib/takeoff/item-review-commands-server.ts",
+        "src/lib/takeoff/item-send*.ts",
+        "src/lib/takeoff/quantity-entry.ts",
+        "src/app/api/affaires/[projectId]/takeoff/items/**",
+        "supabase/migrations/*_takeoff_entry_scope.sql",
+        "e2e/army/takeoff/poste-send-support.ts",
+        "e2e/army/takeoff/item-table-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/poste-entry-scope.e2e.ts"
+      ]
+    },
+    {
       "id": "takeoff-retain-measure",
       "note": "POSTE-RETENIR01 à 04 couvrent la justification des contributions, la décision individuelle sur un plan et le rapprochement avec la ligne du devis à l’envoi.",
       "paths": [

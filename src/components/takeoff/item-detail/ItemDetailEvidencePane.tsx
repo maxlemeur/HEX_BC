@@ -56,6 +56,7 @@ type Props = {
   outsideFilter: boolean;
   /** Moves with each change of the item the detail made: the journal is read again with it. */
   historyVersion: number;
+  entryScopeActions?: React.ReactNode;
   measureRetention?: React.ReactNode;
   showPosteDecision: boolean;
   onRefused: (caught: unknown) => boolean;
@@ -162,7 +163,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(function ItemDetailEvidencePane(
   { projectId, line, choice, plan, documentState, names, planNames, outsideFilter, historyVersion, onRefused, historyScope, onObservation, onPage, onPlan,
-    decide, measureRetention, showPosteDecision, proof = null }, heading) {
+    decide, entryScopeActions, measureRetention, showPosteDecision, proof = null }, heading) {
   // An earlier reading (an old bookmark) shows nothing of the current one: its answer, decision and entry are not its own.
   const earlier = choice.kind === "reading" && !choice.current;
   const reading = !earlier && (choice.kind === "reading" || choice.kind === "dossier") ? choice.reading : null;
@@ -170,6 +171,7 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
   const unavailable = currentAnswer?.outcome === "uncertain" && (currentAnswer.uncertainty?.planUnavailable
     || (plan?.document.kind === "unavailable" && plan.document.reason === "not_available_to_you"));
   const answer = unavailable ? null : currentAnswer;
+  const wholeEntry = line.wholeEntry ?? (line.entry?.scope === "affaire" ? line.entry : null);
   const canEnter = decide.offer("enter_quantity");
   const uncertainty = answer?.outcome === "uncertain" ? describeItemUncertainty(answer, line.expectedUnit,
     !reading?.sent && reading?.decision?.kind !== "set_aside" && (canEnter.offered || canEnter.reason !== "reader")) : null;
@@ -290,8 +292,8 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
         <p>Observé : {line.observed ? `${formatItemQuantity(line.observed.quantity, line.observed.unit)}${line.observed.partial ? " (partiel)" : ""}` : "—"}</p>
         {reading?.verifiedMarks?.verified ? <p>{reading.verifiedMarks.quantity === null ? "Repères vérifiés, sans quantité" :
           `Comptage vérifié${showPosteDecision && reading.quantityDecision?.source === "verified_count" && reading.decision?.kind === "accepted" ? " retenu" : ""} · ${formatItemQuantity(reading.verifiedMarks.quantity, reading.verifiedMarks.unit)}`}</p> : null}
-        {line.wholeEntry ? <p>Total saisi pour toute l’affaire · {formatItemQuantity(line.wholeEntry.quantity, line.wholeEntry.unit)}.
-          {" "}{line.wholeEntry.included ? "Ce total va au devis." : "Cette hypothèse attend son inclusion."} Pour le modifier, ouvrez le total de l’affaire.</p> : null}
+        {wholeEntry ? <p>Total saisi pour toute l’affaire · {formatItemQuantity(wholeEntry.quantity, wholeEntry.unit)}.
+          Ce total ne part avec aucun plan. Vous pouvez le rattacher à un plan ou retirer la saisie de l’affaire.</p> : null}
         {showPosteDecision && <p>Retenu : {line.retained ? `${formatItemQuantity(line.retained.quantity, line.retained.unit)}${line.retained.partial ? " (partiel)" : ""}` : "—"}</p>}
         {line.reasons.length ? <p className="text-xs">{[...new Set(line.reasons.map(itemReasonLabel))].join(" · ")}</p> : null}
       </Section>
@@ -315,6 +317,7 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
             ) : <p className="text-muted-foreground">Aucune décision sur ce plan.</p>)}
             {reading?.entry ? <p>Saisi sur ce plan : <EntryText entry={reading.entry} names={names} /></p> : null}
             {line.entry ? <p>Saisi pour le poste : <EntryText entry={line.entry} names={names} /></p> : null}
+            {entryScopeActions}
             <DecisionButtons line={line} decide={decide} />
             {answer && answer.outcome !== "measured" && !reading?.sent && !reading?.decision && !reading?.entry && !line.entry && !line.wholeEntry &&
               <p>Ce plan ne donne pas de mesure à retenir. Relisez le plan ou renseignez une saisie justifiée pour ce poste.</p>}
