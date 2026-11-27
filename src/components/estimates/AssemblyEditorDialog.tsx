@@ -776,7 +776,7 @@ export function AssemblyEditorDialog({
               <span>Unité</span>
               <span>Qté</span>
               <span className={FO_HEADER_CLASS}>PR FO</span>
-              <span className={FO_HEADER_CLASS}>Type FO</span>
+              <span className={FO_HEADER_CLASS}>Famille FO</span>
               <span className={FO_HEADER_CLASS}>K FO</span>
               <span className={MO_HEADER_CLASS}>H MO</span>
               <span className={MO_HEADER_CLASS}>Rôle MO</span>
@@ -892,7 +892,7 @@ export function AssemblyEditorDialog({
                     </div>
 
                     <div>
-                      <CellLabel htmlFor={`${rowPrefix}-supply-type`}>Type FO</CellLabel>
+                      <CellLabel htmlFor={`${rowPrefix}-supply-type`}>Famille FO</CellLabel>
                       <NativeSelect
                         id={`${rowPrefix}-supply-type`}
                         size="sm"
@@ -902,7 +902,7 @@ export function AssemblyEditorDialog({
                           updateItem(index, { supplyTypeId: event.target.value })
                         }
                       >
-                        <option value="">Aucun type</option>
+                        <option value="">Aucune famille</option>
                         {supplyTypes.map((type) => (
                           <option key={type.id} value={type.id}>
                             {type.name}

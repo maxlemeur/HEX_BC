@@ -278,7 +278,7 @@ export async function writeEstimateV3DpgfWorkbook(input: {
     { header: "Statut", key: "statut", width: 16 },
     { header: "TVA (%)", key: "tva", width: 10 },
     { header: `Prix unitaire HT ${currency}`, key: "prix_unitaire_ht_eur", width: 22 },
-    { header: "Type FO", key: "type_fo", width: 18 },
+    { header: "Famille FO", key: "type_fo", width: 18 },
     { header: "K FO", key: "k_fo", width: 10 },
     { header: "h MO / unité", key: "h_mo_per_unit", width: 14 },
     { header: "K MO", key: "k_mo", width: 10 },

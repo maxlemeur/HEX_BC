@@ -222,7 +222,7 @@ describe("estimate editor CSV takeoff provision column (TI-682)", () => {
   });
 
   it("appends the column after every existing one, labor split included", async () => {
-    const base = ["Chemin chapitre", "Désignation", "Flags qualité", "Unité", "Quantité", "Prix unitaire HT (EUR)", "Type FO",
+    const base = ["Chemin chapitre", "Désignation", "Flags qualité", "Unité", "Quantité", "Prix unitaire HT (EUR)", "Famille FO",
       "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
       "Total HT (EUR)", "TVA (%)", "Total TTC (EUR)"];
     const split = ["h MO atelier", "Rôle MO atelier", "K MO atelier", "h MO chantier", "Rôle MO chantier", "K MO chantier"];

@@ -36,6 +36,7 @@ type EstimateArticleSheetProps = {
   /** Lot 2, sous-lot 2.6 (revue, F26-26) : refus nommé d'un article proposé (v3 : offre dans une autre unité). */
   suggestionRefusal?: (suggestion: CataloguePriceSuggestion) => string | null;
   productId: string | null;
+  supplyTypeById: ReadonlyMap<string, { name: string }>;
   currency: SupportedEstimateCurrency;
   isReadOnly: boolean;
   onClose: () => void;
@@ -53,10 +54,11 @@ function optionalText(value: unknown) {
     : null;
 }
 
-function ProductDetails({ product }: { product: CatalogueItem }) {
+function ProductDetails({ product, familyName }: { product: CatalogueItem; familyName?: string }) {
   const details = [
     ["Référence", optionalText(product.reference)],
     ["Unité", optionalText(product.unit)],
+    ["Famille", optionalText(familyName)],
     ["Type", optionalText(product.product_type)],
     ["Matière", optionalText(product.material)],
     ["Nuance", optionalText(product.grade)],
@@ -95,6 +97,7 @@ export function EstimateArticleSheet({
   lineUnit = null,
   suggestionRefusal,
   productId,
+  supplyTypeById,
   currency,
   isReadOnly,
   onClose,
@@ -104,6 +107,9 @@ export function EstimateArticleSheet({
   const [query, setQuery] = useState(lineTitle);
   const [suggestions, setSuggestions] = useState<CataloguePriceSuggestion[]>([]);
   const [product, setProduct] = useState<CatalogueItem | null>(null);
+  const familyName = typeof product?.supply_type_id === "string"
+    ? supplyTypeById.get(product.supply_type_id)?.name
+    : undefined;
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -204,7 +210,7 @@ export function EstimateArticleSheet({
           <>
             {isLoading ? <LoadingState className="justify-start px-4 py-0" /> : null}
             {error ? <Alert variant="danger" className="mx-4 w-auto">{error}</Alert> : null}
-            {product ? <ProductDetails product={product} /> : null}
+            {product ? <ProductDetails product={product} familyName={familyName} /> : null}
             {!isReadOnly && productId ? (
               <div className="mt-auto border-t border-border p-4">
                 <Button variant="danger" onClick={onDetach}>

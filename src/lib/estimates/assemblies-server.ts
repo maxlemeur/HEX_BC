@@ -145,7 +145,7 @@ export async function listEstimateAssemblies(
   if (supplyTypesError) {
     throw mapSupabaseError(
       supplyTypesError,
-      "Impossible de charger les types de fourniture."
+      "Impossible de charger les familles de fourniture."
     );
   }
   return {
@@ -275,7 +275,7 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
     if (supplyTypesError) {
       throw mapSupabaseError(
         supplyTypesError,
-        "Impossible de vérifier les types de fourniture."
+        "Impossible de vérifier les familles de fourniture."
       );
     }
     if ((supplyTypes ?? []).length !== supplyTypeIds.length) {

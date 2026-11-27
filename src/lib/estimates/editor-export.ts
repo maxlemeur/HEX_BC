@@ -452,7 +452,7 @@ const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
     header: "Prix unitaire HT (EUR)",
     formatter: (value) => (typeof value === "number" ? value / 100 : ""),
   },
-  { key: "supply_type", header: "Type FO" },
+  { key: "supply_type", header: "Famille FO" },
   { key: "supplier_1", header: "Fournisseur 1" },
   { key: "supplier_2", header: "Fournisseur 2" },
   { key: "supplier_3", header: "Fournisseur 3" },

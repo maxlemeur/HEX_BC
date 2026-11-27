@@ -36,7 +36,7 @@ export const SPREADSHEET_ESTIMATE_COLUMN_IDS: Record<string, EstimateColumnId> =
 
 export const ESTIMATE_COLUMN_LABELS: Record<EstimateColumnId, string> = {
   designation: "Désignation", quantity: "Quantité", unit: "Unité",
-  supply_price: "Prix FO", supply_type: "Type FO", fo_provision: "Provision FO", k_fo: "K FO",
+  supply_price: "Prix FO", supply_type: "Famille FO", fo_provision: "Provision FO", k_fo: "K FO",
   supplier: "Fournisseur",
   labor_hours: "Heures MO", h_mo_majoration: "Majoration MO",
   labor_role: "Type MO", k_mo: "K MO",

@@ -17,7 +17,7 @@ afterEach(cleanup);
 function renderControl(overrides: Partial<Parameters<typeof EstimateTypeCombobox>[0]> = {}) {
   const onCommit = vi.fn();
   return { onCommit, ...render(<EstimateTypeCombobox
-    value="tube" options={options} label="Type FO" emptyLabel="Aucun type"
+    value="tube" options={options} label="Famille FO" emptyLabel="Aucune famille"
     disabled={false} onCommit={onCommit} {...overrides}
   />) };
 }
@@ -34,7 +34,7 @@ describe("EstimateTypeCombobox", () => {
     expect(onCommit).not.toHaveBeenCalled();
     await user.click(input);
     await user.type(input, "introuvable");
-    expect(screen.getByText("Aucun type correspondant")).toBeVisible();
+    expect(screen.getByText("Aucune famille correspondante")).toBeVisible();
     fireEvent.blur(input);
     expect(input).toHaveValue("Tube");
     expect(onCommit).not.toHaveBeenCalled();
@@ -56,7 +56,7 @@ describe("EstimateTypeCombobox", () => {
     await user.tab();
     expect(onCommit).not.toHaveBeenCalled();
     await user.click(input);
-    await user.click(screen.getByRole("option", { name: "Aucun type" }));
+    await user.click(screen.getByRole("option", { name: "Aucune famille" }));
     expect(onCommit).toHaveBeenCalledExactlyOnceWith(null);
   });
 

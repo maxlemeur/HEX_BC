@@ -188,7 +188,7 @@ export function useEstimateEditorSuggestions({
       const parts: string[] = [];
       if (rule.category_id) {
         const category = categoryById.get(rule.category_id);
-        parts.push(`Type FO: ${category?.name ?? "Catégorie inconnue"}`);
+        parts.push(`Catégorie de devis : ${category?.name ?? "Catégorie inconnue"}`);
       }
       const supplyTypeId = toSuggestionSupplyTypeId(rule);
       if (supplyTypeId) {

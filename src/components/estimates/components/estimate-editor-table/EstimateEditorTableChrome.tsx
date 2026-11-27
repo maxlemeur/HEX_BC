@@ -433,7 +433,7 @@ export function EstimateEditorTableChrome({
                 <>
                   <ResizableColumnHeader
                     columnId="supply_type"
-                    label="Type FO"
+                    label="Famille FO"
                     className="estimate-col--fo"
                     {...columnResizeHandlers}
                   />
@@ -498,7 +498,7 @@ export function EstimateEditorTableChrome({
                   {visibleColumns.has("supply_type") ? (
                     <ResizableColumnHeader
                       columnId="supply_type"
-                      label="Type FO"
+                      label="Famille FO"
                       className="estimate-col--fo"
                       {...columnResizeHandlers}
                     />

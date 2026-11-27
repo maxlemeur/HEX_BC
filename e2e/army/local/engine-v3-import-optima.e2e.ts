@@ -221,7 +221,7 @@ async function importWorkbook(ui: Ui, army: ArmyState, projectId: string, lot: L
   await expect(screen.getByText("Coefficients du classeur proposés : FO 1,3 · MO 1,3", { exact: true })).toBeVisible({ timeout: 120_000 });
   await expect(screen.getByText("Aucun écart supérieur à 0,5 c avec « Prix Unitaire »", { exact: true })).toBeVisible();
   // TI-534 : l'aperçu annonce le K FO 1,02 des lignes créées, que le contrôle (provision 1) ne voit pas.
-  await expect(screen.getByText("Le K FO paramétré est appliqué à la création. Sans type FO, sa base est 1,02 : " +
+  await expect(screen.getByText("Le K FO paramétré est appliqué à la création. Sans famille FO, sa base est 1,02 : " +
     "le prix créé inclut alors 2 % sur la part fourniture.", { exact: true })).toBeVisible();
   const nextPreview = screen.getByRole("button", "Suivant : Confirmation", { exact: true });
   await expect(nextPreview).toBeEnabled({ timeout: 30_000 });

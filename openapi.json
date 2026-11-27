@@ -3883,7 +3883,7 @@
           "Demandes de matériel"
         ],
         "summary": "Créer l'article d'une ligne et l'y rattacher",
-        "description": "Crée l'article en brouillon du catalogue, marqué comme créé depuis une demande (le catalogue l'affiche « Nouveau » jusqu'à sa validation), avec un type de fourniture obligatoire ; la désignation vaut par défaut type, matière et dimension. Réservé à qui peut ajouter des articles (TI-689 : administrateurs et ingénieurs). Puis rattache la ligne comme PUT, voie « created », et n'apprend un nom usuel qu'avec learn_alias à true. Rattacher, changer ou retirer l'article d'une ligne validée la ramène en brouillon.",
+        "description": "Crée l'article en brouillon du catalogue, marqué comme créé depuis une demande (le catalogue l'affiche « Nouveau » jusqu'à sa validation), avec une famille de fourniture obligatoire ; la désignation vaut par défaut type, matière et dimension. Réservé à qui peut ajouter des articles (TI-689 : administrateurs et ingénieurs). Puis rattache la ligne comme PUT, voie « created », et n'apprend un nom usuel qu'avec learn_alias à true. Rattacher, changer ou retirer l'article d'une ligne validée la ramène en brouillon.",
         "parameters": [
           {
             "name": "projectId",
@@ -3936,7 +3936,7 @@
             }
           },
           "400": {
-            "description": "BAD_REQUEST : type de fourniture absent du référentiel du tenant.",
+            "description": "BAD_REQUEST : famille de fourniture absente du référentiel du tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5029,7 +5029,7 @@
           "Demandes de matériel"
         ],
         "summary": "Créer les brouillons de commande d'une demande",
-        "description": "Un brouillon de bon de commande par fournisseur à partir des lignes prêtes, en une transaction : tous de l'affaire de la demande, sans chantier, avec le lieu de livraison de la demande (delivery_mode : site, office, counter) et une note qui la nomme ; les lignes en frais généraux suivent dans le brouillon de leur fournisseur, imputées aux frais généraux. Chaque ligne : article, référence chez ce fournisseur (sinon celle de l'article), libellé catalogue de la ligne, quantité, unité, prix HT et lot du devis retenu (jamais un prix du catalogue), TVA 20 %, type de fourniture, imputation, ligne de la demande. Montant d'une ligne : quantité × prix ÷ lot, arrondi au centime le plus proche, la moitié s'éloignant de zéro. Une ligne n'est commandée qu'une fois parmi les bons non annulés ; annuler son bon la rend de nouveau prête. La même clé renvoie les mêmes brouillons (200, replayed, chaque bon avec son statut actuel) et ne crée rien ; une nouvelle clé par clic.",
+        "description": "Un brouillon de bon de commande par fournisseur à partir des lignes prêtes, en une transaction : tous de l'affaire de la demande, sans chantier, avec le lieu de livraison de la demande (delivery_mode : site, office, counter) et une note qui la nomme ; les lignes en frais généraux suivent dans le brouillon de leur fournisseur, imputées aux frais généraux. Chaque ligne : article, référence chez ce fournisseur (sinon celle de l'article), libellé catalogue de la ligne, quantité, unité, prix HT et lot du devis retenu (jamais un prix du catalogue), TVA 20 %, famille de fourniture, imputation, ligne de la demande. Montant d'une ligne : quantité × prix ÷ lot, arrondi au centime le plus proche, la moitié s'éloignant de zéro. Une ligne n'est commandée qu'une fois parmi les bons non annulés ; annuler son bon la rend de nouveau prête. La même clé renvoie les mêmes brouillons (200, replayed, chaque bon avec son statut actuel) et ne crée rien ; une nouvelle clé par clic.",
         "parameters": [
           {
             "name": "projectId",
@@ -5893,7 +5893,7 @@
           "Demandes de matériel"
         ],
         "summary": "Proposer un fournisseur pour les lignes d'une demande",
-        "description": "Pour chaque ligne qui a un article et pas encore de fournisseur, le premier fournisseur actif du tenant parmi, dans cet ordre : celui que le technicien a nommé (fournisseur présumé de la demande, confirmé ou non), l'exception de l'article, le fournisseur préféré de son type de fourniture, celui de la dernière commande confirmée ou reçue de l'article. Une source dont le fournisseur est archivé ou a été retiré de l'article (sa référence chez lui est inactive) est passée. Null quand aucune source n'en donne. confirmed est faux pour le fournisseur nommé par le technicien tant que la demande ne l'a pas confirmé (à confirmer), vrai sinon. supplier_sku et product_url sont la référence et l'adresse de l'article chez ce fournisseur si elle est active. references donne de même, pour chaque ligne qui a déjà un article et un fournisseur, la référence active de l'article chez ce fournisseur. Rien n'est écrit : le bureau choisit le fournisseur de la ligne par la modification d'une ligne, ou retient plusieurs propositions par lines/retain-suppliers, et peut toujours le changer ; une ligne validée le reste.",
+        "description": "Pour chaque ligne qui a un article et pas encore de fournisseur, le premier fournisseur actif du tenant parmi, dans cet ordre : celui que le technicien a nommé (fournisseur présumé de la demande, confirmé ou non), l'exception de l'article, le fournisseur préféré de sa famille de fourniture, celui de la dernière commande confirmée ou reçue de l'article. Une source dont le fournisseur est archivé ou a été retiré de l'article (sa référence chez lui est inactive) est passée. Null quand aucune source n'en donne. confirmed est faux pour le fournisseur nommé par le technicien tant que la demande ne l'a pas confirmé (à confirmer), vrai sinon. supplier_sku et product_url sont la référence et l'adresse de l'article chez ce fournisseur si elle est active. references donne de même, pour chaque ligne qui a déjà un article et un fournisseur, la référence active de l'article chez ce fournisseur. Rien n'est écrit : le bureau choisit le fournisseur de la ligne par la modification d'une ligne, ou retient plusieurs propositions par lines/retain-suppliers, et peut toujours le changer ; une ligne validée le reste.",
         "parameters": [
           {
             "name": "projectId",
@@ -5994,7 +5994,7 @@
           "Demandes de matériel"
         ],
         "summary": "Coût des fournitures d'une affaire",
-        "description": "Pour les lecteurs de l'affaire (propriétaire, administrateur, directeur), par type de fourniture, puis « non classé » (lignes sans type de fourniture vérifiable) et le port et les remises : le budget fournitures de la version acceptée par le client et le coût de ses bons de commande. budget_version : la version acceptée qui fait le budget (la plus haute si plusieurs, accepted_count dit combien), quelle que soit sa variante ; null quand aucune version n'est acceptée, et alors chaque budget_cents est null (pas de budget). Budget d'une ligne chiffrée : quantité × prix d'achat FO × provision FO × K FO (moteur 3 ; quantité × prix × K FO avant), arrondi au centime par ligne ; une ligne non chiffrée compte 0. Un bon compte une seule fois par rattachement direct ou par sa version de devis, dans le même tenant. Deux rattachements doivent désigner la même affaire. ordered_cents : bons confirmés ou reçus ; pending_cents : brouillons et bons envoyés. Le coût reprend les montants HT enregistrés sur les lignes du bon. Un bon issu du devis sans type de fourniture enregistré utilise le type de la ligne source vérifiée, puis celui de l’article si disponible. Bons annulés et frais généraux exclus. Une remise compte en négatif. not_counted.unresolved_orders : nombre de bons écartés faute de rattachement certain et lisibles par l’appelant, sans identifiants ni montants. not_counted.estimate_orders : ancien champ de compatibilité, renvoie zéro. Une affaire archivée n'est pas trouvée (404). Montants en centimes.",
+        "description": "Pour les lecteurs de l'affaire (propriétaire, administrateur, directeur), par famille de fourniture, puis « non classé » (lignes sans famille de fourniture vérifiable) et le port et les remises : le budget fournitures de la version acceptée par le client et le coût de ses bons de commande. budget_version : la version acceptée qui fait le budget (la plus haute si plusieurs, accepted_count dit combien), quelle que soit sa variante ; null quand aucune version n'est acceptée, et alors chaque budget_cents est null (pas de budget). Budget d'une ligne chiffrée : quantité × prix d'achat FO × provision FO × K FO (moteur 3 ; quantité × prix × K FO avant), arrondi au centime par ligne ; une ligne non chiffrée compte 0. Un bon compte une seule fois par rattachement direct ou par sa version de devis, dans le même tenant. Deux rattachements doivent désigner la même affaire. ordered_cents : bons confirmés ou reçus ; pending_cents : brouillons et bons envoyés. Le coût reprend les montants HT enregistrés sur les lignes du bon. Un bon issu du devis sans famille de fourniture enregistrée utilise la famille de la ligne source vérifiée, puis celle de l’article si disponible. Bons annulés et frais généraux exclus. Une remise compte en négatif. not_counted.unresolved_orders : nombre de bons écartés faute de rattachement certain et lisibles par l’appelant, sans identifiants ni montants. not_counted.estimate_orders : ancien champ de compatibilité, renvoie zéro. Une affaire archivée n'est pas trouvée (404). Montants en centimes.",
         "parameters": [
           {
             "name": "projectId",
@@ -6008,7 +6008,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Budget et commandé par type de fourniture.",
+            "description": "Budget et commandé par famille de fourniture.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16565,7 +16565,7 @@
           "Estimates"
         ],
         "summary": "Reprendre les prix d'un devis de reference",
-        "description": "Ecriture atomique du brouillon moteur 3 par l'ecrivain de lot v3, au jeton If-Match exact, avec un bail de page actif et la cle operation_key. Pour chaque ligne choisie, copie les saisies de prix de l'article de reference (nature, statut chiffre, PR FO, type FO, K FO, heures par unite, majoration, K MO, roles de main-d'oeuvre repris par leur nom chez le proprietaire de l'affaire) ; jamais la quantite, la designation, l'unite, la TVA ni la categorie. Le devis de reference n'est pas ecrit. La comparaison est recalculee : seul un candidat courant, sur une ligne comparee, peut etre ecrit (409 PRICE_REUSE_SELECTION_STALE). Refus nommes, rien n'est ecrit : brouillon modifie depuis la comparaison (target_updated_at) 409 PRICE_REUSE_TARGET_CHANGED, reference modifiee 409 PRICE_REUSE_REFERENCE_CHANGED, unite differente 409 PRICE_REUSE_UNIT_MISMATCH, role absent ou ambigu 422 PRICE_REUSE_LABOR_ROLE_MISSING / PRICE_REUSE_LABOR_ROLE_AMBIGUOUS, recu de plus de 2 Mio 413 PRICE_REUSE_TOO_LARGE. Une offre fournisseur retenue sur la ligne est detachee. lines compare le PU de vente obtenu a celui de la reference.",
+        "description": "Ecriture atomique du brouillon moteur 3 par l'ecrivain de lot v3, au jeton If-Match exact, avec un bail de page actif et la cle operation_key. Pour chaque ligne choisie, copie les saisies de prix de l'article de reference (nature, statut chiffre, PR FO, famille FO, K FO, heures par unite, majoration, K MO, roles de main-d'oeuvre repris par leur nom chez le proprietaire de l'affaire) ; jamais la quantite, la designation, l'unite, la TVA ni la categorie. Le devis de reference n'est pas ecrit. La comparaison est recalculee : seul un candidat courant, sur une ligne comparee, peut etre ecrit (409 PRICE_REUSE_SELECTION_STALE). Refus nommes, rien n'est ecrit : brouillon modifie depuis la comparaison (target_updated_at) 409 PRICE_REUSE_TARGET_CHANGED, reference modifiee 409 PRICE_REUSE_REFERENCE_CHANGED, unite differente 409 PRICE_REUSE_UNIT_MISMATCH, role absent ou ambigu 422 PRICE_REUSE_LABOR_ROLE_MISSING / PRICE_REUSE_LABOR_ROLE_AMBIGUOUS, recu de plus de 2 Mio 413 PRICE_REUSE_TOO_LARGE. Une offre fournisseur retenue sur la ligne est detachee. lines compare le PU de vente obtenu a celui de la reference.",
         "parameters": [
           {
             "name": "versionId",
@@ -27522,7 +27522,7 @@
           "Catalogue"
         ],
         "summary": "Choisir le fournisseur de l'article",
-        "description": "Exception de l'article : proposée aux lignes de demandes de matériel avant le fournisseur préféré de son type de fourniture. Le fournisseur doit avoir une référence active pour l'article. null la retire. Droits : ceux de la modification de l'article.",
+        "description": "Exception de l'article : proposée aux lignes de demandes de matériel avant le fournisseur préféré de sa famille de fourniture. Le fournisseur doit avoir une référence active pour l'article. null la retire. Droits : ceux de la modification de l'article.",
         "parameters": [
           {
             "name": "productId",

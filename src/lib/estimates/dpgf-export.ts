@@ -237,7 +237,7 @@ async function writeWorkbook(input: {
     { header: "Quantité", key: "quantite", width: 12 },
     { header: "Unité", key: "unite", width: 18 },
     { header: "Prix unitaire HT EUR", key: "prix_unitaire_ht_eur", width: 22 },
-    { header: "Type FO", key: "type_fo", width: 18 },
+    { header: "Famille FO", key: "type_fo", width: 18 },
     { header: "K FO", key: "k_fo", width: 10 },
     { header: "h MO", key: "h_mo", width: 10 },
     { header: "K MO", key: "k_mo", width: 10 },

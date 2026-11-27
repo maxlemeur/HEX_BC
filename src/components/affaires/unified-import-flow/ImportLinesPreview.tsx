@@ -398,7 +398,7 @@ export function ImportLinesPreview({
           {/* TI-534 : le contrôle compare les colonnes du classeur ; le coefficient courant est appliqué à la création. */}
           {isV3 ? (
             <p className="mt-1 text-muted-foreground">
-              Le K FO paramétré est appliqué à la création. Sans type FO, sa base est 1,02 :
+              Le K FO paramétré est appliqué à la création. Sans famille FO, sa base est 1,02 :
               le prix créé inclut alors 2 % sur la part fourniture.
             </p>
           ) : null}

@@ -46,7 +46,7 @@ export function createFoPriceResolver(supabase: SupabaseClient<Database>, tenant
     }
     if (!types && lines.length) {
       const { data, error } = await readAllRows(() => supabase.from("supply_types").select("id, code, name", { count: "exact" }).eq("tenant_id", tenantId));
-      if (error) throw mapSupabaseError(error, "Impossible de lire les types de fourniture.");
+      if (error) throw mapSupabaseError(error, "Impossible de lire les familles de fourniture.");
       types = data ?? [];
     }
   }

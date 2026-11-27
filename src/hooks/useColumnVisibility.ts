@@ -63,7 +63,7 @@ const ALL_ADVANCED_COLUMNS: ColumnKey[] = [
 
 const COLUMN_LABELS: Record<ColumnKey, string> = {
   supplier: "Fournisseur",
-  supply_type: "Type FO",
+  supply_type: "Famille FO",
   k_fo: "K FO",
   h_mo_majoration: "Majoration MO (%)",
   labor_role: "Type MO",

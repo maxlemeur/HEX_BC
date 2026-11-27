@@ -601,7 +601,7 @@ async function writeWorkbook(input: {
     { header: "Désignation", key: "designation", width: 42 },
     { header: "Unité", key: "unite", width: 12 },
     { header: "Quantité", key: "quantite", width: 12 },
-    { header: "Type FO", key: "type_fo", width: 14 },
+    { header: "Famille FO", key: "type_fo", width: 14 },
     { header: "PU FO HT EUR", key: "pu_fo_ht_eur", width: 16 },
     { header: "PR FO HT EUR", key: "pr_fo_ht_eur", width: 16 },
     { header: "K FO", key: "k_fo", width: 10 },

@@ -52,7 +52,7 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
       .toEqual([[tube, 1.1, 16700, 167000], [tube, 1.13, 15621, 156210], [tube, 1.13, 17090, 170900], [null, 1.02, 15660, 15660]]);
     await ui.app.open(`/dashboard/estimates/${draft.versionId}/edit`);
     await waitForDraftLease(ui);
-    await expect(ui.screen.getByText("Type FO à préciser", { exact: true })).toBeVisible();
+    await expect(ui.screen.getByText("Famille FO à préciser", { exact: true })).toBeVisible();
     await showStandardColumns(ui);
     const row = ui.browser.locator(`[data-estimate-item-id="${rows[0].id}"]`);
     const designation = `${ui.army.runPrefix} tube PVC FO534`;

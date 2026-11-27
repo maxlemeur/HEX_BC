@@ -194,14 +194,14 @@ export function FoCoefficientSettings() {
           </p>
         ) : rows.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground sm:p-5">
-            Aucun type de fourniture.
+            Aucune famille de fourniture.
           </p>
         ) : (
           <table className="w-full border-collapse text-sm tabular-nums">
             <thead>
               <tr className="border-b border-border bg-surface-subtle text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <th scope="col" className="px-4 py-2 sm:px-5">
-                  Type de fourniture
+                  Famille de fourniture
                 </th>
                 <th scope="col" className="px-1.5 py-2 text-right sm:px-3">
                   <span className="sm:hidden">Base</span>

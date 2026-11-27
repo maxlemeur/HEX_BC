@@ -349,14 +349,14 @@ export function MobileEstimateLineEditor({
             </summary>
             <div className="space-y-3 border-t border-[var(--slate-200)] p-3">
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Type fourniture">
+                <Field label="Famille FO">
                   <EstimateTypeCombobox
                     key={`${item.id}:fo`}
                     className={inputClassName}
                     value={item.supply_type_id}
                     options={supplyTypes.map((type) => ({ id: type.id, code: type.code, label: type.name }))}
-                    label={`Type de fourniture pour ${lineLabel}`}
-                    emptyLabel="Aucun type"
+                    label={`Famille FO pour ${lineLabel}`}
+                    emptyLabel="Aucune famille"
                     disabled={isReadOnly}
                     onCommit={(id) => onPatchItem(item.id, { supply_type_id: id }, { persist: true })}
                   />

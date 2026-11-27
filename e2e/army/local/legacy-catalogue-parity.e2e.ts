@@ -33,7 +33,7 @@ type EditorData = {
 // of a rule through the settings UI. CAT-C02/C03, V3E03/V3E12/V3E19 retain the
 // stronger offer-write, supplier-choice and suggestion/undo/unit-refusal cases.
 // TI153's automatic-application expectation is obsolete: today's row offers an
-// explicit Apply action, and its Type FO setting stores the category UUID.
+// explicit Apply action, and its estimate category field stores the category UUID.
 async function owner(ui: ConnectedUi, tag: string) {
   await ui.app.open("/dashboard/affaires");
   const result = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix,
@@ -219,7 +219,7 @@ armyTest("LEGCAT03 settings create a real labor role and suggestion rule; explic
     const ruleName = `${ui.army.runPrefix} règle bois`;
     for (const [label, value] of [["Nom de règle", ruleName], ["Mots-clés (virgules)", "bois"], ["Unité", "m2"],
       ["K FO", "1.2"], ["K MO", "0.5"], ["Priorité", "1"]]) await drawer.getByLabel(label, { exact: true }).fill(value);
-    await drawer.getByLabel("Type FO", { exact: true }).selectOption({ value: category!.id });
+    await drawer.getByLabel("Catégorie de devis", { exact: true }).selectOption({ value: category!.id });
     await drawer.getByLabel("Rôle MO", { exact: true }).selectOption({ value: role.id });
     const ruleForm = ui.browser.locator(".estimate-role-form").filter({ has: ui.screen.getByLabel("Nom de règle", { exact: true }) });
     const [ruleResult] = await Promise.all([

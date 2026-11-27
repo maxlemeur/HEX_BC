@@ -1042,7 +1042,7 @@ export async function prepareCanonicalEstimateCreation(input: PersistCanonicalEs
       // TI-534 : provision FO que le déclencheur donne à chaque ligne créée, selon son type FO.
       const { provisions: foProvisions, error: foProvisionError } = await loadSupplyTypeFoProvisions(
         input.supabase, input.tenantId, v3Items.map((item) => item.supply_type_id), projectUserId);
-      if (foProvisionError) throw mapSupabaseError(foProvisionError, "Impossible de lire les types de fourniture.");
+      if (foProvisionError) throw mapSupabaseError(foProvisionError, "Impossible de lire les familles de fourniture.");
       const lineItems = v3Items
         .filter((item) => item.item_type === "line")
         .map((item) => ({

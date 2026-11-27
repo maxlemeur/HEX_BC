@@ -205,7 +205,7 @@ const COLUMN_DESCRIPTORS: Record<string, ColumnDescriptor> = {
   [K.supplyType]: typeColumn({
     field: "supply_type_id",
     options: (context) => context.supplyTypeOptions,
-    label: "Type FO",
+    label: "Famille FO",
   }),
   [K.kFo]: {
     read: (item, context) => formatDecimalInput(context.isV3 ? effectiveKfoValue(item.k_fo, item.fo_provision) : item.k_fo ?? 1),

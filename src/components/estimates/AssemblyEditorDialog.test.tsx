@@ -172,7 +172,7 @@ describe("AssemblyEditorDialog", () => {
     const laborRoleSelect = screen.getByLabelText("Rôle de main-d’œuvre");
     expect(laborRoleSelect).toBeEnabled();
     await user.selectOptions(laborRoleSelect, LABOR_ROLE_ID);
-    await user.selectOptions(screen.getByLabelText("Type FO"), SUPPLY_TYPE_ID);
+    await user.selectOptions(screen.getByLabelText("Famille FO"), SUPPLY_TYPE_ID);
     await user.clear(screen.getByLabelText("Temps MO (h)"));
     await user.type(screen.getByLabelText("Temps MO (h)"), "1.5");
     await user.click(screen.getByRole("button", { name: "Enregistrer" }));

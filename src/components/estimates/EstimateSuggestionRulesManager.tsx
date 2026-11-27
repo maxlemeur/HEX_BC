@@ -208,7 +208,7 @@ export function EstimateSuggestionRulesManager({
             Base de chiffrage
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Définissez des règles pour suggérer le type FO, l&apos;unité, les
+            Définissez des règles pour suggérer la catégorie de devis, l&apos;unité, les
             coefficients et le rôle MO.
           </p>
         </div>
@@ -252,7 +252,7 @@ export function EstimateSuggestionRulesManager({
           />
         </div>
         <div className={FIELD_CLASS}>
-          <FieldLabel htmlFor="rule-category">Type FO</FieldLabel>
+          <FieldLabel htmlFor="rule-category">Catégorie de devis</FieldLabel>
           <NativeSelect
             id="rule-category"
             size="sm"
@@ -352,7 +352,7 @@ export function EstimateSuggestionRulesManager({
               <th scope="col">Règle</th>
               <th scope="col">Mots-clés</th>
               <th scope="col">Unité</th>
-              <th scope="col">Type FO</th>
+              <th scope="col">Catégorie de devis</th>
               <th scope="col">K FO</th>
               <th scope="col">K MO</th>
               <th scope="col">Rôle MO</th>
@@ -435,7 +435,7 @@ export function EstimateSuggestionRulesManager({
                       <NativeSelect
                         size="sm"
                         value={draft.category_id}
-                        aria-label={`Type FO ${ruleLabel}`}
+                        aria-label={`Catégorie de devis ${ruleLabel}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,

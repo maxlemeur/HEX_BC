@@ -64,6 +64,12 @@ const OPTIMA_PROFILE: DeclaredProfile = {
   signature: ["PR Fourniture unitaire", "Tps pose unitaire", "Majoration MO", "Coeff MO"],
 };
 
+// MergeOne writes « Famille FO »; earlier exports use « Type FO ».
+const EXPORTED_SUPPLY_TYPE_COLUMNS: DeclaredColumn[] = [
+  { header: "Famille FO", target: "supply_type" },
+  { header: "Type FO", target: "supply_type" },
+];
+
 const EDITOR_EXPORT_PROFILE: DeclaredProfile = {
   id: "editor_export",
   label: "Export de l'éditeur de chiffrage",
@@ -74,7 +80,7 @@ const EDITOR_EXPORT_PROFILE: DeclaredProfile = {
     { header: "Unité", target: "unit" },
     { header: "Quantité", target: "quantity" },
     { header: "Prix unitaire HT (EUR)", target: "unit_price_ht" },
-    { header: "Type FO", target: "supply_type" },
+    ...EXPORTED_SUPPLY_TYPE_COLUMNS,
     // TI-534: the v3 CSV states the stored FO provision; a re-import derives it again from the type.
     { header: "Provision FO", target: null },
     { header: "K FO", target: null },
@@ -106,7 +112,7 @@ const DPGF_EXPORT_PROFILE: DeclaredProfile = {
     { header: "Quantité", target: "quantity" },
     { header: "Unité", target: "unit" },
     { header: "Prix unitaire HT EUR", target: "unit_price_ht" },
-    { header: "Type FO", target: "supply_type" },
+    ...EXPORTED_SUPPLY_TYPE_COLUMNS,
     { header: "K FO", target: null },
     { header: "h MO", target: "labor_hours" },
     { header: "K MO", target: null },
@@ -141,7 +147,7 @@ const DPGF_V3_EXPORT_PROFILE: DeclaredProfile = {
     { header: "Statut", target: null },
     { header: "TVA (%)", target: null },
     ...perCurrency("Prix unitaire HT", "unit_price_ht"),
-    { header: "Type FO", target: "supply_type" },
+    ...EXPORTED_SUPPLY_TYPE_COLUMNS,
     { header: "Provision FO", target: null },
     { header: "K FO", target: null },
     { header: "h MO / unité", target: "labor_hours_per_unit" },

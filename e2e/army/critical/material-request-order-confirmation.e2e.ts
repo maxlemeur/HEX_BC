@@ -237,9 +237,9 @@ armyTest(
     await expect(section.getByText("Budget en attente du devis accepté : le commandé et l’en-cours sont affichés sans budget.", { exact: true }))
       .toBeVisible({ timeout: 60_000 });
     // The affaire's totals lead the page; the table per supply type opens under them.
-    const detail = section.getByRole("button", "Détail par type de fourniture", { exact: true });
+    const detail = section.getByRole("button", "Détail par famille de fourniture", { exact: true });
     await detail.tap();
-    const table = section.getByRole("table", "Budget et commandé par type de fourniture", { exact: true });
+    const table = section.getByRole("table", "Budget et commandé par famille de fourniture", { exact: true });
     await expect(table.getByRole("row", /^Non classé\s+—\s+0,00\s€\s+119,28\s€\s+—$/)).toBeVisible();
 
     // Arranged through the API: the acknowledgement joined, the order confirmed with the screws at 3,52 € the hundred

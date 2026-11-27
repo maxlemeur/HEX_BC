@@ -705,6 +705,31 @@ describe("2.3 column heuristic on real OPTIMA and client B headers (F17, U-03)",
   });
 });
 
+describe("estimate family headers on re-import", () => {
+  it.each(["Type FO", "Famille FO"])("recognizes the generic %s header before and after upload", (header) => {
+    expect(guessRawAndUploaded(header)).toEqual({ raw: "supply_type", uploaded: "supply_type" });
+  });
+
+  describe.each([
+    { profile: "editor", signature: ["Prix unitaire HT (EUR)", "PU HT (EUR)", "Total HT (EUR)"] },
+    { profile: "DPGF", signature: ["AID", "Prix unitaire HT EUR", "h MO", "Rôle MO"] },
+    { profile: "DPGF v3", signature: ["AID", "Statut", "h MO / unité", "Rôle MO"] },
+  ])("$profile export", ({ signature }) => {
+    it.each(["Type FO", "Famille FO"])("declares %s as the supply family", async (header) => {
+      const uploadedHeader = normalizeHeaderValue(header, 0);
+      const payload = Object.fromEntries(signature.map((column) => [normalizeHeaderValue(column, 0), ""]));
+      payload[uploadedHeader] = "Fixations";
+      const supabase = createSupabaseMock({ rawRows: [{ row_index: 1, payload }] });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const result = await suggestMapping({ import_id: IMPORT_ID });
+
+      expect(result.suggestions[uploadedHeader]).toBe("supply_type");
+      expect(result.confidence_by_source[uploadedHeader]?.origin).toBe("profile");
+    });
+  });
+});
+
 // 2.3 review (D11): « prix d'achat » and « prix de revient » name the supply cost explicitly; the
 // generic « Prix unitaire → contrôle » rule caught them, so the column was never imported.
 describe("2.3 explicit purchase prices stay the supply cost (D11)", () => {

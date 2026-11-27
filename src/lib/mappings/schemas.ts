@@ -89,7 +89,7 @@ const MAPPING_TARGET_LABELS: Record<MappingTargetField, string> = {
   unit_price_ht: "Prix fourniture",
   total_ht: "Montant HT",
   category: "Catégorie",
-  supply_type: "Type FO",
+  supply_type: "Famille FO",
   supplier_ref: "Référence fournisseur",
   labor_hours: "Heures MO (totales de la ligne)",
   labor_hours_per_unit: "Heures MO par unité (h/u × Q)",

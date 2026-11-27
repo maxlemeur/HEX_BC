@@ -523,7 +523,7 @@ export function LineRow({
     <>
       <EstimateLineTruthBadges item={item} />
       {siteCostLabel ? <span className="text-xs text-[var(--slate-600)]" data-testid="estimate-line-site-cost-badge" title={siteCostLabel}>Coût chantier</span> : null}
-      {v3Grid && item.pricing_status === "priced" && !item.supply_type_id && Number(item.unit_price_ht_cents) > 0 ? <span role="status" className="text-xs text-amber-700">Type FO à préciser</span> : null}
+      {v3Grid && item.pricing_status === "priced" && !item.supply_type_id && Number(item.unit_price_ht_cents) > 0 ? <span role="status" className="text-xs text-amber-700">Famille FO à préciser</span> : null}
       {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
         <div className="estimate-quality-dots">
           {qualityFlags.slice(0, 3).map((flag) => {
@@ -962,8 +962,8 @@ export function LineRow({
           <EstimateTypeCombobox
             value={item.supply_type_id}
             options={supplyTypeOptions}
-            label={`Type de fourniture pour ${item.title || "sans titre"}`}
-            emptyLabel="Aucun type"
+            label={`Famille FO pour ${item.title || "sans titre"}`}
+            emptyLabel="Aucune famille"
             editorProps={supplyTypeEditorProps}
             onCommit={(id) => onPatchItem(item.id, { supply_type_id: id }, { persist: true })}
             disabled={isReadOnly}

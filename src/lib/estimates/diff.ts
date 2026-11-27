@@ -152,7 +152,7 @@ const LINE_FIELD_DEFINITIONS: readonly DiffFieldDefinition[] = [
   },
   {
     key: "supply_type_id",
-    label: "Type fourniture",
+    label: "Famille FO",
     kind: "reference",
     referenceDomain: "supply_type",
   },

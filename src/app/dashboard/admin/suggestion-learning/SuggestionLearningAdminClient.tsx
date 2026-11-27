@@ -98,7 +98,7 @@ const FIELD_LABELS: Record<SuggestionLearningFieldName, string> = {
   k_fo: "K FO",
   k_mo: "K MO",
   labor_role_id: "Rôle MO",
-  supply_type_id: "Type fourniture",
+  supply_type_id: "Famille de fourniture",
 };
 
 function getFeatureFlag(flags: FeatureFlagRecord[], key: string) {
