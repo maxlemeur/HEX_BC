@@ -107646,7 +107646,7 @@
                               ]
                             },
                             "failureMessage": {
-                              "description": "Motif public fixe lorsque la réponse du fournisseur est inexploitable.",
+                              "description": "Motif public fixe : réponse du fournisseur inexploitable, ou arrêt d’une demande payée avec la clé API OpenAI (plafond en dollars atteint, appels payants confirmés tous utilisés, appel plus coûteux que le montant réservé).",
                               "type": "string"
                             },
                             "retryCount": {
@@ -108332,7 +108332,7 @@
                             ]
                           },
                           "failureMessage": {
-                            "description": "Motif public fixe lorsque la réponse du fournisseur est inexploitable.",
+                            "description": "Motif public fixe : réponse du fournisseur inexploitable, ou arrêt d’une demande payée avec la clé API OpenAI (plafond en dollars atteint, appels payants confirmés tous utilisés, appel plus coûteux que le montant réservé).",
                             "type": "string"
                           },
                           "retryCount": {

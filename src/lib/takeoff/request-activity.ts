@@ -4,6 +4,7 @@ import {
   describeTakeoffLaunchReason,
   isTakeoffLaunchReason,
   TAKEOFF_GROUPED_UNIT_KEY,
+  TAKEOFF_KEY_LIMIT_REACHED_NOTE,
   type TakeoffLaunchPiece,
 } from "@/lib/takeoff/launch-request";
 import {
@@ -24,7 +25,7 @@ import type {
   TakeoffRequestActivityJob,
   TakeoffRequestActivityResponse,
 } from "@/lib/takeoff/request-activity-contracts";
-import { storedTakeoffFailureMessage } from "@/lib/takeoff/visible-status";
+import { isTakeoffKeyStopMessage, storedTakeoffFailureMessage } from "@/lib/takeoff/visible-status";
 
 /**
  * What the affaire's activity shows of its launch requests (migration 20261121170448_takeoff_launch_requests.sql): each
@@ -335,6 +336,11 @@ export function buildTakeoffRequestActivity(input: {
       : [{ planFileId: null, name: `Plan ${index + 1}`, pages: [] }];
   });
   const unitJobs = new Set(units?.units.map((unit) => unit.jobId) ?? []);
+  const jobs = input.jobs.filter((job) => job.launch_request_id === request.id && unitJobs.has(job.id))
+    .map((job) => toActivityJob(job, input.viewer, input.now, manifest?.itemList === true && input.writesItems === true));
+  // Closed at a limit of the key that paid it: a plan shown here says which, as its worker recorded it; the note names
+  // none of them. A request whose shown plans carry none of those texts keeps the budget's note.
+  const keyLimit = reason?.code === "BUDGET_EXHAUSTED" && jobs.some((job) => isTakeoffKeyStopMessage(job.failureMessage));
 
   return {
     id: request.id,
@@ -344,7 +350,7 @@ export function buildTakeoffRequestActivity(input: {
     state: request.state as TakeoffRequestActivity["state"],
     outcome: request.outcome === "success" || request.outcome === "failure" || request.outcome === "canceled"
       || request.outcome === "partial" ? request.outcome : null,
-    reason,
+    reason: keyLimit && reason ? { ...reason, message: TAKEOFF_KEY_LIMIT_REACHED_NOTE } : reason,
     createdAt: request.created_at,
     admittedAt: request.admitted_at,
     closedAt: request.closed_at,
@@ -356,8 +362,7 @@ export function buildTakeoffRequestActivity(input: {
     plansOmitted: request.admitted_at && manifest ? manifest.omitted.map((entry, index) => ({
       name: isTakeoffSourceVisible(visible, entry.id) ? entry.name : `Plan ${index + 1}`, reason: entry.reason,
     })) : [],
-    jobs: input.jobs.filter((job) => job.launch_request_id === request.id && unitJobs.has(job.id))
-      .map((job) => toActivityJob(job, input.viewer, input.now, manifest?.itemList === true && input.writesItems === true)),
+    jobs,
     action: input.action ?? null,
     dossierChanged: input.dossierChanged ?? null,
   };

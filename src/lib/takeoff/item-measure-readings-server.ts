@@ -19,6 +19,8 @@ export async function readItemMeasureReadings(projectId: string, itemId: string,
   if (error) throw mapSupabaseError(error, "Impossible de lire la dernière demande de mesure.");
   if (!job?.launch_request_id) return null;
   const previous = asRecord(job.preparation_snapshot)?.remeasure_previous_answer;
+  // The member's own measure: its snapshot, already read, says whether their key paid it.
+  const paidWithKey = asRecord(asRecord(job.preparation_snapshot)?.execution_selection)?.source === "personal_api_key";
   const answer = async (where: { jobId: string } | { answerId: string }) => {
     const query = supabase.from("takeoff_item_answers").select(
       "id, job_id, list_revision_id, plan_file_id, plan_generation, outcome, quantity, unit, searched_pages, unreadable_pages, reasons, comparison_only, publication:takeoff_item_answer_publications!takeoff_item_answers_publication_fkey(result:takeoff_results!takeoff_item_answer_publications_result_id_fkey(coverage:provider_meta->count_marks)), observations:takeoff_item_answer_observations!takeoff_item_answer_observations_answer_fkey(id, ordinal, page, evidence)",
@@ -45,5 +47,5 @@ export async function readItemMeasureReadings(projectId: string, itemId: string,
   const [prior, latest] = await Promise.all([typeof previous === "string" ? answer({ answerId: previous }) : null,
     unit.state === "succeeded" ? answer({ jobId: job.id }) : null]);
   return itemMeasureReadingsSchema.parse({ jobId: job.id, requestId: job.launch_request_id, state: unit.state,
-    reason: unit.reasonCode ? describeTakeoffJobFailure(unit.reasonCode) : null, previous: prior, latest });
+    reason: unit.reasonCode ? describeTakeoffJobFailure(unit.reasonCode, { paidWithKey }) : null, previous: prior, latest });
 }

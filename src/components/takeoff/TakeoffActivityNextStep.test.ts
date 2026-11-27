@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { TakeoffActivityCenterJobRow } from "@/lib/takeoff/types";
+import { TAKEOFF_KEY_STOP_MESSAGES } from "@/lib/takeoff/visible-status";
 
 import {
   FIXTURE_PROJECT, fixtureActivityJob, fixtureJob, fixtureRequest, fixtureThreePlans, fixtureUnit,
@@ -62,6 +63,25 @@ describe("resolveTakeoffNextStep for a stopped analysis", () => {
     const next = step(old as TakeoffActivityCenterJobRow);
     expect(next.action).toBeNull();
     expect(next.description).toMatch(/Rechargez la page/);
+  });
+
+  // Follow-up of #684's review: the banner reads the job's stored message through the server, like the activity's plan.
+  it.each(Object.entries(TAKEOFF_KEY_STOP_MESSAGES))("tells why a request a key paid stopped, as its worker recorded it (%s)", (_reason, message) => {
+    const latestJob = job({ errorCode: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", resume: { action: "none", reason: "read_only", availableAt: null } });
+    const next = resolveTakeoffNextStep({ projectId: "project-1", latestJob, canLaunch: true, firstUsablePlanSetName: "Plans",
+      planSetCount: 1, latestJobContext: { jobId: latestJob.jobId, reviewVersionId: "v", failureReasonLabel: message } });
+    expect(next.description).toBe(`La dernière analyse n’a pas abouti. ${message} Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.`);
+    expect(next.description).not.toMatch(/budget/);
+  });
+
+  it("keeps the fact of the code for any other label, and for another job's", () => {
+    const latestJob = job({ errorCode: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" });
+    const budget = "La dernière analyse n’a pas abouti. Le budget de cette analyse était épuisé : ce plan n’a pas été lu en entier.";
+    const withLabel = (failureReasonLabel: string, jobId = latestJob.jobId) => resolveTakeoffNextStep({ projectId: "project-1", latestJob,
+      canLaunch: true, firstUsablePlanSetName: "Plans", planSetCount: 1, latestJobContext: { jobId, reviewVersionId: "v", failureReasonLabel } });
+    expect(withLabel("FICTIONAL_PLAN_MARKER").description).toMatch(new RegExp(`^${budget}`, "u"));
+    expect(withLabel(TAKEOFF_KEY_STOP_MESSAGES.callOverBound, "22222222-2222-4222-8222-222222222222").description)
+      .toMatch(new RegExp(`^${budget}`, "u"));
   });
 });
 

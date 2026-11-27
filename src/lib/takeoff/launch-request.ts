@@ -423,6 +423,12 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
 }
 
 /**
+ * The note of a request paid by a personal key and closed at one of its limits (BUDGET_EXHAUSTED): its dollars, its
+ * confirmed calls or one call over its bound. Which one is said on each plan, as its worker recorded it.
+ */
+export const TAKEOFF_KEY_LIMIT_REACHED_NOTE = "Métré arrêté — une limite de cette demande payée avec la clé API OpenAI est atteinte. Le motif est indiqué sur chaque plan.";
+
+/**
  * A reason that tells the member to resume « avec votre forfait », for a member whose gesture reads « avec ma clé API »
  * (the source chosen for it): the same reason, its instruction naming no plan to resume with. Null when the reason reads
  * the same with either source: `describeTakeoffLaunchReason` then says it.

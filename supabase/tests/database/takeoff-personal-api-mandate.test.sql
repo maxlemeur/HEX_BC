@@ -359,6 +359,9 @@ select is((select sum(bound_tokens) from private.takeoff_api_calls where mandate
   'each reservation records its call’s token estimate');
 select results_eq($$select reason, remaining_nano_usd, remaining_tokens from pg_temp.reserve(1,940,'pdf',project=>25)$$,
   $$values (null::text,24740000000::bigint,null::bigint)$$, 'the balance of a mandate without a token ceiling is its dollars');
+select results_eq($$select reason, remaining_tokens from pg_temp.reserve(1,940,'pdf',1000000000,100000,true,project=>25)$$,
+  $$values ('CAPACITY_HELD'::text,null::bigint)$$,
+  'a preparation waiting on live reservations of a mandate without a token ceiling reads no token number');
 create temp table call_b as select call_id from pg_temp.reserve(1,940,'pdf',1000000000,100000,project=>25);
 select ok(public.settle_takeoff_api_call((select call_id from call_b),pg_temp.unit(25,1),pg_temp.f(10),pg_temp.f(25),
   pg_temp.f(1),pg_temp.f(940),500000000,2000000), 'a call settles with more tokens than its own estimate');
