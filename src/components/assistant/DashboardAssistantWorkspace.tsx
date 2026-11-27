@@ -55,10 +55,10 @@ function DashboardAssistant({ userId, tenantId, children }: { userId: string; te
   const context: AssistantSessionContext = mode === "help" ? { kind: "help" }
     : registered ? { kind: "project", ...registered } : routeContext;
   const onWorkbook = pathname === WORKBOOK_PATH;
-  const workbookAvailable = workbookStatus !== null;
+  const workbookAvailable = onWorkbook && workbookStatus !== null;
   const canShow = !pathname.endsWith("/print") && pathname.startsWith("/dashboard");
   const showProject = mode === "project" && currentProject?.projectId === projectPanel?.projectId && projectPanel !== null;
-  const showWorkbook = mode === "workbook" && onWorkbook && workbookAvailable;
+  const showWorkbook = mode === "workbook" && workbookAvailable;
   const visibleMode = showProject ? "project" : showWorkbook ? "workbook" : mode === "help" ? "help" : "page";
 
   const register = useCallback((value: Registration) => {
@@ -127,9 +127,9 @@ function DashboardAssistant({ userId, tenantId, children }: { userId: string; te
       { id: "help", label: "Aide générale" },
     ];
     if (currentProject) availableModes.push({ id: "project", label: "Fils de l’affaire" });
-    if (showWorkbook) availableModes.push({ id: "workbook", label: "Analyse du classeur" });
+    if (workbookAvailable) availableModes.push({ id: "workbook", label: "Analyse du classeur" });
     return availableModes.map(({ id, label }) => ({ id, label, active: id === visibleMode, select: () => chooseMode(id) }));
-  }, [routeContext.kind, currentProject, showWorkbook, visibleMode, chooseMode]);
+  }, [routeContext.kind, currentProject, workbookAvailable, visibleMode, chooseMode]);
   const workbookActive = open && showWorkbook;
   const dock = useMemo(() => ({ register, setHeaderTarget, setWorkbookStatus, workbookControls, workbookActive, contextOptions }),
     [register, workbookControls, workbookActive, contextOptions]);

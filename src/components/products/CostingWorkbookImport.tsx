@@ -443,14 +443,14 @@ export function CostingWorkbookImport({
   function previewWorkbookChanges(
     base: CostingWorkbookRows,
     nextEdits: WorkbookEdit[],
-    { exclusions = excludedRows, onApply }: { exclusions?: ReadonlySet<number>; onApply?(): void } = {},
+    { exclusions = excludedRows, onApply }: { exclusions?: ReadonlySet<number>; onApply?: () => void } = {},
   ) {
     const mapped = applyWorkbookFileEdits(base, nextEdits);
     const nextInspection = inspectCostingWorkbookColumns(mapped);
     const nextRows = excludeWorkbookRows(mapped, exclusions, nextInspection.headerRow);
+    const readable = nextInspection.missingRequired.length === 0;
     // A preview is drawn from the rows: once they lose a required column (a header mapping undone), the one on
     // screen can no longer be read against them, and the next answer is the format refusal.
-    const readable = nextInspection.missingRequired.length === 0;
     const canKeepPreview = exclusions === excludedRows && readable;
     function showPreview() {
       onApply?.();
@@ -961,7 +961,7 @@ export function CostingWorkbookImport({
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             {replacement?.replay ? (
               <>
-                <Button variant="outline" onClick={() => { if (replacement) configureWorkbook(replacement, false); }}>Abandonner les corrections</Button>
+                <Button variant="outline" onClick={() => configureWorkbook(replacement, false)}>Abandonner les corrections</Button>
                 <Button onClick={() => configureWorkbook(replacement, true)}>Reprendre les corrections</Button>
               </>
             ) : (
