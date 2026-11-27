@@ -118,9 +118,14 @@ const previews = () => posted("/api/catalogue/workbook-import");
 const supplierPreviews = () => posted("/api/catalogue/workbook-import/supplier-references");
 const suggestions = () => posted(SUGGESTIONS).map((call) => call.body!);
 
+async function showWorkbookPreview(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Afficher l’aperçu" }));
+}
+
 async function openImport(user: ReturnType<typeof userEvent.setup>, file = workbook()) {
   render(<CostingWorkbookImport catalogueHref="/dashboard/products" draftsHref="/dashboard/products?catalogue_status=draft" onImported={vi.fn()} />);
   await user.upload(screen.getByLabelText("Fichier Excel"), file);
+  await showWorkbookPreview(user);
   await screen.findByRole("table", { name: "Articles proposés en brouillon" });
 }
 
@@ -391,6 +396,7 @@ describe("CostingWorkbookImport, proposals", () => {
     await user.click(screen.getByRole("button", { name: "Chercher les doublons" }));
     await user.click(screen.getByRole("button", { name: "Changer de fichier Excel" }));
     await user.upload(screen.getByLabelText("Fichier Excel"), workbook([HEADERS, ["AUTRE-20", ...SHEET_ROWS[1].slice(1)], SHEET_ROWS[2]]));
+    await showWorkbookPreview(user);
     await waitFor(() => expect(signal?.aborted).toBe(true));
     await act(async () => finish(await ok({
       task: "articles", provider: null, model: null, status: "deterministic", message: "",
