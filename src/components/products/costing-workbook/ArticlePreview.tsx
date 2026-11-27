@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 
 import Link from "next/link";
 import { DownloadIcon, ExternalLinkIcon } from "lucide-react";
@@ -36,8 +36,9 @@ import { ArticleDuplicates, type DuplicateSearch } from "./ArticleDuplicates";
 import { ColumnsPanel } from "./ColumnsPanel";
 import { SupplyTypeGroups } from "./SupplyTypeGroups";
 import {
-  useWorkbookPreviewColumns, WorkbookPreviewColumnPicker, WorkbookPreviewDropdownHeader, WorkbookPreviewSourceCells,
-  WorkbookPreviewSourceHeaders, workbookFilterMatches, workbookFilterOptions, type WorkbookCategory,
+  useWorkbookPreviewColumns, WorkbookPreviewColumnPicker, WorkbookPreviewDropdownHeader, WorkbookPreviewSourceCell,
+  WorkbookPreviewSourceHeader, workbookFilterMatches, workbookFilterOptions, type WorkbookCategory, type WorkbookColumnPreferences,
+  type WorkbookStandardColumnId,
 } from "./WorkbookPreviewColumns";
 import {
   boundedPage,
@@ -46,9 +47,11 @@ import {
   formatCount,
   plural,
   ReviewPager,
+  reviewPageLength,
   useWorkbookEditor,
   WorkbookReviewLayout,
   type ReviewChoice,
+  type ReviewPageSize,
   type WorkbookReview,
 } from "./shared";
 
@@ -96,6 +99,7 @@ function ExportButton({ label, onExport }: Readonly<{ label: string; onExport: (
 export function ArticlePreview({
   report, rows, review, onReviewChange, supplyTypeChoices, onSupplyTypeChoice, supplyTypeRows, onSupplyTypeRows,
   duplicateSearch, knownDuplicateRows, onDuplicateSearch, onShowSupplierReferences, onValidate, editorDirty,
+  columnPreferences, onColumnPreferencesChange,
 }: Readonly<{
   report: CostingWorkbookImportReport;
   rows: CostingWorkbookRows;
@@ -112,6 +116,8 @@ export function ArticlePreview({
   onShowSupplierReferences: () => void;
   onValidate?: (rows: readonly number[]) => void;
   editorDirty: boolean;
+  columnPreferences: WorkbookColumnPreferences;
+  onColumnPreferencesChange: (preferences: WorkbookColumnPreferences) => void;
 }>) {
   const { busy, applyEdits, revision, isCurrentRevision } = useWorkbookEditor();
   const [family, setFamily] = useState("");
@@ -126,9 +132,9 @@ export function ArticlePreview({
     [rows],
   );
   const articleByRow = useMemo(() => new Map(read.articles.map((article) => [article.row, article])), [read]);
-  const workbookColumns = useWorkbookPreviewColumns(rows, inspection);
+  const workbookColumns = useWorkbookPreviewColumns(rows, inspection, columnPreferences, onColumnPreferencesChange);
+  const [proposedPageSize, setProposedPageSize] = useState<ReviewPageSize>(DECISIONS_PER_PAGE);
   const [categoryFilters, setCategoryFilters] = useState<Partial<Record<WorkbookCategory, string>>>({});
-  const shown = workbookColumns.visibleStandard;
   const resetPage = () => onReviewChange({ ...review, page: 0 });
   function changeCategory(field: WorkbookCategory, value: string) {
     setCategoryFilters((previous) => ({ ...previous, [field]: value }));
@@ -200,7 +206,6 @@ export function ArticlePreview({
     && workbookFilterMatches(article.material, categoryFilters.material)
     && workbookFilterMatches(article.unit, categoryFilters.unit)
     && workbookFilterMatches(typeOfArticle(article)?.name ?? "À choisir", categoryFilters.supplyType)));
-  const categoryLabels = { material: "Matière", unit: "Unité", supplyType: "Type de fourniture" };
   const findingCounts = new Map<ArticleFinding, number>();
   for (const { findings } of matching) {
     for (const finding of findings) findingCounts.set(finding, (findingCounts.get(finding) ?? 0) + 1);
@@ -256,9 +261,13 @@ export function ArticlePreview({
   const active = [...mainViews, ...checkViews].some(({ id }) => id === review.view) ? review.view : "proposed";
 
   const listed = active === "differences" ? differences.length : active === "issues" ? issues.length : proposed.length;
-  const page = boundedPage(review.page, listed);
-  const start = page * DECISIONS_PER_PAGE;
-  const pager = <ReviewPager page={page} total={listed} onSelect={(nextPage) => onReviewChange({ ...review, page: nextPage })} />;
+  const pageSize = active === "proposed" ? proposedPageSize : DECISIONS_PER_PAGE;
+  const pageLength = reviewPageLength(listed, pageSize);
+  const page = boundedPage(review.page, listed, pageSize);
+  const start = page * pageLength;
+  const pager = <ReviewPager page={page} total={listed} pageSize={pageSize} disabled={active === "proposed" && editorDirty}
+    onSelect={(nextPage) => onReviewChange({ ...review, page: nextPage })}
+    onPageSizeChange={active === "proposed" ? (size) => { setProposedPageSize(size); resetPage(); } : undefined} />;
 
   const exportIssues = () => exportToExcelWithSheets([{
     name: "Remarques",
@@ -312,7 +321,10 @@ export function ArticlePreview({
                   ? "Aucun nouvel article en brouillon"
                   : `${formatCount(newArticles)} ${plural(newArticles, "nouvel article", "nouveaux articles")} en brouillon`}
               </h3>
-              <WorkbookPreviewColumnPicker view={workbookColumns} disabled={editorDirty} onChange={changeColumns} />
+              <div className="flex flex-wrap items-center gap-2">
+                <WorkbookPreviewColumnPicker view={workbookColumns} disabled={editorDirty} onChange={changeColumns} />
+                {proposedAll.length > 0 ? pager : null}
+              </div>
             </div>
             <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
               <li>{already === 0 ? "Aucun article déjà au catalogue" : `${formatCount(already)} déjà au catalogue (${plural(already, "inchangé", "inchangés")})`}</li>
@@ -423,14 +435,11 @@ export function ArticlePreview({
                     ) : null}
                   </div>
                 ) : null}
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  {onValidate && selectedRows.length > 0 ? (
-                    <Button size="sm" variant="secondary" disabled={locked} onClick={() => setPending({ rows: selectedRows, revision })}>
-                      {`Importer et valider ${formatCount(selectedRows.length)} ${plural(selectedRows.length, "article", "articles")}`}
-                    </Button>
-                  ) : null}
-                  {pager}
-                </div>
+                {onValidate && selectedRows.length > 0 ? (
+                  <Button size="sm" variant="secondary" disabled={locked} onClick={() => setPending({ rows: selectedRows, revision })}>
+                    {`Importer et valider ${formatCount(selectedRows.length)} ${plural(selectedRows.length, "article", "articles")}`}
+                  </Button>
+                ) : null}
                 <div className="overflow-x-auto rounded-md border border-border">
                   <table aria-label="Articles proposés en brouillon" className="w-full min-w-200 text-left text-sm">
                     <colgroup>
@@ -441,22 +450,41 @@ export function ArticlePreview({
                       <tr className="[&>th]:px-2 [&>th]:py-2.5">
                         {onValidate ? <th scope="col" aria-label="Valider" className="text-center">✓</th> : null}
                         <th scope="col" aria-label="Ligne Excel" className="text-center">N°</th>
-                        {shown.has("reference") ? <th scope="col">Référence</th> : null}
-                        {shown.has("designation") ? <th scope="col">Désignation</th> : null}
-                        {shown.has("material") ? <WorkbookPreviewDropdownHeader label={categoryLabels.material} options={categoryOptions.material}
-                          value={categoryFilters.material ?? ""} disabled={editorDirty} onChange={(value) => changeCategory("material", value)} /> : null}
-                        {shown.has("unit") ? <WorkbookPreviewDropdownHeader label={categoryLabels.unit} options={categoryOptions.unit}
-                          value={categoryFilters.unit ?? ""} disabled={editorDirty} onChange={(value) => changeCategory("unit", value)} /> : null}
-                        {shown.has("price") ? <th scope="col" className="text-right">Prix</th> : null}
-                        {shown.has("supplyType") ? <WorkbookPreviewDropdownHeader label={categoryLabels.supplyType} options={categoryOptions.supplyType}
-                          value={categoryFilters.supplyType ?? ""} disabled={editorDirty} onChange={(value) => changeCategory("supplyType", value)} /> : null}
-                        {shown.has("findings") ? <th scope="col">À vérifier</th> : null}
-                        <WorkbookPreviewSourceHeaders view={workbookColumns} disabled={editorDirty} onChange={resetPage} />
+                        {workbookColumns.visibleColumns.map((visible) => {
+                          if (visible.kind === "source") return (
+                            <WorkbookPreviewSourceHeader key={visible.id} source={visible} view={workbookColumns}
+                              rows={rows} articles={proposedAll} disabled={editorDirty} onChange={resetPage} />
+                          );
+                          const { id, label } = visible;
+                          if (id === "material" || id === "unit" || id === "supplyType") return (
+                            <WorkbookPreviewDropdownHeader key={id} label={label} options={categoryOptions[id]}
+                              value={categoryFilters[id] ?? ""} disabled={editorDirty} onChange={(value) => changeCategory(id, value)} />
+                          );
+                          return <th key={id} scope="col" className={id === "price" ? "text-right" : undefined}>{label}</th>;
+                        })}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {proposed.slice(start, start + DECISIONS_PER_PAGE).map(({ row, article, findings }) => {
+                      {proposed.slice(start, start + pageLength).map(({ row, article, findings }) => {
                         const type = typeOfArticle(article);
+                        const cells: Record<WorkbookStandardColumnId, ReactNode> = {
+                          reference: <EditableValue cell row={row} column={column("ID")} mono display={article.reference} />,
+                          designation: <EditableValue cell row={row} column={column("Caractéristique")} display={article.designation} />,
+                          material: <EditableValue cell row={row} column={column("Matériau")} />,
+                          unit: <EditableValue cell row={row} column={column("Unité")} display={article.unit} />,
+                          price: <EditableValue cell row={row} column={column("PR. FO")}
+                            display={article.unit_price_cents === 0 ? "—" : formatEUR(article.unit_price_cents)} />,
+                          supplyType: type ? type.name : <span className="text-warning">À choisir</span>,
+                          findings: findings.length > 0 ? (
+                            <span className="flex flex-wrap gap-1">
+                              {findings.map((finding) => (
+                                <Badge key={finding} variant="warning" size="sm" title={ARTICLE_FINDINGS[finding].label}>
+                                  {ARTICLE_FINDINGS[finding].short}
+                                </Badge>
+                              ))}
+                            </span>
+                          ) : null,
+                        };
                         return (
                           <tr key={row} className="align-top wrap-anywhere [&>td]:px-3 [&>td]:py-2.5">
                             {onValidate ? (
@@ -482,51 +510,16 @@ export function ArticlePreview({
                               </td>
                             ) : null}
                             <td className="text-center tabular-nums">{row}</td>
-                            {shown.has("reference") ? (
-                              <td><EditableValue row={row} column={column("ID")} mono display={article.reference} /></td>
-                            ) : null}
-                            {shown.has("designation") ? (
-                              <td>{article.designation}</td>
-                            ) : null}
-                            {shown.has("material") ? (
-                              <td><EditableValue row={row} column={column("Matériau")} /></td>
-                            ) : null}
-                            {shown.has("unit") ? (
-                              <td>
-                                <EditableValue row={row} column={column("Unité")} display={article.unit} />
-                              </td>
-                            ) : null}
-                            {shown.has("price") ? (
-                              <td className="text-right tabular-nums">
-                                <EditableValue
-                                  row={row}
-                                  column={column("PR. FO")}
-                                  display={article.unit_price_cents === 0 ? "—" : formatEUR(article.unit_price_cents)}
-                                />
-                              </td>
-                            ) : null}
-                            {shown.has("supplyType") ? (
-                              <td>{type ? type.name : <span className="text-warning">À choisir</span>}</td>
-                            ) : null}
-                            {shown.has("findings") ? (
-                              <td>
-                                {findings.length > 0 ? (
-                                  <span className="flex flex-wrap gap-1">
-                                    {findings.map((finding) => (
-                                      <Badge key={finding} variant="warning" size="sm" title={ARTICLE_FINDINGS[finding].label}>
-                                        {ARTICLE_FINDINGS[finding].short}
-                                      </Badge>
-                                    ))}
-                                  </span>
-                                ) : null}
-                              </td>
-                            ) : null}
-                            <WorkbookPreviewSourceCells view={workbookColumns} rows={rows} row={row} />
+                            {workbookColumns.visibleColumns.map((visible) => visible.kind === "source" ? (
+                              <WorkbookPreviewSourceCell key={visible.id} source={visible} rows={rows} row={row} />
+                            ) : (
+                              <td key={visible.id} className={visible.id === "price" ? "text-right tabular-nums" : undefined}>{cells[visible.id]}</td>
+                            ))}
                           </tr>
                         );
                       })}
                       {proposed.length === 0 ? (
-                        <tr><td colSpan={(onValidate ? 2 : 1) + shown.size + workbookColumns.visibleSource.length} className="px-3 py-4 text-muted-foreground">Aucun article ne correspond à la recherche.</td></tr>
+                        <tr><td colSpan={(onValidate ? 2 : 1) + workbookColumns.visibleColumns.length} className="px-3 py-4 text-muted-foreground">Aucun article ne correspond à la recherche.</td></tr>
                       ) : null}
                     </tbody>
                   </table>
