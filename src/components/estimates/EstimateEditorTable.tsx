@@ -2460,7 +2460,6 @@ export function EstimateEditorTable({
                 isLaborSplitEnabled={isLaborSplitEnabled}
                 onOpenSettings={onOpenSettings}
                 kfoRefresh={kfoRefresh}
-                isQuickTemplatePickerOpen={isQuickTemplatePickerOpen}
                 onToggleQuickTemplatePicker={() => {
                   setIsQuickTemplatePickerOpen((prev) => !prev);
                 }}
