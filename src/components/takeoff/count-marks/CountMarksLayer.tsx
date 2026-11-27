@@ -74,7 +74,7 @@ export function CountMarksLayer({ frame }: { frame: ItemDetailPageFrame }) {
   const { shown, mode, activeId, loaded, itemLabels } = marks;
   const width = frame.size.width * frame.scale;
   const height = frame.size.height * frame.scale;
-  const region = visibleCountRegion({ frame: frame.frame, offset: frame.offset, scale: frame.scale, size: frame.size });
+  const region = shownRegion;
   // A small margin: a mark half out of the frame is still drawn.
   const margin = region ? { x0: region.x0 - 0.01, y0: region.y0 - 0.01, x1: region.x1 + 0.01, y1: region.y1 + 0.01 } : null;
   const visible = margin ? shown.filter((mark) => isDrawnCountMark(mark) && inCountRegion(mark, margin)) : [];

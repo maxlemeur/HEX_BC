@@ -17,7 +17,7 @@ const number = (value: unknown) => (typeof value === "number" && Number.isFinite
   : typeof value === "string" && value.trim() && Number.isFinite(Number(value)) ? Number(value) : null);
 
 /** What an event of the journal did to the line, in French. */
-export function itemHistoryLabel(event: ItemHistoryEvent): string {
+function itemHistoryLabel(event: ItemHistoryEvent): string {
   const after = event.after ?? {};
   switch (event.event) {
     case "accepted": return "Accepté";

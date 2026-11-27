@@ -14,9 +14,9 @@ import type { CountMarkDraft, CountMarkPoint } from "@/lib/takeoff/count-marks-v
  * the retained marks a refusal named, the correction session stored by member and answer, and the words of a refusal.
  */
 
-export const PAGE_LOTS_WITHOUT_ASKING = 5;
+const PAGE_LOTS_WITHOUT_ASKING = 5;
 /** The states of the marks a member reviews on the page: a newer reading's marks (pending) are retained from there. */
-export const REVIEWED_STATES = ["proposed", "to_attribute", "retained", "pending"] as const;
+const REVIEWED_STATES = ["proposed", "to_attribute", "retained", "pending"] as const;
 
 /** Lots read at two revisions, again: no view is published; what was shown stays, and the member is told. */
 export class ChangingMarksError extends Error {}

@@ -39,7 +39,7 @@ export type ConfirmationDraft = {
   takes: Record<string, "new" | "keep_mine" | null>;
 };
 
-export const partKey = (lineId: string, pageKey: string) => `${lineId} ${pageKey}`;
+const partKey = (lineId: string, pageKey: string) => `${lineId} ${pageKey}`;
 const REPLACE: PageChoice = { decision: "replace", reason: null, note: "" };
 
 export function initialConfirmationDraft(proposal: TakeoffPageReplacementResponse): ConfirmationDraft {
@@ -563,7 +563,7 @@ export type ConfirmationControl =
 const KEEP_BOTH_REFUSED = {
   merge_match: "la fusion, obligatoire avec un DPGF, met une nouvelle ligne sur une ligne précédente de la page",
 } as const;
-export const keepBothRefusal = (page: TakeoffPageReplacementPage) => (page.keep_both_refused ? KEEP_BOTH_REFUSED[page.keep_both_refused] : null);
+const keepBothRefusal = (page: TakeoffPageReplacementPage) => (page.keep_both_refused ? KEEP_BOTH_REFUSED[page.keep_both_refused] : null);
 const LOCKED = "imposée par la fusion, obligatoire avec un DPGF";
 
 /** Every control the screen shows for this draft, with its options and why an option is not offered. */
