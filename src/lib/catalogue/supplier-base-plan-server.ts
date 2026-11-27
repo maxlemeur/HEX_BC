@@ -249,9 +249,11 @@ export async function buildSupplierBasePreview(
       const workbookProposals: SupplierBaseProposal[] = [];
       for (const match of matchWorkbook(line, (candidate) => peers.get(candidate.id)!.supplier.key !== supplier.key, true)) {
         const peer = peers.get(match.article.id)!;
-        const packagingDiffers = row.packaging_label && peer.row.packaging_label
-          && (workbookSupplierNameKey(row.packaging_label) !== workbookSupplierNameKey(peer.row.packaging_label)
-            || row.packaging_quantity !== peer.row.packaging_quantity);
+        const labelDiffers = row.packaging_label && peer.row.packaging_label
+          && workbookSupplierNameKey(row.packaging_label) !== workbookSupplierNameKey(peer.row.packaging_label);
+        const quantityDiffers = row.packaging_quantity !== null && peer.row.packaging_quantity !== null
+          && row.packaging_quantity !== peer.row.packaging_quantity;
+        const packagingDiffers = labelDiffers || quantityDiffers;
         if (peer.saved.length > 0) {
           // A known peer can anchor an article, but its identity is never inherited through another proposal.
           if (peer.saved.length !== 1) continue;

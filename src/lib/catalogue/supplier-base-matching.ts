@@ -1,5 +1,5 @@
 import { aliasKey, matchLine, prepareCatalogue, unitsDiffer, type MatchArticle, type PreparedCatalogue } from "@/lib/material-requests/matching";
-import { compareSizes, readSize } from "@/lib/material-requests/size-keys";
+import { compareSizes, readSize, type SizeReading } from "@/lib/material-requests/size-keys";
 import { foldText, foldWords } from "@/lib/text/fold";
 
 import type { SupplierBaseGap } from "./supplier-base-contract";
@@ -8,17 +8,40 @@ const MAX_MATCHES = 3;
 const MAX_RANKED_CANDIDATES = 160;
 const MATERIAL_WORDS = /\b(?:acier galvanise|acier carbone|acier inoxydable|inox|acier|cuivre|laiton|bronze|fonte|aluminium|multicouche|pvc|pehd|ppr|per|polyethylene|polypropylene|caoutchouc|epdm|ptfe)\b/u;
 const PRECISION_WORDS = /\b(?:[1234]\d{2}l?|a[24]|pn\s*\d+|(?:en|iso|din)\s*\d{3,5})\b/gu;
-const SIZE_EXPRESSION = /\b\d+(?:[.,]\d+)?(?:\s*[x×/]\s*\d+(?:[.,]\d+)?){1,3}(?:\s*mm)?\b/u;
+const DIMENSION_NUMBER = String.raw`\d+(?:[.,]\d+)?`;
+const DIMENSION_MARKER = String.raw`(?:dn|[ø⌀]|m)\s*`;
+const DIMENSION_UNIT = String.raw`(?:mm|cm|m)\b`;
+const DIMENSION_COMPONENT = String.raw`(?:${DIMENSION_MARKER})?${DIMENSION_NUMBER}(?:\s*${DIMENSION_UNIT})?`;
+const DIMENSION_EXPRESSION = new RegExp(
+  String.raw`(?<![\p{L}\d.,])(?:${DIMENSION_COMPONENT}(?:\s*[x×/>*-]\s*${DIMENSION_COMPONENT})+|${DIMENSION_MARKER}${DIMENSION_NUMBER}(?:\s*${DIMENSION_UNIT})?|${DIMENSION_NUMBER}\s*${DIMENSION_UNIT})(?![\d.,])`,
+  "giu",
+);
 
 const wordingKey = (text: string) => foldText(text).trim().replace(/\s+/gu, " ");
 
 function dimensionKey(value: string) {
-  return wordingKey(value).replace(/\s|mm$/gu, "").replace(/×/gu, "x").replace(/,/gu, ".")
+  return wordingKey(value).replace(/\s/gu, "").replace(/×/gu, "x").replace(/,/gu, ".")
     .replace(/\d+(?:\.\d+)?/gu, (part) => {
       const [whole, fraction] = part.split(".");
       const normalized = fraction?.replace(/0+$/u, "");
       return whole.replace(/^0+(?=\d)/u, "") + (normalized ? `.${normalized}` : "");
     });
+}
+
+/** A parsed diameter can stand for a written expression only if it includes all its components. */
+function sizeCoversExpression(size: SizeReading | null, expression: string) {
+  if (!size) return false;
+  const text = foldText(expression);
+  const values = (text.match(/\d+(?:[.,]\d+)?/gu) ?? []).map((value) => Number(value.replace(",", ".")));
+  const hasDiameterMarker = /^[ø⌀]/u.test(text);
+  // A written measurement may be a length or a thickness. Only explicit diameters in mm are covered.
+  if (/\d\s*(?:cm|m)\b/u.test(text) || (!hasDiameterMarker && /\d\s*mm\b/u.test(text))) return false;
+  let parsed: Array<number | null>;
+  if (/^dn/u.test(text)) parsed = [size.dn, size.reduce];
+  else if (hasDiameterMarker) parsed = [size.od, size.reduceOd];
+  else if (/^m\s*\d/u.test(text)) parsed = [size.metric];
+  else parsed = size.od === null ? [size.dn, size.reduce] : [size.od, size.reduceOd];
+  return values.length === (parsed[1] == null ? 1 : 2) && values.every((value, index) => value === parsed[index]);
 }
 
 function materialOf(text: string): string | null {
@@ -39,15 +62,20 @@ function typeHead(text: string): string | null {
 function describe(article: MatchArticle) {
   const material = (article.material && (materialOf(article.material) ?? foldWords(article.material))) || materialOf(article.designation);
   const dimensionText = article.dimensions?.trim() || article.designation;
-  const dimensions = SIZE_EXPRESSION.exec(dimensionText)?.[0] ?? null;
+  const expressions = dimensionText.match(DIMENSION_EXPRESSION) ?? [];
   const writtenSize = readSize(dimensionText, material);
-  const dimension = writtenSize ? dimensionText : dimensions ?? dimensionText;
+  const dimension = writtenSize ? dimensionText : expressions[0] ?? dimensionText;
+  const size = writtenSize ?? readSize(expressions[0], material);
+  const designationExpressions = dimensionText === article.designation ? [] : article.designation.match(DIMENSION_EXPRESSION) ?? [];
+  const remainingDimensions = [...new Set([...expressions, ...designationExpressions]
+    .filter((expression) => !sizeCoversExpression(size, expression))
+    .map(dimensionKey))].join("|");
   return {
     article,
     material,
     dimension,
-    size: writtenSize ?? readSize(dimensions, material),
-    dimensions: dimensions ? dimensionKey(dimensions) : null,
+    size,
+    remainingDimensions,
     precision: [article.grade, article.standard].filter(Boolean).join(" ")
       || [...foldWords(article.designation).matchAll(PRECISION_WORDS)].map(([word]) => word).join(" ") || null,
     wording: wordingKey(article.designation),
@@ -63,10 +91,13 @@ function compare(left: Description, right: Description) {
   let size = compareSizes(left.size, right.size);
   const outerDiameterDiffers = left.size?.od != null && right.size?.od != null && left.size.od !== right.size.od;
   const reducedDiameterDiffers = left.size?.reduceOd != null && right.size?.reduceOd != null && left.size.reduceOd !== right.size.reduceOd;
-  // Use the written dimensions as a fallback when one cannot be extracted.
-  if ((!left.size || !right.size) && left.dimensions && right.dimensions) size = left.dimensions === right.dimensions ? "same" : "different";
-  else if (outerDiameterDiffers || reducedDiameterDiffers) size = "different";
+  if (outerDiameterDiffers || reducedDiameterDiffers) size = "different";
   else if (size === "same" && Boolean(left.size?.reduce ?? left.size?.reduceOd) !== Boolean(right.size?.reduce ?? right.size?.reduceOd)) size = "unknown";
+  if (size !== "different" && (left.remainingDimensions || right.remainingDimensions)) {
+    if (!left.remainingDimensions || !right.remainingDimensions) size = "unknown";
+    else if (left.remainingDimensions !== right.remainingDimensions) size = "different";
+    else if (!left.size && !right.size) size = "same";
+  }
   const material = !left.material || !right.material ? "unknown" : left.material === right.material ? "same" : "different";
   return { sameWording, size, material, compatible: size !== "different" && material !== "different" } as const;
 }
