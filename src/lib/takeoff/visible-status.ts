@@ -64,6 +64,24 @@ export function rejectedProviderAnswerMessage(code: string | null | undefined, s
     ? REJECTED_PROVIDER_ANSWER_MESSAGE : undefined;
 }
 
+/**
+ * Why a request paid by a personal key stopped, as its worker records it on the analysis: what happened and what to do.
+ * The activity shows these three texts as stored, and no other stored text.
+ */
+export const TAKEOFF_KEY_STOP_MESSAGES = {
+  dollarCeiling: "Le plafond en dollars de cette demande avec la clé API OpenAI est atteint. Les résultats déjà enregistrés sont conservés. Pour lire ce qui manque, lancez une nouvelle demande.",
+  confirmedCalls: "Les appels payants confirmés pour cette demande avec la clé API OpenAI sont tous utilisés. Les résultats déjà enregistrés sont conservés. Pour lire ce qui manque, lancez une nouvelle demande.",
+  callOverBound: "Un appel a coûté plus que le montant réservé pour lui : la demande avec la clé API OpenAI est arrêtée. Les résultats déjà enregistrés sont conservés. Pour lire ce qui manque, lancez une nouvelle demande.",
+} as const;
+
+/** The stored message of a failed analysis that its readers are shown as written; any other gets the text of its code. */
+export function storedTakeoffFailureMessage(code: string | null | undefined, storedMessage: string | null | undefined) {
+  const rejected = rejectedProviderAnswerMessage(code, storedMessage);
+  if (rejected) return rejected;
+  return code === "TAKEOFF_REQUEST_BUDGET_EXHAUSTED"
+    ? Object.values(TAKEOFF_KEY_STOP_MESSAGES).find((message) => message === storedMessage) : undefined;
+}
+
 // What happened, wherever a stopped analysis is shown (the activity, the affaire's overview, the notifications): never
 // what to do, which only the resume decision says where it is known. A new analysis stays detailed: no text proposes
 // another level.
@@ -170,8 +188,8 @@ export function getTakeoffFailureReasonLabel(input: {
   errorCode?: string | null;
   fallbackMessage?: string | null;
 }): string | null {
-  const rejected = rejectedProviderAnswerMessage(input.errorCode, input.fallbackMessage);
-  if (rejected) return rejected;
+  const stored = storedTakeoffFailureMessage(input.errorCode, input.fallbackMessage);
+  if (stored) return stored;
   if (input.errorCode) {
     return FAILURE_FACTS[input.errorCode] ?? null;
   }

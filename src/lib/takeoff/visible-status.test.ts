@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { describeTakeoffJobFailure, getTakeoffFailureReasonLabel, takeoffCompletionFailureReason } from "@/lib/takeoff/visible-status";
+import { describeTakeoffJobFailure, getTakeoffFailureReasonLabel, takeoffCompletionFailureReason, TAKEOFF_KEY_STOP_MESSAGES } from "@/lib/takeoff/visible-status";
 
 const CODES = ["AI_PROVIDER", "AI_RATE_LIMIT", "FORBIDDEN", "INTERNAL_ERROR", "TAKEOFF_WORKER_NOT_STARTED", "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
   "TAKEOFF_FILE_TYPE_INVALID", "TAKEOFF_PDF_CORRUPTED", "TAKEOFF_PDF_NOT_INTERPRETABLE", "TAKEOFF_FILE_TOO_LARGE", "AI_SCHEMA",
@@ -29,5 +29,20 @@ describe("failure texts", () => {
     expect(getTakeoffFailureReasonLabel({ errorCode: "TAKEOFF_LEVEL_C_INVALID_SCHEMA", fallbackMessage: message })).toBe(message);
     expect(getTakeoffFailureReasonLabel({ errorCode: "TAKEOFF_LEVEL_C_INVALID_SCHEMA", fallbackMessage: "FICTIONAL_PLAN_MARKER" }))
       .toBe("Extraction incomplète sur ce document.");
+  });
+
+  it("shows why a request paid by a key stopped, as its worker recorded it, and no other stored text", () => {
+    const stops = Object.values(TAKEOFF_KEY_STOP_MESSAGES);
+    expect(new Set(stops).size).toBe(3);
+    for (const message of stops) {
+      expect(getTakeoffFailureReasonLabel({ errorCode: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", fallbackMessage: message })).toBe(message);
+      // What to do follows what happened.
+      expect(message).toMatch(/Les résultats déjà enregistrés sont conservés\. Pour lire ce qui manque, lancez une nouvelle demande\.$/u);
+      // The same text under another code is not shown.
+      expect(getTakeoffFailureReasonLabel({ errorCode: "AI_PROVIDER", fallbackMessage: message })).toBe("Le service d’analyse n’a pas pu terminer le métré.");
+    }
+    // A plan's request stopped by its budget keeps its fact: the plan's ledger records another text.
+    expect(getTakeoffFailureReasonLabel({ errorCode: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", fallbackMessage: "FICTIONAL_PLAN_MARKER" }))
+      .toBe("Le budget de cette analyse était épuisé : ce plan n’a pas été lu en entier.");
   });
 });

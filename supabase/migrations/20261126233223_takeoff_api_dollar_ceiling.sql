@@ -9,6 +9,10 @@
 --     that number bounds nothing any more. Unchanged: the payer and module checks, the lease, the confirmed tiles and
 --     the confirmed calls of each lane, the freeze on an unknown usage, the wait for live reservations, the budget stop.
 --     Each reservation still records its call's token estimate (bound_tokens).
+--     A refusal names what stopped the request, so that its member reads the true reason: BUDGET_EXHAUSTED when the
+--     dollars are spent, CALLS_EXHAUSTED when the confirmed calls of a lane are all reserved (it returned BUDGET_EXHAUSTED),
+--     CALL_OVER_BOUND when a call cost more than the dollars it reserved (the stop still stores BUDGET_EXHAUSTED: no table
+--     or constraint changes).
 --   * settle_takeoff_api_call records the tokens a call used and stops the request only when the call cost more than the
 --     dollars it reserved.
 begin;
@@ -92,6 +96,11 @@ begin
     end if;
   end if;
   if refusal is not null then
+    -- A request stopped by a call that cost more than the dollars it reserved says so, whatever dollars are left.
+    if refusal = 'BUDGET_EXHAUSTED' and exists (select 1 from private.takeoff_api_calls c where c.mandate_id = mandate.id
+      and c.scope_id = billing_scope and c.actual_nano_usd > c.bound_nano_usd) then
+      refusal := 'CALL_OVER_BOUND';
+    end if;
     return query select refusal, 0::bigint, 0::bigint, null::uuid;
     return;
   end if;
@@ -125,12 +134,13 @@ begin
     -- The confirmed lane counts every reservation, across leases, just like the subscription ledger.
     if (select count(*) from private.takeoff_api_calls c where c.mandate_id = mandate.id and c.scope_id = billing_scope
       and c.branch = p_branch) >= lane_calls then
-      return query select 'BUDGET_EXHAUSTED'::text, 0::bigint, 0::bigint, null::uuid;
+      -- The confirmed calls are spent, not the dollars: the refusal says which.
+      return query select 'CALLS_EXHAUSTED'::text, 0::bigint, 0::bigint, null::uuid;
       return;
     end if;
   end if;
-  -- The dollars left decide. `tokens_left` bounds nothing; an admitted call reports it for a worker older than this
-  -- migration: null for a mandate sealed without a token ceiling, else what is left of the number the mandate carries.
+  -- The dollars left decide. `tokens_left` bounds nothing; it is reported for a worker older than this migration: null
+  -- for a mandate sealed without a token ceiling, else what is left of the number the mandate carries.
   select (mandate.settings->>'maxNanoUsd')::bigint - coalesce(sum(coalesce(c.actual_nano_usd, c.bound_nano_usd)), 0),
     (mandate.settings->>'maxTokens')::bigint - coalesce(sum(coalesce(c.actual_tokens, c.bound_tokens)), 0)
   into usd_left, tokens_left from private.takeoff_api_calls c where c.mandate_id = mandate.id and c.scope_id = billing_scope;
@@ -141,7 +151,8 @@ begin
         and j.status = 'processing' and j.processing_lease_token = c.lease_token
         and j.processing_lease_expires_at > pg_catalog.clock_timestamp()) into capacity_held;
     if capacity_held then
-      return query select 'CAPACITY_HELD'::text, greatest(0, usd_left), greatest(0, tokens_left), null::uuid;
+      return query select 'CAPACITY_HELD'::text, greatest(0, usd_left),
+        case when tokens_left is not null then greatest(0, tokens_left) end, null::uuid;
       return;
     end if;
     if usd_left > 0 and (not p_exhausted or usd_left > p_bound) then
@@ -149,7 +160,8 @@ begin
       return;
     end if;
     insert into private.takeoff_api_budget_stops (mandate_id, scope_id, reason) values (mandate.id, billing_scope, 'BUDGET_EXHAUSTED');
-    return query select 'BUDGET_EXHAUSTED'::text, greatest(0, usd_left), greatest(0, tokens_left), null::uuid;
+    return query select 'BUDGET_EXHAUSTED'::text, greatest(0, usd_left),
+      case when tokens_left is not null then greatest(0, tokens_left) end, null::uuid;
     return;
   end if;
   if p_bound is not null or p_tokens is not null then

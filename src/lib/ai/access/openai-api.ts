@@ -82,6 +82,8 @@ export type ApiKeyPrepareInput<T> = {
   /** The connection version the page showed: a key replaced since then is not used. */
   expectedVersion: number;
   expectedConnectionId?: string;
+  /** Read the named connection again once the request is serialized, before it is counted (the takeoff's paid calls). */
+  recheckConnection?: boolean;
   beforeSend?: () => Promise<void>;
   model: string;
   reasoningEffort: AiReasoningEffort | null;
@@ -872,8 +874,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       if (input.beforeSend) {
         await input.beforeSend();
         await readConnection(owner, connection.version, connection.connection_id);
-      } else if (input.expectedConnectionId) {
-        // The connection the caller named is read again once the request is serialized, before it is counted.
+      } else if (input.recheckConnection && input.expectedConnectionId) {
         await readConnection(owner, connection.version, connection.connection_id);
       }
       const inputTokens = await countWith(deps, secret, request, input.signal);

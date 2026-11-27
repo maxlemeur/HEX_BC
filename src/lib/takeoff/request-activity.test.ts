@@ -24,7 +24,7 @@ import {
   type TakeoffRequestActivity,
   type TakeoffRequestActivityResponse,
 } from "@/lib/takeoff/request-activity-contracts";
-import { describeTakeoffJobFailure } from "@/lib/takeoff/visible-status";
+import { describeTakeoffJobFailure, TAKEOFF_KEY_STOP_MESSAGES } from "@/lib/takeoff/visible-status";
 
 const NOW = new Date("2026-11-21T10:00:00.000Z");
 const LAUNCHER = "11111111-1111-4111-8111-111111111111";
@@ -428,6 +428,16 @@ describe("buildTakeoffRequestActivity: public codes only", () => {
       memberJob("b", { ...failure, error_message: "FICTIONAL_PLAN_MARKER" }),
     ]);
     expect(view.jobs[0]).toMatchObject({ errorCode: failure.error_code, failureMessage: message });
+    expect(view.jobs[1]).not.toHaveProperty("failureMessage");
+    expect(JSON.stringify(view)).not.toContain("FICTIONAL_PLAN_MARKER");
+  });
+  it.each(Object.entries(TAKEOFF_KEY_STOP_MESSAGES))("tells the member why their request paid by a key stopped (%s)", (_reason, message) => {
+    const failure = { status: "failed" as const, error_code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" };
+    const view = activity([unit("a", 1, { state: "failed" }), unit("b", 2, { state: "failed" })], [
+      memberJob("a", { ...failure, error_message: message }),
+      memberJob("b", { ...failure, error_message: "FICTIONAL_PLAN_MARKER" }),
+    ]);
+    expect(view.jobs[0]).toMatchObject({ failureMessage: message });
     expect(view.jobs[1]).not.toHaveProperty("failureMessage");
     expect(JSON.stringify(view)).not.toContain("FICTIONAL_PLAN_MARKER");
   });

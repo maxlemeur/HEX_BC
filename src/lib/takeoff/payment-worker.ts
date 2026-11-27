@@ -16,6 +16,7 @@ import { assertTakeoffApiConnection, assertTakeoffPayer, readTakeoffApiMandate, 
   takeoffPaymentError } from "@/lib/takeoff/payment-mandate-server";
 import { takeoffExecutionSelectionSchema } from "@/lib/takeoff/preparation";
 import { LocalGroupsRequestError, LocalGroupsStop } from "@/lib/takeoff/vectors/group-local-model";
+import { TAKEOFF_KEY_STOP_MESSAGES } from "@/lib/takeoff/visible-status";
 import { asRecord } from "@/lib/value-guards";
 
 class ReprepareApiCall extends Error {
@@ -64,9 +65,10 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
   await assertOwnerActive();
   const mandate = await readTakeoffApiMandate(service, owner, pinned.data);
   await assertTakeoffApiConnection(owner, mandate);
-  const stopForBudget = () => new TakeoffError({
+  // One code for the three stops of a request, and the reason its member reads: its dollars, its confirmed calls, one call.
+  const stopFor = (reason: keyof typeof TAKEOFF_KEY_STOP_MESSAGES) => new TakeoffError({
     status: 422, code: TakeoffErrorCode.TAKEOFF_REQUEST_BUDGET_EXHAUSTED, retryable: false, jobId: job.id,
-    message: "Le plafond en dollars de cette demande avec la clé API OpenAI est atteint. Les résultats déjà enregistrés sont conservés.",
+    message: TAKEOFF_KEY_STOP_MESSAGES[reason],
   });
   const stopForLedger = (tileAttempted = false) => new TakeoffError({
     status: 409, code: TakeoffErrorCode.TAKEOFF_USAGE_UNRECORDED, retryable: false, jobId: job.id,
@@ -101,7 +103,9 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
       if (row.reason === "CAPACITY_HELD" || row.reason === "REPREPARE") {
         throw new ReprepareApiCall(row.reason === "CAPACITY_HELD");
       }
-      if (row.reason === "BUDGET_EXHAUSTED") throw stopForBudget();
+      if (row.reason === "BUDGET_EXHAUSTED") throw stopFor("dollarCeiling");
+      if (row.reason === "CALLS_EXHAUSTED") throw stopFor("confirmedCalls");
+      if (row.reason === "CALL_OVER_BOUND") throw stopFor("callOverBound");
       if (row.reason === "TILE_ALREADY_ATTEMPTED") throw new TakeoffError({
         code: TakeoffErrorCode.TAKEOFF_USAGE_UNRECORDED, retryable: false, jobId: job.id,
         message: "Cette tuile a déjà été envoyée. Elle ne sera pas facturée une deuxième fois.",
@@ -137,7 +141,7 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
           const balance = await reserve();
           const prepared = await access.prepare(owner, {
             model: mandate.model, reasoningEffort: mandate.reasoningEffort, expectedVersion: mandate.connectionVersion,
-            expectedConnectionId: mandate.connectionId, schema: options.schema,
+            expectedConnectionId: mandate.connectionId, recheckConnection: true, schema: options.schema,
             ...input, allotmentNanoUsd: balance.remaining_nano_usd,
             outputCap: branch === "vector_group" ? 4_096 : 32_768, minOutputTokens: branch === "vector_group" ? 256 : 1_024,
             signal: options.signal,
@@ -177,7 +181,7 @@ export async function resolveTakeoffApiProvider(job: TakeoffJobProcessingRow, le
         throw tile ? stopForLedger(true) : halted;
       }
       // A call that cost more than the dollars it reserved stops the request. Its tokens are recorded, never compared.
-      if (answer.costNanoUsd > prepared.boundNanoUsd) throw stopForBudget();
+      if (answer.costNanoUsd > prepared.boundNanoUsd) throw stopFor("callOverBound");
       if (answer.schemaError && branch === "vector_group") {
         throw new LocalGroupsRequestError("La réponse OpenAI n’a pas le format attendu pour les groupes.", totalTokens);
       }

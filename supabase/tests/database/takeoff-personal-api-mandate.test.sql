@@ -314,9 +314,9 @@ update public.takeoff_jobs set processing_lease_expires_at=clock_timestamp()-int
 select public.recover_takeoff_payment_jobs(clock_timestamp(),pg_temp.host());
 select is(pg_temp.claim(1,932,'failed',project=>24),1::bigint,'a new lease resumes without a published PDF result');
 select results_eq($$select reason,call_id from pg_temp.reserve(1,932,'pdf',20000000,1500,project=>24)$$,
-  $$values ('BUDGET_EXHAUSTED'::text,null::uuid)$$, 'the retry cannot charge another PDF beyond the confirmed lane');
+  $$values ('CALLS_EXHAUSTED'::text,null::uuid)$$, 'the retry cannot charge another PDF beyond the confirmed lane, and is told its calls are spent, not its dollars');
 select is((select reason from pg_temp.reserve(1,932,'vector_group',10000000,1000,project=>24)),
-  'BUDGET_EXHAUSTED','the request cannot reserve a classifier call that the member did not confirm');
+  'CALLS_EXHAUSTED','the request cannot reserve a classifier call that the member did not confirm');
 select is((select count(call_id) from generate_series(1,4) n cross join lateral
   pg_temp.reserve(1,932,'count_tile',10000000,1000,tile_key=>'tile:2:'||n,project=>24)),4::bigint,
   'the four confirmed tiles remain available on the new lease');
@@ -375,8 +375,9 @@ update private.takeoff_api_calls set actual_nano_usd=bound_nano_usd, actual_toke
 where mandate_id=pg_temp.f(225) and settled_at is null;
 select is((select reason from pg_temp.reserve(1,940,'pdf',24240000001,1,project=>25)), 'REPREPARE',
   'a bound past the dollars left sends nothing and is prepared again');
-select is((select reason from pg_temp.reserve(1,940,'pdf',24240000000,null,true,project=>25)), 'BUDGET_EXHAUSTED',
-  'a call that cannot fit the dollars left stops the request at its ceiling, with no token number sent');
+select results_eq($$select reason, remaining_tokens from pg_temp.reserve(1,940,'pdf',24240000000,null,true,project=>25)$$,
+  $$values ('BUDGET_EXHAUSTED'::text,null::bigint)$$,
+  'a call that cannot fit the dollars left stops the request at its ceiling, with no token number sent or returned');
 select is((select reason from pg_temp.reserve(1,940,'pdf',1,1,project=>25)), 'BUDGET_EXHAUSTED',
   'no call follows the stop at the dollar ceiling');
 select is((select count(*) from private.takeoff_api_calls where mandate_id=pg_temp.f(225)), 27::bigint,
@@ -394,8 +395,10 @@ select is((select reason from pg_temp.reserve(1,941,'pdf',1000000000,500000,true
   'only the dollars held by a live reservation make a preparation wait');
 select ok(public.settle_takeoff_api_call((select call_id from call_c),pg_temp.unit(26,1),pg_temp.f(10),pg_temp.f(26),
   pg_temp.f(1),pg_temp.f(941),1000000001,10), 'a call settles one nano-dollar past the dollars it reserved');
-select is((select reason from pg_temp.reserve(1,941,'pdf',1,1,project=>26)), 'BUDGET_EXHAUSTED',
-  'a call that cost more than the dollars it reserved stops its request');
+select is((select reason from pg_temp.reserve(1,941,'pdf',1,1,project=>26)), 'CALL_OVER_BOUND',
+  'a call that cost more than the dollars it reserved stops its request, which is told so');
+select is((select reason from private.takeoff_api_budget_stops where mandate_id=pg_temp.f(226)), 'BUDGET_EXHAUSTED',
+  'the stop of a call over its bound is stored under the reason the table already allows');
 
 -- Replacing the three functions kept their rights: the service role alone executes them.
 select is((select count(*) from (values

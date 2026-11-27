@@ -7,6 +7,7 @@ import type { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import { resolveTakeoffApiProvider } from "@/lib/takeoff/payment-worker";
 import { LocalGroupsRequestError, LocalGroupsStop } from "@/lib/takeoff/vectors/group-local-model";
+import { TAKEOFF_KEY_STOP_MESSAGES } from "@/lib/takeoff/visible-status";
 
 const mandate = {
   connectionId: "d5130000-0000-4000-8000-000000000001", connectionVersion: 1,
@@ -219,8 +220,10 @@ it("stops at the dollar ceiling with its message, and sends nothing after the re
     { prepare, execute } as unknown as ReturnType<typeof openAiApiKeyAccess>);
   const input = { prompt: "Lis le PDF", schema: z.object({ accepted: z.boolean() }) };
   await expect(provider.call(input)).resolves.toMatchObject({ data: { accepted: true } });
-  const refused = { code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", retryable: false,
-    message: "Le plafond en dollars de cette demande avec la clé API OpenAI est atteint. Les résultats déjà enregistrés sont conservés." };
+  const refused = { code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", retryable: false, message: TAKEOFF_KEY_STOP_MESSAGES.dollarCeiling };
+  expect(refused.message).toContain("Le plafond en dollars de cette demande avec la clé API OpenAI est atteint.");
+  // The paid call names its connection and asks for it to be read again before the count.
+  expect(prepare).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ expectedConnectionId: mandate.connectionId, recheckConnection: true }));
   await expect(provider.call(input)).rejects.toMatchObject(refused);
   // The ledger is told what the preparation saw in dollars: no token number takes part in its decision.
   expect(reservations.at(-1)).toEqual({ p_bound: 4_000, p_tokens: undefined, p_exhausted: true });
@@ -244,10 +247,32 @@ it("stops the request when a call costs more than the dollars it reserved", asyn
   const provider = await resolveTakeoffApiProvider(job, () => "lease",
     { rpc } as unknown as ReturnType<typeof createServiceRoleClient>, access as unknown as ReturnType<typeof openAiApiKeyAccess>);
   const input = { prompt: "Lis le PDF", schema: z.object({ accepted: z.boolean() }) };
-  await expect(provider.call(input)).rejects.toMatchObject({ code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" });
+  // The dollars are not spent (10,000 left): the member reads that one call cost more than it reserved.
+  const refused = { code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", retryable: false, message: TAKEOFF_KEY_STOP_MESSAGES.callOverBound };
+  await expect(provider.call(input)).rejects.toMatchObject(refused);
   expect(rpc).toHaveBeenCalledWith("settle_takeoff_api_call", expect.objectContaining({ p_cost: 5_001, p_tokens: 1_200 }));
-  await expect(provider.call(input)).rejects.toMatchObject({ code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" });
+  await expect(provider.call(input)).rejects.toMatchObject(refused);
   expect(access.execute).toHaveBeenCalledTimes(1);
+});
+
+// The ledger names what stopped the request. Each reason has its own text, and none is the dollar ceiling's.
+it.each([
+  ["the confirmed calls of the lane are all reserved", "CALLS_EXHAUSTED", TAKEOFF_KEY_STOP_MESSAGES.confirmedCalls, "appels payants confirmés"],
+  ["an earlier call of the request cost more than it reserved", "CALL_OVER_BOUND", TAKEOFF_KEY_STOP_MESSAGES.callOverBound, "plus que le montant réservé"],
+] as const)("says why the request stopped when %s", async (_case, reason, message, words) => {
+  const rpc = vi.fn(async () => ({ data: [{ reason, remaining_nano_usd: 0, remaining_tokens: 0, call_id: null }] }));
+  const access = { prepare: vi.fn(), execute: vi.fn() };
+  const provider = await resolveTakeoffApiProvider(job, () => "lease",
+    { rpc } as unknown as ReturnType<typeof createServiceRoleClient>, access as unknown as ReturnType<typeof openAiApiKeyAccess>);
+  const input = { prompt: "Lis le PDF", schema: z.object({ accepted: z.boolean() }) };
+  expect(message).toContain(words);
+  expect(message).not.toContain("plafond en dollars");
+  await expect(provider.call(input)).rejects.toMatchObject({ code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", retryable: false, message });
+  // Refused before anything is counted or sent, and the stop holds for the calls that follow without asking again.
+  await expect(provider.callApiVectorGroup!(input)).rejects.toMatchObject({ message });
+  expect(rpc).toHaveBeenCalledTimes(1);
+  expect(access.prepare).not.toHaveBeenCalled();
+  expect(access.execute).not.toHaveBeenCalled();
 });
 
 // A ledger older than the dollar-only rule still refuses on a mandate's token number and asks for a new preparation. With

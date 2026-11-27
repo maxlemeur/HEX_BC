@@ -739,6 +739,25 @@ describe("a structured call for the lab", () => {
     expect(openai.sent.filter(({ url }) => url.endsWith("/v1/responses"))).toHaveLength(0);
   });
 
+  it("reads the named connection again before the count only for the caller that asks for it", async () => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const reads = vi.fn(() => directory);
+    const { service } = access(openai.fetch, memoryKeychain(), { directory: reads });
+    await service.save(OWNER, { key: fictionalKey() });
+    const state = await service.state(OWNER);
+    if (state.status !== "saved") throw new Error("Fictional key was not saved.");
+    const readsOf = async (overrides: Record<string, unknown>) => {
+      reads.mockClear();
+      await prepareCall(service, overrides);
+      return reads.mock.calls.length;
+    };
+    // A caller that names its connection (choice questions, estimates, material requests) reads it as before.
+    const named = await readsOf({ expectedConnectionId: state.connection.connectionId });
+    // The takeoff's paid call asks for one more read, once its request is serialized.
+    expect(await readsOf({ expectedConnectionId: state.connection.connectionId, recheckConnection: true })).toBe(named + 1);
+    expect(await readsOf({ recheckConnection: true })).toBeLessThan(named);
+  });
+
   it("preserves a takeoff reservation's request for a fresh bound before sending", async () => {
     const openai = fakeOpenAi(usual(JSON.stringify(items)));
     const { service } = access(openai.fetch);
