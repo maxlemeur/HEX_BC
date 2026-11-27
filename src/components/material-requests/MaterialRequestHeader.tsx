@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type Ref } from "react";
+import { useId, useState } from "react";
 import { ChevronUp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { controlSurface } from "@/components/ui/input";
-import { effectiveLineMaterial } from "@/lib/material-requests/alerts";
 import {
   MATERIAL_REQUEST_DELIVERY_PLACE_LABELS,
   MATERIAL_REQUEST_DELIVERY_PLACES,
@@ -172,14 +171,11 @@ function Proposal({
   pendingHelp,
   confirmedHelp,
   confirmAction,
-  confirmationRef,
   undoLabel,
   hasValue,
   confirmed,
   canWrite,
   onChange,
-  consequence,
-  consequenceId,
   unsaved,
   unsavedHelp,
 }: Readonly<{
@@ -189,15 +185,11 @@ function Proposal({
    */
   unsaved: boolean;
   unsavedHelp: string;
-  /** What withdrawing or changing the confirmed value will do, said before the operator does it. */
-  consequence?: string | null;
-  consequenceId?: string;
   pendingLabel: string;
   confirmedLabel: string;
   pendingHelp: string;
   confirmedHelp: string;
   confirmAction: string;
-  confirmationRef?: Ref<HTMLButtonElement>;
   undoLabel: string;
   hasValue: boolean;
   confirmed: boolean;
@@ -236,7 +228,6 @@ function Proposal({
         </Badge>
         {canWrite && !confirmed ? (
           <Button
-            ref={confirmationRef}
             type="button"
             size="sm"
             loading={busy}
@@ -255,7 +246,6 @@ function Proposal({
             size="xs"
             loading={busy}
             aria-label={undoLabel}
-            aria-describedby={consequence ? consequenceId : undefined}
             onClick={() => void change(false)}
           >
             Annuler la confirmation
@@ -266,11 +256,6 @@ function Proposal({
       {unsaved && !confirmed ? (
         <p id={noteId} className="mt-1 text-xs font-medium text-warning">
           {unsavedHelp}
-        </p>
-      ) : null}
-      {consequence ? (
-        <p id={consequenceId} className="mt-1 text-xs font-medium text-warning">
-          {consequence}
         </p>
       ) : null}
       {refusal}
@@ -326,7 +311,7 @@ export function MaterialRequestSummary({ editor, technicianName }: Readonly<{
   );
 }
 
-/** The request's fields open from its options or from a line that needs a confirmation. */
+/** The request's fields open from its options. */
 export function MaterialRequestHeader({
   editor,
   technicians,
@@ -334,7 +319,6 @@ export function MaterialRequestHeader({
   fieldsId,
   open,
   onOpenChange,
-  materialFocusRequest,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   technicians: readonly MaterialRequestTechnician[];
@@ -342,8 +326,6 @@ export function MaterialRequestHeader({
   fieldsId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Counts the requests to review the presumed material: each one takes the focus to its confirmation. */
-  materialFocusRequest: number;
 }>) {
   const ids = useId();
   const [urgentError, setUrgentError] = useState<string | null>(null);
@@ -352,34 +334,9 @@ export function MaterialRequestHeader({
   const { data, canWrite, updateRequest } = editor;
   const { request } = data;
   const readOnly = !canWrite;
-  // Validated lines that hold their material from the request: the server returns them to draft when
-  // that material is changed, cleared or no longer confirmed. Said here, before it happens.
-  const relying = data.lines.filter(
-    (line) =>
-      line.status === "validated" &&
-      line.imputation === "project" &&
-      effectiveLineMaterial(line, request).source === "presumed",
-  ).length;
-  const materialConsequence =
-    canWrite && relying > 0
-      ? relying > 1
-        ? `${relying} lignes validées comptent sur cette matière : la modifier, l’effacer ou annuler sa confirmation les fera repasser en brouillon.`
-        : "1 ligne validée compte sur cette matière : la modifier, l’effacer ou annuler sa confirmation la fera repasser en brouillon."
-      : null;
   const technicianOptions = technicians
     .filter((technician) => technician.is_active || technician.id === request.technician_id)
     .map((technician) => ({ value: technician.id, label: technician.name }));
-  // Asked from the lines (« à compléter » on a material still presumed): the fields are opened by who asks, and the
-  // focus goes to the confirmation, or to the material itself when it cannot be confirmed yet.
-  const materialConfirmation = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (materialFocusRequest === 0) return;
-    const button = materialConfirmation.current;
-    const target = button && !button.disabled && button.getAttribute("aria-disabled") !== "true"
-      ? button
-      : document.getElementById(`${ids}-material`);
-    target?.focus();
-  }, [ids, materialFocusRequest]);
   return (
     <section hidden={!open} aria-labelledby={`${ids}-heading`} className="mb-3 rounded-lg border border-border bg-surface p-3 sm:p-4">
       <div className="flex items-center justify-between gap-3">
@@ -450,7 +407,6 @@ export function MaterialRequestHeader({
             list={materialListId}
             maxLength={120}
             placeholder="Si la demande est toute dans une même matière"
-            hintId={materialConsequence ? `${ids}-material-consequence` : undefined}
             disabled={readOnly}
             onUnsavedChange={setMaterialUnsaved}
             onCommit={(presumed_material) => updateRequest({ presumed_material, material_confirmed: false })}
@@ -461,13 +417,10 @@ export function MaterialRequestHeader({
             pendingHelp="C’est une proposition : elle ne vaut pour aucune ligne tant que vous ne l’avez pas confirmée."
             confirmedHelp="Elle vaut pour les lignes de l’affaire qui n’indiquent pas de matière."
             confirmAction="Confirmer la matière"
-            confirmationRef={materialConfirmation}
             undoLabel="Annuler la confirmation de la matière"
             hasValue={Boolean(request.presumed_material)}
             confirmed={request.material_confirmed}
             canWrite={canWrite}
-            consequence={materialConsequence}
-            consequenceId={`${ids}-material-consequence`}
             unsaved={materialUnsaved}
             unsavedHelp="La matière saisie n’est pas encore enregistrée : confirmez-la une fois qu’elle l’est."
             // The confirmation names the material shown here: if it was changed elsewhere since, the

@@ -4,6 +4,8 @@ import {
   describeTakeoffLaunchReason,
   isTakeoffLaunchReason,
   TAKEOFF_GROUPED_UNIT_KEY,
+  TAKEOFF_KEY_LIMIT_REACHED_NOTE,
+  takeoffRequestStoppedAtKeyLimit,
   type TakeoffLaunchPiece,
 } from "@/lib/takeoff/launch-request";
 import {
@@ -335,6 +337,10 @@ export function buildTakeoffRequestActivity(input: {
       : [{ planFileId: null, name: `Plan ${index + 1}`, pages: [] }];
   });
   const unitJobs = new Set(units?.units.map((unit) => unit.jobId) ?? []);
+  const shown = input.jobs.filter((job) => job.launch_request_id === request.id && unitJobs.has(job.id));
+  // Closed at a limit of the key that paid it: a plan shown here says which, as its worker recorded it; the note names
+  // none of them.
+  const keyLimit = takeoffRequestStoppedAtKeyLimit(reason?.code, shown);
 
   return {
     id: request.id,
@@ -344,7 +350,7 @@ export function buildTakeoffRequestActivity(input: {
     state: request.state as TakeoffRequestActivity["state"],
     outcome: request.outcome === "success" || request.outcome === "failure" || request.outcome === "canceled"
       || request.outcome === "partial" ? request.outcome : null,
-    reason,
+    reason: keyLimit && reason ? { ...reason, message: TAKEOFF_KEY_LIMIT_REACHED_NOTE } : reason,
     createdAt: request.created_at,
     admittedAt: request.admitted_at,
     closedAt: request.closed_at,
@@ -356,8 +362,7 @@ export function buildTakeoffRequestActivity(input: {
     plansOmitted: request.admitted_at && manifest ? manifest.omitted.map((entry, index) => ({
       name: isTakeoffSourceVisible(visible, entry.id) ? entry.name : `Plan ${index + 1}`, reason: entry.reason,
     })) : [],
-    jobs: input.jobs.filter((job) => job.launch_request_id === request.id && unitJobs.has(job.id))
-      .map((job) => toActivityJob(job, input.viewer, input.now, manifest?.itemList === true && input.writesItems === true)),
+    jobs: shown.map((job) => toActivityJob(job, input.viewer, input.now, manifest?.itemList === true && input.writesItems === true)),
     action: input.action ?? null,
     dossierChanged: input.dossierChanged ?? null,
   };

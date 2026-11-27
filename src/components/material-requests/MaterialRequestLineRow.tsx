@@ -105,7 +105,7 @@ export type LineRowProps = Readonly<{
 }>;
 
 function repeatsHighlightedField(alert: MaterialRequestLineAlert) {
-  return alert.code === "unit_missing" || alert.code === "material_missing";
+  return alert.code === "unit_missing";
 }
 
 function alertsOf(alerts: readonly MaterialRequestLineAlert[], field: MaterialRequestLineAlert["field"]): CellAlerts {
@@ -124,11 +124,12 @@ type RequestPresumptions = Pick<
 
 /**
  * What a line that names no material of its own is ordered in: the request's presumed material, once the
- * operator has confirmed it (an unconfirmed presumption applies to nothing), and never for overhead.
+ * operator has confirmed it (an unconfirmed presumption applies to nothing), never for overhead, and never
+ * for a line already priced by a retained quote.
  */
 function materialFromRequest(line: MaterialRequestLine, request: RequestPresumptions): string | null {
   if (line.imputation !== "project") return null;
-  const effective = effectiveLineMaterial({ material: null }, request);
+  const effective = effectiveLineMaterial({ material: null, price_quote_id: line.price_quote_id }, request);
   return effective.source === "presumed" ? effective.material : null;
 }
 

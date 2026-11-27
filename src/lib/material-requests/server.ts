@@ -262,7 +262,8 @@ async function writeRequest(
   if (presumption.supplierId !== undefined) statement = statement.eq("presumed_supplier_id", presumption.supplierId);
   const { data, error } = await statement.select(REQUEST_COLUMNS).maybeSingle();
   if (error) {
-    // TI-691: the material withdrawn would return to draft a line an order holds (another session ordered it).
+    // TI-691: on a database not yet migrated to the optional material (20261127022446), the material withdrawn
+    // would return to draft a line an order holds.
     throw orderedLineDatabaseRefusal([])(error) ?? mapSupabaseError(error, "Impossible d'enregistrer la demande de matériel.");
   }
   return data;
@@ -285,7 +286,10 @@ async function presumptionChanged(access: MaterialRequestAccess, requestId: stri
   );
 }
 
-/** A line that is validated in the request's presumed material: no material of its own, not overhead. */
+/**
+ * A project line without a material of its own: the one a database not yet migrated to the optional material
+ * (20261127022446) still refuses to validate while the request's presumed material is missing or unconfirmed.
+ */
 function reliesOnPresumedMaterial(line: Pick<MaterialRequestLine, "material" | "imputation">): boolean {
   return line.imputation === "project" && !(line.material ?? "").trim();
 }
@@ -333,17 +337,8 @@ export async function updateMaterialRequest(
     }
   }
 
-  // The database returns to draft, in the statement that withdraws a presumed material, the validated
-  // lines that relied on it. They are read before and after, so that the answer names what really
-  // happened to them rather than what this code expects.
-  const withdrawsMaterial = materialChanges || (current.material_confirmed && input.material_confirmed === false);
-  const relying = withdrawsMaterial
-    ? (await readRequestLines(access, current.id)).filter((line) => line.status === "validated" && reliesOnPresumedMaterial(line))
-    : [];
-  // TI-691: a line an order holds was ordered in this material; it does not return to draft.
-  const ordered = await orderedAmong(access, current.id, relying);
-  if (ordered.length > 0) throw orderedLinesRefusal(ordered);
-
+  // The material is optional (owner decision of 2026-11-27): no validated line relies on the presumed
+  // material, so changing, clearing or un-confirming it returns none to draft.
   const expected: Presumption = { material: expectedMaterial, supplierId: expectedSupplierId };
   let request = await writeRequest(access, current.id, patch, expected);
   if (!request) throw await presumptionChanged(access, current.id, expected);
@@ -352,13 +347,7 @@ export async function updateMaterialRequest(
     // Another session changed the value in between: nothing more is written, and nothing is confirmed.
     if (!request) throw await presumptionChanged(access, current.id, confirmedFor);
   }
-  if (relying.length === 0) return { request, reopened_line_ids: [] };
-
-  const wasValidated = new Set(relying.map((line) => line.id));
-  const reopened = (await readRequestLines(access, current.id))
-    .filter((line) => wasValidated.has(line.id) && line.status === "draft")
-    .map((line) => line.id);
-  return { request, reopened_line_ids: reopened };
+  return { request, reopened_line_ids: [] };
 }
 
 export async function deleteMaterialRequest(projectId: string, requestId: string): Promise<{ deleted: true }> {
@@ -746,7 +735,11 @@ export async function deleteMaterialRequestLine(
   return { deleted: true };
 }
 
-/** What the line trigger raises (SQLSTATE 23514) when a line would be validated in no material. */
+/**
+ * What the line trigger raised (SQLSTATE 23514) when a line would be validated in no material. Migration
+ * 20261127022446 makes the material optional and no longer raises them; kept so that the application, deployed
+ * before that migration is applied, still answers with the lines concerned.
+ */
 const DATABASE_MATERIAL_REFUSALS: Record<string, MaterialRequestLineAlertCode | undefined> = {
   MATERIAL_REQUEST_LINE_MATERIAL_MISSING: "material_missing",
   MATERIAL_REQUEST_LINE_MATERIAL_UNCONFIRMED: "material_unconfirmed",
@@ -783,8 +776,8 @@ export async function validateMaterialRequestLines(
 
   // A line already validated keeps its own date and author.
   const pending = selected.filter((line) => line.status !== "validated");
-  // The database has the last word on the material a line is validated in: if the request changed
-  // since it was read, its refusal names the same lines as an alert would have.
+  // A database not yet migrated to the optional material may still refuse a line without one: its refusal
+  // names the lines concerned.
   const refusedByDatabase = (error: SupabaseErrorLike) => {
     const code = DATABASE_MATERIAL_REFUSALS[error.message];
     if (error.code !== "23514" || !code) return null;

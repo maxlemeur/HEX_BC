@@ -4,7 +4,7 @@ import { describeTakeoffResume, viewerLaunchAction } from "@/lib/takeoff/operato
 import { describeTakeoffRequestActivityCoverage, reviewableTakeoffRequestUnits } from "@/lib/takeoff/request-activity";
 import type { TakeoffRequestActivity } from "@/lib/takeoff/request-activity-contracts";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
-import { describeTakeoffJobFailure } from "@/lib/takeoff/visible-status";
+import { describeTakeoffJobFailure, isTakeoffKeyStopMessage } from "@/lib/takeoff/visible-status";
 
 export type TakeoffNextStepAction =
   | { kind: "launch"; label: string }
@@ -111,9 +111,11 @@ export function resolveTakeoffNextStep({
   // does (a member who cannot act, a retry to wait for or a retry of the same analysis get no launch button).
   const canceled = latestJob.technicalStatusRaw === "canceled";
   if (canceled || latestJob.statusRaw === "action_required") {
+    // The server read the job's stored message: a stop of a request paid by a key is told as its worker recorded it.
+    const stored = context?.failureReasonLabel;
     const lead = canceled
       ? "La dernière analyse a été arrêtée avant la fin."
-      : `La dernière analyse n’a pas abouti. ${describeTakeoffJobFailure(latestJob.errorCode)}`;
+      : `La dernière analyse n’a pas abouti. ${isTakeoffKeyStopMessage(stored) ? stored : describeTakeoffJobFailure(latestJob.errorCode)}`;
     const decision = latestJob.resume;
     const next = decision ? describeTakeoffResume(decision) : TAKEOFF_RESUME_RELOAD_TEXT;
     return {

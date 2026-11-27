@@ -250,7 +250,7 @@ async function loadCatalogue(context: MaterialRequestContext): Promise<LoadedCat
 
 /**
  * What the matcher reads of a line. Its material, else the request's presumed one, confirmed or not: a hint,
- * not a decision. Overhead (PPE, small tooling) is not ordered in the request's material, as for validation.
+ * not a decision. Overhead (PPE, small tooling) is not ordered in the request's material.
  */
 function matchInput(line: MaterialRequestLine, request: MaterialRequest, productType: string | null = line.product_type): MatchRequestLine {
   const ownMaterial = line.material?.trim() ? line.material : null;

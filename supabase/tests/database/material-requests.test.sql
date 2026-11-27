@@ -20,9 +20,10 @@
 -- 12. an anonymous caller reaches any of the four tables;
 -- 13. the list of known materials shows another tenant's catalogue, blanks or the same name twice;
 -- 14. two lines of a request share a position;
--- 16. a line is validated in no material, or stays validated when the presumed material it relied on is
---     changed, cleared or un-confirmed, so that confirming another material makes it "validated" in a
---     material nobody validated (the duplicate rule, by contrast, is the application's alone);
+-- 16. a complete line that names no material cannot be validated (the material is optional since
+--     2026-11-27: the supplier reads the line without it), or a change to the request's presumed material
+--     (changed, cleared, un-confirmed) sends a validated line back to draft (the duplicate rule, by
+--     contrast, is the application's alone);
 -- 17. an engineer cannot rename or deactivate a technician placed on an affaire they cannot read;
 -- 18. a client chooses the creation date of a technician, a request, a line or an original;
 -- 19. a writer replaces the stored bytes of an original (an UPDATE policy on the bucket), or a reader
@@ -227,45 +228,49 @@ select ok((select status = 'draft' and validated_at is null and validated_by is 
   from public.material_request_lines where id = 'a9000000-0000-4000-8000-000000000603'),
   'a draft line carries no validation stamp, whatever the client sends');
 
--- 16: a line is validated in a material. At this point the request presumes none.
+-- 16: the material is optional. At this point the request presumes none.
 insert into public.material_request_lines (id, request_id, position, quantity, unit, dimension, product_type)
 values ('a9000000-0000-4000-8000-000000000605', 'a9000000-0000-4000-8000-000000000501', 6, 8, 'u', 'DN 32', 'Manchon');
 update public.material_request_lines set status = 'validated' where id = 'a9000000-0000-4000-8000-000000000601';
-select throws_ok($$update public.material_request_lines set status = 'validated' where id = 'a9000000-0000-4000-8000-000000000605'$$,
-  '23514', 'MATERIAL_REQUEST_LINE_MATERIAL_MISSING', 'a line that names no material is not validated when the request presumes none');
-select throws_ok($$insert into public.material_request_lines (request_id, position, status, quantity, unit, dimension, product_type)
-  values ('a9000000-0000-4000-8000-000000000501', 7, 'validated', 8, 'u', 'DN 32', 'Manchon')$$,
-  '23514', 'MATERIAL_REQUEST_LINE_MATERIAL_MISSING', 'nor recorded as validated');
-update public.material_requests set presumed_material = 'Cuivre' where id = 'a9000000-0000-4000-8000-000000000501';
-select throws_ok($$update public.material_request_lines set status = 'validated' where id = 'a9000000-0000-4000-8000-000000000605'$$,
-  '23514', 'MATERIAL_REQUEST_LINE_MATERIAL_UNCONFIRMED', 'a presumed material nobody confirmed does not validate a line');
-update public.material_requests set material_confirmed = true where id = 'a9000000-0000-4000-8000-000000000501';
 select lives_ok($$update public.material_request_lines set status = 'validated' where id = 'a9000000-0000-4000-8000-000000000605'$$,
-  'a confirmed presumed material validates the line that relies on it');
+  'a complete line that names no material is validated when the request presumes none');
+select ok((select status = 'validated' and validated_at is not null and validated_by = 'a9000000-0000-4000-8000-000000000001'
+  from public.material_request_lines where id = 'a9000000-0000-4000-8000-000000000605'),
+  'and stamped like any other validation');
+select lives_ok($$insert into public.material_request_lines (id, request_id, position, status, quantity, unit, dimension, product_type)
+  values ('a9000000-0000-4000-8000-000000000607', 'a9000000-0000-4000-8000-000000000501', 8, 'validated', 8, 'u', 'DN 40', 'Manchon')$$,
+  'nor is it refused when recorded as validated');
+delete from public.material_request_lines where id = 'a9000000-0000-4000-8000-000000000607';
+update public.material_request_lines set status = 'draft' where id = 'a9000000-0000-4000-8000-000000000605';
+update public.material_requests set presumed_material = 'Cuivre' where id = 'a9000000-0000-4000-8000-000000000501';
+select lives_ok($$update public.material_request_lines set status = 'validated' where id = 'a9000000-0000-4000-8000-000000000605'$$,
+  'a presumed material nobody confirmed does not stand in the way of a validation');
+update public.material_requests set material_confirmed = true where id = 'a9000000-0000-4000-8000-000000000501';
 update public.material_requests set note = 'Livrer au portail', is_urgent = false where id = 'a9000000-0000-4000-8000-000000000501';
 select is((select status from public.material_request_lines where id = 'a9000000-0000-4000-8000-000000000605'), 'validated',
   'another change to the request leaves its validated lines alone');
 update public.material_requests set presumed_material = 'Acier galvanisé' where id = 'a9000000-0000-4000-8000-000000000501';
-select ok((select status = 'draft' and validated_at is null and validated_by is null
+select ok((select status = 'validated' and validated_at is not null
   from public.material_request_lines where id = 'a9000000-0000-4000-8000-000000000605'),
-  'changing the presumed material returns to draft the validated line that relied on it, stamps cleared');
+  'changing the presumed material leaves validated a line that names none, stamps kept');
 select is((select array_agg(id::text order by position) from public.material_request_lines
   where request_id = 'a9000000-0000-4000-8000-000000000501' and status = 'validated'),
-  array['a9000000-0000-4000-8000-000000000602', 'a9000000-0000-4000-8000-000000000601'],
-  'a validated line with its own material, and an overhead line, stay validated');
+  array['a9000000-0000-4000-8000-000000000602', 'a9000000-0000-4000-8000-000000000601', 'a9000000-0000-4000-8000-000000000605'],
+  'a validated line with its own material, an overhead line and a line without material all stay validated');
 update public.material_requests set material_confirmed = true where id = 'a9000000-0000-4000-8000-000000000501';
-select is((select status from public.material_request_lines where id = 'a9000000-0000-4000-8000-000000000605'), 'draft',
-  'confirming the new material does not validate the line again: an operator must');
-update public.material_request_lines set status = 'validated' where id = 'a9000000-0000-4000-8000-000000000605';
 update public.material_requests set material_confirmed = false where id = 'a9000000-0000-4000-8000-000000000501';
-select is((select status from public.material_request_lines where id = 'a9000000-0000-4000-8000-000000000605'), 'draft',
-  'withdrawing the confirmation returns the line to draft');
-update public.material_requests set material_confirmed = true where id = 'a9000000-0000-4000-8000-000000000501';
-update public.material_request_lines set status = 'validated' where id = 'a9000000-0000-4000-8000-000000000605';
+select is((select status from public.material_request_lines where id = 'a9000000-0000-4000-8000-000000000605'), 'validated',
+  'withdrawing the confirmation leaves the line validated');
 update public.material_requests set presumed_material = null where id = 'a9000000-0000-4000-8000-000000000501';
+select is((select status from public.material_request_lines where id = 'a9000000-0000-4000-8000-000000000605'), 'validated',
+  'clearing the presumed material leaves the line validated');
+select is((select count(*)::integer from pg_catalog.pg_trigger
+  where tgrelid = 'public.material_requests'::regclass and tgname = 'reopen_material_request_lines_without_material'), 0,
+  'no trigger on the request reopens its lines any more');
+update public.material_request_lines set material = 'Laiton' where id = 'a9000000-0000-4000-8000-000000000605';
 select is((select status from public.material_request_lines where id = 'a9000000-0000-4000-8000-000000000605'), 'draft',
-  'clearing the presumed material returns the line to draft');
-update public.material_request_lines set material = 'Laiton', status = 'validated' where id = 'a9000000-0000-4000-8000-000000000605';
+  'writing a material on a validated line is an edit of what it says: it returns to draft');
+update public.material_request_lines set status = 'validated' where id = 'a9000000-0000-4000-8000-000000000605';
 select is((select status from public.material_request_lines where id = 'a9000000-0000-4000-8000-000000000605'), 'validated',
   'a line that names its material is validated whatever the request presumes');
 insert into public.material_request_lines (id, request_id, position, quantity, unit, dimension, product_type, material, status)

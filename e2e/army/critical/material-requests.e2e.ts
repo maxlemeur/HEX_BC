@@ -103,12 +103,12 @@ armyTest(
 
 // TI-690, delivery 2. Failure modes, written before the journey was first run against the product:
 // - the pasted message is lost, or its pre-reading invents a quantity, a size or a material;
-// - a line with a missing size, an unconfirmed presumed material or a possible duplicate is validated,
-//   or one blocked line holds back the lines that are ready;
-// - confirming the presumed material does not release the lines that were only waiting for it;
+// - a line with a missing size or a possible duplicate is validated, or one blocked line holds back the lines that
+//   are ready; a line without a material, or relying on an unconfirmed presumed material, is held back (the material
+//   is optional since 2026-11-27);
 // - the possible duplicate is merged or dismissed for both lines at once;
 // - editing a validated line leaves it validated although it no longer says what was validated;
-// - changing or un-confirming the presumed material leaves validated the lines that relied on it;
+// - changing or un-confirming the presumed material returns validated lines to draft;
 // - the message to the technician asks about a greeting or a note, or misses a question;
 // - deleting an original or a request leaves bytes behind or fails against the storage guards;
 // - the stored photo is not the photo that was dropped (it goes straight to storage, never through the
@@ -202,23 +202,21 @@ armyTest(
     expect(statuses(split)).toEqual(Array(8).fill("draft"));
     const id = (position: number) => split.lines.find((line) => line.position === position)!.id;
 
-    // Nothing can be validated while the presumed material is only a proposal, and the refusal says why.
+    // The material is optional (owner decision of 2026-11-27): a refusal names only what is really missing, and a
+    // presumed material that is only a proposal holds no line back.
     const refused = await apiRequest<Envelope<never>>(browser, "POST", `${base}/${requestId}/lines/validate`, {
       ids: [id(2), id(3), id(6)],
     });
     expect(refused.status).toBe(422);
     expect(refused.body.error?.code).toBe("MATERIAL_REQUEST_LINES_BLOCKED");
     expect(refused.body.error?.details?.blocked).toEqual([
-      { id: id(2), codes: ["material_unconfirmed"] },
-      { id: id(3), codes: ["dimension_missing", "material_unconfirmed"] },
-      { id: id(6), codes: ["dimension_missing", "material_unconfirmed", "possible_duplicate"] },
+      { id: id(3), codes: ["dimension_missing"] },
+      { id: id(6), codes: ["dimension_missing", "possible_duplicate"] },
     ]);
     expect(statuses(await read())).toEqual(Array(8).fill("draft"));
+    expect((await read()).request.material_confirmed).toBe(false);
 
-    // Confirming the material releases exactly the lines that only waited for it.
-    await expect(screen.getByRole("button", "Valider les lignes sans alerte (0)", { exact: true })).toBeVisible();
-    await screen.getByRole("button", "Confirmer la matière", { exact: true }).tap();
-    await expect.poll(async () => (await read()).request.material_confirmed, { timeout: 30_000 }).toBe(true);
+    // The complete lines are ready without any material.
     const validateReady = screen.getByRole("button", "Valider les lignes sans alerte (3)", { exact: true });
     await expect(validateReady).toBeVisible({ timeout: 15_000 });
     await validateReady.tap();
@@ -266,22 +264,26 @@ armyTest(
     expect(edited.status).toBe(200);
     expect([edited.body.data.line.quantity, edited.body.data.line.status]).toEqual([45, "draft"]);
 
-    // Withdrawing the confirmation of the material takes back the validations that rested on it.
-    expect(statuses(await read())).toEqual([
-      "draft", "draft", "validated", "validated", "validated", "draft", "draft", "draft",
-    ]);
+    // Confirming, then withdrawing, the presumed material takes back no validation: no line rests on it.
+    const validatedNow = ["draft", "draft", "validated", "validated", "validated", "draft", "draft", "draft"];
+    expect(statuses(await read())).toEqual(validatedNow);
+    const confirmedMaterial = await apiRequest<Envelope<{ request: Detail["request"]; reopened_line_ids: string[] }>>(
+      browser, "PATCH", `${base}/${requestId}`, { material_confirmed: true },
+    );
+    expect(confirmedMaterial.status).toBe(200);
+    expect(confirmedMaterial.body.data.request.material_confirmed).toBe(true);
     const withdrawn = await apiRequest<Envelope<{ request: Detail["request"]; reopened_line_ids: string[] }>>(
       browser, "PATCH", `${base}/${requestId}`, { material_confirmed: false },
     );
     expect(withdrawn.status).toBe(200);
     expect(withdrawn.body.data.request.material_confirmed).toBe(false);
-    expect([...withdrawn.body.data.reopened_line_ids].sort()).toEqual([id(3), id(4), id(5)].sort());
-    expect(statuses(await read())).toEqual(Array(8).fill("draft"));
+    expect(withdrawn.body.data.reopened_line_ids).toEqual([]);
+    expect(statuses(await read())).toEqual(validatedNow);
     const unconfirmed = await apiRequest<Envelope<never>>(browser, "POST", `${base}/${requestId}/lines/validate`, {
-      ids: [id(4)],
+      ids: [id(2)],
     });
-    expect(unconfirmed.status).toBe(422);
-    expect(unconfirmed.body.error?.details?.blocked).toEqual([{ id: id(4), codes: ["material_unconfirmed"] }]);
+    expect(unconfirmed.status).toBe(200);
+    expect((await read()).lines[1].status).toBe("validated");
 
     // The original: the stored photo is the dropped photo, its rotation is kept, HEIC is converted to JPEG.
     await showOriginal.tap();

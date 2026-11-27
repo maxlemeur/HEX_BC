@@ -5,6 +5,7 @@ import { utils, type CellObject, type WorkBook, type WorkSheet } from "xlsx";
 
 import { readXlsxArchiveWithinBudget } from "@/lib/affaires/intake-office-archive";
 import { formatDecimalInput, parseDecimalInput } from "@/lib/numeric-input/parsers";
+import { acquireWorkbookParseSlot } from "@/lib/spreadsheet-workbook-parse-pool";
 import { foldWords } from "@/lib/text/fold";
 
 import {
@@ -47,8 +48,6 @@ const SUPPLIER_NAME_MAX = 255;
 const EXAMPLE_SCAN_ROWS = 20;
 const EXAMPLE_MAX_LENGTH = 60;
 const PARSE_TIMEOUT_MS = 10_000;
-const MAX_CONCURRENT_PREVIEWS = 2;
-let activePreviews = 0;
 const WORKER_SCRIPT = `
 const { parentPort, workerData } = require("node:worker_threads");
 const xlsx = require("xlsx");
@@ -202,14 +201,14 @@ export async function previewMaterialRequestWorkbook(
   options: MaterialRequestWorkbookPreviewOptions = {},
   signal?: AbortSignal,
 ): Promise<MaterialRequestWorkbookReading> {
-  if (activePreviews >= MAX_CONCURRENT_PREVIEWS) {
+  const release = acquireWorkbookParseSlot();
+  if (!release) {
     throw new MaterialRequestWorkbookBusyError("La lecture d’autres classeurs est en cours. Rouvrez l’aperçu dans quelques instants.");
   }
-  activePreviews += 1;
   try {
     return await buildPreview(bytes, options, signal);
   } finally {
-    activePreviews -= 1;
+    release();
   }
 }
 

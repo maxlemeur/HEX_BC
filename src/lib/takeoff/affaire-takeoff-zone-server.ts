@@ -6,6 +6,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { AffaireTakeoffZoneData, AffaireTakeoffZoneJob, AffaireTakeoffZoneRequest } from "@/lib/takeoff/affaire-takeoff-zone";
 import { toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
 import type { TakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
+import { takeoffRequestStoppedAtKeyLimit } from "@/lib/takeoff/launch-request";
 import { readAffaireTakeoffLaunchState } from "@/lib/takeoff/launch-request-server";
 import { isTakeoffPlanDispatchActive } from "@/lib/takeoff/local-dispatcher";
 import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
@@ -17,6 +18,9 @@ import {
 } from "@/lib/takeoff/visible-status";
 
 const JOB_SELECT = "id, status, estimate_version_id, plan_set_id, launch_unit_key, source_file_name, source_file_path, processing_strategy, provider_batch_state, error_code, created_at, completed_at, analysis_finished_at";
+// The request's own jobs also read their stored message, under the member's rights, only for the note of its end: it
+// never leaves this server (toZoneJob copies none of it).
+const REQUEST_JOB_SELECT = `${JOB_SELECT}, error_message` as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type JobRow = {
@@ -24,6 +28,7 @@ type JobRow = {
   source_file_name: string | null; source_file_path: string | null;
   processing_strategy: string | null; provider_batch_state: string | null; error_code: string | null;
   created_at: string; completed_at: string | null; analysis_finished_at: string | null;
+  error_message?: string | null;
 };
 
 function readError(error: { code?: string; message: string }): never {
@@ -127,7 +132,8 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
     requestId ? createServiceRoleClient().from("takeoff_launch_requests").select("manifest")
       .eq("tenant_id", context.tenantId).eq("project_id", projectId).eq("id", requestId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
-    requestId ? jobs().eq("launch_request_id", requestId).order("launch_unit_key").order("id")
+    requestId ? context.supabase.from("takeoff_jobs").select(REQUEST_JOB_SELECT).eq("tenant_id", context.tenantId)
+      .eq("project_id", projectId).eq("launch_request_id", requestId).order("launch_unit_key").order("id")
       : Promise.resolve({ data: [] as JobRow[], error: null }),
     jobs().order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1),
     jobs().in("status", ["completed", "applied"]).order("completed_at", { ascending: false, nullsFirst: false })
@@ -177,6 +183,7 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
       jobs: inManifestOrder((requestJobs.data ?? []) as JobRow[], manifest).map(toJob),
       coverage: toAffaireTakeoffCoverage(manifest, visible),
       completionEventId,
+      keyLimitReached: takeoffRequestStoppedAtKeyLimit(request.reason, (requestJobs.data ?? []) as JobRow[]),
     } : null,
     dossierChangedSinceAnalysis: launch.dossierChangedSinceAnalysis,
     latestJob: latest.data?.[0] ? toJob(latest.data[0]) : null,

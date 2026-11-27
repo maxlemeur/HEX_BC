@@ -2177,7 +2177,7 @@
           "Demandes de matériel"
         ],
         "summary": "Modifier l'en-tête d'une demande",
-        "description": "Seuls les champs envoyés changent. Changer ou vider la matière ou le fournisseur présumé retire sa confirmation ; une confirmation envoyée avec la nouvelle valeur est enregistrée après elle. Renvoyer la même valeur conserve la confirmation. Une confirmation porte sur la valeur vue par son auteur : envoyée avec la valeur, elle ne confirme que celle-ci ; envoyée seule, elle confirme la valeur enregistrée, sauf si expected_presumed_material ou expected_presumed_supplier_id (facultatifs) précise la valeur affichée, auquel cas rien n'est écrit si elle a changé. Changer, vider ou ne plus confirmer la matière présumée ramène en brouillon les lignes validées qui s'appuyaient sur elle (sans matière propre, hors frais généraux) : reopened_line_ids les nomme, tableau vide sinon.",
+        "description": "Seuls les champs envoyés changent. Changer ou vider la matière ou le fournisseur présumé retire sa confirmation ; une confirmation envoyée avec la nouvelle valeur est enregistrée après elle. Renvoyer la même valeur conserve la confirmation. Une confirmation porte sur la valeur vue par son auteur : envoyée avec la valeur, elle ne confirme que celle-ci ; envoyée seule, elle confirme la valeur enregistrée, sauf si expected_presumed_material ou expected_presumed_supplier_id (facultatifs) précise la valeur affichée, auquel cas rien n'est écrit si elle a changé. La matière est facultative : changer, vider ou ne plus confirmer la matière présumée laisse validées les lignes validées, et reopened_line_ids est un tableau vide (conservé pour les clients existants).",
         "parameters": [
           {
             "name": "projectId",
@@ -4808,7 +4808,7 @@
           "Demandes de matériel"
         ],
         "summary": "Valider des lignes",
-        "description": "Tout ou rien : les alertes sont calculées sur toutes les lignes de la demande (un doublon peut être hors sélection). Si une ligne désignée garde une alerte bloquante, aucune n'est validée. La base refuse elle-même une ligne sans matière (ni propre, ni présumée et confirmée, hors frais généraux) ; le doublon n'est vérifié que par l'application. Auteur et date de validation sont fixés par le serveur.",
+        "description": "Tout ou rien : les alertes sont calculées sur toutes les lignes de la demande (un doublon peut être hors sélection). Si une ligne désignée garde une alerte bloquante, aucune n'est validée. La matière est facultative : une ligne se valide sans matière ; le doublon n'est vérifié que par l'application. Auteur et date de validation sont fixés par le serveur.",
         "parameters": [
           {
             "name": "projectId",
@@ -5773,7 +5773,7 @@
           "Demandes de matériel"
         ],
         "summary": "Retenir un devis",
-        "description": "Un seul devis retenu par ligne. En une transaction : le devis reçu, toutes ses lignes chiffrées et validées (retenir fige ce qu'elles commandent ; un devis peut être demandé et chiffré pour des lignes en brouillon), devient « retenu » (daté et signé par la base) ; ses lignes prennent son fournisseur, leur prix HT, la quantité pour laquelle il vaut et son identifiant (unit_price_ht_cents, price_per, price_quote_id), une ligne validée le restant ; une ligne d'affaire sans matière propre, consultée dans la matière présumée de la demande, reçoit cette matière (qui doit être confirmée), une ligne de frais généraux n'est pas touchée ; ce qu'elles commandent ne change plus ensuite (aucun retour dans cette livraison) ; chaque autre devis demandé ou reçu de la demande qui partage une ligne avec lui est clos (closed_quote_ids) et reste lisible. Le coût imputé ensuite est ce prix, jamais un prix du catalogue. Un devis retenu ne se rouvre pas.",
+        "description": "Un seul devis retenu par ligne. En une transaction : le devis reçu, toutes ses lignes chiffrées et validées (retenir fige ce qu'elles commandent ; un devis peut être demandé et chiffré pour des lignes en brouillon), devient « retenu » (daté et signé par la base) ; ses lignes prennent son fournisseur, leur prix HT, la quantité pour laquelle il vaut et son identifiant (unit_price_ht_cents, price_per, price_quote_id), une ligne validée le restant ; une ligne d'affaire sans matière propre reçoit la matière présumée de la demande si elle était confirmée avant la demande de devis et n'a pas changé depuis, et reste sans matière sinon (la matière est facultative), une ligne de frais généraux n'est pas touchée ; ce qu'elles commandent ne change plus ensuite (aucun retour dans cette livraison) ; chaque autre devis demandé ou reçu de la demande qui partage une ligne avec lui est clos (closed_quote_ids) et reste lisible. Le coût imputé ensuite est ce prix, jamais un prix du catalogue. Un devis retenu ne se rouvre pas.",
         "parameters": [
           {
             "name": "projectId",
@@ -5865,7 +5865,7 @@
             }
           },
           "422": {
-            "description": "MATERIAL_REQUEST_QUOTE_NOT_RECEIVED : le devis n'est pas encore reçu. MATERIAL_REQUEST_QUOTE_LINES_UNPRICED : des lignes n'ont pas de prix (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu. MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED : des lignes ne sont pas validées (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_WITHOUT_LINES : le devis ne demande plus aucune ligne. MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED : des lignes sans matière propre et la matière présumée de la demande n'est pas confirmée (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE : la remise dépasse les lignes et le port du devis (details : shipping_ht_cents, discount_ht_cents). Rien n'est écrit.",
+            "description": "MATERIAL_REQUEST_QUOTE_NOT_RECEIVED : le devis n'est pas encore reçu. MATERIAL_REQUEST_QUOTE_LINES_UNPRICED : des lignes n'ont pas de prix (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu. MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED : des lignes ne sont pas validées (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_WITHOUT_LINES : le devis ne demande plus aucune ligne. MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE : la remise dépasse les lignes et le port du devis (details : shipping_ht_cents, discount_ht_cents). Rien n'est écrit.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9981,6 +9981,118 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalogue/supplier-base/preview": {
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Prévisualiser l’import d’une base articles fournisseurs",
+        "description": "Lit un classeur Excel de 4 Mo au plus. Regroupe les lignes par fournisseur et propose des rapprochements déterministes. La colonne Fournisseur identifie une feuille groupée. Répertorie les feuilles ignorées et les colonnes facultatives absentes. Restitue les prix HT en texte décimal exact et propose un prix pour 100 unités lorsqu’il est exact en centimes. Aperçu en lecture seule réservé aux administrateurs et aux ingénieurs de l’entreprise active.",
+        "requestBody": {
+          "description": "Un classeur Excel (.xlsx) dans le champ file.",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewSupplierArticleBaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Plan d’import avec les références connues, les propositions, les nouveaux articles potentiels et les anomalies.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSupplierBasePreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Limite du fichier, de la lecture du classeur ou de l’aperçu dépassée. Le code SUPPLIER_BASE_PREVIEW_SIZE_LIMIT désigne un aperçu de plus de 4 Mo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "La capacité de lecture des classeurs est momentanément atteinte.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
                 }
               }
             }
@@ -60165,6 +60277,1593 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "PreviewSupplierArticleBaseRequest": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "contentEncoding": "binary",
+            "minLength": 1,
+            "maxLength": 4194304
+          }
+        },
+        "required": [
+          "file"
+        ]
+      },
+      "ApiSupplierBasePreview": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "row_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "skipped_sheets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "index",
+                        "summary",
+                        "rental",
+                        "hidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "sheet_warnings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "sheet": {
+                      "type": "string"
+                    },
+                    "missing_optional_columns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "sheet",
+                    "missing_optional_columns"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "articles": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "designation": {
+                      "type": "string"
+                    },
+                    "reference": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "designation",
+                    "reference"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "Articles visés par les références connues et les propositions, listés une seule fois."
+              },
+              "suppliers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "workbook_names": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "supplier_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "supplier_label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "resolution": {
+                      "type": "string",
+                      "enum": [
+                        "recognized",
+                        "unknown",
+                        "ambiguous",
+                        "inactive_alias",
+                        "missing_name"
+                      ]
+                    },
+                    "candidates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "known": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "row": {
+                            "type": "object",
+                            "properties": {
+                              "sheet": {
+                                "type": "string"
+                              },
+                              "row": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "supplier_name": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "designation": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "supplier_reference": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "price": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "unit_decimal": {
+                                        "type": "string",
+                                        "description": "Montant décimal exact pour une unité, en euros HT."
+                                      },
+                                      "per": {
+                                        "anyOf": [
+                                          {
+                                            "type": "number",
+                                            "const": 1
+                                          },
+                                          {
+                                            "type": "number",
+                                            "const": 100
+                                          }
+                                        ]
+                                      },
+                                      "amount_cents": {
+                                        "anyOf": [
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 2147483647
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "Montant pour le nombre d’unités indiqué par per, lorsqu’il est exact en centimes."
+                                      },
+                                      "origin": {
+                                        "type": "string",
+                                        "enum": [
+                                          "unit",
+                                          "converted",
+                                          "supplier"
+                                        ],
+                                        "description": "Prix unitaire, conversion proposée pour 100, ou base 100 indiquée par le fournisseur."
+                                      }
+                                    },
+                                    "required": [
+                                      "unit_decimal",
+                                      "per",
+                                      "amount_cents",
+                                      "origin"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "price_text": {
+                                "description": "Texte de la cellule de prix à vérifier.",
+                                "type": "string"
+                              },
+                              "price_unit": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "price_unit_code": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "packaging_label": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "packaging_quantity": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "price_date": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "document": {
+                                "anyOf": [
+                                  {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string"
+                                          },
+                                          "number": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "kind",
+                                          "number"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "text": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "text"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "observations": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "source_file_text": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "fragile": {
+                                "type": "boolean"
+                              },
+                              "fragile_reasons": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "old_version_missing_document",
+                                    "ocr_scan",
+                                    "price_per_100"
+                                  ]
+                                }
+                              },
+                              "issues": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "missing_supplier",
+                                    "missing_designation",
+                                    "missing_reference",
+                                    "duplicate_reference",
+                                    "supplier_differs_from_sheet",
+                                    "invalid_price",
+                                    "text_price",
+                                    "zero_price",
+                                    "inexact_price",
+                                    "price_cents_overflow",
+                                    "missing_price_date",
+                                    "invalid_price_date",
+                                    "future_price_date",
+                                    "inactive_price_same_date",
+                                    "different_price_same_date",
+                                    "unknown_price_unit",
+                                    "invalid_packaging_quantity",
+                                    "invalid_packaging_price",
+                                    "packaging_price_mismatch"
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "sheet",
+                              "row",
+                              "supplier_name",
+                              "designation",
+                              "supplier_reference",
+                              "price",
+                              "price_unit",
+                              "price_unit_code",
+                              "packaging_label",
+                              "packaging_quantity",
+                              "price_date",
+                              "document",
+                              "observations",
+                              "source_file_text",
+                              "fragile",
+                              "fragile_reasons",
+                              "issues"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "known_reference": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "article_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "state": {
+                                    "type": "string",
+                                    "enum": [
+                                      "active",
+                                      "pending_review",
+                                      "archived"
+                                    ]
+                                  },
+                                  "latest_price_date": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "format": "date",
+                                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "article_id",
+                                  "state",
+                                  "latest_price_date"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "different_catalogue_price": {
+                            "description": "Prix catalogue EUR à la date de la ligne et différent du prix importé, dans son unité d’achat.",
+                            "type": "object",
+                            "properties": {
+                              "amount_cents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "unit": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "amount_cents",
+                              "unit"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "price_action": {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "add",
+                              "skip",
+                              "review",
+                              "per_lot"
+                            ]
+                          },
+                          "proposals": {
+                            "type": "array",
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "source": {
+                                      "type": "string",
+                                      "const": "catalogue"
+                                    },
+                                    "article_id": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "gaps": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "dimension_unknown",
+                                          "material_unknown",
+                                          "unit_unknown",
+                                          "unit_mismatch",
+                                          "type_unknown",
+                                          "precision_check",
+                                          "draft_article",
+                                          "missing_article",
+                                          "pending_reference",
+                                          "archived_article_or_reference",
+                                          "article_not_editable",
+                                          "ambiguous_reference",
+                                          "supplier_reference_exists",
+                                          "supplier_reference_inactive",
+                                          "packaging_differs",
+                                          "same_supplier_same_article"
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "source",
+                                    "article_id",
+                                    "gaps"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "sheet": {
+                                      "type": "string"
+                                    },
+                                    "row": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "source": {
+                                      "type": "string",
+                                      "const": "workbook"
+                                    },
+                                    "gaps": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "dimension_unknown",
+                                          "material_unknown",
+                                          "unit_unknown",
+                                          "unit_mismatch",
+                                          "type_unknown",
+                                          "precision_check",
+                                          "draft_article",
+                                          "missing_article",
+                                          "pending_reference",
+                                          "archived_article_or_reference",
+                                          "article_not_editable",
+                                          "ambiguous_reference",
+                                          "supplier_reference_exists",
+                                          "supplier_reference_inactive",
+                                          "packaging_differs",
+                                          "same_supplier_same_article"
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "sheet",
+                                    "row",
+                                    "source",
+                                    "gaps"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            }
+                          },
+                          "gaps": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "dimension_unknown",
+                                "material_unknown",
+                                "unit_unknown",
+                                "unit_mismatch",
+                                "type_unknown",
+                                "precision_check",
+                                "draft_article",
+                                "missing_article",
+                                "pending_reference",
+                                "archived_article_or_reference",
+                                "article_not_editable",
+                                "ambiguous_reference",
+                                "supplier_reference_exists",
+                                "supplier_reference_inactive",
+                                "packaging_differs",
+                                "same_supplier_same_article"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "row",
+                          "known_reference",
+                          "price_action",
+                          "proposals",
+                          "gaps"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "proposed": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "row": {
+                            "type": "object",
+                            "properties": {
+                              "sheet": {
+                                "type": "string"
+                              },
+                              "row": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "supplier_name": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "designation": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "supplier_reference": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "price": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "unit_decimal": {
+                                        "type": "string",
+                                        "description": "Montant décimal exact pour une unité, en euros HT."
+                                      },
+                                      "per": {
+                                        "anyOf": [
+                                          {
+                                            "type": "number",
+                                            "const": 1
+                                          },
+                                          {
+                                            "type": "number",
+                                            "const": 100
+                                          }
+                                        ]
+                                      },
+                                      "amount_cents": {
+                                        "anyOf": [
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 2147483647
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "Montant pour le nombre d’unités indiqué par per, lorsqu’il est exact en centimes."
+                                      },
+                                      "origin": {
+                                        "type": "string",
+                                        "enum": [
+                                          "unit",
+                                          "converted",
+                                          "supplier"
+                                        ],
+                                        "description": "Prix unitaire, conversion proposée pour 100, ou base 100 indiquée par le fournisseur."
+                                      }
+                                    },
+                                    "required": [
+                                      "unit_decimal",
+                                      "per",
+                                      "amount_cents",
+                                      "origin"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "price_text": {
+                                "description": "Texte de la cellule de prix à vérifier.",
+                                "type": "string"
+                              },
+                              "price_unit": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "price_unit_code": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "packaging_label": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "packaging_quantity": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "price_date": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "document": {
+                                "anyOf": [
+                                  {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string"
+                                          },
+                                          "number": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "kind",
+                                          "number"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "text": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "text"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "observations": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "source_file_text": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "fragile": {
+                                "type": "boolean"
+                              },
+                              "fragile_reasons": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "old_version_missing_document",
+                                    "ocr_scan",
+                                    "price_per_100"
+                                  ]
+                                }
+                              },
+                              "issues": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "missing_supplier",
+                                    "missing_designation",
+                                    "missing_reference",
+                                    "duplicate_reference",
+                                    "supplier_differs_from_sheet",
+                                    "invalid_price",
+                                    "text_price",
+                                    "zero_price",
+                                    "inexact_price",
+                                    "price_cents_overflow",
+                                    "missing_price_date",
+                                    "invalid_price_date",
+                                    "future_price_date",
+                                    "inactive_price_same_date",
+                                    "different_price_same_date",
+                                    "unknown_price_unit",
+                                    "invalid_packaging_quantity",
+                                    "invalid_packaging_price",
+                                    "packaging_price_mismatch"
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "sheet",
+                              "row",
+                              "supplier_name",
+                              "designation",
+                              "supplier_reference",
+                              "price",
+                              "price_unit",
+                              "price_unit_code",
+                              "packaging_label",
+                              "packaging_quantity",
+                              "price_date",
+                              "document",
+                              "observations",
+                              "source_file_text",
+                              "fragile",
+                              "fragile_reasons",
+                              "issues"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "known_reference": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "article_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "state": {
+                                    "type": "string",
+                                    "enum": [
+                                      "active",
+                                      "pending_review",
+                                      "archived"
+                                    ]
+                                  },
+                                  "latest_price_date": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "format": "date",
+                                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "article_id",
+                                  "state",
+                                  "latest_price_date"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "different_catalogue_price": {
+                            "description": "Prix catalogue EUR à la date de la ligne et différent du prix importé, dans son unité d’achat.",
+                            "type": "object",
+                            "properties": {
+                              "amount_cents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "unit": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "amount_cents",
+                              "unit"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "price_action": {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "add",
+                              "skip",
+                              "review",
+                              "per_lot"
+                            ]
+                          },
+                          "proposals": {
+                            "type": "array",
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "source": {
+                                      "type": "string",
+                                      "const": "catalogue"
+                                    },
+                                    "article_id": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "gaps": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "dimension_unknown",
+                                          "material_unknown",
+                                          "unit_unknown",
+                                          "unit_mismatch",
+                                          "type_unknown",
+                                          "precision_check",
+                                          "draft_article",
+                                          "missing_article",
+                                          "pending_reference",
+                                          "archived_article_or_reference",
+                                          "article_not_editable",
+                                          "ambiguous_reference",
+                                          "supplier_reference_exists",
+                                          "supplier_reference_inactive",
+                                          "packaging_differs",
+                                          "same_supplier_same_article"
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "source",
+                                    "article_id",
+                                    "gaps"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "sheet": {
+                                      "type": "string"
+                                    },
+                                    "row": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "source": {
+                                      "type": "string",
+                                      "const": "workbook"
+                                    },
+                                    "gaps": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "dimension_unknown",
+                                          "material_unknown",
+                                          "unit_unknown",
+                                          "unit_mismatch",
+                                          "type_unknown",
+                                          "precision_check",
+                                          "draft_article",
+                                          "missing_article",
+                                          "pending_reference",
+                                          "archived_article_or_reference",
+                                          "article_not_editable",
+                                          "ambiguous_reference",
+                                          "supplier_reference_exists",
+                                          "supplier_reference_inactive",
+                                          "packaging_differs",
+                                          "same_supplier_same_article"
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "sheet",
+                                    "row",
+                                    "source",
+                                    "gaps"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            }
+                          },
+                          "gaps": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "dimension_unknown",
+                                "material_unknown",
+                                "unit_unknown",
+                                "unit_mismatch",
+                                "type_unknown",
+                                "precision_check",
+                                "draft_article",
+                                "missing_article",
+                                "pending_reference",
+                                "archived_article_or_reference",
+                                "article_not_editable",
+                                "ambiguous_reference",
+                                "supplier_reference_exists",
+                                "supplier_reference_inactive",
+                                "packaging_differs",
+                                "same_supplier_same_article"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "row",
+                          "known_reference",
+                          "price_action",
+                          "proposals",
+                          "gaps"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "new": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "row": {
+                            "type": "object",
+                            "properties": {
+                              "sheet": {
+                                "type": "string"
+                              },
+                              "row": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "supplier_name": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "designation": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "supplier_reference": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "price": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "unit_decimal": {
+                                        "type": "string",
+                                        "description": "Montant décimal exact pour une unité, en euros HT."
+                                      },
+                                      "per": {
+                                        "anyOf": [
+                                          {
+                                            "type": "number",
+                                            "const": 1
+                                          },
+                                          {
+                                            "type": "number",
+                                            "const": 100
+                                          }
+                                        ]
+                                      },
+                                      "amount_cents": {
+                                        "anyOf": [
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 2147483647
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "Montant pour le nombre d’unités indiqué par per, lorsqu’il est exact en centimes."
+                                      },
+                                      "origin": {
+                                        "type": "string",
+                                        "enum": [
+                                          "unit",
+                                          "converted",
+                                          "supplier"
+                                        ],
+                                        "description": "Prix unitaire, conversion proposée pour 100, ou base 100 indiquée par le fournisseur."
+                                      }
+                                    },
+                                    "required": [
+                                      "unit_decimal",
+                                      "per",
+                                      "amount_cents",
+                                      "origin"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "price_text": {
+                                "description": "Texte de la cellule de prix à vérifier.",
+                                "type": "string"
+                              },
+                              "price_unit": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "price_unit_code": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "packaging_label": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "packaging_quantity": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "price_date": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "document": {
+                                "anyOf": [
+                                  {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string"
+                                          },
+                                          "number": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "kind",
+                                          "number"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "text": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "text"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "observations": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "source_file_text": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "fragile": {
+                                "type": "boolean"
+                              },
+                              "fragile_reasons": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "old_version_missing_document",
+                                    "ocr_scan",
+                                    "price_per_100"
+                                  ]
+                                }
+                              },
+                              "issues": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "missing_supplier",
+                                    "missing_designation",
+                                    "missing_reference",
+                                    "duplicate_reference",
+                                    "supplier_differs_from_sheet",
+                                    "invalid_price",
+                                    "text_price",
+                                    "zero_price",
+                                    "inexact_price",
+                                    "price_cents_overflow",
+                                    "missing_price_date",
+                                    "invalid_price_date",
+                                    "future_price_date",
+                                    "inactive_price_same_date",
+                                    "different_price_same_date",
+                                    "unknown_price_unit",
+                                    "invalid_packaging_quantity",
+                                    "invalid_packaging_price",
+                                    "packaging_price_mismatch"
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "sheet",
+                              "row",
+                              "supplier_name",
+                              "designation",
+                              "supplier_reference",
+                              "price",
+                              "price_unit",
+                              "price_unit_code",
+                              "packaging_label",
+                              "packaging_quantity",
+                              "price_date",
+                              "document",
+                              "observations",
+                              "source_file_text",
+                              "fragile",
+                              "fragile_reasons",
+                              "issues"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "known_reference": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "article_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "state": {
+                                    "type": "string",
+                                    "enum": [
+                                      "active",
+                                      "pending_review",
+                                      "archived"
+                                    ]
+                                  },
+                                  "latest_price_date": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "format": "date",
+                                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "article_id",
+                                  "state",
+                                  "latest_price_date"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "different_catalogue_price": {
+                            "description": "Prix catalogue EUR à la date de la ligne et différent du prix importé, dans son unité d’achat.",
+                            "type": "object",
+                            "properties": {
+                              "amount_cents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "unit": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "amount_cents",
+                              "unit"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "price_action": {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "add",
+                              "skip",
+                              "review",
+                              "per_lot"
+                            ]
+                          },
+                          "proposals": {
+                            "type": "array",
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "source": {
+                                      "type": "string",
+                                      "const": "catalogue"
+                                    },
+                                    "article_id": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "gaps": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "dimension_unknown",
+                                          "material_unknown",
+                                          "unit_unknown",
+                                          "unit_mismatch",
+                                          "type_unknown",
+                                          "precision_check",
+                                          "draft_article",
+                                          "missing_article",
+                                          "pending_reference",
+                                          "archived_article_or_reference",
+                                          "article_not_editable",
+                                          "ambiguous_reference",
+                                          "supplier_reference_exists",
+                                          "supplier_reference_inactive",
+                                          "packaging_differs",
+                                          "same_supplier_same_article"
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "source",
+                                    "article_id",
+                                    "gaps"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "sheet": {
+                                      "type": "string"
+                                    },
+                                    "row": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "source": {
+                                      "type": "string",
+                                      "const": "workbook"
+                                    },
+                                    "gaps": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "dimension_unknown",
+                                          "material_unknown",
+                                          "unit_unknown",
+                                          "unit_mismatch",
+                                          "type_unknown",
+                                          "precision_check",
+                                          "draft_article",
+                                          "missing_article",
+                                          "pending_reference",
+                                          "archived_article_or_reference",
+                                          "article_not_editable",
+                                          "ambiguous_reference",
+                                          "supplier_reference_exists",
+                                          "supplier_reference_inactive",
+                                          "packaging_differs",
+                                          "same_supplier_same_article"
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "sheet",
+                                    "row",
+                                    "source",
+                                    "gaps"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            }
+                          },
+                          "gaps": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "dimension_unknown",
+                                "material_unknown",
+                                "unit_unknown",
+                                "unit_mismatch",
+                                "type_unknown",
+                                "precision_check",
+                                "draft_article",
+                                "missing_article",
+                                "pending_reference",
+                                "archived_article_or_reference",
+                                "article_not_editable",
+                                "ambiguous_reference",
+                                "supplier_reference_exists",
+                                "supplier_reference_inactive",
+                                "packaging_differs",
+                                "same_supplier_same_article"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "row",
+                          "known_reference",
+                          "price_action",
+                          "proposals",
+                          "gaps"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "workbook_names",
+                    "supplier_id",
+                    "supplier_label",
+                    "resolution",
+                    "candidates",
+                    "known",
+                    "proposed",
+                    "new"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "row_count",
+              "skipped_sheets",
+              "sheet_warnings",
+              "articles",
+              "suppliers"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "ListPendingSupplierReferencesPageParameter": {
         "type": "integer",
         "minimum": 1,
@@ -108131,7 +109830,7 @@
                               ]
                             },
                             "failureMessage": {
-                              "description": "Motif public fixe lorsque la réponse du fournisseur est inexploitable.",
+                              "description": "Motif public fixe : réponse du fournisseur inexploitable, ou arrêt d’une demande payée avec la clé API OpenAI (plafond en dollars atteint, appels payants confirmés tous utilisés, appel plus coûteux que le montant réservé).",
                               "type": "string"
                             },
                             "retryCount": {
@@ -108817,7 +110516,7 @@
                             ]
                           },
                           "failureMessage": {
-                            "description": "Motif public fixe lorsque la réponse du fournisseur est inexploitable.",
+                            "description": "Motif public fixe : réponse du fournisseur inexploitable, ou arrêt d’une demande payée avec la clé API OpenAI (plafond en dollars atteint, appels payants confirmés tous utilisés, appel plus coûteux que le montant réservé).",
                             "type": "string"
                           },
                           "retryCount": {

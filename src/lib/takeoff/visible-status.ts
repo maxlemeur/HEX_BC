@@ -66,7 +66,8 @@ export function rejectedProviderAnswerMessage(code: string | null | undefined, s
 
 /**
  * Why a request paid by a personal key stopped, as its worker records it on the analysis: what happened and what to do.
- * The activity shows these three texts as stored, and no other stored text.
+ * Where a screen reads the stored message (the activity, the affaire's overview and the banner of its métrés page), it
+ * shows these three texts as stored, and no other stored text.
  */
 export const TAKEOFF_KEY_STOP_MESSAGES = {
   dollarCeiling: "Le plafond en dollars de cette demande avec la clé API OpenAI est atteint. Les résultats déjà enregistrés sont conservés. Pour lire ce qui manque, lancez une nouvelle demande.",
@@ -74,17 +75,28 @@ export const TAKEOFF_KEY_STOP_MESSAGES = {
   callOverBound: "Un appel a coûté plus que le montant réservé pour lui : la demande avec la clé API OpenAI est arrêtée. Les résultats déjà enregistrés sont conservés. Pour lire ce qui manque, lancez une nouvelle demande.",
 } as const;
 
+/** One of the three texts above, compared as written: no other text, stored or not, passes. */
+export function isTakeoffKeyStopMessage(message: string | null | undefined): message is string {
+  return Object.values(TAKEOFF_KEY_STOP_MESSAGES).some((stop) => stop === message);
+}
+
+/**
+ * The plan of a request paid by a personal key that stopped, where only its code is read and the screen knows the key
+ * paid: which of its limits it reached is not said here, its plan in the activity says it.
+ */
+export const TAKEOFF_KEY_STOP_PLAN_FACT = "Une limite de cette demande payée avec la clé API OpenAI est atteinte : le motif est indiqué sur ce plan dans le suivi du métré.";
+
 /** The stored message of a failed analysis that its readers are shown as written; any other gets the text of its code. */
 export function storedTakeoffFailureMessage(code: string | null | undefined, storedMessage: string | null | undefined) {
   const rejected = rejectedProviderAnswerMessage(code, storedMessage);
   if (rejected) return rejected;
-  return code === "TAKEOFF_REQUEST_BUDGET_EXHAUSTED"
-    ? Object.values(TAKEOFF_KEY_STOP_MESSAGES).find((message) => message === storedMessage) : undefined;
+  return code === "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" && isTakeoffKeyStopMessage(storedMessage) ? storedMessage : undefined;
 }
 
-// What happened, wherever a stopped analysis is shown (the activity, the affaire's overview, the notifications): never
-// what to do, which only the resume decision says where it is known. A new analysis stays detailed: no text proposes
-// another level.
+// What happened, wherever a stopped analysis is shown only by its code (the affaire's overview, the notifications, the
+// list): never what to do, which only the resume decision says where it is known. A new analysis stays detailed: no text
+// proposes another level. The texts a key's worker records (TAKEOFF_KEY_STOP_MESSAGES) are shown where they are read, and
+// say what to do: lancez une nouvelle demande.
 const FAILURE_FACTS: Record<string, string> = {
   AI_PROVIDER: "Le service d’analyse n’a pas pu terminer le métré.",
   AI_RATE_LIMIT: "Le service d’analyse a refusé temporairement la demande.",
@@ -209,9 +221,11 @@ export function takeoffCompletionFailureReason(code: string | null | undefined) 
 /**
  * What happened to a failed analysis, on its row and in the banner, in French: never its code, which the screen does not
  * show, and never an instruction, which the resume decision gives. An old row without a diagnostic says so; a code this
- * version does not know gets a general reason.
+ * version does not know gets a general reason. A plan whose request a personal key paid (`paidWithKey`, where the screen
+ * already knows it) and that stopped at one of its limits names none of them: its plan in the activity does.
  */
-export function describeTakeoffJobFailure(code: string | null | undefined) {
+export function describeTakeoffJobFailure(code: string | null | undefined, options: { paidWithKey?: boolean } = {}) {
   if (!code) return "Échec sans code disponible.";
+  if (code === "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" && options.paidWithKey) return TAKEOFF_KEY_STOP_PLAN_FACT;
   return FAILURE_FACTS[code] ?? "L’analyse a été interrompue pour une raison non répertoriée.";
 }
