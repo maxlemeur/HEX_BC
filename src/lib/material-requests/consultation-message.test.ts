@@ -77,7 +77,7 @@ type Presumptions = Pick<MaterialRequest, "presumed_material" | "material_confir
 const NO_PRESUMPTION: Presumptions = { presumed_material: null, material_confirmed: false };
 
 describe("consultation message", () => {
-  it("asks the usual supplier with its references, short, and the full designation when one is unknown (1, 2)", () => {
+  it("asks the usual supplier with full designations and known references (1, 2)", () => {
     const message = buildConsultationMessage({
       affaireName: "Résidence des Tilleuls",
       withReferences: true,
@@ -91,7 +91,7 @@ describe("consultation message", () => {
     expect(message).toBe(
       [
         "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :",
-        "- 10 u Coude 90° — réf. NA-4471",
+        "- 10 u Coude 90°, DN 50, Inox 316L (réf. NA-4471)",
         "- 4 u Té égal, DN 50, Inox 316L",
         "Livraison : chantier",
         "Merci !",
@@ -137,8 +137,7 @@ describe("consultation message", () => {
     expect(competition).not.toMatch(/471205|NA-4471|CD-I316|réf/i);
     expect(competition.split("\n")).toEqual([
       "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :",
-      "- 10 u Coude 90°, DN 50, Inox 316L",
-      "- 10 u Coude 90°, DN 50, Inox 316L",
+      "- 20 u Coude 90°, DN 50, Inox 316L",
       "Merci !",
     ]);
   });
@@ -274,7 +273,7 @@ describe("consultation message", () => {
     expect(competitionNeedsType(bare)).toBe(true);
   });
 
-  it("leaves the usual supplier's message as it was, the technician's words included (2, 8)", () => {
+  it("keeps only the supplier's reference when the technician's wording provides no designation (2, 8)", () => {
     const words = item({ quantity: 4, designation: null, dimension: null, material: null, originalText: "réf NA-4471 x4", reference: "NA-4471" });
     const message = buildConsultationMessage({
       affaireName: "Atelier Nord",
@@ -284,8 +283,8 @@ describe("consultation message", () => {
     });
 
     expect(message.split("\n").slice(1, 4)).toEqual([
-      "- 4 u réf NA-4471 x4 — réf. SKU-1",
-      "- 4 u réf NA-4471 x4",
+      "- 4 u Sans désignation (réf. SKU-1)",
+      "- 4 u Sans désignation",
       "- 10 u Sans désignation",
     ]);
   });

@@ -423,7 +423,7 @@ describe("consultation of suppliers", () => {
     });
     const expected = [
       "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :",
-      "- 20 u Coude 90° — réf. NA-4471",
+      "- 20 u Coude 90°, DN 50, Inox 316L (réf. NA-4471)",
       "- 4 u Té égal, DN 50, Inox 316L",
       "Livraison : chantier",
       "Merci !",
@@ -501,7 +501,7 @@ describe("consultation of suppliers", () => {
     answer(references({ [LINE_A]: "NA-4471" }));
 
     expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(
-      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90° — réf. NA-4471\nMerci !",
+      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90°, DN 50, Inox 316L (réf. NA-4471)\nMerci !",
     );
   });
 
@@ -601,9 +601,9 @@ describe("consultation of suppliers", () => {
       [`GET ${QUOTES}`]: { data: { items: [] } },
     });
 
-    // The usual supplier's message is as before: the technician's words are his own reference there.
+    // The usual supplier sees its catalogue reference and a placeholder for the unnamed line.
     expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(
-      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90° — réf. NA-4471\n- 4 u réf NA-4471 x4\nMerci !",
+      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90°, DN 50, Inox 316L (réf. NA-4471)\n- 4 u Sans désignation\nMerci !",
     );
     await addCompetitor(user, "Comptoir Bêta");
     // Said beside the competitor's message, where the line would be named.
@@ -1725,7 +1725,7 @@ describe("the member's message template and the retouch before copying (TI-691)"
       [`GET ${QUOTES}`]: { data: { items: [] } },
       [`POST ${QUOTES}`]: created,
     });
-    const generated = ["Bonjour Négoce Alpha,", "1. 20 u Coude 90° (réf. NA-4471)", "2. 4 u Té égal, DN 50, Inox 316L", "Livraison : chantier"].join("\n");
+    const generated = ["Bonjour Négoce Alpha,", "1. 20 u Coude 90°, DN 50, Inox 316L (réf. NA-4471)", "2. 4 u Té égal, DN 50, Inox 316L", "Livraison : chantier"].join("\n");
     const message = await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
     expect(message).toHaveValue(generated);
     expect(screen.getByRole("link", { name: /^Modifier mon modèle/ })).toHaveAttribute("href", "/dashboard/profile#message-consultation");
@@ -1754,7 +1754,7 @@ describe("the member's message template and the retouch before copying (TI-691)"
       [`GET ${QUOTES}`]: { data: { items: [] } },
       [`POST ${QUOTES}`]: created,
     });
-    expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue("Bonjour Négoce Alpha :\n- 20 u Coude 90° réf. NA-4471");
+    expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue("Bonjour Négoce Alpha :\n- 20 u Coude 90°, DN 50, Inox 316L réf. NA-4471");
     await addCompetitor(user, "Comptoir Bêta");
     await addCompetitor(user, "Dépôt Gamma");
     const gamma = screen.getByRole("textbox", { name: "Message pour Dépôt Gamma" });
@@ -1828,7 +1828,7 @@ describe("the member's message template and the retouch before copying (TI-691)"
     expect(screen.queryByRole("textbox", { name: "Message pour Négoce Alpha" })).not.toBeInTheDocument();
     fail = false;
     await user.click(screen.getByRole("button", { name: "Relire le modèle de message" }));
-    expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue("Bonjour Négoce Alpha,\n1. 20 u Coude 90° (réf. NA-4471)");
+    expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue("Bonjour Négoce Alpha,\n1. 20 u Coude 90°, DN 50, Inox 316L (réf. NA-4471)");
   });
 });
 
@@ -1878,7 +1878,7 @@ describe("review of PR #463 (TI-691)", () => {
       [`GET ${QUOTES}`]: { data: { items: [] } },
     });
     expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(
-      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90° — réf. NA-4471\nMerci !",
+      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90°, DN 50, Inox 316L (réf. NA-4471)\nMerci !",
     );
     expect(screen.queryByText(/n’a pas pu être lu/)).not.toBeInTheDocument();
   });
@@ -1921,7 +1921,7 @@ describe("the recipients beside their message, and a supplier created to compete
 
   const DELTA = "f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4";
   const COMPETITION = "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90°, DN 50, Inox 316L\nMerci !";
-  const USUAL = "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90° — réf. NA-4471\nMerci !";
+  const USUAL = "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90°, DN 50, Inox 316L (réf. NA-4471)\nMerci !";
 
   function routes(extra: Record<string, Route> = {}): Record<string, Route> {
     return {

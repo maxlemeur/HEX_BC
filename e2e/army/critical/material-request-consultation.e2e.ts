@@ -209,7 +209,7 @@ armyTest(
     });
     expect([retained.status, retained.body.data.skipped]).toEqual([200, []]);
 
-    // The usual supplier's message: its reference where it is known, the full designation otherwise.
+    // The usual supplier's message includes full designations and the references it knows.
     // The request page shows one step at a time (1 lines, 2 quotes, 3 purchase orders): the lines are drafts, so it
     // opens on the lines, and the office goes to the quotes by the steps of the head.
     const openStep = (step: 1 | 2 | 3) => screen.getByRole("tab", new RegExp(`^Étape ${step} :`)).tap({ timeout: 60_000 });
@@ -217,7 +217,7 @@ armyTest(
     await openStep(2);
     const withReferences = [
       `Bonjour, pouvez-vous me faire un prix pour l’affaire ${army.projectName} :`,
-      `- 10 u Coude 90° — réf. ${sku}`,
+      `- 10 u Coude 90°, DN 50, Inox 316L (réf. ${sku})`,
       "- 4 u Té égal, DN 50, Inox 316L",
       "Livraison : chantier",
       "Merci !",
@@ -318,7 +318,7 @@ armyTest(
       await quoteButton(alphaName).tap({ timeout: 60_000 });
       const shaped = [
         `Bonjour ${alphaName},`,
-        `1. 10 u Coude 90° (réf. ${sku})`,
+        `1. 10 u Coude 90°, DN 50, Inox 316L (réf. ${sku})`,
         "2. 4 u Té égal, DN 50, Inox 316L",
         "Livraison : chantier",
       ].join("\n");

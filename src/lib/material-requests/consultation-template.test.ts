@@ -126,7 +126,7 @@ describe("consultation template", () => {
         "Bonjour Négoce Alpha,",
         "Chantier Résidence des Tilleuls, merci de chiffrer :",
         "",
-        "1. Coude 90° (réf. NA-4471) : 10 u",
+        "1. Coude 90°, DN 50, Inox 316L (réf. NA-4471) : 10 u",
         "2. Té égal, DN 50, Inox 316L : 4 u",
         "",
         "Livraison : chantier",
@@ -141,10 +141,10 @@ describe("consultation template", () => {
     const message = renderConsultationMessage({ ...base, withReferences: true, deliveryPlace: null, template });
 
     expect(message.split("\n").slice(0, 4)).toEqual([
-      "- 10 u x Coude 90° — réf. NA-4471",
+      "- 10 u x Coude 90°, DN 50, Inox 316L — réf. NA-4471",
       "- 4 u x Té égal, DN 50, Inox 316L",
       "- Collier isophonique",
-      "- 2,5 ml x Tube cuivre — réf. TU-22",
+      "- 2,5 ml x Tube cuivre, Ø 22 — réf. TU-22",
     ]);
   });
 
@@ -210,7 +210,7 @@ describe("consultation template", () => {
 
     expect(message.split("\n")).toEqual([
       "Résidence des Tilleuls {chantier} {ligne}",
-      "10 u Coude 90° NA-4471 {prix} {lignes} {affaire}",
+      "10 u Coude 90°, DN 50, Inox 316L NA-4471 {prix} {lignes} {affaire}",
       "Retrait au comptoir",
     ]);
     expect(consultationTemplateIssues(custom("{AFFAIRE} {chantier} {ligne}\n{lignes}", "{quantite} {désignation} {prix} {lignes}"))).toEqual({
@@ -289,7 +289,7 @@ describe("consultation template", () => {
     });
   });
 
-  it("writes the short designation only on a line that writes its reference (14)", () => {
+  it("writes the full designation whether the reference is included or omitted (14)", () => {
     const valve = item({ quantity: null, unit: null, designation: "Vanne", dimension: "DN50", material: null, supplierSku: "VA-50" });
     const counted = item({ quantity: 2, designation: "Vanne", dimension: "DN50", material: null, supplierSku: "VA-50" });
     const message = renderConsultationMessage({
@@ -299,7 +299,7 @@ describe("consultation template", () => {
       deliveryPlace: null,
       template: custom("{lignes}", "[{quantité} réf {référence}] {désignation}"),
     });
-    expect(message).toBe("Vanne, DN50\n2 u réf VA-50 Vanne");
+    expect(message).toBe("Vanne, DN50\n2 u réf VA-50 Vanne, DN50");
   });
 
   it("keeps a 300-line request of ordinary lines under the recorded bound with the longest templates (8)", () => {
@@ -406,7 +406,7 @@ describe("consultation template", () => {
         deliveryPlace: null,
         template: custom("{lignes}", "- {conditionnement} {désignation}[ — réf. {référence}]"),
       });
-      expect(message).toBe("- 3 barres de 6 ml Tube cuivre — réf. TU-22");
+      expect(message).toBe("- 3 barres de 6 ml Tube cuivre, Ø 22 — réf. TU-22");
     });
 
     it("is written in a competition message: it is no reference (18)", () => {
@@ -415,7 +415,7 @@ describe("consultation template", () => {
       expect(message).not.toMatch(/TU-22/);
     });
 
-    it("leaves the default template and today's message byte for byte as they were (19)", () => {
+    it("keeps the default template and built-in message identical without packaging (19)", () => {
       for (const withReferences of [true, false]) {
         for (const deliveryPlace of ["site", null] as const) {
           const input = { affaireName: "Résidence des Tilleuls", lines: PACKED, withReferences, deliveryPlace };

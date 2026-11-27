@@ -1,4 +1,5 @@
 import { formatDecimalInput } from "@/lib/numeric-input/parsers";
+import { foldText } from "@/lib/text/fold";
 
 import type { MaterialRequest, MaterialRequestDeliveryPlace, MaterialRequestLine } from "./contracts";
 import type { MaterialRequestUsualPackaging } from "./usual-packaging";
@@ -6,8 +7,8 @@ import type { MaterialRequestUsualPackaging } from "./usual-packaging";
 /**
  * The message the office copies into WhatsApp to ask a supplier for a price (TI-691, lot 2 « l'achat »,
  * delivery 2 « consultation »). MergeOne sends nothing. Two variants, owner's decision:
- *  - with references, for the supplier the lines are bought from: its own reference for the article, so it
- *    finds it at once (the full designation when it is unknown);
+ *  - with references, for the supplier the lines are bought from: the full designation and its own reference
+ *    for the article when known;
  *  - without references, to put other suppliers in competition: the full designation only. No reference of any
  *    kind is written there, neither that supplier's nor our internal one nor the technician's, not even inside the
  *    technician's own words (« réf NA-4471 x4 »): a line left with nothing that names an article is written
@@ -28,7 +29,7 @@ export type ConsultationLine = {
   precision: string | null;
   /** The technician's own words: what the line is called when it has no type words. */
   originalText: string | null;
-  /** The reference the technician wrote: taken out of every word of a competition message. */
+  /** The reference the technician wrote: removed from fallback wording and from competition messages. */
   reference: string | null;
   /** The article's reference at the supplier the message is for. Never written without references. */
   supplierSku: string | null;
@@ -48,30 +49,6 @@ const DELIVERY: Record<MaterialRequestDeliveryPlace, string> = {
 function text(value: string | null | undefined): string | null {
   const trimmed = (value ?? "").replace(/\s+/g, " ").trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-/** Case, accents and spacing aside: « Coude inox 316L » already says « Inox 316L ». */
-function comparable(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function name(line: ConsultationLine): string {
-  return text(line.designation) ?? text(line.originalText) ?? "Sans désignation";
-}
-
-/** The name, then the size, material and precision it does not already say. */
-function fullDesignation(line: ConsultationLine): string {
-  const head = name(line);
-  const said = comparable(head);
-  const extras = [line.dimension, line.material, line.precision]
-    .map(text)
-    .filter((part): part is string => part !== null && !said.includes(comparable(part)));
-  return [head, ...extras].join(", ");
 }
 
 function quantityOf(line: ConsultationLine): string | null {
@@ -121,14 +98,75 @@ export function competitionNeedsType(line: ConsultationLine): boolean {
   return competitionName(line) === null;
 }
 
-function competitionDesignation(line: ConsultationLine): string {
-  const head = competitionName(line);
-  if (!head) return `Article à préciser (ligne ${line.position})`;
-  const said = comparable(head);
-  const extras = [line.dimension, line.material, line.precision]
-    .map((part) => withoutReferences(part, line.reference))
-    .filter((part): part is string => part !== null && !said.includes(comparable(part)));
-  return [head, ...extras].join(", ");
+function supplierDesignationName(line: ConsultationLine): string | null {
+  const designation = text(line.designation);
+  if (designation) return designation;
+  const original = text(line.originalText);
+  if (!text(line.reference)) return original;
+  const words = withoutReferences(original, line.reference);
+  return words && (words === original || NAMES_SOMETHING.test(words)) ? words : null;
+}
+
+function designationParts(line: ConsultationLine, withReferences: boolean) {
+  return {
+    head: withReferences ? supplierDesignationName(line) : competitionName(line),
+    details: [line.dimension, line.material, line.precision]
+      .map((part) => withReferences ? text(part) : withoutReferences(part, line.reference)),
+  };
+}
+
+/** The name, then the size, material and precision it does not already say. */
+function fullDesignation(line: ConsultationLine, withReferences: boolean): string {
+  const { head, details } = designationParts(line, withReferences);
+  if (!head && !withReferences) return `Article à préciser (ligne ${line.position})`;
+  const said = foldText(head ?? "");
+  const extras = details.filter((part): part is string => part !== null && !said.includes(foldText(part)));
+  return [head ?? "Sans désignation", ...extras].join(", ");
+}
+
+function supplierSkuOf(line: ConsultationLine, withReferences: boolean): string | null {
+  return withReferences ? text(line.supplierSku) : null;
+}
+
+function sharedPackaging(
+  first: MaterialRequestUsualPackaging | null | undefined,
+  next: MaterialRequestUsualPackaging | null | undefined,
+): MaterialRequestUsualPackaging | null {
+  return first && next && first.label === next.label && first.quantity === next.quantity && first.unit === next.unit
+    ? first
+    : null;
+}
+
+/** Consolidate the message only. Each item keeps its first line's place and spelling. */
+export function sumConsultationLines(lines: readonly ConsultationLine[], withReferences: boolean): ConsultationLine[] {
+  const items: ConsultationLine[] = [];
+  const byDesignation = new Map<string, number>();
+  for (const line of lines) {
+    const { head, details } = designationParts(line, withReferences);
+    if (!head) {
+      items.push(line);
+      continue;
+    }
+    const key = JSON.stringify([
+      foldText(head),
+      ...details.map((part) => part === null ? null : foldText(part)),
+      text(line.unit),
+      supplierSkuOf(line, withReferences),
+    ]);
+    const index = byDesignation.get(key);
+    if (index === undefined) {
+      byDesignation.set(key, items.length);
+      items.push(line);
+      continue;
+    }
+    const first = items[index];
+    // Sum exact thousandths. A missing quantity makes the total unknown.
+    const quantity = first.quantity === null || line.quantity === null
+      ? null
+      : (Math.round(first.quantity * 1000) + Math.round(line.quantity * 1000)) / 1000;
+    items[index] = { ...first, quantity, usualPackaging: sharedPackaging(first.usualPackaging, line.usualPackaging) };
+  }
+  return items;
 }
 
 /** What a delivery place says in the message, or null when it is unknown. */
@@ -141,34 +179,21 @@ export function consultationText(value: string | null | undefined): string | nul
   return text(value);
 }
 
-/**
- * The parts of a line a member's template writes (consultation-template.ts), by the rules of itemOf: in the
- * competition variant, the reference-free designation and never a reference; with references, the supplier's
- * reference and the short name beside it when the template writes that reference, the full designation otherwise.
- */
+/** The fields available to the default message and to templates. Competition fields have no reference. */
 export function consultationLineParts(
   line: ConsultationLine,
-  options: { withReferences: boolean; writesReference: boolean },
+  withReferences: boolean,
 ): { quantity: string | null; designation: string; reference: string | null } {
-  if (!options.withReferences) {
-    return { quantity: quantityOf(line), designation: competitionDesignation(line), reference: null };
-  }
-  const sku = text(line.supplierSku);
   return {
     quantity: quantityOf(line),
-    designation: sku && options.writesReference ? name(line) : fullDesignation(line),
-    reference: sku,
+    designation: fullDesignation(line, withReferences),
+    reference: supplierSkuOf(line, withReferences),
   };
 }
 
 function itemOf(line: ConsultationLine, withReferences: boolean): string {
-  const sku = withReferences ? text(line.supplierSku) : null;
-  const what = !withReferences
-    ? competitionDesignation(line)
-    : sku
-      ? `${name(line)} — réf. ${sku}`
-      : fullDesignation(line);
-  return `- ${[quantityOf(line), what].filter(Boolean).join(" ")}`;
+  const { quantity, designation, reference } = consultationLineParts(line, withReferences);
+  return `- ${[quantity, designation, reference && `(réf. ${reference})`].filter(Boolean).join(" ")}`;
 }
 
 /** The lines are written in the order given: the caller passes them in the request's order. */
@@ -184,16 +209,16 @@ export function buildConsultationMessage(input: {
     : "Bonjour, pouvez-vous me faire un prix :";
   return [
     opening,
-    ...input.lines.map((line) => itemOf(line, input.withReferences)),
+    ...sumConsultationLines(input.lines, input.withReferences).map((line) => itemOf(line, input.withReferences)),
     ...(input.deliveryPlace ? [DELIVERY[input.deliveryPlace]] : []),
     "Merci !",
-  ].join("\n");
+  ].join("\n").replaceAll("—", "–");
 }
 
 /**
  * What a request line says to a supplier. Its material is its own, else the sheet's once the office confirmed
  * it, and never for overhead (as the lines table shows it). The article's internal reference is not carried; the
- * one the technician wrote is, only to be taken out of a competition message.
+ * one the technician wrote is carried for reference stripping.
  */
 export function consultationLineOf(
   line: MaterialRequestLine,
@@ -217,7 +242,7 @@ export function consultationLineOf(
     precision: text(line.material_precision),
     originalText: text(line.original_text),
     reference: text(line.reference),
-    supplierSku: text(context.supplierSku),
+    supplierSku: line.product_id ? text(context.supplierSku) : null,
     ...(context.usualPackaging ? { usualPackaging: context.usualPackaging } : {}),
   };
 }
