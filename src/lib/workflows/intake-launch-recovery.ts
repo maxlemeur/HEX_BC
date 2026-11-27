@@ -1,5 +1,6 @@
 import "server-only";
 
+import { startRecoveryPoll } from "@/lib/workflows/recovery-poll";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { readIntakeAiBatch } from "@/lib/affaires/intake-ai-server";
 import { hostCanReadIntakeScans, stopIntakeAnalysisLaunch } from "@/lib/affaires/intake-payer-server";
@@ -63,13 +64,9 @@ export async function recoverIntakeAnalysisLaunch() {
 
 export function startLocalIntakeRecovery() {
   if (!isLocalChatGptEnabled() || process.env.E2E_ARMY_BLOCK_WORKERS === "1") return;
-  let running = false;
-  const recover = async () => {
-    if (running) return;
-    running = true;
-    try { await recoverDueLaunch(true); }
-    catch { console.error("intake.local_recovery.deferred"); }
-    finally { running = false; }
-  };
-  setInterval(() => void recover(), 60_000).unref();
+  startRecoveryPoll({
+    intervalMs: 60_000,
+    run: async () => { await recoverDueLaunch(true); },
+    onError: () => console.error("intake.local_recovery.deferred"),
+  });
 }

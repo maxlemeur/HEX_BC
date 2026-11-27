@@ -1,5 +1,6 @@
 import "server-only";
 
+import { startRecoveryPoll } from "@/lib/workflows/recovery-poll";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 
@@ -15,15 +16,14 @@ const IDLE_INTERVAL_MS = 60_000;
  */
 export function startLocalTakeoffLaunchConsumer() {
   if (!isLocalChatGptEnabled() || !createOptionalServiceRoleClient()) return;
-  const pass = async () => {
-    let claimed = 0;
-    try {
+  startRecoveryPoll({
+    intervalMs: IDLE_INTERVAL_MS,
+    initialDelayMs: POLL_INTERVAL_MS,
+    run: async () => {
       const { evaluateTakeoffLaunchRequests } = await import("@/lib/takeoff/launch-request-server");
-      claimed = (await evaluateTakeoffLaunchRequests()).length;
-    } catch {
-      console.error("takeoff.launch_request.pass_deferred");
-    }
-    setTimeout(() => void pass(), claimed > 0 ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS).unref();
-  };
-  setTimeout(() => void pass(), POLL_INTERVAL_MS).unref();
+      const requests = await evaluateTakeoffLaunchRequests();
+      return requests.length ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS;
+    },
+    onError: () => console.error("takeoff.launch_request.pass_deferred"),
+  });
 }
