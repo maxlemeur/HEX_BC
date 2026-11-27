@@ -233,7 +233,7 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
   try {
     await setDecisionsControl({ timeoutWriting: true });
     await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
-    await expect(dialog.getByText(/L.assistance ChatGPT a dépassé son délai/)).toBeVisible();
+    await expect(dialog.getByText(/L.assistance ChatGPT a dépassé son délai/)).toBeVisible(DEV_SERVER_WORK);
     await expect(dialog.getByRole("link", "Ouvrir Mon profil", { exact: true })).toHaveAttribute("href", "/dashboard/profile");
     await expect(classifications.getByText("Plans · À confirmer", { exact: true })).toBeVisible();
     expect(await read()).toEqual(before);
