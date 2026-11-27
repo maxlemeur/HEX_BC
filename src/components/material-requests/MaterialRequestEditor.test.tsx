@@ -23,7 +23,8 @@ import type {
  *  3. a refusal by the server (422, lines blocked) is shown as a success, or does not say which lines;
  *  4. applying a value to a selection touches other lines or other columns;
  *  5. the material presumed for the sheet looks settled before the operator confirms it, or confirming
- *     sends something else than the confirmation;
+ *     sends something else than the confirmation; or a line without a material is held back (the material
+ *     is optional since 2026-11-27);
  *  6. a failed save throws the typed value away or fails silently;
  *  7. a reader without write access (viewer, director) is offered a control that would write;
  *  8. « Découper le texte en lignes » creates other lines than the pre-reading returned;
@@ -38,8 +39,8 @@ import type {
  *     behind, or does not tell the operator that nothing was kept; leaving the request drops the rows
  *     while a photo is still on its way, so its bytes land with nothing pointing at them; a photo the
  *     browser gives no type to is sent to storage without the type the server recorded, and refused;
- * 16. changing the presumed material silently returns validated lines to draft: nothing said before,
- *     nothing said after, or the lines still shown as validated;
+ * 16. changing the presumed material returns validated lines to draft, or warns that it will (the material is
+ *     optional since 2026-11-27);
  * 17. a pasted message longer than a request accepts loses its last lines without a word;
  * 18. a line that left the drafts comes back already selected when it is reopened;
  * 19. on a slow connection, a correction made while a save is on its way is compared with the value
@@ -454,7 +455,7 @@ describe("MaterialRequestEditor", () => {
     expect(screen.getByLabelText("Matière, ligne 3")).toHaveValue("");
   });
 
-  it("keeps the presumed material a proposal until the operator confirms it (5)", async () => {
+  it("keeps the presumed material a proposal until the operator confirms it, without holding a line back (5)", async () => {
     const user = await openEditor({
       [`GET ${BASE}`]: {
         data: detail({ request: { presumed_material: "Laiton brut" }, lines: [line({ material: null })] }),
@@ -468,15 +469,14 @@ describe("MaterialRequestEditor", () => {
     });
 
     expect(screen.getByText("Matière à confirmer")).toBeVisible();
-    expect(screen.getByLabelText("Matière, ligne 1")).toHaveAccessibleDescription(
-      expect.stringContaining("Matière présumée « Laiton brut » à confirmer."),
-    );
-    expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (0)" })).toBeDisabled();
+    // The material is optional: the line names none and relies on nothing, so nothing holds it back.
+    const material = screen.getByLabelText("Matière, ligne 1");
+    expect(material).not.toHaveAttribute("aria-invalid", "true");
+    expect(material).not.toHaveAccessibleDescription(expect.stringContaining("à confirmer"));
+    expect(screen.queryByRole("button", { name: /à compléter/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (1)" })).toBeEnabled();
 
-    await user.click(screen.getByRole("button", { name: "Replier" }));
-    await user.click(screen.getByRole("button", { name: "1 à compléter" }));
     const confirmMaterial = screen.getByRole("button", { name: "Confirmer la matière" });
-    expect(confirmMaterial).toHaveFocus();
     expect(writes()).toEqual([]);
     await user.click(confirmMaterial);
 
@@ -1079,61 +1079,20 @@ describe("MaterialRequestEditor", () => {
       line({ material: null, status: "validated", validated_at: "2026-11-10T09:00:00.000Z", ...partial });
     const confirmed = { presumed_material: "Laiton brut", material_confirmed: true };
 
-    it("says beforehand that validated lines rely on the material, then returns them to draft with the reason (16)", async () => {
-      const lines = [
-        relying(),
-        line({ id: LINE_B, position: 2, product_type: "Réduction", status: "validated", validated_at: "2026-11-10T09:00:00.000Z" }),
-      ];
-      const user = await openEditor({
-        [`GET ${BASE}`]: { data: detail({ request: confirmed, lines }) },
-        [`PATCH ${BASE}`]: {
-          data: {
-            request: request({ presumed_material: "Laiton brut", material_confirmed: false }),
-            reopened_line_ids: [LINE_A],
-          },
-        },
-      });
-
-      const consequence =
-        "1 ligne validée compte sur cette matière : la modifier, l’effacer ou annuler sa confirmation la fera repasser en brouillon.";
-      // The request's fields are summarised until opened: the consequence is read there, before anything is changed.
-      await openRequestFields(user);
-      expect(screen.getByText(consequence)).toBeVisible();
-      const withdraw = screen.getByRole("button", { name: "Annuler la confirmation de la matière" });
-      expect(withdraw).toHaveAccessibleDescription(consequence);
-      expect(screen.getByLabelText("Matière présumée")).toHaveAccessibleDescription(consequence);
-      expect(screen.queryByText(/repassée en brouillon/)).not.toBeInTheDocument();
-
-      await user.click(withdraw);
-
-      await waitFor(() => expect(writes()).toHaveLength(1));
-      expect(writes()[0]).toEqual({ method: "PATCH", path: BASE, body: { material_confirmed: false } });
-      expect(
-        await screen.findByText(
-          "1 ligne validée est repassée en brouillon : elle comptait sur la matière présumée de la demande, qui vient de changer.",
-        ),
-      ).toBeVisible();
-      expect(screen.getByLabelText("Type, ligne 1")).toHaveValue("Raccord union");
-      expect(screen.getAllByText("Brouillon")).toHaveLength(1);
-      expect(screen.getAllByText("Validée")).toHaveLength(1);
-      expect(screen.queryByLabelText("Type, ligne 2")).not.toBeInTheDocument();
-      expect(screen.queryByText(consequence)).not.toBeInTheDocument();
-    });
-
-    it("counts every line returned to draft when the material itself is changed (16)", async () => {
+    it("warns of nothing and leaves validated lines validated when the presumed material changes (16)", async () => {
       const lines = [relying(), relying({ id: LINE_B, position: 2, product_type: "Réduction" })];
       const user = await openEditor({
         [`GET ${BASE}`]: { data: detail({ request: confirmed, lines }) },
         [`PATCH ${BASE}`]: {
           data: {
             request: request({ presumed_material: "PVC pression", material_confirmed: false }),
-            reopened_line_ids: [LINE_A, LINE_B],
+            reopened_line_ids: [],
           },
         },
       });
 
       await openRequestFields(user);
-      expect(screen.getByText(/^2 lignes validées comptent sur cette matière/)).toBeVisible();
+      expect(screen.queryByText(/compte sur cette matière|comptent sur cette matière/)).not.toBeInTheDocument();
       const material = screen.getByLabelText("Matière présumée");
       await user.clear(material);
       await user.type(material, "PVC pression");
@@ -1141,29 +1100,10 @@ describe("MaterialRequestEditor", () => {
 
       await waitFor(() => expect(writes()).toHaveLength(1));
       expect(writes()[0].body).toEqual({ presumed_material: "PVC pression", material_confirmed: false });
-      expect(
-        await screen.findByText(
-          "2 lignes validées sont repassées en brouillon : elles comptaient sur la matière présumée de la demande, qui vient de changer.",
-        ),
-      ).toBeVisible();
-      expect(screen.getAllByText("Brouillon")).toHaveLength(2);
-      expect(screen.queryByText("Validée")).not.toBeInTheDocument();
-      expect(screen.getByText("Matière à confirmer")).toBeVisible();
-    });
-
-    it("says nothing about lines when no validated line relies on the material (16)", async () => {
-      const user = await openEditor({
-        [`GET ${BASE}`]: {
-          data: detail({
-            request: confirmed,
-            lines: [line({ status: "validated", validated_at: "2026-11-10T09:00:00.000Z" }), line({ id: LINE_B, position: 2, material: null })],
-          }),
-        },
-      });
-
-      await openRequestFields(user);
-      expect(screen.getByText("Matière confirmée")).toBeVisible();
-      expect(screen.queryByText(/compte sur cette matière|comptent sur cette matière/)).not.toBeInTheDocument();
+      expect(await screen.findByText("Matière à confirmer")).toBeVisible();
+      expect(screen.queryByText(/repassées? en brouillon/)).not.toBeInTheDocument();
+      expect(screen.getAllByText("Validée")).toHaveLength(2);
+      expect(screen.queryByText("Brouillon")).not.toBeInTheDocument();
     });
   });
 
@@ -1402,9 +1342,8 @@ describe("MaterialRequestEditor", () => {
 
       expect(screen.queryByText(/\(demande\)/)).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
-      expect(screen.getByRole("list", { name: "Points à régler, ligne 1" })).toHaveTextContent(
-        "Matière présumée « Laiton brut » à confirmer.",
-      );
+      // The material is optional: an unconfirmed presumption is not something to fix on the line either.
+      expect(screen.queryByRole("list", { name: "Points à régler, ligne 1" })).not.toBeInTheDocument();
     });
   });
   describe("confirming what the request presumes", () => {
@@ -1441,7 +1380,6 @@ describe("MaterialRequestEditor", () => {
       expect(screen.getByLabelText("Matière présumée")).toHaveValue("PVC pression");
       expect(screen.getByText("Matière à confirmer")).toBeVisible();
       expect(screen.queryByText("Matière confirmée")).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (0)" })).toBeDisabled();
     });
 
     it("sends the supplier on screen with its confirmation, and confirms nothing when it changed elsewhere (21)", async () => {

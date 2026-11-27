@@ -105,7 +105,7 @@ export type LineRowProps = Readonly<{
 }>;
 
 function repeatsHighlightedField(alert: MaterialRequestLineAlert) {
-  return alert.code === "unit_missing" || alert.code === "material_missing";
+  return alert.code === "unit_missing";
 }
 
 function alertsOf(alerts: readonly MaterialRequestLineAlert[], field: MaterialRequestLineAlert["field"]): CellAlerts {

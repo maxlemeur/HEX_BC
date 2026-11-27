@@ -197,18 +197,6 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
     return next;
   }
 
-  /** The request trigger: validated lines without a material of their own lose the one they relied on. */
-  function reopenLinesOf(before: FakeRow, after: FakeRow) {
-    const withdrawn =
-      after.presumed_material !== before.presumed_material || (before.material_confirmed === true && after.material_confirmed !== true);
-    if (!withdrawn) return;
-    tables.material_request_lines = (tables.material_request_lines ?? []).map((line) =>
-      line.request_id === after.id && line.status === "validated" && line.imputation === "project" && !String(line.material ?? "").trim()
-        ? { ...line, status: "draft", validated_at: null, validated_by: null }
-        : line,
-    );
-  }
-
   /** The packaging trigger: a packaging marked usual takes the mark from the other packagings of its article. */
   function moveUsualMark(table: string, written: FakeRow[]) {
     if (table !== "product_packagings") return;
@@ -286,7 +274,6 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
         }
         moveUsualMark(table, updated);
         for (const row of updated) tables[table][tables[table].findIndex((existing) => existing.id === row.id)] = row;
-        if (table === "material_requests") matching.forEach((before, index) => reopenLinesOf(before, updated[index]));
         events.push(`update ${table}`);
         writes.push({ table, operation, values: payload, ids: updated.map((row) => String(row.id)) });
         return { data: returning ? updated.map((row) => project(row, columns)) : null, error: null };

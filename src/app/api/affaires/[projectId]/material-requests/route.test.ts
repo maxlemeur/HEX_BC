@@ -29,8 +29,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *  2. Scope: a request, line or original of another affaire is read or changed through this affaire's URL,
  *     or the list of one affaire shows the requests of another.
  *  3. Validation: some lines are validated while another requested line is blocked; the refusal does not
- *     say which line and why; a duplicate elsewhere in the request or an unconfirmed presumed material
- *     is not seen.
+ *     say which line and why; a duplicate elsewhere in the request is not seen; a line without a material,
+ *     or relying on a presumed material nobody confirmed, is held back (the material is optional since
+ *     2026-11-27).
  *  4. A validated line is edited (alone or in a selection) and stays validated; or acknowledging a
  *     duplicate, or sending back the same values, returns it to draft.
  *  5. Originals never pass through the application (a request body is capped far below a phone photo):
@@ -46,9 +47,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *  9. The client sets what only the server decides (status, validation date, tenant).
  * 10. « Ajouter une ligne » (an empty draft) is refused, or a new line takes a position still held after a
  *     deletion, so two lines of a request share one.
- * 12. A validated line stays validated when the presumed material it relied on is changed, cleared or
- *     un-confirmed, or the answer does not say which lines went back to draft; the database refuses a
- *     validation for its material and the caller gets a bare 400 instead of the blocked lines.
+ * 12. A validated line returns to draft when the presumed material is changed, cleared or un-confirmed (the
+ *     material is optional since 2026-11-27); a database not yet migrated refuses a validation for its material
+ *     and the caller gets a bare 400 instead of the blocked lines.
  * 13. A line kept as "not a duplicate" is edited into the twin of another and keeps its acknowledgement.
  * 14. What an interrupted upload left behind is never cleaned.
  * 15. Bytes outlive their row or land without one: a prepared photo is cancelled, rejected or discarded
@@ -885,17 +886,16 @@ describe("material requests of an affaire: lines", () => {
     expect((await call(validateRoute.POST, "POST", inRequest, { ids: [LINE_READY] })).status).toBe(200);
   });
 
-  it("holds back every line that relies on a presumed material nobody confirmed", async () => {
+  it.each<[string, Record<string, unknown>]>([
+    ["relies on a presumed material nobody confirmed", { presumed_material: "Inox 304L", material_confirmed: false }],
+    ["has no material at all", { presumed_material: null, material_confirmed: false }],
+  ])("validates a line that %s: the material is optional", async (_label, presumption) => {
     const fake = seed(OWNER, "engineer", {
-      tables: { material_requests: [request(REQUEST, PROJECT, { presumed_material: "Inox 304L", material_confirmed: false })] },
+      tables: { material_requests: [request(REQUEST, PROJECT, presumption)] },
     });
-    const { status, error } = await call(validateRoute.POST, "POST", inRequest, { ids: [LINE_READY, LINE_VALIDATED] });
-    expect(status).toBe(422);
-    expect(error?.message).toBe("Aucune ligne n’a été validée : 2 lignes ont encore une alerte bloquante.");
-    expect(error?.details).toEqual({
-      blocked: [{ id: LINE_READY, codes: ["material_unconfirmed"] }, { id: LINE_VALIDATED, codes: ["material_unconfirmed"] }],
-    });
-    expect(fake.writes).toEqual([]);
+    const { status } = await call(validateRoute.POST, "POST", inRequest, { ids: [LINE_READY, LINE_VALIDATED] });
+    expect(status).toBe(200);
+    expect(fake.tables.material_request_lines.find((row) => row.id === LINE_READY)).toMatchObject({ status: "validated" });
   });
 
   it("reopens validated lines and deletes a line", async () => {
@@ -1029,7 +1029,7 @@ describe("material requests of an affaire: splitting the message again", () => {
   });
 });
 
-describe("material requests of an affaire: the material a line is validated in", () => {
+describe("material requests of an affaire: the material is optional", () => {
   const OWN_MATERIAL = "70000000-0000-4000-8000-000000000005";
   const OVERHEAD = "70000000-0000-4000-8000-000000000006";
   const validated = { status: "validated", validated_at: "2026-11-11T10:00:00.000Z", validated_by: OWNER };
@@ -1045,13 +1045,13 @@ describe("material requests of an affaire: the material a line is validated in",
     ["cleared", { presumed_material: null }, { presumed_material: null, material_confirmed: false }],
     ["un-confirmed", { material_confirmed: false }, { presumed_material: "Inox 304L", material_confirmed: false }],
     ["replaced and confirmed at once", { presumed_material: "Cuivre", material_confirmed: true }, { presumed_material: "Cuivre", material_confirmed: true }],
-  ])("returns to draft the validated lines that relied on a presumed material once it is %s, and names them", async (_label, body, expected) => {
+  ])("leaves every validated line validated once the presumed material is %s", async (_label, body, expected) => {
     const fake = seed(OWNER, "engineer", { tables: { material_request_lines: lines } });
     const { status, data } = await call(requestRoute.PATCH, "PATCH", inRequest, body);
     expect(status).toBe(200);
-    expect(data).toEqual({ request: expect.objectContaining({ id: REQUEST, ...expected }), reopened_line_ids: [LINE_VALIDATED] });
+    expect(data).toEqual({ request: expect.objectContaining({ id: REQUEST, ...expected }), reopened_line_ids: [] });
     expect(fake.tables.material_request_lines.map((row) => [row.id, row.status, row.validated_at === null])).toEqual([
-      [LINE_READY, "draft", true], [LINE_VALIDATED, "draft", true], [OWN_MATERIAL, "validated", false], [OVERHEAD, "validated", false],
+      [LINE_READY, "draft", true], [LINE_VALIDATED, "validated", false], [OWN_MATERIAL, "validated", false], [OVERHEAD, "validated", false],
     ]);
   });
 
@@ -1070,8 +1070,8 @@ describe("material requests of an affaire: the material a line is validated in",
   it.each<[string, string]>([
     ["MATERIAL_REQUEST_LINE_MATERIAL_UNCONFIRMED", "material_unconfirmed"],
     ["MATERIAL_REQUEST_LINE_MATERIAL_MISSING", "material_missing"],
-  ])("answers with the blocked lines when the database itself refuses a validation (%s)", async (raised, code) => {
-    // The request changed between the alerts read and the write: the database has the last word.
+  ])("answers with the blocked lines when a database not yet migrated refuses a validation (%s)", async (raised, code) => {
+    // A database without migration 20261127022446 still refuses a line without material.
     const fake = seed(OWNER, "engineer", {
       tables: { material_request_lines: [line(LINE_READY, REQUEST, 1), line(OWN_MATERIAL, REQUEST, 2, { product_type: "Manchon", material: "Laiton" })] },
       refuseUpdate: (table, values) => (table === "material_request_lines" && values.status === "validated" ? raised : false),

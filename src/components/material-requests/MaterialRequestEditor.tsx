@@ -66,7 +66,6 @@ function ReadyEditor({
   const [technicians, setTechnicians] = useState<MaterialRequestTechnician[]>([]);
   const [messageOpen, setMessageOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [materialFocusRequest, setMaterialFocusRequest] = useState(0);
   const { data, canWrite, projectId, requestId, alertsByLine } = editor;
   const requestFieldsId = `${ids}-request-fields`;
   const [requestFieldsOpen, setRequestFieldsOpen] = useState(() => requestFieldsOpenAtStart(data.request, canWrite));
@@ -212,7 +211,6 @@ function ReadyEditor({
               fieldsId={requestFieldsId}
               open={requestFieldsOpen}
               onOpenChange={setRequestFieldsOpen}
-              materialFocusRequest={materialFocusRequest}
             />
             <MaterialRequestLines
               editor={editor}
@@ -220,11 +218,6 @@ function ReadyEditor({
               headingId={`${ids}-lines`}
               orderedLine={orders.orderedLine}
               orderStatusKnown={orders.status === "ready" && !orders.refreshing && !orders.creating}
-              onReviewPresumedMaterial={() => {
-                // The fields of the request open, then the focus goes to the confirmation of the material.
-                setRequestFieldsOpen(true);
-                setMaterialFocusRequest((current) => current + 1);
-              }}
               canEditCatalogue={canEditCatalogue}
               canCreateSupplyType={canCreateSupplyType}
               toolbar={

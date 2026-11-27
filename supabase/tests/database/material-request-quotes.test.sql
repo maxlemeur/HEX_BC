@@ -40,10 +40,12 @@
 --     withdraw them (withdraw_material_request_files_for_deletion, for writers only);
 -- 14. deleting a quote (service role) leaves its price on the lines; deleting a request with priced lines fails, or
 --     leaves its quotes behind.
--- 15. (Codex review of #279) a project line without a material of its own, quoted in the request's presumed material,
---     is retained with no material: changing and confirming the header material afterwards turns a line priced for
---     Inox into Cuivre at its Inox price; or a quote is retained while that presumed material is not confirmed; or an
---     overhead line takes the request's material; or a validated line returns to draft when its material is written.
+-- 15. (Codex review of #279) a project line without a material of its own, quoted in the request's confirmed presumed
+--     material, is retained with no material: changing and confirming the header material afterwards turns a line
+--     priced for Inox into Cuivre at its Inox price; or a line quoted while that material was not confirmed takes it
+--     anyway (it was consulted without a material, and the material is optional since 2026-11-27); or a missing or
+--     unconfirmed material stops a validation or a retaining; or an overhead line takes the request's material; or a
+--     validated line returns to draft when the retaining writes its material.
 -- 16. (Codex review of #279) a quote whose lines are not all validated (a quantity, unit, type or dimension may still
 --     be missing) is retained, which would freeze them incomplete for good while validation keeps refusing them; or a
 --     priced line, reopened to draft, cannot be validated again (its frozen fields are complete), or its price moves.
@@ -847,12 +849,13 @@ insert into public.material_request_lines (id, request_id, position, quantity, u
   ('a9300000-0000-4000-8000-000000000711', 'a9300000-0000-4000-8000-000000000604', 1, 8, 'u', 'DN 40', 'Coude 90°', null, 'project', null),
   ('a9300000-0000-4000-8000-000000000712', 'a9300000-0000-4000-8000-000000000604', 2, 2, 'u', 'T10', 'Gants', null, 'overhead', 'EPI'),
   ('a9300000-0000-4000-8000-000000000713', 'a9300000-0000-4000-8000-000000000604', 3, 3, 'm', 'DN 40', 'Tube', 'PVC pression', 'project', null),
-  ('a9300000-0000-4000-8000-000000000714', 'a9300000-0000-4000-8000-000000000604', 4, 1, 'u', 'DN 40', 'Bouchon', null, 'project', null);
+  ('a9300000-0000-4000-8000-000000000714', 'a9300000-0000-4000-8000-000000000604', 4, 1, 'u', 'DN 40', 'Bouchon', null, 'project', null),
+  ('a9300000-0000-4000-8000-000000000715', 'a9300000-0000-4000-8000-000000000604', 5, 1, 'u', 'DN 40', 'Réduction', null, 'project', null);
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$select public.create_material_request_quote('a9300000-0000-4000-8000-000000000604', 'a9300000-0000-4000-8000-000000000304', false,
-    'Bonjour, prix pour 8 coudes 90° inox 304L DN 40, 2 paires de gants T10, 3 m de tube PVC pression DN 40 ?',
+    'Bonjour, prix pour 8 coudes 90° DN 40, 2 paires de gants T10, 3 m de tube PVC pression DN 40 ?',
     array['a9300000-0000-4000-8000-000000000711', 'a9300000-0000-4000-8000-000000000712', 'a9300000-0000-4000-8000-000000000713']::uuid[])$$),
-  'ok 1', '15 fixture: the owner consults Delta on request 604 (in the presumed Inox)');
+  'ok 1', '15 fixture: the owner consults Delta on request 604 (the presumed Inox is not confirmed)');
 select set_config('test.delta604', pg_temp.open_quote('a9300000-0000-4000-8000-000000000604', 'a9300000-0000-4000-8000-000000000304')::text, true);
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$select public.update_material_request_quote(current_setting('test.delta604')::uuid,
@@ -866,37 +869,49 @@ select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   'ok 2', '15 fixture: the overhead line and the line with its own material are validated');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$update public.material_request_lines set status = 'validated' where id = 'a9300000-0000-4000-8000-000000000711'$$),
-  '23514 MATERIAL_REQUEST_LINE_MATERIAL_UNCONFIRMED', '15 line 1 is not validated in a presumed material not confirmed yet');
-select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
-  $$select * from public.retain_material_request_quote(current_setting('test.delta604')::uuid)$$),
-  '23514 MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED',
-  '15 so a quote asked in the presumed material is not retained while that material is not confirmed');
-select is(pg_temp.pls_detail('a9300000-0000-4000-8000-000000000001',
-  $$select * from public.retain_material_request_quote(current_setting('test.delta604')::uuid)$$),
-  '[1]', '15 the refusal names the line that has no material of its own (not the overhead one)');
-select is((select status from public.material_request_quotes where id = current_setting('test.delta604')::uuid),
-  'received', '15 nothing was retained');
-select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
-  $$update public.material_requests set material_confirmed = true where id = 'a9300000-0000-4000-8000-000000000604'$$),
-  'ok 1', '15 the owner confirms Inox 304L');
-select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
-  $$update public.material_request_lines set status = 'validated' where id in ('a9300000-0000-4000-8000-000000000711', 'a9300000-0000-4000-8000-000000000714')$$),
-  'ok 2', '15 and validates lines 1 and 4 in it');
+  'ok 1', '15 line 1 is validated without a material: the presumed one is not confirmed, and the material is optional');
 select set_config('test.validated_711',
   (select validated_at::text from public.material_request_lines where id = 'a9300000-0000-4000-8000-000000000711'), true);
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$select * from public.retain_material_request_quote(current_setting('test.delta604')::uuid)$$),
-  'ok 0', '15 the owner retains Delta once the material is confirmed');
+  'ok 0', '15 the owner retains Delta although the presumed material is not confirmed');
 select is((select jsonb_agg(jsonb_build_array(position, material, status, unit_price_ht_cents) order by position)
     from public.material_request_lines where request_id = 'a9300000-0000-4000-8000-000000000604'),
   jsonb_build_array(
-    jsonb_build_array(1, 'Inox 304L', 'validated', 2150),
+    jsonb_build_array(1, null, 'validated', 2150),
     jsonb_build_array(2, null, 'validated', 390),
     jsonb_build_array(3, 'PVC pression', 'validated', 640),
-    jsonb_build_array(4, null, 'validated', null)),
-  '15 the retaining writes the presumed material on the project line priced without one; the overhead line, the line with its own material and the line not quoted keep theirs');
+    jsonb_build_array(4, null, 'draft', null),
+    jsonb_build_array(5, null, 'draft', null)),
+  '15 a material nobody confirmed is not written: the line priced without one keeps none, like the overhead line; the line with its own keeps it');
 select ok((select validated_at = current_setting('test.validated_711')::timestamptz and validated_by = 'a9300000-0000-4000-8000-000000000001'
   from public.material_request_lines where id = 'a9300000-0000-4000-8000-000000000711'), '15 the priced line stays validated, with its author and date');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_requests set material_confirmed = true where id = 'a9300000-0000-4000-8000-000000000604'$$),
+  'ok 1', '15 the owner confirms Inox 304L afterwards');
+select is((select material from public.material_request_lines where id = 'a9300000-0000-4000-8000-000000000711'), null,
+  '15 the line priced without a material does not take the material confirmed after its retaining');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set status = 'validated' where id = 'a9300000-0000-4000-8000-000000000714'$$),
+  'ok 1', '15 and validates line 4 in it');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$select public.create_material_request_quote('a9300000-0000-4000-8000-000000000604', 'a9300000-0000-4000-8000-000000000305', false,
+    'Bonjour, prix pour 1 bouchon inox 304L DN 40 ?', array['a9300000-0000-4000-8000-000000000714']::uuid[])$$),
+  'ok 1', '15 fixture: the owner consults Epsilon for line 4, in the confirmed Inox');
+select set_config('test.epsilon604', pg_temp.open_quote('a9300000-0000-4000-8000-000000000604', 'a9300000-0000-4000-8000-000000000305')::text, true);
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$select public.update_material_request_quote(current_setting('test.epsilon604')::uuid,
+    '{"received": true, "lines": [{"line_id": "a9300000-0000-4000-8000-000000000714", "unit_price_ht_cents": 980}]}')$$),
+  'ok 1', '15 fixture: Epsilon answers');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$select * from public.retain_material_request_quote(current_setting('test.epsilon604')::uuid)$$),
+  'ok 0', '15 the owner retains Epsilon');
+select is((select jsonb_agg(jsonb_build_array(position, material, status, unit_price_ht_cents) order by position)
+    from public.material_request_lines where request_id = 'a9300000-0000-4000-8000-000000000604' and position in (1, 4)),
+  jsonb_build_array(
+    jsonb_build_array(1, null, 'validated', 2150),
+    jsonb_build_array(4, 'Inox 304L', 'validated', 980)),
+  '15 the retaining writes the confirmed presumed material on the project line priced without one, which stays validated');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$update public.material_requests set presumed_material = 'Cuivre' where id = 'a9300000-0000-4000-8000-000000000604'$$),
   'ok 1', '15 the owner changes the header material to Cuivre');
@@ -906,15 +921,27 @@ select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
 select is((select jsonb_agg(jsonb_build_array(position, material, status, unit_price_ht_cents) order by position)
     from public.material_request_lines where request_id = 'a9300000-0000-4000-8000-000000000604' and position in (1, 4)),
   jsonb_build_array(
-    jsonb_build_array(1, 'Inox 304L', 'validated', 2150),
-    jsonb_build_array(4, null, 'draft', null)),
-  '15 the priced line keeps Inox at its Inox price; the unpriced line that relied on the header returns to draft');
+    jsonb_build_array(1, null, 'validated', 2150),
+    jsonb_build_array(4, 'Inox 304L', 'validated', 980)),
+  '15 the priced lines keep what they were priced in: line 4 stays Inox at its Inox price, line 1 takes no material');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
-  $$update public.material_request_lines set material = null where id = 'a9300000-0000-4000-8000-000000000711'$$),
+  $$update public.material_request_lines set material = null where id = 'a9300000-0000-4000-8000-000000000714'$$),
   '23514 MATERIAL_REQUEST_LINE_PRICED', '15 and its written material is frozen like the rest of what it orders');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
-  $$update public.material_request_lines set material = 'Inox 304L' where id = 'a9300000-0000-4000-8000-000000000714'$$),
+  $$update public.material_request_lines set material = 'Inox 304L' where id = 'a9300000-0000-4000-8000-000000000715'$$),
   'ok 1', '15 counterexample: outside a retaining, writing a material on a line is an ordinary edit');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$select public.create_material_request_purchase_orders('a9300000-0000-4000-8000-000000000604', gen_random_uuid())$$),
+  'ok 1', '15 the owner orders the priced lines of request 604');
+select is((select jsonb_agg(jsonb_build_array(line.position, item.designation) order by line.position)
+    from public.purchase_order_items item join public.material_request_lines line on line.id = item.material_request_line_id
+    where line.request_id = 'a9300000-0000-4000-8000-000000000604'),
+  jsonb_build_array(
+    jsonb_build_array(1, 'Coude 90°, DN 40'),
+    jsonb_build_array(2, 'Gants, T10'),
+    jsonb_build_array(3, 'Tube, DN 40, PVC pression'),
+    jsonb_build_array(4, 'Bouchon, DN 40, Inox 304L')),
+  '15 each order line says what was priced: the line priced without a material is not ordered in the header material confirmed since');
 
 select * from finish();
 rollback;

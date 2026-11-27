@@ -95,25 +95,16 @@ describe("materialRequestLineAlerts", () => {
   });
 
   describe("material", () => {
-    it("blocks a line with no material when the sheet presumes none", () => {
+    it("does not flag a line with no material when the sheet presumes none: the material is optional", () => {
       const target = line({ material: null });
-      expect(blockingAlertCodes(target, context([target]))).toEqual(["material_missing"]);
+      expect(materialRequestLineAlerts(target, context([target]))).toEqual([]);
     });
 
-    it("holds a presumed material back until it is confirmed, and names it", () => {
+    it("does not flag a line that relies on a presumed material nobody confirmed", () => {
       const target = line({ material: null });
-      const alerts = materialRequestLineAlerts(
-        target,
-        context([target], { presumed_material: "Inox 304L serti" }),
-      );
-      expect(alerts).toEqual([
-        {
-          code: "material_unconfirmed",
-          field: "material",
-          blocking: true,
-          message: "Matière présumée « Inox 304L serti » à confirmer.",
-        },
-      ]);
+      const ctx = context([target], { presumed_material: "Inox 304L serti" });
+      expect(materialRequestLineAlerts(target, ctx)).toEqual([]);
+      expect(effectiveLineMaterial(target, ctx.request)).toEqual({ material: null, source: null });
     });
 
     it("applies a confirmed presumed material to the lines that name none", () => {
@@ -198,7 +189,6 @@ describe("materialRequestLineAlerts", () => {
       "quantity_missing",
       "unit_missing",
       "dimension_missing",
-      "material_missing",
     ]);
   });
 });
@@ -235,12 +225,12 @@ describe("buildClarificationMessage", () => {
     expect(buildClarificationMessage({ technicianName: null, lines: [noUnit, presumed], context: ctx })).toBeNull();
   });
 
-  it("asks which material when none is known, and greets without a name", () => {
-    const target = line({ material: null, product_type: "Coude 90°", dimension: "DN65" });
+  it("does not ask for a material, which is optional, and greets without a name", () => {
+    const target = line({ material: null, product_type: "Coude 90°", dimension: null });
     expect(
       buildClarificationMessage({ technicianName: "  ", lines: [target], context: context([target]) }),
     ).toBe(
-      ["Bonjour, il me manque une précision pour ta demande :", "- Coude 90° DN65 : en quelle matière ?", "Merci !"].join("\n"),
+      ["Bonjour, il me manque une précision pour ta demande :", "- Coude 90° : quelle dimension ?", "Merci !"].join("\n"),
     );
   });
 
