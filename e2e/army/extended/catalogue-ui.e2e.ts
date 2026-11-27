@@ -20,7 +20,16 @@ const offer = {
 };
 const options = { session: "army", tags: ["critical", "extended", "catalogue-ui"], trace: "off" as const, timeout: 120_000 };
 
-async function catalogue(ui: ArmyUi) {
+const naming = {
+  enabled: true,
+  patterns: {
+    tube: "TUB-{matiere}-{dimension}-{variante}-{epaisseur}", coude: "COU-{angle}-{matiere}-{dimension}-{variante}",
+    reduction: "RED-{matiere}-{dimension}-{variante}", vanne: "VAN-{variante}-{dimension}-{pression}",
+  },
+  abbreviations: { multicouche: "MEC" },
+};
+
+async function catalogue(ui: ArmyUi, companyNaming?: typeof naming) {
   const writes: Array<{ action?: string; id?: string; item: Record<string, unknown> }> = [];
   const lookups: string[] = [];
   await ui.browser.route("**/api/**", async (route) => {
@@ -38,7 +47,9 @@ async function catalogue(ui: ArmyUi) {
         facets: { materials: [], categories: [], units: ["m"] },
       });
     }
-    if (url.pathname === "/api/products/reference-suggestion") return success({ reference: "ART-000002" });
+    if (url.pathname === "/api/products/reference-suggestion") {
+      return success({ reference: "ART-000002", ...(companyNaming ? { naming: companyNaming } : {}) });
+    }
     if (url.pathname === "/api/products" && route.request.method === "POST") {
       const body = JSON.parse(route.request.postData ?? "{}") as (typeof writes)[number];
       writes.push(body);
@@ -130,4 +141,33 @@ armyTest("CAT03 repeated offer-to-product navigation releases scroll and inert s
   }
   expect(writes).toEqual([]);
   await recordEvidence(ui.army, "catalogue-scroll-ui", { observations, writes, databaseWrites: 0 });
+});
+
+armyTest("CAT04 a new article takes the company's reference format, and an existing reference stays fixed", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
+  const { writes } = await catalogue(ui, naming);
+  await ui.app.open("/dashboard/products");
+  await ui.screen.getByRole("button", "Ajouter", { exact: true }).click();
+  const dialog = ui.screen.getByRole("dialog", "Ajouter un produit", { exact: true });
+  // No family yet: the automatic number is the only proposal.
+  await expect(dialog.getByText("ART-000002", { exact: true })).toBeVisible();
+  await dialog.getByLabel("Désignation *", { exact: true }).fill("Tube multicouche");
+  await expect(dialog.getByText(/renseignez la dimension et l’épaisseur/)).toBeVisible();
+  await dialog.getByText(/Détails techniques/).click();
+  await dialog.getByLabel("Dimensions", { exact: true }).fill("16x2");
+  await expect(dialog.getByText("TUB-MEC-D16-E2", { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/renseignez/)).toHaveCount(0);
+  await dialog.getByRole("button", "Utiliser", { exact: true }).click();
+  await expect(dialog.getByLabel("Référence", { exact: true })).toHaveValue("TUB-MEC-D16-E2");
+  await dialog.getByRole("button", "Ajouter le produit", { exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(writes).toHaveLength(1);
+  expect(writes[0].item).toMatchObject({ reference: "TUB-MEC-D16-E2", designation: "Tube multicouche", dimensions: "16x2" });
+
+  await ui.app.open(`/dashboard/products?product_id=${productId}`);
+  const editing = ui.screen.getByRole("dialog", "Modifier le produit", { exact: true });
+  await expect(editing.getByLabel("Référence", { exact: true })).toHaveValue("ART-000001");
+  await expect(editing.getByText(/Référence interne figée après la création/)).toBeVisible();
+  await expect(editing.getByText(/Référence suggérée/)).toHaveCount(0);
+  await recordEvidence(ui.army, "catalogue-reference-naming-ui", { writes, scope: "real page, synthetic API; no naming or allocation SQL proof" });
 });

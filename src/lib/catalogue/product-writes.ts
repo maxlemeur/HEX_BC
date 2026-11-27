@@ -11,6 +11,9 @@ import type { Database } from "@/types/database";
 import { getCatalogueWriterClient } from "./access-server";
 import type { CreateProductInput, UpdateProductInput } from "./directory-schemas";
 import {
+  productReferenceTaken, proposeStoredProductReference, readProductReferenceNaming,
+} from "./product-reference-naming-server";
+import {
   PRODUCT_UNIT_HAS_PACKAGINGS,
   PRODUCT_UNIT_HAS_PACKAGINGS_MESSAGE,
   isProductUnitHeldByPackagings,
@@ -55,6 +58,10 @@ const PRODUCT_VALIDATION_ADMIN_ONLY = "PRODUCT_VALIDATION_ADMIN_ONLY";
 export const PRODUCT_REFERENCE_TAKEN =
   "Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide.";
 
+export const PRODUCT_REFERENCE_LOCKED = "PRODUCT_REFERENCE_LOCKED";
+const PRODUCT_REFERENCE_LOCKED_MESSAGE =
+  "La référence d’un article est figée après sa création : devis, demandes et commandes s’y rattachent. Un administrateur peut la corriger.";
+
 /** Refusals of the triggers that guard an item's catalogue status, as sentences. */
 export function catalogueStatusError(error: { message: string; details?: string | null }) {
   if (error.message.includes(PRODUCT_VALIDATION_INCOMPLETE)) {
@@ -75,9 +82,12 @@ export function catalogueStatusError(error: { message: string; details?: string 
 }
 
 export async function createProduct(input: CreateProductInput) {
-  const { supabase } = await getWriterClient();
+  const { supabase, tenantId } = await getWriterClient();
+  // A typed reference is kept as typed. A blank one takes the company's format when its administrator saved
+  // one and the article states what the format needs; otherwise the database assigns the automatic number.
+  const proposed = input.reference ? null : await proposeStoredProductReference(supabase, tenantId, input);
   const payload = compactRecord<ProductInsert>({
-    reference: input.reference,
+    reference: proposed ?? input.reference,
     designation: input.designation,
     category: input.category,
     product_type: input.product_type,
@@ -100,7 +110,7 @@ export async function createProduct(input: CreateProductInput) {
 
   if (error) {
     if (error.code === "23505") {
-      throw conflict(PRODUCT_REFERENCE_TAKEN);
+      throw await productReferenceTaken(supabase, tenantId, proposed ?? input.reference, PRODUCT_REFERENCE_TAKEN);
     }
     throw catalogueStatusError(error) ?? mapSupabaseError(error, "Impossible de créer le produit.");
   }
@@ -109,15 +119,20 @@ export async function createProduct(input: CreateProductInput) {
 }
 
 export async function suggestProductReference() {
-  const { supabase } = await getWriterClient();
-  const { data, error } = await supabase.rpc("suggest_product_reference");
+  const { supabase, tenantId } = await getWriterClient();
+  // A suggestion is provisional: when the naming cannot be read, the number alone is proposed.
+  const [{ data, error }, naming] = await Promise.all([
+    supabase.rpc("suggest_product_reference"),
+    readProductReferenceNaming(supabase, tenantId).catch(() => null),
+  ]);
   if (error) {
     throw mapSupabaseError(error, "Impossible de proposer une référence interne.");
   }
   if (typeof data !== "string" || !data.trim()) {
     throw badRequest("Aucune référence interne n’a pu être proposée.");
   }
-  return { reference: data };
+  // The form builds the proposal of the company's format from what is typed; the number stays the fallback.
+  return { reference: data, ...(naming?.saved && naming.naming.enabled ? { naming: naming.naming } : {}) };
 }
 
 export async function updateProduct(input: UpdateProductInput) {
@@ -129,16 +144,38 @@ export async function updateProduct(input: UpdateProductInput) {
     throw badRequest("Aucun champ de mise à jour fourni.");
   }
 
-  const { data, error } = await supabase
-    .from("products")
-    .update(payload)
-    .eq("id", input.id)
-    .select("*")
-    .maybeSingle();
+  // A reference identifies the article wherever it was used: once given it does not change with the rest of
+  // the sheet. An administrator corrects a mistake. For anyone else an unchanged reference is not written again,
+  // so a sheet saved late cannot undo a correction; a reference is given only to an article that still has none.
+  let withoutReference: { held: string | null } | null = null;
+  if (typeof payload.reference === "string" && !writer.isTenantAdmin) {
+    const { data: current, error: readError } = await supabase
+      .from("products").select("id, reference").eq("id", input.id).maybeSingle();
+    if (readError) throw mapSupabaseError(readError, "Impossible de lire la référence de l’article.");
+    // An article the caller does not read is not written either.
+    if (!current) throw notFound("Produit introuvable.");
+    const held = current.reference?.trim();
+    if (held) {
+      if (held !== payload.reference.trim()) {
+        throw forbidden(PRODUCT_REFERENCE_LOCKED_MESSAGE, undefined, PRODUCT_REFERENCE_LOCKED);
+      }
+      delete payload.reference;
+      if (Object.keys(payload).length === 0) throw badRequest("Aucun champ de mise à jour fourni.");
+    } else {
+      withoutReference = { held: current.reference };
+    }
+  }
+
+  const update = supabase.from("products").update(payload).eq("id", input.id);
+  const guarded = !withoutReference ? update
+    : withoutReference.held === null ? update.is("reference", null) : update.eq("reference", withoutReference.held);
+  const { data, error } = await guarded.select("*").maybeSingle();
 
   if (error) {
     if (error.code === "23505") {
-      throw conflict("Cette référence interne existe déjà. Choisissez une autre référence.");
+      throw await productReferenceTaken(
+        supabase, writer.tenantId, payload.reference, "Cette référence interne existe déjà. Choisissez une autre référence.",
+      );
     }
     if (isProductUnitHeldByPackagings(error)) {
       throw conflict(PRODUCT_UNIT_HAS_PACKAGINGS_MESSAGE, undefined, PRODUCT_UNIT_HAS_PACKAGINGS);
@@ -147,6 +184,16 @@ export async function updateProduct(input: UpdateProductInput) {
       throw conflict("Le prix de référence doit être validé depuis « Examiner le prix ». Une référence validée ne peut pas changer d’unité sans nouvelle validation.");
     }
     throw catalogueStatusError(error) ?? mapSupabaseError(error, "Impossible de mettre à jour le produit.");
+  }
+
+  if (!data && withoutReference) {
+    // The article received a reference between the read and the write: the one typed here is not applied.
+    const { data: now } = await supabase.from("products").select("id, reference").eq("id", input.id).maybeSingle();
+    if (now?.reference?.trim()) {
+      throw conflict(
+        "Cet article vient de recevoir une référence. Rechargez sa fiche avant de l’enregistrer.", undefined, PRODUCT_REFERENCE_LOCKED,
+      );
+    }
   }
 
   if (!data) {

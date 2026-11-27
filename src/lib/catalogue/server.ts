@@ -36,7 +36,9 @@ import type {
   UpdateSupplierOfferInput,
 } from "./schemas";
 import { asRecord } from "@/lib/value-guards";
-import { compactRecord } from "@/lib/catalogue/product-writes";
+import { ApiError } from "@/lib/http/api-error";
+import { PRODUCT_REFERENCE_TAKEN, compactRecord } from "@/lib/catalogue/product-writes";
+import { productReferenceTaken, proposeStoredProductReference } from "@/lib/catalogue/product-reference-naming-server";
 import { foldWords } from "@/lib/text/fold";
 
 type JsonRecord = Record<string, unknown>;
@@ -1542,17 +1544,41 @@ function validatePriceValidity(validFrom?: string | null, validTo?: string | nul
   }
 }
 
+/** This module answers with its own error class: a refusal of the shared helpers is carried over, not lost as a 500. */
+async function asCatalogueError<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof ApiError && [400, 401, 403, 404, 409].includes(error.status)) {
+      throw new CatalogueApiError({
+        status: error.status as 400 | 401 | 403 | 404 | 409, code: error.code, message: error.message, details: error.details,
+      });
+    }
+    throw error;
+  }
+}
+
 export async function createSupplierPrice(input: CreateSupplierPriceInput) {
   const { supabase } = await getAuthenticatedContext();
   const productId = resolveProductId(input);
   const validity = validatePriceValidity(input.valid_from, input.valid_to);
+  // A new article created with its offer follows the same rule as one created from the catalogue: a blank
+  // reference takes the company's format when its sheet states what the format needs.
+  let newProduct = input.new_product;
+  if (newProduct && !newProduct.reference) {
+    const proposed = await asCatalogueError(async () => {
+      const tenant = await getAuthenticatedTenantContext();
+      return proposeStoredProductReference(tenant.supabase, tenant.tenantId, newProduct!);
+    });
+    if (proposed) newProduct = { ...newProduct, reference: proposed };
+  }
 
   const { data, error } = await supabase.rpc(CREATE_SUPPLIER_CATALOG_PRICE_RPC, {
     payload: {
       supplier_id: input.supplier_id,
       new_supplier: input.new_supplier,
       product_id: productId,
-      new_product: input.new_product,
+      new_product: newProduct,
       supplier_sku: input.supplier_sku,
       product_url: input.product_url,
       price: {
@@ -1571,6 +1597,14 @@ export async function createSupplierPrice(input: CreateSupplierPriceInput) {
   });
 
   if (error) {
+    if (error.code === "23505" && newProduct?.reference && error.message.includes("PRODUCT_REFERENCE_CONFLICT")) {
+      const reference = newProduct.reference;
+      const taken = await asCatalogueError(async () => {
+        const tenant = await getAuthenticatedTenantContext();
+        return productReferenceTaken(tenant.supabase, tenant.tenantId, reference, PRODUCT_REFERENCE_TAKEN);
+      });
+      throw conflict(taken.message, taken.details, taken.code);
+    }
     throw mapSupabaseError(error, "Impossible de créer le prix fournisseur.");
   }
 

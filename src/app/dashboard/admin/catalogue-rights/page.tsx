@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 
 import { getUserContext } from "@/lib/auth/server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { ProductReferenceNamingForm } from "@/components/catalogue/ProductReferenceNamingForm";
 import { readEngineersCanEditShared } from "@/lib/catalogue/access-server";
+import { readProductReferenceNaming } from "@/lib/catalogue/product-reference-naming-server";
 
 import { CatalogueRightsAdminClient } from "./CatalogueRightsAdminClient";
 
@@ -15,7 +17,15 @@ export default async function AdminCatalogueRightsPage() {
   }
 
   const context = await getAuthenticatedContext();
-  const engineersCanEditShared = await readEngineersCanEditShared(context.supabase, context.tenantId);
+  const [engineersCanEditShared, naming] = await Promise.all([
+    readEngineersCanEditShared(context.supabase, context.tenantId),
+    readProductReferenceNaming(context.supabase, context.tenantId),
+  ]);
 
-  return <CatalogueRightsAdminClient initialEngineersCanEditShared={engineersCanEditShared} />;
+  return (
+    <>
+      <CatalogueRightsAdminClient initialEngineersCanEditShared={engineersCanEditShared} />
+      <ProductReferenceNamingForm initial={naming.naming} saved={naming.saved} available={naming.available} />
+    </>
+  );
 }
