@@ -17,8 +17,10 @@ export const MATERIAL_REQUEST_WORKBOOK_REMARK_CODES = [
 /** `inactive_alias`: the spelling is associated with a deactivated supplier; only the catalogue can change that. */
 export const MATERIAL_REQUEST_WORKBOOK_SUPPLIER_STATUSES = ["recognized", "unknown", "ambiguous", "inactive_alias"] as const;
 
-/** Rows of the sheet shown to choose a header row by hand: the first rows that hold something, within the scan. */
-export const MATERIAL_REQUEST_WORKBOOK_FIRST_ROWS = 20;
+/** Rows of the sheet shown to choose a header row by hand: every row that holds something within the scan. */
+export const MATERIAL_REQUEST_WORKBOOK_FIRST_ROWS = 50;
+/** Cells shown per row offered as header: enough to recognize it, bounded for wide sheets. */
+export const MATERIAL_REQUEST_WORKBOOK_FIRST_ROW_CELLS = 12;
 /** The header row is searched, and may be chosen, within these first rows of a sheet. */
 export const MATERIAL_REQUEST_WORKBOOK_HEADER_SCAN_ROWS = 50;
 
@@ -33,7 +35,7 @@ export const materialRequestWorkbookPreviewSchema = z.object({
   /** The first rows of the sheet that hold something, to choose the header row by hand. */
   first_rows: z.array(z.object({
     row_number: z.number().int().positive(),
-    cells: z.array(z.object({ column: columnLetter, text: z.string() })),
+    cells: z.array(z.object({ column: columnLetter, text: z.string() })).max(MATERIAL_REQUEST_WORKBOOK_FIRST_ROW_CELLS),
   })).max(MATERIAL_REQUEST_WORKBOOK_FIRST_ROWS),
   /**
    * The columns under the header row: those with a header cell and those holding values without one (`header` is

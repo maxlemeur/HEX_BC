@@ -40717,7 +40717,7 @@
                 "type": "boolean"
               },
               "first_rows": {
-                "maxItems": 20,
+                "maxItems": 50,
                 "type": "array",
                 "items": {
                   "type": "object",
@@ -40728,6 +40728,7 @@
                       "maximum": 9007199254740991
                     },
                     "cells": {
+                      "maxItems": 12,
                       "type": "array",
                       "items": {
                         "type": "object",

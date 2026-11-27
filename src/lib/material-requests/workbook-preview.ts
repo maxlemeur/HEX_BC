@@ -29,6 +29,7 @@ import {
   type WorkbookRole,
 } from "./workbook-mapping";
 import {
+  MATERIAL_REQUEST_WORKBOOK_FIRST_ROW_CELLS,
   MATERIAL_REQUEST_WORKBOOK_FIRST_ROWS,
   MATERIAL_REQUEST_WORKBOOK_HEADER_SCAN_ROWS as HEADER_SCAN_ROWS,
   type MaterialRequestWorkbookColumns,
@@ -232,7 +233,7 @@ async function buildPreview(bytes: Buffer, options: MaterialRequestWorkbookPrevi
     const texts = [...cells].sort(([a], [b]) => a - b).flatMap(([column, cell]) => {
       const text = cellText(cell);
       return text ? [{ column: workbookColumnLetter(column), text: shorten(text) }] : [];
-    });
+    }).slice(0, MATERIAL_REQUEST_WORKBOOK_FIRST_ROW_CELLS);
     return texts.length ? [{ row_number: row + 1, cells: texts }] : [];
   });
 
