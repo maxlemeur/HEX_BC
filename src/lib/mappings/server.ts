@@ -7,6 +7,8 @@ import {
   readActiveTenantMembership,
   readAuthenticatedUser,
 } from "@/lib/auth/tenant-context";
+import { apiErrorFactories, type ApiErrorCode } from "@/lib/http/api-error";
+import type { ApiSuccessResponse } from "@/lib/http/api-response";
 import {
   mapPostgrestError,
   toErrorResponse as toSharedErrorResponse,
@@ -50,30 +52,7 @@ type AuthenticatedContext = {
   isTenantAdmin: boolean;
 };
 
-type ApiErrorCode =
-  | "BAD_REQUEST"
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "NOT_FOUND"
-  | "CONFLICT"
-  | "VALIDATION_ERROR"
-  | "INTERNAL_ERROR";
-
-type ApiErrorBody = {
-  code: ApiErrorCode | string;
-  message: string;
-  details?: unknown;
-};
-
-export type ApiSuccessResponse<T> = {
-  ok: true;
-  data: T;
-};
-
-export type ApiFailureResponse = {
-  ok: false;
-  error: ApiErrorBody;
-};
+export type { ApiFailureResponse, ApiSuccessResponse } from "@/lib/http/api-response";
 
 export type MappingValidation = {
   is_valid: boolean;
@@ -201,62 +180,10 @@ export function ok<T>(data: T, status: 200 | 201 = 200) {
   );
 }
 
-export function badRequest(message: string, details?: unknown, code = "BAD_REQUEST") {
-  return new MappingsApiError({
-    status: 400,
-    code,
-    message,
-    details,
-  });
-}
+const mappingsErrors = apiErrorFactories((init) => new MappingsApiError(init));
 
-function unauthorized(message = "Unauthorized") {
-  return new MappingsApiError({
-    status: 401,
-    code: "UNAUTHORIZED",
-    message,
-  });
-}
-
-function forbidden(message = "Accès refusé.", details?: unknown, code = "FORBIDDEN") {
-  return new MappingsApiError({
-    status: 403,
-    code,
-    message,
-    details,
-  });
-}
-
-function notFound(message: string, details?: unknown, code = "NOT_FOUND") {
-  return new MappingsApiError({
-    status: 404,
-    code,
-    message,
-    details,
-  });
-}
-
-function conflict(message: string, details?: unknown, code = "CONFLICT") {
-  return new MappingsApiError({
-    status: 409,
-    code,
-    message,
-    details,
-  });
-}
-
-function internalError(
-  message = "Une erreur interne est survenue.",
-  details?: unknown,
-  code: ApiErrorCode | string = "INTERNAL_ERROR"
-) {
-  return new MappingsApiError({
-    status: 500,
-    code,
-    message,
-    details,
-  });
-}
+export const { badRequest } = mappingsErrors;
+const { unauthorized, forbidden, notFound, conflict, internalError } = mappingsErrors;
 
 function mapSupabaseError(error: PostgrestError, fallbackMessage: string): MappingsApiError {
   return mapPostgrestError(error, fallbackMessage, {

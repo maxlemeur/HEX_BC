@@ -136,6 +136,73 @@ export function internalError(
   });
 }
 
+export type ApiErrorFactoryInit = {
+  status: 400 | 401 | 403 | 404 | 409 | 500;
+  code: string;
+  message: string;
+  details?: unknown;
+};
+
+/**
+ * The six error factories above, built on a domain's own error class
+ * (which stays unrelated to ApiError).
+ */
+export function apiErrorFactories<E>(create: (init: ApiErrorFactoryInit) => E) {
+  return {
+    badRequest(message: string, details?: unknown, code = "BAD_REQUEST") {
+      return create({
+        status: 400,
+        code,
+        message,
+        details,
+      });
+    },
+    unauthorized(message = "Unauthorized") {
+      return create({
+        status: 401,
+        code: "UNAUTHORIZED",
+        message,
+      });
+    },
+    forbidden(message = "Accès refusé.", details?: unknown, code = "FORBIDDEN") {
+      return create({
+        status: 403,
+        code,
+        message,
+        details,
+      });
+    },
+    notFound(message: string, details?: unknown, code = "NOT_FOUND") {
+      return create({
+        status: 404,
+        code,
+        message,
+        details,
+      });
+    },
+    conflict(message: string, details?: unknown, code = "CONFLICT") {
+      return create({
+        status: 409,
+        code,
+        message,
+        details,
+      });
+    },
+    internalError(
+      message = "Une erreur interne est survenue.",
+      details?: unknown,
+      code: ApiErrorCode | string = "INTERNAL_ERROR"
+    ) {
+      return create({
+        status: 500,
+        code,
+        message,
+        details,
+      });
+    },
+  };
+}
+
 /**
  * A refusal a domain module throws by name without building an HTTP error:
  * `toErrorResponse` answers 409 with its code and message.
