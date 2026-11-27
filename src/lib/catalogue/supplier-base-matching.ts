@@ -1,4 +1,4 @@
-import { aliasKey, matchLine, prepareCatalogue, unitsDiffer, type MatchArticle } from "@/lib/material-requests/matching";
+import { aliasKey, matchLine, prepareCatalogue, unitsDiffer, type MatchArticle, type PreparedCatalogue } from "@/lib/material-requests/matching";
 import { compareSizes, readSize } from "@/lib/material-requests/size-keys";
 import { foldText, foldWords } from "@/lib/text/fold";
 
@@ -40,12 +40,13 @@ function describe(article: MatchArticle) {
   const material = (article.material && (materialOf(article.material) ?? foldWords(article.material))) || materialOf(article.designation);
   const dimensionText = article.dimensions?.trim() || article.designation;
   const dimensions = SIZE_EXPRESSION.exec(dimensionText)?.[0] ?? null;
-  const dimension = article.dimensions || dimensions || article.designation;
+  const writtenSize = readSize(dimensionText, material);
+  const dimension = writtenSize ? dimensionText : dimensions ?? dimensionText;
   return {
     article,
     material,
     dimension,
-    size: readSize(dimension, material),
+    size: writtenSize ?? readSize(dimensions, material),
     dimensions: dimensions ? dimensionKey(dimensions) : null,
     precision: [article.grade, article.standard].filter(Boolean).join(" ")
       || [...foldWords(article.designation).matchAll(PRECISION_WORDS)].map(([word]) => word).join(" ") || null,
@@ -60,12 +61,32 @@ type Description = ReturnType<typeof describe>;
 function compare(left: Description, right: Description) {
   const sameWording = left.wording === right.wording;
   let size = compareSizes(left.size, right.size);
-  // The common size reader compares diameters. Keep additional dimensions such as wall thickness here.
-  if (left.dimensions && right.dimensions) size = left.dimensions === right.dimensions ? "same" : "different";
-  else if (left.size?.od != null && right.size?.od != null && left.size.od !== right.size.od) size = "different";
+  const outerDiameterDiffers = left.size?.od != null && right.size?.od != null && left.size.od !== right.size.od;
+  const reducedDiameterDiffers = left.size?.reduceOd != null && right.size?.reduceOd != null && left.size.reduceOd !== right.size.reduceOd;
+  // Use the written dimensions as a fallback when one cannot be extracted.
+  if ((!left.size || !right.size) && left.dimensions && right.dimensions) size = left.dimensions === right.dimensions ? "same" : "different";
+  else if (outerDiameterDiffers || reducedDiameterDiffers) size = "different";
   else if (size === "same" && Boolean(left.size?.reduce ?? left.size?.reduceOd) !== Boolean(right.size?.reduce ?? right.size?.reduceOd)) size = "unknown";
   const material = !left.material || !right.material ? "unknown" : left.material === right.material ? "same" : "different";
-  return { sameWording, size, material } as const;
+  return { sameWording, size, material, compatible: size !== "different" && material !== "different" } as const;
+}
+
+function catalogueMatchFields({ article, material, dimension, precision }: Description): MatchArticle {
+  return { ...article, material, dimensions: dimension, grade: precision };
+}
+
+function matchCompatibleTargets(left: Description, targets: PreparedCatalogue, exactDesignationIds: ReadonlySet<string>) {
+  return matchLine({
+    reference: null,
+    product_type: left.article.designation,
+    material: left.material,
+    material_precision: left.precision,
+    dimension: left.dimension,
+    unit: left.article.unit,
+  }, targets, {
+    limit: targets.length,
+    allowLowScore: (article) => exactDesignationIds.has(article.id),
+  });
 }
 
 function proposalGaps(left: Description, right: Description, comparison: ReturnType<typeof compare>): SupplierBaseGap[] {
@@ -85,16 +106,16 @@ export function supplierBaseLinkedArticleGaps(line: MatchArticle, article: Match
   const left = describe(line);
   const right = describe(article);
   const comparison = compare(left, right);
-  if (comparison.size === "different" || comparison.material === "different") return null;
-  return proposalGaps(left, right, comparison);
+  if (!comparison.compatible) return null;
+  const exactDesignationIds = new Set(comparison.sameWording ? [article.id] : []);
+  const [match] = matchCompatibleTargets(left, prepareCatalogue([catalogueMatchFields(right)]), exactDesignationIds);
+  return match ? proposalGaps(left, right, comparison) : null;
 }
 
 export function createSupplierBaseMatcher<T extends MatchArticle>(articles: readonly T[]) {
   const descriptions = new Map(articles.map((article) => [article.id, describe(article)]));
-  const prepared = new Map(prepareCatalogue(articles.map((article) => {
-    const description = descriptions.get(article.id)!;
-    return { ...article, material: description.material, dimensions: description.dimension, grade: description.precision };
-  })).map((item) => [item.article.id, item]));
+  const prepared = new Map(prepareCatalogue([...descriptions.values()].map(catalogueMatchFields))
+    .map((item) => [item.article.id, item]));
   const index = new Map<string, T[]>();
 
   for (const article of articles) {
@@ -125,26 +146,20 @@ export function createSupplierBaseMatcher<T extends MatchArticle>(articles: read
       const comparison = compare(left, right);
       const alias = right.aliases.has(lineAliasKey);
       const { sameWording, size, material } = comparison;
-      if (size === "different" || material === "different") return [];
+      if (!comparison.compatible) return [];
       if (workbook && !sameWording && (size !== "same" || material !== "same")) return [];
       const rank = 8 * Number(sameWording || alias) + 4 * Number(size === "same") + 2 * Number(material === "same");
       return [{ article, right, comparison, rank }];
     }).sort((a, b) => b.rank - a.rank).slice(0, MAX_RANKED_CANDIDATES);
 
-    const matched = matchLine({
-      reference: null,
-      product_type: line.designation,
-      material: left.material,
-      material_precision: left.precision,
-      dimension: left.dimension,
-      unit: line.unit,
-    }, candidates.map(({ article }) => prepared.get(article.id)!), { limit: candidates.length });
+    const exactDesignationIds = new Set(candidates.flatMap(({ article, comparison }) => comparison.sameWording ? [article.id] : []));
+    const matched = matchCompatibleTargets(left, candidates.map(({ article }) => prepared.get(article.id)!), exactDesignationIds);
     const byId = new Map(matched.map((candidate) => [candidate.product_id, candidate]));
 
     return candidates.flatMap(({ article, right, comparison, rank }) => {
       const match = byId.get(article.id);
-      if (!match && !comparison.sameWording) return [];
-      return { article, gaps: proposalGaps(left, right, comparison), rank, score: match?.score ?? 0 };
+      if (!match) return [];
+      return { article, gaps: proposalGaps(left, right, comparison), rank, score: match.score };
     }).sort((a, b) => b.rank - a.rank || b.score - a.score).slice(0, MAX_MATCHES);
   };
 }

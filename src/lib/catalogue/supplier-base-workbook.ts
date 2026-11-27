@@ -275,7 +275,8 @@ function readSheet(sheet: RawSheet, date1904: boolean, today: string) {
   return { rows, missingOptionalColumns, grouped };
 }
 
-export const supplierBaseReferenceKey = (reference: string) => reference.trim().replace(/\s+/gu, " ").toLocaleLowerCase("fr-FR");
+export const supplierBaseReferenceKey = (reference: string) =>
+  reference.replace(/[\u00a0\u202f]/gu, " ").trim().toLocaleLowerCase("fr-FR");
 
 export function flagDuplicateSupplierReferences(rows: SupplierBaseRow[], supplierKey: (name: string) => string) {
   const keys = rows.map(({ supplier_name, supplier_reference }) => supplier_name && supplier_reference

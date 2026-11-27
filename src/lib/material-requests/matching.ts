@@ -72,6 +72,8 @@ export type PreparedCatalogue = readonly PreparedArticle[];
 export type MatchOptions = {
   /** How many proposals at most: five by default. */
   limit?: number;
+  /** Additional identity evidence may pass the ranking threshold for a compatible article. */
+  allowLowScore?: (article: MatchArticle) => boolean;
   /**
    * The office searches by hand (its own words replace the line's type): another size, material or angle
    * is then proposed too, with a warning, after every article that agrees with the line. Without it, such
@@ -386,7 +388,7 @@ export function matchLine(
         }
       } else {
         const similarity = typeSimilarity(lineWords, entry.words);
-        if (similarity < MIN_TYPE_SIMILARITY) continue;
+        if (similarity < MIN_TYPE_SIMILARITY && !options.allowLowScore?.(entry.article)) continue;
         // Ranked on its other words: the first thing to check, before a unit or a draft.
         const unnamed = unnamedPiece(line.product_type, entry.words);
         if (unnamed) warnings.push(`L’article ne nomme pas « ${unnamed} » : vérifiez la pièce.`);
@@ -411,7 +413,7 @@ export function matchLine(
       score -= 1;
       warnings.push("Article en brouillon : à valider dans le catalogue.");
     }
-    if (via === "ranked" && score < MIN_SCORE) continue;
+    if (via === "ranked" && score < MIN_SCORE && !options.allowLowScore?.(entry.article)) continue;
     // Searched by hand: what disagrees with the line comes after everything that agrees, and scores lower.
     score -= 25 * mismatches;
     candidates.push({

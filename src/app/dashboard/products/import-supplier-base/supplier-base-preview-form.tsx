@@ -136,7 +136,12 @@ function PreviewRow({ item, lookup }: { item: SupplierBasePlannedRow; lookup: Pr
         {row.document && <div className="break-words text-muted-foreground">
           {"text" in row.document ? row.document.text : `${row.document.kind} ${row.document.number}`}
         </div>}
-        {row.packaging_label && <div className="break-words">{row.packaging_label}{row.packaging_quantity !== null ? ` (× ${number(row.packaging_quantity)})` : ""}</div>}
+        {(row.packaging_label || row.packaging_quantity !== null) && (
+          <div className="break-words">
+            {row.packaging_label ?? "Conditionnement"}
+            {row.packaging_quantity !== null ? ` (× ${number(row.packaging_quantity)})` : ""}
+          </div>
+        )}
         {action && <div className="mt-1 text-xs text-muted-foreground">{action}</div>}
       </td>
       <td>
