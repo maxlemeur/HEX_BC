@@ -13,11 +13,6 @@ export type TakeoffRecommendationWarningCode =
   | "unsupported_override"
   | "mixed_pdf_signals";
 
-export type TakeoffSelectionWarningCode =
-  | TakeoffRecommendationWarningCode
-  | "strong_mismatch"
-  | "cost_warning";
-
 export type TakeoffDocumentRecommendation = {
   documentClass: TakeoffDocumentClass;
   recommendedLevel: TakeoffLevel | null;
@@ -33,18 +28,6 @@ export type TakeoffDocumentRecommendation = {
     matchedTableHints: string[];
     matchedPlanHints: string[];
   };
-};
-
-export type TakeoffSelectionWarning = {
-  code: TakeoffSelectionWarningCode;
-  message: string;
-  severity: "warning" | "critical";
-};
-
-export const TAKEOFF_LEVEL_BUSINESS_LABELS: Record<TakeoffLevel, string> = {
-  A: "Rapide",
-  B: "Standard",
-  C: "Détaillé",
 };
 
 type TakeoffFileSignal = {
@@ -298,82 +281,4 @@ export function classifyTakeoffPlanSetSource(input: {
             : null,
     }))
   );
-}
-
-export function isTakeoffLevelCompatible(
-  recommendation: TakeoffDocumentRecommendation | null,
-  level: TakeoffLevel
-) {
-  if (!recommendation) {
-    return true;
-  }
-
-  return recommendation.compatibleLevels.includes(level);
-}
-
-export function getTakeoffSelectionWarning(input: {
-  recommendation: TakeoffDocumentRecommendation | null;
-  selectedLevel: TakeoffLevel | null;
-}): TakeoffSelectionWarning | null {
-  const { recommendation, selectedLevel } = input;
-  if (!recommendation || !selectedLevel) {
-    return null;
-  }
-
-  if (!isTakeoffLevelCompatible(recommendation, selectedLevel)) {
-    return {
-      code: "strong_mismatch",
-      message:
-        recommendation.documentClass === "structured"
-          ? "Ce document ressemble a un metrage structure. Utilisez le niveau Rapide pour éviter un lancement incoherent."
-          : "Ce document n'est pas compatible avec le niveau choisi.",
-      severity: "critical",
-    };
-  }
-
-  if (recommendation.recommendedLevel === null) {
-    return {
-      code: recommendation.warningCode ?? "unsupported_override",
-      message:
-        recommendation.warningMessage ??
-        "Le document n'a pas été reconnu automatiquement. Vérifiez le niveau choisi avant de lancer l'analyse.",
-      severity: "critical",
-    };
-  }
-
-  if (selectedLevel === recommendation.recommendedLevel) {
-    if (recommendation.warningCode && recommendation.warningMessage) {
-      return {
-        code: recommendation.warningCode,
-        message: recommendation.warningMessage,
-        severity: "warning",
-      };
-    }
-
-    return null;
-  }
-
-  if (recommendation.recommendedLevel === "C" && selectedLevel === "B") {
-    return {
-      code: "strong_mismatch",
-      message:
-        "Le document ressemble plutôt a un plan complexe. Le niveau Standard risque de produire une extraction incomplète.",
-      severity: "critical",
-    };
-  }
-
-  if (recommendation.recommendedLevel === "B" && selectedLevel === "C") {
-    return {
-      code: "cost_warning",
-      message:
-        "Le niveau Détaillé reste possible, mais il sera plus couteux que la recommandation Standard.",
-      severity: "warning",
-    };
-  }
-
-  return {
-    code: "strong_mismatch",
-    message: "Le niveau choisi s'ecarte fortement de la recommandation détectée.",
-    severity: "critical",
-  };
 }

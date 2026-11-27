@@ -22,11 +22,6 @@ export function isTakeoffUnitState(value: unknown): value is TakeoffUnitState {
   return typeof value === "string" && (TAKEOFF_UNIT_STATES as readonly string[]).includes(value);
 }
 
-/** A unit's state is final: its job recorded the end of its analysis. */
-export function isFinalTakeoffUnitState(state: TakeoffUnitState) {
-  return state !== "queued" && state !== "running";
-}
-
 /** One unit of a request, as the affaire's readers may see it: never the Mac, the account, the lease or the provider's text. */
 export type TakeoffRequestUnitView = {
   key: string;
