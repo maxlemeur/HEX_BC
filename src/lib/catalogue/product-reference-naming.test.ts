@@ -51,8 +51,22 @@ describe("company product reference naming", () => {
       .toEqual({ family: "coude", reference: null, missing: ["angle"] });
     expect(explainProductReference(ENABLED, { designation: "Coude inox 316L soudé DN50 120 °C 90°" }).reference)
       .toBe("COU-90-316L-DN50-SD");
+    // A decimal angle is read whole, not by its fraction.
+    expect(proposeProductReference(ENABLED, { designation: "Coude 11,25° fonte", dimensions: "DN100" })).toBe("COU-11.25-FONTE-DN100");
+    expect(proposeProductReference(ENABLED, { designation: "Coude 22.5° fonte", dimensions: "DN100" })).toBe("COU-22.5-FONTE-DN100");
     expect(explainProductReference(withTube("TUB-{dimension}"), { designation: "Tube longueur 3000 mm" }))
       .toEqual({ family: "tube", reference: null, missing: ["dimension"] });
+    // A length beside a size, or written in metres, gives no diameter either; Celsius in words gives no angle.
+    for (const designation of ["Tube longueur 3000 mm 16x2", "Tube 3 m 20", "Tube inox 304/316L"]) {
+      expect(explainProductReference(withTube("TUB-{dimension}"), { designation }), designation)
+        .toEqual({ family: "tube", reference: null, missing: ["dimension"] });
+    }
+    expect(explainProductReference(ENABLED, { designation: "Coude inox 120 degrés Celsius", dimensions: "DN50" }).missing).toEqual(["angle"]);
+    expect(proposeProductReference(ENABLED, { designation: "Coude inox 316L soudé 90 degrés", dimensions: "DN50" })).toBe("COU-90-316L-DN50-SD");
+    // Threads and inch sizes written in the designation are still read.
+    expect(proposeProductReference(withTube("TUB-{dimension}"), { designation: "Tube acier 1/2\"" })).toBe("TUB-DN15");
+    expect(proposeProductReference(withTube("TUB-{dimension}"), { designation: "Tube acier 1 1/4\"" })).toBe("TUB-DN32");
+    expect(proposeProductReference(withTube("TUB-{dimension}"), { designation: "Tube PVC diamètre 40" })).toBe("TUB-D40");
     // A size written as one in the designation is read, and the dimensions field is read as given.
     expect(proposeProductReference(withTube("TUB-{dimension}"), { designation: "Tube inox DN50 longueur 3000 mm" })).toBe("TUB-DN50");
     expect(proposeProductReference(withTube("TUB-{dimension}"), { designation: "Tube cuivre Ø28" })).toBe("TUB-D28");

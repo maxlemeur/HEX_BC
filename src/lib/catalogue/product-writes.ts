@@ -152,18 +152,16 @@ export async function updateProduct(input: UpdateProductInput) {
     const { data: current, error: readError } = await supabase
       .from("products").select("id, reference").eq("id", input.id).maybeSingle();
     if (readError) throw mapSupabaseError(readError, "Impossible de lire la référence de l’article.");
-    const held = current?.reference?.trim();
+    // An article the caller does not read is not written either.
+    if (!current) throw notFound("Produit introuvable.");
+    const held = current.reference?.trim();
     if (held) {
       if (held !== payload.reference.trim()) {
         throw forbidden(PRODUCT_REFERENCE_LOCKED_MESSAGE, undefined, PRODUCT_REFERENCE_LOCKED);
       }
       delete payload.reference;
-      if (Object.keys(payload).length === 0) {
-        const { data: unchanged } = await supabase.from("products").select("*").eq("id", input.id).maybeSingle();
-        if (!unchanged) throw notFound("Produit introuvable.");
-        return { item: unchanged };
-      }
-    } else if (current) {
+      if (Object.keys(payload).length === 0) throw badRequest("Aucun champ de mise à jour fourni.");
+    } else {
       withoutReference = { held: current.reference };
     }
   }

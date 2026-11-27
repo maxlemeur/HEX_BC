@@ -18,8 +18,17 @@ const prefixPattern = /^[A-Z][A-Z0-9]{0,15}$/;
 const MAX_REFERENCE_LENGTH = 80;
 /** What a built reference holds: upper-case letters and digits, fields joined by « - », a decimal point in a measure. */
 const referencePattern = /^[A-Z0-9]+(?:[.-][A-Z0-9]+)*$/;
-/** A number of the designation is a size only when it is written as one: a length or a temperature is not. */
-const statedSizePattern = /\bdn\s*-?\s*\d|[ø⌀]|\bdiam|\bm\s?\d{1,2}\b|\d\s*[x×]\s*\d/i;
+/**
+ * What a designation writes as a size: DN50, DN50x40, Ø28, diamètre 60,3, 16x2, 1/2". A number written
+ * otherwise (a length such as « 3 m 20 », a temperature) is not one, and is not read with it.
+ */
+const NUMBER = String.raw`\d+(?:[.,]\d+)?`;
+const statedSizePattern = new RegExp([
+  String.raw`\bdn\s*-?\s*${NUMBER}(?:\s*(?:>|x|×|/|-|\*)\s*(?:dn\s*)?${NUMBER})?`,
+  String.raw`(?:[ø⌀]|\bdiam(?:[eè]tre)?\.?)\s*${NUMBER}(?:\s*[x×/>]\s*${NUMBER})?`,
+  String.raw`${NUMBER}\s*[x×]\s*${NUMBER}`,
+  String.raw`\d+(?:\s+\d+/\d+|/\d+)?\s*(?:"|''|”|pouces?\b)`,
+].join("|"), "i");
 
 export const REFERENCE_ABBREVIATION_GROUPS = [
   { key: "matiere", label: "Matières" },
@@ -166,9 +175,8 @@ export function explainProductReference(rule: ProductReferenceNaming, article: P
   };
   // The dimensions field is read as given. A designation gives a size only when it writes one (DN50, Ø28, 16x2):
   // « longueur 3000 mm » is not a diameter.
-  const size = referenceSize(
-    statedSizePattern.test(article.designation ?? "") ? article : { ...article, designation: family },
-  );
+  const stated = statedSizePattern.exec(article.designation ?? "")?.[0];
+  const size = referenceSize({ ...article, designation: stated ? `${family} ${stated}` : family });
   const pair = (primary: number, secondary: number | null) => `${primary}${secondary === null ? "" : `X${secondary}`}`;
   // A reduction names both of its ends. Sizes given by outside diameter keep that notation even when a DN can be inferred.
   const dimension = !size || (family === "reduction" && size.reduce === null && size.reduceOd === null) ? null

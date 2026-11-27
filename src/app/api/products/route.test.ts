@@ -465,15 +465,25 @@ describe("POST /api/products", () => {
       expect(updateFilters).toEqual([]);
     });
 
-    it("answers a save that names only the unchanged reference without writing", async () => {
+    it("has nothing to write when a save names only the unchanged reference", async () => {
       const { supabase, updated } = createProductsSupabase({
-        role: "engineer", currentRow: { id: PRODUCT_ID, reference: "TUB-15" }, readableRow: { id: PRODUCT_ID },
+        role: "engineer", currentRow: { id: PRODUCT_ID, reference: "TUB-15" },
       });
       vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
       const response = await POST(postRequest({ action: "update", id: PRODUCT_ID, item: { reference: "TUB-15" } }));
 
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(400);
+      expect(updated).toEqual([]);
+    });
+
+    it("writes nothing to an article the member does not read", async () => {
+      const { supabase, updated } = createProductsSupabase({ role: "engineer", currentRow: null });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "update", id: PRODUCT_ID, item: { reference: "TUB-16" } }));
+
+      expect(response.status).toBe(404);
       expect(updated).toEqual([]);
     });
 

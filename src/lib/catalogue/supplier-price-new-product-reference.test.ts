@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 
+import { POST as postPrices } from "@/app/api/prices/route";
 import { createSupplierPrice } from "@/lib/catalogue/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -102,6 +103,22 @@ describe("createSupplierPrice, reference of a new article", () => {
       code: "PRODUCT_REFERENCE_TAKEN",
       message: expect.stringContaining("« Tube multicouche 16x2 barre »"),
       details: { product_id: HOLDER_ID, reference: "TUB-MEC-D16-E2" },
+    });
+
+    // At the route, the refusal is a 409 with its code, not an unexpected error.
+    supabaseWith({
+      naming: NAMING,
+      rpcError: { code: "23505", message: "PRODUCT_REFERENCE_CONFLICT" },
+      holder: { id: HOLDER_ID, reference: "TUB-MEC-D16-E2", designation: "Tube multicouche 16x2 barre" },
+    });
+    const response = await postPrices(new Request("http://localhost/api/prices", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "create", item: { supplier_id: SUPPLIER_ID, new_product: NEW_PRODUCT, unit_price_cents: 100 } }),
+    }));
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatchObject({
+      code: "PRODUCT_REFERENCE_TAKEN", message: expect.stringContaining("« Tube multicouche 16x2 barre »"),
     });
 
     supabaseWith({ naming: NAMING, rpcError: { code: "23505", message: "duplicate key value violates unique constraint \"supplier_prices_key\"" } });
