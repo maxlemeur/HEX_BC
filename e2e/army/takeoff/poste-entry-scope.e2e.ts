@@ -206,11 +206,15 @@ test("POSTE-PORTEE07 une autre portée présente la saisie exacte avant de la re
   await expect(f.dialog).toContainText("Le total de l’affaire garde la priorité");
   await f.button("Annuler").click();
   await f.expand();
+  await expect(ui.screen.getByText(/Le total saisi pour toute l’affaire ne part avec aucun plan/)).toBeVisible();
   await f.button(attach).click();
   await f.dialog.getByLabel("Plan de destination").selectOption({ label: "destination.pdf" });
   await f.dialog.getByRole("button", "Rattacher", { exact: true }).click();
   await expect(f.dialog).toContainText("0,0005 u");
   await expect(f.dialog).toContainText("4 u");
+  await f.button("Annuler").click();
+  await ui.screen.getByRole("link", `Détail de « ${label} » sur le plan`, { exact: true }).click();
+  await expect(ui.screen.getByRole("complementary", "Preuve et décisions du poste")).toContainText("Ce total ne part avec aucun plan.");
 });
 
 test("POSTE-PORTEE08 chaque valeur sur son plan, même avec une lecture mesurée sur un autre plan", options, async ({ ui }) => {
@@ -240,3 +244,56 @@ test("POSTE-PORTEE08 chaque valeur sur son plan, même avec une lecture mesurée
       where item_id='${seeded.items[item]}'`)).at(-1)).toBe(`${seeded.plans[index === 0 ? 1 : 0].fileId}/${index + 2}`);
   }
 });
+
+
+for (const lost of [false, true]) {
+  test(lost ? "POSTE-PORTEE10 une réponse perdue après écriture se rejoue avant le dernier poste"
+    : "POSTE-PORTEE09 un écran périmé au milieu du lot laisse le dernier poste à envoyer", options, async ({ ui }) => {
+    const labels = ["Robinet A", "Vanne B", "Receveur C"];
+    const files = ["RDC.pdf", "Etage.pdf", "Sous-sol.pdf"];
+    const owner = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "BATCH", calcPolicy: "absent" });
+    const seeded = await seedItemSendAffaire(owner, { name: ui.army.runPrefix + "-lot", labels,
+      plans: await Promise.all(files.map(async name => ({ name, pdf: await fictionalSendPlanPdf(name), measures: {} }))) });
+    const base = `/api/affaires/${seeded.projectId}/takeoff/items`;
+    await ui.app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
+    await waitForHydration(ui.browser);
+    for (const [i, name] of labels.entries()) await ui.screen.getByLabel(`Quantité saisie pour « ${name} »`).fill(String(i + 2));
+    await ui.screen.getByRole("button", "Enregistrer les saisies (3)").click();
+    const dialog = ui.screen.getByRole("dialog");
+    await dialog.getByLabel("Portée de la saisie").selectOption({ value: "individual" });
+    for (const [i, name] of labels.entries()) await dialog.getByLabel(`Plan pour ${name}`).selectOption({ label: files[i] });
+    await dialog.getByLabel("Ce qui fonde ces quantités").selectOption({ value: "site_survey" });
+    if (lost) {
+      let sent = 0;
+      await ui.browser.route(new RegExp(base + "/review$"), async route => {
+        if (++sent !== 2) { await route.fallback(); return; }
+        const response = await route.fetch();
+        expect(response.status).toBe(200);
+        await route.abort();
+      });
+    } else {
+      const scope = { kind: "plan", planKey: seeded.plans[1].fileId };
+      const middle = seeded.items[labels[1]];
+      const selection = await ui.request.post(base + "/selection", { data: { command_version: 1, scope,
+        selection: { kind: "items", item_ids: [middle] } } });
+      const { data } = await selection.json() as { data: { items: Array<{ target: unknown }> } };
+      const other = await ui.request.post(base + "/review", { data: { command_version: 1, intent_key: crypto.randomUUID(),
+        gesture: "enter_quantity", scope, targets: [data.items[0].target], values: [{ item_id: middle, quantity: 9, unit: "u" }],
+        entry: { category: "site_survey" } } });
+      expect(other.status()).toBe(200);
+    }
+    await dialog.getByRole("button", "Enregistrer", { exact: true }).click();
+    const receipt = dialog.getByRole("list", "Résultat des saisies");
+    await expect(receipt).toContainText("Robinet A · 2 u · RDC.pdf · Enregistré");
+    await expect(receipt).toContainText(`Vanne B · 3 u · Etage.pdf · ${lost ? "État inconnu" : "Refusé · Écran périmé"}`);
+    await expect(receipt).toContainText("Receveur C · 4 u · Sous-sol.pdf · Non envoyé");
+    const stored = async () => Object.fromEntries((await readOwnedEntries(seeded.projectId)).map(e => [e.item_id, e.quantity]));
+    const first = { [seeded.items[labels[0]]]: 2, [seeded.items[labels[1]]]: lost ? 3 : 9 };
+    expect(await stored()).toEqual(first);
+    await dialog.getByRole("button", lost ? "Réessayer la même saisie" : "Envoyer les valeurs non envoyées").click();
+    await expect(dialog).toHaveCount(0);
+    await expect(ui.screen.getByRole("list", "Résultat des saisies")).toContainText("Receveur C · 4 u · Sous-sol.pdf · Enregistré");
+    expect(await stored()).toEqual({ ...first, [seeded.items[labels[2]]]: 4 });
+    if (!lost) await expect(ui.screen.getByLabel("Quantité saisie pour « Vanne B »")).toHaveValue("3");
+  });
+}
