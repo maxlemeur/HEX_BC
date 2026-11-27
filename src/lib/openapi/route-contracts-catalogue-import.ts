@@ -14,12 +14,32 @@ import {
   PENDING_REFERENCE_PAGE_SIZES,
   reviewReferencesSchema,
 } from "@/lib/catalogue/import-review-contract";
+import { supplierBasePreviewSchema, supplierBaseUploadSchema } from "@/lib/catalogue/supplier-base-contract";
 import { successResponseSchemaDefinition } from "@/lib/openapi/registry-helpers";
 import type { RouteContract } from "@/lib/openapi/route-contracts";
 
 const uuidSchema = z.string().uuid();
 
 export const catalogueImportContracts: RouteContract[] = [
+  {
+    id: "preview-supplier-article-base",
+    method: "post",
+    path: "/api/catalogue/supplier-base/preview",
+    summary: "Prévisualiser l’import d’une base articles fournisseurs",
+    description:
+      "Lit un classeur Excel de 4 Mo au plus. Regroupe les lignes par fournisseur et propose des rapprochements déterministes. La colonne Fournisseur identifie une feuille groupée. Répertorie les feuilles ignorées et les colonnes facultatives absentes. Restitue les prix HT en texte décimal exact et propose un prix pour 100 unités lorsqu’il est exact en centimes. Aperçu en lecture seule réservé aux administrateurs et aux ingénieurs de l’entreprise active.",
+    tags: ["Catalogue"],
+    body: { schema: supplierBaseUploadSchema, contentType: "multipart/form-data", description: "Un classeur Excel (.xlsx) dans le champ file." },
+    success: [{
+      status: "200",
+      description: "Plan d’import avec les références connues, les propositions, les nouveaux articles potentiels et les anomalies.",
+      schema: successResponseSchemaDefinition("ApiSupplierBasePreview", supplierBasePreviewSchema),
+    }],
+    extraErrors: [
+      { status: "413", description: "Limite du fichier, de la lecture du classeur ou de l’aperçu dépassée. Le code SUPPLIER_BASE_PREVIEW_SIZE_LIMIT désigne un aperçu de plus de 4 Mo." },
+      { status: "503", description: "La capacité de lecture des classeurs est momentanément atteinte." },
+    ],
+  },
   {
     id: "list-supplier-aliases",
     method: "get",
