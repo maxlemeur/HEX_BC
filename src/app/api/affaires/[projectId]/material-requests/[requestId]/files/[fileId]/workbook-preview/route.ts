@@ -1,11 +1,8 @@
 import { ApiError, ok, toErrorResponse, unprocessableEntity } from "@/lib/http/api-response";
-import { readMaterialRequestWorkbookOriginal } from "@/lib/material-requests/files-server";
 import { fileParamsSchema } from "@/lib/material-requests/http";
-import {
-  MaterialRequestWorkbookBusyError,
-  MaterialRequestWorkbookError,
-  previewMaterialRequestWorkbook,
-} from "@/lib/material-requests/workbook-preview";
+import { previewMaterialRequestWorkbookImport } from "@/lib/material-requests/workbook-import-server";
+import { MaterialRequestWorkbookBusyError, MaterialRequestWorkbookError } from "@/lib/material-requests/workbook-preview";
+import { materialRequestWorkbookColumnsParamSchema } from "@/lib/material-requests/workbook-preview-contract";
 
 export const runtime = "nodejs";
 
@@ -15,9 +12,11 @@ export async function GET(request: Request, { params }: Context) {
   let response: Response;
   try {
     const { projectId, requestId, fileId } = fileParamsSchema.parse(await params);
-    const sheet = new URL(request.url).searchParams.get("sheet") ?? undefined;
-    const body = await readMaterialRequestWorkbookOriginal(projectId, requestId, fileId);
-    response = ok(await previewMaterialRequestWorkbook(Buffer.from(await body.arrayBuffer()), sheet, request.signal));
+    const query = new URL(request.url).searchParams;
+    const sheet = query.get("sheet") ?? undefined;
+    const columns = query.get("columns");
+    const mapping = columns === null ? undefined : materialRequestWorkbookColumnsParamSchema.parse(columns);
+    response = ok(await previewMaterialRequestWorkbookImport(projectId, requestId, fileId, { sheet, mapping }, request.signal));
   } catch (error) {
     if (error instanceof MaterialRequestWorkbookBusyError) {
       response = toErrorResponse(new ApiError({ status: 503, code: "MATERIAL_REQUEST_WORKBOOK_BUSY", message: error.message }));

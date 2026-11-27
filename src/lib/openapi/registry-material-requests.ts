@@ -506,14 +506,19 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "get", path: `${one}/files/{fileId}/workbook-preview`, summary: "Prévisualiser les lignes d’un original Excel",
-    description: "Lit un XLSX joint aux originaux d’une demande. Retourne les feuilles visibles dont les en-têtes sont reconnus, les lignes proposées pour la feuille choisie, leurs numéros Excel et les problèmes à vérifier. L’ajout de brouillons se fait ensuite via POST lines.",
+    description: "Lit un XLSX joint aux originaux d’une demande, sans rien écrire. Retourne les feuilles visibles dont la ligne d’en-tête est reconnue (cherchée dans les 50 premières lignes), les colonnes de cette ligne avec trois valeurs d’exemple, les colonnes reconnues automatiquement par rôle (detected_columns) et celles lues (mapped_columns). Sans paramètre columns, la reconnaissance automatique choisit : marques de note et ponctuation finale ignorées, et quand deux colonnes peuvent servir le même rôle, le meilleur synonyme puis la plus à gauche. Chaque ligne proposée porte la ligne en brouillon, le nom de fournisseur écrit (supplier_name), la case cochée par défaut (selected) et ses remarques : rounded (quantité fractionnaire arrondie à l’unité supérieure), no_quantity (vide ou zéro, décochée), reference_dropped (la cellule ne contient pas un code seul : importée sans référence), written_doubt (« à confirmer », « à vérifier »… dans la désignation ou la dimension), already_present (même désignation et dimension qu’une ligne de la demande, même matière quand les deux en ont une : décochée). issues liste les lignes écartées et pourquoi, dont la colonne et la limite d’une cellule trop longue. suppliers résout chaque nom distinct de la colonne fournisseur comme l’import du classeur de chiffrage : un nom associé (supplier_aliases) décide, sinon un seul fournisseur actif de ce nom ; recognized remplit line.supplier_id, unknown et ambiguous restent à reconnaître. supplier_rights dit si l’appelant peut associer un nom ou créer un fournisseur (POST /api/catalogue/supplier-aliases, POST /api/suppliers) et pourquoi sinon. L’ajout des brouillons se fait ensuite via POST lines.",
     parameters: [project, requestId, fileId, queryParameter({
       name: "sheet", description: "Nom exact de la feuille. Par défaut, la première feuille reconnue est lue.",
       schemaName: "MaterialRequestWorkbookSheet", schema: z.string(),
+    }), queryParameter({
+      name: "columns",
+      description: "Colonnes à lire par rôle, séparées par des virgules : designation:B,quantity:E,supplier:K. Rôles : designation (requis), dimension, quantity, unit, supplier, reference, material, zone. Un rôle absent n’est pas lu ; une colonne sert un seul rôle. La ligne d’en-tête reste détectée automatiquement. Absent : reconnaissance automatique.",
+      schemaName: "MaterialRequestWorkbookColumns", schema: z.string(),
     })],
     responses: {
       "200": success("ApiMaterialRequestWorkbookPreview", "Aperçu des lignes et contrôles à effectuer.", materialRequestWorkbookPreviewSchema),
       ...writeRefusals,
+      "400": refusal("VALIDATION_ERROR : paramètre columns mal formé, rôle ou colonne répété, ou désignation absente."),
       "404": refusal("NOT_FOUND : original Excel absent de cette demande ou inaccessible."),
       "422": refusal("UNPROCESSABLE_ENTITY : classeur illisible, trop volumineux ou sans tableau reconnu dans la feuille demandée."),
       "503": refusal("MATERIAL_REQUEST_WORKBOOK_BUSY : d’autres aperçus sont en cours. Réessayer dans quelques instants."),

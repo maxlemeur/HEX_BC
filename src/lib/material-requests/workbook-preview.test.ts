@@ -21,13 +21,15 @@ describe("material request workbook preview", () => {
       ["TEST-02", "Coude inox", "Ø 28 mm", "2,750", "pièce"],
       [null, "Total", null, 15.25],
     ] });
-    expect(await previewMaterialRequestWorkbook(input)).toEqual({
-      sheet_name: "Matériel", sheet_names: ["Matériel"], omitted_rows: 0, issues: [],
+    expect(await previewMaterialRequestWorkbook(input)).toMatchObject({
+      sheet_name: "Matériel", sheet_names: ["Matériel"], header_row: 3, omitted_rows: 0, issues: [],
       rows: [
         { row_number: 4, line: { original_text: "Tube inox 316L", product_type: "Tube inox 316L", reference: "00025",
-          dimension: "Ø 28 mm", quantity: 12.5, unit: "m", zone: "Local technique", material: "Inox" } },
+          dimension: "Ø 28 mm", quantity: 13, unit: "m", zone: "Local technique", material: "Inox" },
+        selected: true, remarks: [{ code: "rounded", message: "Arrondi de 12,5" }] },
         { row_number: 6, line: { original_text: "Coude inox", product_type: "Coude inox", reference: "TEST-02",
-          dimension: "Ø 28 mm", quantity: 2.75, unit: "pièce" } },
+          dimension: "Ø 28 mm", quantity: 3, unit: "pièce" },
+        selected: true, remarks: [{ code: "rounded", message: "Arrondi de 2,75" }] },
       ],
     });
   });
@@ -35,13 +37,12 @@ describe("material request workbook preview", () => {
   it("allows a different recognized sheet and reports incomplete rows without inventing a quantity", async () => {
     const input = workbook({ Notes: [["Désignation"], ["Brève description"]], Tube: [["Article", "Qté"], ["Tube", 1]],
       Raccords: [["Libellé", "Qty", "Unité"], ["Coude", "4,1234", "pièce"], [null, 3, "pièce"], ["Té", null, "pièce"]] });
-    const preview = await previewMaterialRequestWorkbook(input, "Raccords");
+    const preview = await previewMaterialRequestWorkbook(input, { sheet: "Raccords" });
     expect(preview.sheet_names).toEqual(["Tube", "Raccords"]);
-    expect(preview.rows.map(({ row_number, line }) => [row_number, line.quantity])).toEqual([[2, undefined], [4, undefined]]);
+    expect(preview.rows.map(({ row_number, line, selected }) => [row_number, line.quantity, selected])).toEqual([[2, 5, true], [4, undefined, false]]);
+    expect(preview.rows[1]?.remarks).toEqual([{ code: "no_quantity", message: "Sans quantité" }]);
     expect(preview.issues).toEqual([
-      { row_number: 2, message: "Quantité à compléter ou à corriger." },
       { row_number: 3, message: "Désignation manquante ou illisible. Ligne écartée." },
-      { row_number: 4, message: "Quantité à compléter ou à corriger." },
     ]);
   });
 
@@ -52,7 +53,7 @@ describe("material request workbook preview", () => {
     ] });
     const preview = await previewMaterialRequestWorkbook(input);
     expect(preview.rows.map(({ row_number, line }) => [row_number, line.quantity])).toEqual([[2, undefined], [4, 5]]);
-    expect(preview.issues).toEqual([{ row_number: 2, message: "Quantité à compléter ou à corriger." }]);
+    expect(preview.issues).toEqual([]);
   });
 
   it("reports rows beyond the request limit and rejects workbooks without a recognizable table", async () => {
