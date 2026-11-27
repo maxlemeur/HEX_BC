@@ -49,6 +49,19 @@ describe("ChatGPT local compile waves", () => {
     }
   });
 
+  it("warms the material request editor and the original photo upload without creating a request or file", () => {
+    const base = `/api/affaires/${absent}/material-requests/${absent}`;
+    const paths = [
+      "/api/material-request-technicians", "/api/consultation-message-templates",
+      ...["candidates", "supplier-proposals", "orders", "quotes", "files", "files/complete", `files/${absent}`]
+        .map(suffix => `${base}/${suffix}`),
+    ];
+    expect(chatGptCompileRequests("material-request-original")).toEqual([
+      { path: `/dashboard/affaires/${absent}/demandes-materiel/${absent}`, expected: [200, 404] },
+      ...paths.map(path => ({ path, method: "OPTIONS", expected: [204] })),
+    ]);
+  });
+
   it.each(["confirmation", "documents", "recovery"])("warms the %s server before its first intake test", (family) => {
     const source = fs.readFileSync(path.join(root, `e2e/army/local/chatgpt-local-intake-${family}.e2e.ts`), "utf8");
     const start = source.indexOf("await server.start()");
