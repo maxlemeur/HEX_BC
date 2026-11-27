@@ -413,6 +413,7 @@
     "20261126190635_takeoff_personal_api_mandate.sql": "f2fe5aac578f95e34c42d07b58a0ba89568eb6825bcba45f2ac539109294ff90",
     "20261126190636_validate_takeoff_personal_api_mandate.sql": "852fdfff9e91ff20eaa578f54baf9bc667a06e8aed5f5665058d28b92f0ee0a9",
     "20261126190637_takeoff_personal_api_mark_publication.sql": "440569a5ca3239d2b97eedd811dffdcf15c8188a274d19a83c89bd21b410cc90",
-    "20261126193541_takeoff_entry_scope.sql": "f2e808518b3a18b3b25ff90327344d00cfb94cd838cf912a63a820b0c6c0f8b0"
+    "20261126193541_takeoff_entry_scope.sql": "f2e808518b3a18b3b25ff90327344d00cfb94cd838cf912a63a820b0c6c0f8b0",
+    "20261126230300_catalogue_reference_naming_abbreviations.sql": "0c8710cd12e8321193163923b3f3f91452f0f2c9f6117f2343ff8ad5f62dfbcf"
   }
 }

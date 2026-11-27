@@ -77,6 +77,8 @@ test("ASSIST05 workbook reliability filters Excel in the assistant and requires 
   await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
   await hydratedUi({ app, screen, browser }, localOrigin).app.open("/dashboard/products/import-workbook");
   await screen.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(filename);
+  await screen.getByRole("dialog", "Colonnes à afficher", { exact: true })
+    .getByRole("button", "Afficher l’aperçu", { exact: true }).tap(DEV_SERVER_WORK);
   const importThree = screen.getByRole("button", "Importer 3 brouillons", { exact: true });
   await expect(importThree).toBeEnabled(DEV_SERVER_WORK);
   const entry = screen.getByRole("banner").getByTestId("assistant-toggle");
