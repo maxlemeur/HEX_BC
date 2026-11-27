@@ -295,8 +295,8 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
         setResolved({ key, resolution: { state: "none" } });
         return;
       }
-      // The affaire itself refused (rights, session, the affaire gone): the page withdraws the detail.
-      if (failure.status === 401 || failure.status === 403 || (failure.status === 404 && failure.code === "NOT_FOUND")) {
+      // The affaire itself gone (its rights and session are refused above): the page withdraws the detail.
+      if (failure.status === 404 && failure.code === "NOT_FOUND") {
         planRefused(failure);
         return;
       }

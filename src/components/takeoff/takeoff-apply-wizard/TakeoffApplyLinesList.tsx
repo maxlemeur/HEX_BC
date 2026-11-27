@@ -9,7 +9,7 @@ import { formatTakeoffQuantity, mappingRuleEffect } from "./shared";
 
 type PreviewItem = TakeoffPreviewConversionResponse["items"][number];
 
-export const LINES_TITLE = "Lignes envoyées";
+const LINES_TITLE = "Lignes envoyées";
 /** On a DPGF version: the application also leaves out the lines decided out of scope, which this list cannot tell apart. */
 export const DPGF_LINES_TITLE = "Lignes retenues avant le rapprochement DPGF";
 export const DPGF_OUT_OF_SCOPE_NOTE = "Ce compte inclut les lignes que le rapprochement DPGF a classées hors périmètre : elles ne sont "

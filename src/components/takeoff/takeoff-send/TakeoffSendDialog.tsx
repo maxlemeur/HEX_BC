@@ -36,7 +36,7 @@ import type {
 } from "@/lib/takeoff/send-contracts";
 import { plural } from "@/lib/text/plural";
 
-export const TAKEOFF_SEND_TITLE = "Envoyer au tableau de chiffrage";
+const TAKEOFF_SEND_TITLE = "Envoyer au tableau de chiffrage";
 
 const quantity = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 const RESERVATION_LABELS: Record<TakeoffSendPreviewResponse["reservations"][number]["kind"], string> = {

@@ -25,7 +25,7 @@ export type ForcedDraft = {
 
 export type ForcedDrafts = Record<string, ForcedDraft>;
 
-export const EMPTY_FORCED_DRAFT: ForcedDraft = { selected: true, reason: "", rules: [], justification: "" };
+const EMPTY_FORCED_DRAFT: ForcedDraft = { selected: true, reason: "", rules: [], justification: "" };
 
 export function forcedDraftOf(drafts: ForcedDrafts, itemId: string): ForcedDraft {
   return drafts[itemId] ?? EMPTY_FORCED_DRAFT;

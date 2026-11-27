@@ -56,7 +56,6 @@ type Destination = NonNullable<Preview["destination"]>;
 type Ask = { destination?: Destination; breakdown?: ItemSendBreakdown; choices: ItemSendScreenChoices; read: number };
 type Notice = { text: string; changes: string[] };
 
-export const TAKEOFF_ITEM_SEND_TITLE = "Envoyer ce plan au devis";
 export const ITEM_SEND_LANDING_LABEL = "Ouvrir le devis sur la ligne écrite";
 
 type Props = {

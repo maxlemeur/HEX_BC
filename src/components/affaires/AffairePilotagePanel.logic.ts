@@ -1,8 +1,5 @@
 import {
-  isAffaireIntakeDocumentAwaitingLaunch,
   isAffaireIntakeDocumentNeedingReview,
-  isAffaireIntakeDocumentProcessing,
-  resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import {
@@ -151,59 +148,6 @@ export function describeSubmissionReadinessGroup(
   return `${categoryLabel} · ${countLabel}`;
 }
 
-function describePilotageStructureMode(input: {
-  structureMode: AffairePilotageStructureMode;
-  isCurrentVersionEditable: boolean;
-}) {
-  const { structureMode, isCurrentVersionEditable } = input;
-  if (!structureMode || structureMode.mode === "not_started") {
-    return null;
-  }
-
-  if (structureMode.mode === "manual") {
-    const baseSummary = `${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} de devis disponible${structureMode.manualLineCount > 1 ? "s" : ""} en mode manuel.`;
-    if (
-      !structureMode.canImportLinkedDpgfIntoCurrentStructure ||
-      !isCurrentVersionEditable
-    ) {
-      return {
-        status: "done" as const,
-        summary: baseSummary,
-      };
-    }
-
-    return {
-      status: "in_progress" as const,
-      summary:
-        `${baseSummary} Vous pouvez y ajouter ${structureMode.linkedDpgfMappedRowCount} ligne${structureMode.linkedDpgfMappedRowCount > 1 ? "s" : ""} DPGF en mode hybride.`,
-    };
-  }
-
-  if (structureMode.mode === "imported") {
-    return {
-      status: "done" as const,
-      summary:
-        `${structureMode.importedLineCount} ligne${structureMode.importedLineCount > 1 ? "s" : ""} de devis disponible${structureMode.importedLineCount > 1 ? "s" : ""} depuis la DPGF importée.`,
-    };
-  }
-
-  if (structureMode.mode === "hybrid") {
-    return {
-      status: "done" as const,
-      summary:
-        `${structureMode.manualLineCount} ligne${structureMode.manualLineCount > 1 ? "s" : ""} manuelle${structureMode.manualLineCount > 1 ? "s" : ""} et ${structureMode.importedLineCount} ligne${structureMode.importedLineCount > 1 ? "s" : ""} importée${structureMode.importedLineCount > 1 ? "s" : ""} coexistent déjà dans la structure hybride.`,
-    };
-  }
-
-  return {
-    status: "in_progress" as const,
-    summary:
-      (structureMode.unsupportedLineCount ?? 0) > 0
-        ? `${structureMode.lineCount} ligne${structureMode.lineCount > 1 ? "s" : ""} de devis existe${structureMode.lineCount > 1 ? "nt" : ""} déjà, dont ${structureMode.unsupportedLineCount} à revoir avant de poursuivre la structure.`
-        : `${structureMode.lineCount} ligne${structureMode.lineCount > 1 ? "s" : ""} existe${structureMode.lineCount > 1 ? "nt" : ""}, mais le mode de structure doit encore être remis a plat.`,
-  };
-}
-
 function hasValidatedDpgfMapping(dpgfSource: AffaireHubDpgfSourceResult) {
   return (
     dpgfSource !== null &&
@@ -234,14 +178,6 @@ function countDocumentsNeedingReview(intakeWorkspace: AffairePilotageWorkspace) 
   return intakeWorkspace.documents.filter(isAffaireIntakeDocumentNeedingReview).length;
 }
 
-function countDocumentsProcessing(intakeWorkspace: AffairePilotageWorkspace) {
-  if (!intakeWorkspace) {
-    return 0;
-  }
-
-  return intakeWorkspace.documents.filter(isAffaireIntakeDocumentProcessing).length;
-}
-
 export function buildPilotageSteps(input: {
   intakeWorkspace: AffairePilotageWorkspace;
   dpgfSource: AffaireHubDpgfSourceResult;
@@ -252,161 +188,10 @@ export function buildPilotageSteps(input: {
   structureMode?: AffairePilotageStructureMode;
   takeoffEnabled: boolean;
 }) {
-  const documentsCount = input.intakeWorkspace?.documents.length ?? 0;
-  const reviewDocumentsCount = countDocumentsNeedingReview(input.intakeWorkspace);
-  const waitingCount = input.intakeWorkspace?.documents.filter(isAffaireIntakeDocumentAwaitingLaunch).length ?? 0;
-  const processingDocumentsCount = countDocumentsProcessing(input.intakeWorkspace);
-  const criticalMissingPiecesCount =
-    input.intakeWorkspace?.missingPieces.filter((piece) => piece.severity === "critical")
-      .length ?? 0;
-  const missingPiecesCount = input.intakeWorkspace?.missingPieces.length ?? 0;
-  const briefStatus = input.intakeWorkspace?.briefDraft?.status ?? null;
-  const hasConfirmedBrief = briefStatus === "confirme";
   const latestJob = input.plansSummary?.latestJob ?? null;
   const takeoffCoverageAvailable =
     input.plansSummary?.coveragePercent != null &&
     input.plansSummary?.exceptionCount != null;
-
-  const dossierSummaryParts: string[] = [];
-  let dossierStatus: PilotageStepStatus = "waiting";
-  if (documentsCount === 0) {
-    dossierSummaryParts.push("Déposez les pièces du dossier pour lancer le cadrage.");
-  } else if (waitingCount > 0) {
-    dossierSummaryParts.push(`${waitingCount} pièce${waitingCount > 1 ? "s" : ""} en attente de lancement.`);
-  } else if (processingDocumentsCount > 0) {
-    dossierStatus = "in_progress";
-    dossierSummaryParts.push(
-      `${processingDocumentsCount} pièce${processingDocumentsCount > 1 ? "s" : ""} en cours de tri.`,
-    );
-  } else if (reviewDocumentsCount > 0 || criticalMissingPiecesCount > 0) {
-    dossierStatus = "blocked";
-    if (reviewDocumentsCount > 0) {
-      dossierSummaryParts.push(
-        `${reviewDocumentsCount} pièce${reviewDocumentsCount > 1 ? "s" : ""} à confirmer.`,
-      );
-    }
-    if (criticalMissingPiecesCount > 0) {
-      dossierSummaryParts.push(
-        `${criticalMissingPiecesCount} pièce${criticalMissingPiecesCount > 1 ? "s" : ""} critique${criticalMissingPiecesCount > 1 ? "s" : ""} manquante${criticalMissingPiecesCount > 1 ? "s" : ""}.`,
-      );
-    }
-  } else if (missingPiecesCount > 0) {
-    dossierStatus = "in_progress";
-    dossierSummaryParts.push(
-      `${missingPiecesCount} pièce${missingPiecesCount > 1 ? "s" : ""} utile${missingPiecesCount > 1 ? "s" : ""} à ajouter.`,
-    );
-  } else {
-    dossierStatus = "done";
-    dossierSummaryParts.push("Dossier trie, classe et exploitable.");
-  }
-
-  let briefStep: PilotageStep;
-  if (documentsCount === 0) {
-    briefStep = {
-      key: "brief",
-      label: "Brief",
-      status: "waiting",
-      summary: "Le brief apparaît une fois les pièces du dossier déposées.",
-    };
-  } else if (input.intakeWorkspace?.briefDraft === null) {
-    briefStep = {
-      key: "brief",
-      label: "Brief",
-      status: "in_progress",
-      summary: "Le brief se construit à partir des pièces détectées.",
-    };
-  } else if (briefStatus === "a_confirmer") {
-    briefStep = {
-      key: "brief",
-      label: "Brief",
-      status: "blocked",
-      summary: "Confirmez les hypothèses, vigilances et manques avant la suite.",
-    };
-  } else {
-    briefStep = {
-      key: "brief",
-      label: "Brief",
-      status: "done",
-      summary: "Brief confirme, hypothèses et points de vigilance poses.",
-    };
-  }
-
-  let devisStep: PilotageStep;
-  const preliminaryStructure = resolveAffairePreliminaryStructureCapability({
-    briefDraft: input.intakeWorkspace?.briefDraft ?? null,
-    documents: input.intakeWorkspace?.documents ?? [],
-  });
-  const hasReadyPrimaryCctp = preliminaryStructure.sources.some(
-    (source) => source.kind === "primary_cctp" && source.availability === "ready",
-  );
-  const structureModeSummary = describePilotageStructureMode({
-    structureMode: input.structureMode ?? null,
-    isCurrentVersionEditable: input.currentVersion?.status === "draft",
-  });
-  if (input.currentVersion === null) {
-    devisStep = {
-      key: "devis",
-      label: "Structure devis",
-      status: "waiting",
-      summary: "Créez un premier devis manuel ou importez un DPGF pour lancer la structure.",
-    };
-  } else if (input.lineCount > 0) {
-    devisStep = {
-      key: "devis",
-      label: "Structure devis",
-      status: structureModeSummary?.status ?? "done",
-      summary:
-        structureModeSummary?.summary ??
-        (input.dpgfSource === null
-          ? `${input.lineCount} ligne${input.lineCount > 1 ? "s" : ""} de devis disponible${input.lineCount > 1 ? "s" : ""} en mode manuel.`
-          : `${input.lineCount} ligne${input.lineCount > 1 ? "s" : ""} de devis disponible${input.lineCount > 1 ? "s" : ""}.`),
-    };
-  } else if (input.dpgfSource === null) {
-    devisStep = {
-      key: "devis",
-      label: "Structure devis",
-      status: "in_progress",
-      summary: hasConfirmedBrief
-        ? hasReadyPrimaryCctp
-          ? "Une structure préliminaire du devis peut être ouverte depuis le CCTP principal, sans DPGF obligatoire."
-          : "Le devis peut démarrer en manuel ou s'ouvrir via une structure préliminaire, sans DPGF obligatoire."
-        : "Démarrez le devis sur une page blanche, sans pièce ni brief obligatoire. Vous pourrez les ajouter plus tard.",
-    };
-  } else if (input.dpgfSource.importStatus === "failed") {
-    devisStep = {
-      key: "devis",
-      label: "Structure devis",
-      status: "blocked",
-      summary: "Le DPGF doit être corrige avant de poursuivre la structuration.",
-    };
-  } else if (
-    input.dpgfSource.importStatus !== "completed" ||
-    (input.dpgfSource.mappingStatus !== null &&
-      input.dpgfSource.mappingStatus !== "validated" &&
-      input.dpgfSource.mappingStatus !== "applied")
-  ) {
-    devisStep = {
-      key: "devis",
-      label: "Structure devis",
-      status: "in_progress",
-      summary: "Le DPGF est en cours d'import ou de validation.",
-    };
-  } else if (input.lineCount === 0) {
-    devisStep = {
-      key: "devis",
-      label: "Structure devis",
-      status: "in_progress",
-      summary:
-        "La DPGF est validée. Importez-la comme base du devis pour matérialiser les lignes utiles.",
-    };
-  } else {
-    devisStep = {
-      key: "devis",
-      label: "Structure devis",
-      status: "waiting",
-      summary: "Le devis peut repartir en manuel ou via l'import selon le contexte retenu.",
-    };
-  }
 
   let metreStep: PilotageStep;
   if (!input.takeoffEnabled) {
@@ -484,72 +269,7 @@ export function buildPilotageSteps(input: {
     };
   }
 
-  let validationStep: PilotageStep;
-  if (input.currentVersion === null || input.lineCount === 0) {
-    validationStep = {
-      key: "validation",
-      label: "Validation & sortie",
-      status: "waiting",
-      summary: "La sortie du devis se prepare quand la structure est stabilisee.",
-    };
-  } else if (
-    input.currentVersion.status === "sent" ||
-    input.currentVersion.status === "accepted"
-  ) {
-    validationStep = {
-      key: "validation",
-      label: "Validation & sortie",
-      status: "done",
-      summary:
-        input.currentVersion.status === "accepted"
-          ? `Version ${input.currentVersion.versionNumber} acceptée.`
-          : `Version ${input.currentVersion.versionNumber} envoyée.`,
-    };
-  } else if (
-    input.approvalSummary?.approvalStatus === "approved" ||
-    input.approvalSummary?.approvalStatus === "not_required"
-  ) {
-    validationStep = {
-      key: "validation",
-      label: "Validation & sortie",
-      status: "done",
-      summary: "Le devis est prêt à sortir sans validation supplémentaire.",
-    };
-  } else if (input.approvalSummary?.approvalStatus === "in_review") {
-    validationStep = {
-      key: "validation",
-      label: "Validation & sortie",
-      status: "in_progress",
-      summary: "La demande de validation est en cours de revue.",
-    };
-  } else if (input.approvalSummary?.approvalStatus === "changes_requested") {
-    validationStep = {
-      key: "validation",
-      label: "Validation & sortie",
-      status: "blocked",
-      summary: "Des corrections sont attendues avant l'envoi du devis.",
-    };
-  } else {
-    validationStep = {
-      key: "validation",
-      label: "Validation & sortie",
-      status: "waiting",
-      summary: "Le devis est à préparer pour validation ou envoi.",
-    };
-  }
-
-  return [
-    {
-      key: "dossier",
-      label: "Dossier",
-      status: dossierStatus,
-      summary: dossierSummaryParts.join(" "),
-    },
-    briefStep,
-    devisStep,
-    metreStep,
-    validationStep,
-  ] satisfies PilotageStep[];
+  return [metreStep] satisfies PilotageStep[];
 }
 
 export function buildPilotageExceptions(input: {

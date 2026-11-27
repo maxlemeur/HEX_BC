@@ -54,7 +54,7 @@ import { Alert } from "@/components/ui/alert";
 
 export type { TakeoffApplyWizardSubmitPayload } from "./takeoff-apply-wizard/shared";
 
-export const TAKEOFF_APPLY_TITLE = "Envoyer au tableau de chiffrage";
+const TAKEOFF_APPLY_TITLE = "Envoyer au tableau de chiffrage";
 
 /**
  * The refusals after which what the screen computed may no longer hold: a page decision or a DPGF quantity refused, a

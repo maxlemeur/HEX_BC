@@ -1,5 +1,3 @@
-"use client";
-
 import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
 import type { ForcedOverride } from "@/lib/takeoff/force-reasons";
 import { DEFAULT_LOW_CONFIDENCE_THRESHOLD, MEDIUM_CONFIDENCE_CEILING } from "@/lib/takeoff/guards";
