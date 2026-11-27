@@ -36,9 +36,64 @@ function emptyLanes(): Record<StandaloneJobLane, StandaloneJob[]> {
   return { jobLive: [], jobRetry: [], jobAnalysisEnd: [], jobCompletedEnd: [], jobLegacyEnd: [] };
 }
 
-/** The standalone jobs of each lane on the current page, for the member's readable affaires of the tenant. */
+type DateColumn = "updated_at" | "completed_at" | "analysis_finished_at";
+type Windows = Pick<StandaloneJobScope, "cutoff" | "activityCutoff">;
+/** The filters of one lane, on the takeoff_jobs resource the lane embeds. */
+type LaneFilter = {
+  eq(column: string, value: string): LaneFilter;
+  is(column: string, value: null | boolean): LaneFilter;
+  not(column: string, operator: "in" | "is", value: string | null): LaneFilter;
+  gt(column: string, value: string): LaneFilter;
+  or(filter: string): LaneFilter;
+};
+type EmbedRequest = {
+  eq(column: string, value: string): unknown;
+  is(column: string, value: null | boolean): unknown;
+  not(column: string, operator: string, value: string | null): unknown;
+  gt(column: string, value: string): unknown;
+  in(column: string, values: readonly string[]): unknown;
+  or(filter: string, options: { referencedTable: string }): unknown;
+  limit(count: number, options: { referencedTable: string }): unknown;
+};
+
+const ended = (filter: LaneFilter) => filter.not("status", "in", "(pending,processing)").or(ENDED_FILTER);
+const JOB_LANES: ReadonlyArray<{ lane: StandaloneJobLane; date: DateColumn; filter(filter: LaneFilter, windows: Windows): LaneFilter }> = [
+  // The indexed updated_at range keeps old undated ends out of the live scan.
+  { lane: "jobLive", date: "updated_at", filter: (filter, { activityCutoff }) => filter.is("analysis_finished_at", null)
+    .is("completed_at", null).gt("updated_at", activityCutoff).or(`status.in.(pending,processing),and(${RETRY_FILTER})`) },
+  { lane: "jobRetry", date: "completed_at", filter: (filter, { activityCutoff }) => filter.is("analysis_finished_at", null)
+    .not("completed_at", "is", null).gt("completed_at", activityCutoff).eq("status", "failed")
+    .eq("execution_provider", "chatgpt_local").not("next_retry_at", "is", null) },
+  { lane: "jobAnalysisEnd", date: "analysis_finished_at", filter: (filter, { cutoff }) => ended(filter)
+    .not("analysis_finished_at", "is", null).gt("analysis_finished_at", cutoff) },
+  { lane: "jobCompletedEnd", date: "completed_at", filter: (filter, { cutoff }) => ended(filter)
+    .is("analysis_finished_at", null).not("completed_at", "is", null).gt("completed_at", cutoff) },
+  { lane: "jobLegacyEnd", date: "updated_at", filter: (filter, { cutoff }) => ended(filter)
+    .is("analysis_finished_at", null).is("completed_at", null).gt("updated_at", cutoff) },
+];
+const JOB_LANE_COLUMNS = `${JOB_COLUMNS}, created_by, analysis_requested_by, updated_at, project:estimate_projects!takeoff_jobs_project_tenant_fkey!inner(id,name)`;
+
+/** The filters of the lane embedded as `alias` in a request on the member's tenant. */
+function embeddedLane(request: EmbedRequest, alias: string): LaneFilter {
+  const column = (name: string) => `${alias}.${name}`;
+  const filter: LaneFilter = {
+    eq: (name, value) => (request.eq(column(name), value), filter),
+    is: (name, value) => (request.is(column(name), value), filter),
+    not: (name, operator, value) => (request.not(column(name), operator, value), filter),
+    gt: (name, value) => (request.gt(column(name), value), filter),
+    or: (condition) => (request.or(condition, { referencedTable: alias }), filter),
+  };
+  return filter;
+}
+
+/**
+ * The standalone jobs of each lane on the current page, for the member's readable affaires of the tenant.
+ * The lanes are read in one PostgREST request: the member's tenant row embeds takeoff_jobs once per lane,
+ * each embedding with the lane's own filters, keyset, order and limit. Every embedded row stays under the
+ * RLS of its own table, so the tenant row adds no visibility; it only groups the lanes in one round trip.
+ */
 export async function readStandaloneJobLanes(scope: StandaloneJobScope): Promise<Record<StandaloneJobLane, StandaloneJob[]>> {
-  const { supabase, tenantId, owner, cutoff, activityCutoff, pages } = scope;
+  const { supabase, tenantId, owner, pages } = scope;
 
   async function readJobProjectPrefilter() {
     if (!owner) return null;
@@ -48,31 +103,32 @@ export async function readStandaloneJobLanes(scope: StandaloneJobScope): Promise
     return data.length <= PROJECT_PREFILTER_LIMIT ? data.map(({ id }) => id) : null;
   }
 
-  const readJobs = (projectIds: string[] | null) => {
-    const query = supabase.from("takeoff_jobs").select(
-      `${JOB_COLUMNS}, created_by, analysis_requested_by, updated_at, project:estimate_projects!takeoff_jobs_project_tenant_fkey!inner(id,name)`,
-    ).eq("tenant_id", tenantId).eq("project.tenant_id", tenantId).is("project.is_archived", false)
-      .is("launch_request_id", null).limit(1, { referencedTable: "exceptions" });
-    if (projectIds) query.in("project_id", projectIds);
-    return owner ? query.eq("project.user_id", owner) : query;
-  };
-
+  const result = emptyLanes();
   const projectIds = await readJobProjectPrefilter();
-  if (projectIds?.length === 0) return emptyLanes();
-  const ended = () => readJobs(projectIds).not("status", "in", "(pending,processing)").or(ENDED_FILTER);
-  const [jobLive, jobRetry, jobAnalysisEnd, jobCompletedEnd, jobLegacyEnd] = await Promise.all([
-    // The indexed updated_at range keeps old undated ends out of the live scan.
-    pages.read("jobLive", () => readJobs(projectIds).is("analysis_finished_at", null).is("completed_at", null)
-      .gt("updated_at", activityCutoff).or(`status.in.(pending,processing),and(${RETRY_FILTER})`), "updated_at"),
-    pages.read("jobRetry", () => readJobs(projectIds).is("analysis_finished_at", null).not("completed_at", "is", null)
-      .gt("completed_at", activityCutoff).eq("status", "failed").eq("execution_provider", "chatgpt_local")
-      .not("next_retry_at", "is", null), "completed_at"),
-    pages.read("jobAnalysisEnd", () => ended().not("analysis_finished_at", "is", null)
-      .gt("analysis_finished_at", cutoff), "analysis_finished_at"),
-    pages.read("jobCompletedEnd", () => ended().is("analysis_finished_at", null).not("completed_at", "is", null)
-      .gt("completed_at", cutoff), "completed_at"),
-    pages.read("jobLegacyEnd", () => ended().is("analysis_finished_at", null).is("completed_at", null)
-      .gt("updated_at", cutoff), "updated_at"),
-  ]);
-  return { jobLive, jobRetry, jobAnalysisEnd, jobCompletedEnd, jobLegacyEnd };
+  if (projectIds?.length === 0) return result;
+  const lanes = JOB_LANES.flatMap((lane) => {
+    const page = pages.page<StandaloneJob>(lane.lane, lane.date);
+    return page ? [{ ...lane, page }] : [];
+  });
+  if (!lanes.length) return result;
+  const request = supabase.from("tenants")
+    .select(["id", ...lanes.map(({ lane }) => `${lane}:takeoff_jobs!takeoff_jobs_tenant_id_fkey(${JOB_LANE_COLUMNS})`)].join(", "))
+    .eq("id", tenantId);
+  for (const { lane, page, filter } of lanes) {
+    const embedded = embeddedLane(request, lane);
+    embedded.eq("tenant_id", tenantId).eq("project.tenant_id", tenantId).is("project.is_archived", false)
+      .is("launch_request_id", null);
+    // Each review needs only an existence witness.
+    request.limit(1, { referencedTable: `${lane}.exceptions` });
+    if (projectIds) request.in(`${lane}.project_id`, projectIds);
+    if (owner) embedded.eq("project.user_id", owner);
+    filter(embedded, scope);
+    page.bound(request, lane);
+  }
+  const { data, error } = await request.maybeSingle();
+  if (error) throw mapSupabaseError(error, "Impossible de lire le suivi des analyses.");
+  // Without a readable tenant row, no job of the tenant is readable either.
+  const row = data as Partial<Record<StandaloneJobLane, StandaloneJob[]>> | null;
+  for (const { lane, page } of lanes) result[lane] = page.settle(row?.[lane] ?? null);
+  return result;
 }

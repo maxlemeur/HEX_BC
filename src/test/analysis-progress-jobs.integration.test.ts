@@ -147,7 +147,7 @@ insert into public.estimate_versions (id, tenant_id, project_id, version_number,
   select version, tenant, id, 1, 2 from fx_projects;
 
 create function pg_temp.fx_kind(n int) returns text language sql immutable as $$
-  select case when n % 10 = 9 then 'small_archived' when n % 4 in (0, 1) then 'small' when n % 4 = 2 then 'large' else 'admin' end
+  select case when n % 10 = 9 then 'small_archived' when n % 5 in (0, 1) then 'small' when n % 5 in (2, 3) then 'large' else 'admin' end
 $$;
 create temp table fx_jobs (lane text, n int, kind text, status public.takeoff_job_status, provider text, retry_at timestamptz,
   updated_at timestamptz, completed_at timestamptz, analysis_finished_at timestamptz) on commit drop;
@@ -155,29 +155,29 @@ create temp table fx_jobs (lane text, n int, kind text, status public.takeoff_jo
 insert into fx_jobs
 select 'live', n, pg_temp.fx_kind(n), (array['pending', 'processing', 'failed'])[n % 3 + 1]::public.takeoff_job_status,
   case when n % 3 = 2 then 'chatgpt_local' else 'gemini' end, case when n % 3 = 2 then ${t("-1 hour")} end,
-  case when n > 40 then ${t("8 days")} when n = 40 then ${t("6 days 23 hours")} else ${t("1 minute")} - (n / 5) * interval '3 hours' end,
+  case when n > 50 then ${t("8 days")} when n = 50 then ${t("6 days 23 hours")} else ${t("1 minute")} - (n / 5) * interval '3 hours' end,
   null::timestamptz, null::timestamptz
-from generate_series(1, 43) n
+from generate_series(1, 53) n
 union all
 select 'retry', n, pg_temp.fx_kind(n), 'failed', 'chatgpt_local', ${t("-2 hours")}, ${t("1 minute")},
-  case when n > 20 then ${t("8 days")} when n = 20 then ${t("6 days 23 hours")} else ${t("1 minute")} - (n / 5) * interval '1 day' end, null::timestamptz
-from generate_series(1, 23) n
+  case when n > 50 then ${t("8 days")} when n = 50 then ${t("6 days 23 hours")} else ${t("1 minute")} - (n / 5) * interval '12 hours' end, null::timestamptz
+from generate_series(1, 53) n
 union all
 select 'analysis', n, pg_temp.fx_kind(n), (array['completed', 'applied', 'canceled', 'failed'])[n % 4 + 1]::public.takeoff_job_status,
   'gemini', null::timestamptz, ${t("1 minute")}, ${t("2 minutes")} - (n / 5) * interval '2 hours',
-  case when n > 40 then ${t("25 hours")} when n = 40 then ${t("23 hours 59 minutes")} else ${t("2 minutes")} - (n / 5) * interval '2 hours' end
-from generate_series(1, 43) n
+  case when n > 50 then ${t("25 hours")} when n = 50 then ${t("23 hours 59 minutes")} else ${t("2 minutes")} - (n / 5) * interval '2 hours' end
+from generate_series(1, 53) n
 union all
 select 'completed', n, pg_temp.fx_kind(n), (array['completed', 'canceled', 'failed'])[n % 3 + 1]::public.takeoff_job_status,
   'gemini', null::timestamptz, ${t("1 minute")},
-  case when n > 20 then ${t("25 hours")} when n = 20 then ${t("23 hours 59 minutes")} else ${t("3 minutes")} - (n / 5) * interval '4 hours' end, null::timestamptz
-from generate_series(1, 23) n
+  case when n > 50 then ${t("25 hours")} when n = 50 then ${t("23 hours 59 minutes")} else ${t("3 minutes")} - (n / 5) * interval '2 hours' end, null::timestamptz
+from generate_series(1, 53) n
 union all
 select 'legacy', n, pg_temp.fx_kind(n), (array['completed', 'canceled', 'failed'])[n % 3 + 1]::public.takeoff_job_status,
   'gemini', null::timestamptz,
-  case when n > 20 then ${t("25 hours")} when n = 20 then ${t("23 hours 59 minutes")} else ${t("4 minutes")} - (n / 5) * interval '4 hours' end,
+  case when n > 50 then ${t("25 hours")} when n = 50 then ${t("23 hours 59 minutes")} else ${t("4 minutes")} - (n / 5) * interval '2 hours' end,
   null::timestamptz, null::timestamptz
-from generate_series(1, 23) n;
+from generate_series(1, 53) n;
 create function pg_temp.fx_outcome(status public.takeoff_job_status, finished timestamptz) returns text language sql immutable as $$
   select case when finished is null then null when status in ('completed', 'applied') then 'success'
     when status = 'failed' then 'failure' else 'canceled' end
@@ -287,7 +287,7 @@ it.runIf(enabled)("reads the same standalone job lanes in one request on every p
         when p.user_id = '${viewers.small.userId}' then 'small' when p.user_id = '${viewers.large.userId}' then 'large' else 'admin' end kind
       from public.estimate_projects p where p.tenant_id in ('${ids.tenantA}', '${ids.tenantB}')) p
     group by kind) k`)) as Record<string, string[]>;
-  const coverage = { pages: 0, exceptionsSeen: 0, exceptionlessSeen: 0 };
+  const coverage = { pages: 0, exceptionsSeen: 0, exceptionlessSeen: 0, longestUrl: 0, fullCursorPage: false };
   for (const key of ["admin", "small", "large", "outsider"] as const) {
     const viewer = viewers[key];
     let cursor: string | undefined;
@@ -304,6 +304,10 @@ it.runIf(enabled)("reads the same standalone job lanes in one request on every p
       const lanes = await actual.readStandaloneJobLanes(scopeOf(viewer, pages));
       const after = restPaths();
       const longest = Math.max(...sent.map(({ url }) => url.href.length));
+      coverage.longestUrl = Math.max(coverage.longestUrl, longest);
+      const positions = cursor ? Object.entries(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as Record<string, unknown>)
+        .filter(([lane, position]) => lane.startsWith("job") && position).length : 0;
+      if (key === "small" && positions === 5) coverage.fullCursorPage = true;
       expect(lanes).toEqual(expected);
       expect(pages.nextCursor()).toBe(oraclePages.nextCursor());
       const prefilter = viewer.role === "admin" ? [] : ["estimate_projects"];
@@ -329,11 +333,17 @@ it.runIf(enabled)("reads the same standalone job lanes in one request on every p
       coverage.pages++;
     } while (cursor);
     note(`${viewer.label}: ${page} pages, ${seen.size} distinct jobs, rows per lane ${JSON.stringify(laneRows)}`);
-    expect(Object.values(laneRows).every((rows) => rows > 0)).toBe(true);
-    if (key !== "outsider") expect(page).toBeGreaterThan(1);
+    // The other tenant only has live, analysis and legacy rows.
+    if (key !== "outsider") expect(Object.values(laneRows).every((rows) => rows > 16)).toBe(true);
+    expect(page).toBeGreaterThan(1);
   }
   expect(coverage.exceptionsSeen).toBeGreaterThan(0);
   expect(coverage.exceptionlessSeen).toBeGreaterThan(0);
+  // The longest request: a member at the prefilter limit (32 project ids in each lane) resuming all five lanes.
+  // Supabase's gateway rejects URLs over about 16 KB; keep a margin for the request's headers.
+  expect(coverage.fullCursorPage).toBe(true);
+  note(`longest URL over every viewer and page: ${coverage.longestUrl} characters`);
+  expect(coverage.longestUrl).toBeLessThan(14_336);
 }, 120_000);
 
 it.runIf(enabled)("returns the same poll response and cursor chain as the five-read path", async () => {
