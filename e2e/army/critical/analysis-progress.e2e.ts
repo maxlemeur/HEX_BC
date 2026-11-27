@@ -225,6 +225,11 @@ armyTest("Analysis progress round 2 bounds the poll on a large tenant and offers
   expect(statementCounts[0]).toBeGreaterThan(0);
   expect(medianStatements).toBeLessThanOrEqual(12);
   expect(statementCounts.at(-1)).toBeLessThanOrEqual(12);
+  // The five standalone job lanes are one request on the member's tenant row.
+  for (const { statements } of measured) {
+    expect(statements.filter((path) => path === "/rest/v1/tenants")).toHaveLength(1);
+    expect(statements.filter((path) => path === "/rest/v1/takeoff_jobs")).toHaveLength(0);
+  }
   expect(firstLines.some(({ state }) => state === "reading")).toBe(true);
   expect(typeof first.body.data.nextCursor).toBe("string");
   const next = await apiRequest<Page>(browser, "GET", `${path}?cursor=${encodeURIComponent(first.body.data.nextCursor!)}`);
