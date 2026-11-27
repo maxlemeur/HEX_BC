@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import { startRecoveryPoll } from "@/lib/workflows/recovery-poll";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
@@ -56,62 +57,53 @@ export function startLocalTakeoffRetryRecovery() {
   const client = createOptionalServiceRoleClient();
   if (!client) return;
 
-  let running = false;
   let afterId: string | undefined;
   const recover = async () => {
-    if (running) return;
-    running = true;
-    try {
-      // The dispatcher serves this Mac's whole queue in the database's order once one analysis per plan is active, and
-      // after a withdrawal the plans of one analysis per plan already admitted (one at a time); with none, it answers
-      // nothing and this poll keeps its former path for every other job.
-      const hostId = await getChatGptHostId();
-      const paymentHost = takeoffPaymentHostId(hostId);
-      const { error: paymentRecoveryError } = await client.rpc("recover_takeoff_payment_jobs", { p_now: new Date().toISOString(), p_host_id: paymentHost });
-      if (paymentRecoveryError && paymentRecoveryError.code !== "PGRST202") console.error("takeoff.api_retry_recovery.deferred");
-      const active = await isTakeoffPlanDispatchActive(client).catch(() => false);
-      await runLocalTakeoffDispatcherPass({ service: client }).catch(() => console.error("takeoff.local_retry_recovery.dispatch_failed"));
-      if (active) return;
-      const due = new Date().toISOString();
-      // Once active, a retry that has waited past the wait ceiling is only closed by its recovery, never run (the
-      // database's floor, public.takeoff_local_retry_floor; null before the activation, when nothing expires).
-      const { data: floor, error: floorError } = await client.rpc("takeoff_local_retry_floor");
-      if (floorError) throw floorError;
-      const unexpired = floor ? `,next_retry_at.gt.${new Date(floor).toISOString()}` : "";
-      let query = client.from("takeoff_jobs")
-        .select("id, tenant_id, status, created_at, launch_unit_key, tenants!inner(is_active)")
-        .eq("tenants.is_active", true)
-        .eq("execution_provider", "chatgpt_local")
-        .in("execution_host_id", [hostId, paymentHost])
-        .is("analysis_outcome", null)
-        .or(`status.eq.pending,and(status.eq.failed,retry_count.lt.${TAKEOFF_RETRY_MAX},next_retry_at.lte.${due}${unexpired})`)
-        .order("id")
-        .limit(BATCH_SIZE);
-      if (afterId) query = query.gt("id", afterId);
-      const { data, error } = await query;
-      if (error) throw error;
-      // Advance even when an entire page cannot get a processing lease.
-      afterId = data.length === BATCH_SIZE ? data.at(-1)?.id : undefined;
-      if (data.length === 0) return;
-      const admitted = await readAdmittedJobIds(client, data.filter((job) => job.status === "pending"));
-      const { processTakeoffJobAttempt } = await import("@/lib/takeoff/async-worker");
-      for (const job of data) {
-        // A plan of one analysis per plan is the dispatcher's (above): never a second lane on this Mac.
-        if ((job as { launch_unit_key?: string | null }).launch_unit_key?.startsWith("plan:")) continue;
-        // A pending row whose creation has not finished may still be withdrawn: the member is told it did not start.
-        if (job.status === "pending" && !admitted.has(job.id)) continue;
-        try {
-          await processTakeoffJobAttempt(job.id, {
-            trigger: job.status === "pending" ? "create" : "retry", correlationId: randomUUID(),
-          });
-        } catch {
-          console.error("takeoff.local_retry_recovery.attempt_failed", { jobId: job.id });
-        }
+    // The dispatcher serves this Mac's whole queue in the database's order once one analysis per plan is active, and
+    // after a withdrawal the plans of one analysis per plan already admitted (one at a time); with none, it answers
+    // nothing and this poll keeps its former path for every other job.
+    const hostId = await getChatGptHostId();
+    const paymentHost = takeoffPaymentHostId(hostId);
+    const { error: paymentRecoveryError } = await client.rpc("recover_takeoff_payment_jobs", { p_now: new Date().toISOString(), p_host_id: paymentHost });
+    if (paymentRecoveryError && paymentRecoveryError.code !== "PGRST202") console.error("takeoff.api_retry_recovery.deferred");
+    const active = await isTakeoffPlanDispatchActive(client).catch(() => false);
+    await runLocalTakeoffDispatcherPass({ service: client }).catch(() => console.error("takeoff.local_retry_recovery.dispatch_failed"));
+    if (active) return;
+    const due = new Date().toISOString();
+    // Once active, a retry that has waited past the wait ceiling is only closed by its recovery, never run (the
+    // database's floor, public.takeoff_local_retry_floor; null before the activation, when nothing expires).
+    const { data: floor, error: floorError } = await client.rpc("takeoff_local_retry_floor");
+    if (floorError) throw floorError;
+    const unexpired = floor ? `,next_retry_at.gt.${new Date(floor).toISOString()}` : "";
+    let query = client.from("takeoff_jobs")
+      .select("id, tenant_id, status, created_at, launch_unit_key, tenants!inner(is_active)")
+      .eq("tenants.is_active", true)
+      .eq("execution_provider", "chatgpt_local")
+      .in("execution_host_id", [hostId, paymentHost])
+      .is("analysis_outcome", null)
+      .or(`status.eq.pending,and(status.eq.failed,retry_count.lt.${TAKEOFF_RETRY_MAX},next_retry_at.lte.${due}${unexpired})`)
+      .order("id")
+      .limit(BATCH_SIZE);
+    if (afterId) query = query.gt("id", afterId);
+    const { data, error } = await query;
+    if (error) throw error;
+    // Advance even when an entire page cannot get a processing lease.
+    afterId = data.length === BATCH_SIZE ? data.at(-1)?.id : undefined;
+    if (data.length === 0) return;
+    const admitted = await readAdmittedJobIds(client, data.filter((job) => job.status === "pending"));
+    const { processTakeoffJobAttempt } = await import("@/lib/takeoff/async-worker");
+    for (const job of data) {
+      // A plan of one analysis per plan is the dispatcher's (above): never a second lane on this Mac.
+      if ((job as { launch_unit_key?: string | null }).launch_unit_key?.startsWith("plan:")) continue;
+      // A pending row whose creation has not finished may still be withdrawn: the member is told it did not start.
+      if (job.status === "pending" && !admitted.has(job.id)) continue;
+      try {
+        await processTakeoffJobAttempt(job.id, {
+          trigger: job.status === "pending" ? "create" : "retry", correlationId: randomUUID(),
+        });
+      } catch {
+        console.error("takeoff.local_retry_recovery.attempt_failed", { jobId: job.id });
       }
-    } catch {
-      console.error("takeoff.local_retry_recovery.deferred");
-    } finally {
-      running = false;
     }
   };
   // What this Mac last did, on a timer of its own so that a long analysis in the poll above does not silence it: the
@@ -126,5 +118,6 @@ export function startLocalTakeoffRetryRecovery() {
   };
   void recordActivity();
   setInterval(() => void recordActivity(), HOST_ACTIVITY_INTERVAL_MS).unref();
-  setInterval(() => void recover(), POLL_INTERVAL_MS).unref();
+  startRecoveryPoll({ intervalMs: POLL_INTERVAL_MS, run: recover,
+    onError: () => console.error("takeoff.local_retry_recovery.deferred") });
 }
