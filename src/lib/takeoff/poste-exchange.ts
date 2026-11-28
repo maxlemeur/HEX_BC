@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { TakeoffPdfChunk } from "@/lib/takeoff/chunking";
 import type { Poste, PosteQualifiers } from "@/lib/takeoff/poste-list";
 import { promptLine } from "@/lib/takeoff/prompt-text";
+import { plural } from "@/lib/text/plural";
 
 /**
  * The exchange of the second measuring order (lot 4): one plan read against the affaire's sealed list of items
@@ -407,8 +408,6 @@ export function validatePosteExchangeOutput(call: PosteExchangeCall, output: Pos
     refuse("UNPROCESSED_PAGES", { keys: unprocessedKeys, pages: [...unprocessedPages].sort((left, right) => left - right) });
   }
 }
-
-const plural = (count: number, one: string, many: string) => `${count} ${count > 1 ? many : one}`;
 
 /**
  * The refusal of an answer, in French, as the plan's analysis records it (the member reads « Extraction incomplète sur

@@ -1,5 +1,6 @@
 import type { ItemSendPreviewRequest, ItemSendPreviewResponse } from "@/lib/takeoff/item-send-contracts";
 import type { ItemSendBreakdown, ItemSendChoice, ITEM_SEND_KEEP_BOTH_REASONS } from "@/lib/takeoff/item-send-plan";
+import { QUANTITY_FORMAT as quantity } from "@/lib/format/fr";
 
 // Lot 4, PR 5c: what the screen of the send of one plan by item keeps of the member's gestures between two reads of its
 // preview: each explicit choice, by the point it answers, and each page decision, by its page. The server computes the
@@ -199,7 +200,6 @@ export function itemSendPageHolderChanged(decidedOn: ToResolve, now: ToResolve) 
   return lines(decidedOn) !== lines(now) || items(decidedOn) !== items(now);
 }
 
-const quantity = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 const range = (before: number | null, after: number, unit: string) =>
   `${before === null ? "" : `${quantity.format(before)} → `}${quantity.format(after)} ${unit}`;
 

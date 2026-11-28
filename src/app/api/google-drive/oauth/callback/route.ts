@@ -1,4 +1,5 @@
 import { after, NextResponse, type NextRequest } from "next/server";
+import { withPrivateNoStore } from "@/lib/http/response";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
   readDriveAuthorizationGeneration,
@@ -47,8 +48,7 @@ export async function GET(request: NextRequest) {
       path: "/api/google-drive/oauth",
       maxAge: 0,
     });
-    response.headers.set("Cache-Control", "private, no-store");
-    return response;
+    return withPrivateNoStore(response);
   };
   if (!configuration.enabled) return finish("disabled");
   const parameters = request.nextUrl.searchParams;

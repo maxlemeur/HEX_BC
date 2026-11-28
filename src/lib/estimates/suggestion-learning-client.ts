@@ -1,4 +1,5 @@
 import { type JsonRecord, toNumber, toBooleanValue, hasOwnProperty, getRootPayload, pickRecord, pickArray, parseOptionalNullableStringProperty } from "@/lib/estimates/client-json";
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
@@ -383,13 +384,7 @@ export async function trackEstimateSuggestionCorrections(
 ): Promise<TrackEstimateSuggestionCorrectionsResult> {
   const result = await requestJson<unknown>(
     `/api/estimates/${versionId}/suggestion-learning`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    },
+    jsonRequest("POST", payload),
     "Impossible d'enregistrer les corrections d'apprentissage."
   );
 
@@ -423,13 +418,7 @@ export async function reviewAdminSuggestionLearningProposal(
 ): Promise<SuggestionLearningState> {
   const result = await requestJson<unknown>(
     "/api/admin/suggestion-learning",
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    },
+    jsonRequest("PATCH", payload),
     "Impossible de valider la proposition d'apprentissage."
   );
 
@@ -446,13 +435,7 @@ export async function purgeAdminSuggestionLearnings(
 ): Promise<PurgeAdminSuggestionLearningsResult> {
   const result = await requestJson<unknown>(
     "/api/admin/suggestion-learning/purge",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload ?? {}),
-    },
+    jsonRequest("POST", payload ?? {}),
     "Impossible de purger l'historique d'apprentissage."
   );
 

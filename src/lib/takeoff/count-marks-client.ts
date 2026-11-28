@@ -1,6 +1,6 @@
 import type { z } from "zod";
 
-import { TakeoffApiError, TAKEOFF_READ_REQUEST_TIMEOUT_MS, TAKEOFF_WRITE_REQUEST_TIMEOUT_MS } from "@/lib/takeoff/client-http";
+import { callTakeoffApi, TAKEOFF_READ_REQUEST_TIMEOUT_MS, TAKEOFF_WRITE_REQUEST_TIMEOUT_MS } from "@/lib/takeoff/client-http";
 import type { TakeoffCountMarkState } from "@/lib/takeoff/count-marks";
 import {
   countMarkTargetsSchema,
@@ -9,7 +9,6 @@ import {
   countMarksViewSchema,
   type CountMarksEditRequest,
 } from "@/lib/takeoff/count-marks-contracts";
-import { isRecord } from "@/lib/value-guards";
 
 /**
  * The screen's calls to the counted marks of an affaire (lot 5), each answer checked against its contract. A refusal
@@ -20,25 +19,9 @@ import { isRecord } from "@/lib/value-guards";
 const READ_FAILURE = "Impossible de lire les repères du poste.";
 const WRITE_FAILURE = "Impossible d’enregistrer les repères du poste.";
 
-async function call<T>(path: string, init: RequestInit, schema: z.ZodType<T>, failure: string, timeoutMs: number): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(path, { credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(timeoutMs), ...init,
-      headers: { accept: "application/json", ...(init.body ? { "content-type": "application/json" } : {}) } });
-  } catch {
-    // A network failure carries the browser's own (English) message: never shown as is.
-    throw new TakeoffApiError(failure, 0, null, null);
-  }
-  const body = await response.json().catch(() => null) as unknown;
-  const error = isRecord(body) && isRecord(body.error) ? body.error : null;
-  if (!response.ok || !isRecord(body) || body.ok !== true) {
-    const message = typeof error?.message === "string" && error.message.trim() ? error.message : failure;
-    throw new TakeoffApiError(message, response.status, error?.details ?? null, typeof error?.code === "string" ? error.code : null);
-  }
-  const parsed = schema.safeParse(body.data);
-  if (!parsed.success) throw new TakeoffApiError(failure, response.status, null, null);
-  return parsed.data;
-}
+// Every call of the marks, the command included, reads past the browser's cache.
+const call = <T>(path: string, init: RequestInit, schema: z.ZodType<T>, failure: string, timeoutMs: number) =>
+  callTakeoffApi(path, { cache: "no-store", ...init }, schema, failure, timeoutMs);
 
 export type CountMarksReader = ReturnType<typeof createCountMarksReader>;
 

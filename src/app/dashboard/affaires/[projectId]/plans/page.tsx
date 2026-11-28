@@ -6,6 +6,7 @@ import { getUserContext } from "@/lib/auth/server";
 import { fetchAffaireProjectBasic } from "@/lib/affaires/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { fetchPlanSetsForProject, hasTakeoffAnalysisForProject } from "@/lib/takeoff/plans";
+import { notFoundOrRethrow } from "../_lib/not-found";
 
 type Props = {
   params: Promise<{ projectId: string }>;
@@ -32,18 +33,7 @@ export default async function AffairePlansPage({ params }: Props) {
     hasTakeoffAnalysisForProject(projectId),
   ]);
 
-  if (projectResult.status === "rejected") {
-    const err = projectResult.reason as unknown;
-    if (
-      err !== null &&
-      typeof err === "object" &&
-      "code" in err &&
-      (err as { code: string }).code === "NOT_FOUND"
-    ) {
-      notFound();
-    }
-    throw err;
-  }
+  if (projectResult.status === "rejected") notFoundOrRethrow(projectResult.reason);
 
   const project = projectResult.value;
   const initialPlanSets =

@@ -5,6 +5,7 @@ import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { takeoffItemLocation } from "@/lib/takeoff/scope-location";
 import type { TargetedReviewLine } from "@/lib/takeoff/targeted-review";
 import type { ApplyGuardItem } from "@/lib/takeoff/guards";
+import { asRecord } from "@/lib/value-guards";
 
 // TI-701 (D13): the targeted review is read affaire by affaire with these filters, each with its count, kept in the
 // address (a reload or a shared link shows the same lines):
@@ -155,8 +156,6 @@ export type TargetedReviewSource = {
 
 type ValuedLine = { designation: string; source_file_name: string | null; source_page: number | null; metadata: unknown };
 
-const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
-  ? value as Record<string, unknown> : {};
 const token = (value: string | null | undefined) => {
   const text = value?.trim();
   return text && text.toLowerCase() !== TAKEOFF_PAGE_TRIAGE_UNKNOWN ? text : null;
@@ -185,7 +184,7 @@ export function targetedReviewLineValues(item: ValuedLine, context: { sources: r
   let level = token(page?.level);
   let zone = token(page?.zone);
   if (!level && !zone) {
-    const own = takeoffItemLocation({ designation: item.designation, source_file_name: item.source_file_name, metadata: record(item.metadata) });
+    const own = takeoffItemLocation({ designation: item.designation, source_file_name: item.source_file_name, metadata: asRecord(item.metadata) ?? {} });
     if (!own.ambiguous) {
       level = own.level;
       zone = own.zone;

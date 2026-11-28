@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import {
   forbidden,
   internalError,
@@ -7,22 +5,15 @@ import {
   ok,
   toErrorResponse,
 } from "@/lib/http/api-response";
+import { uuidRouteParamsOr404 } from "@/lib/http/request";
 import { bulkDeleteDraftAffaires } from "@/lib/affaires/delete-server";
-
-const paramsSchema = z.object({
-  projectId: z.string().uuid("ID projet invalide."),
-});
 
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   try {
-    const parsed = paramsSchema.safeParse(await params);
-    if (!parsed.success) {
-      throw notFound("Affaire introuvable.");
-    }
-    const { projectId } = parsed.data;
+    const { projectId } = await uuidRouteParamsOr404(params, "Affaire introuvable.", "projectId");
 
     const result = await bulkDeleteDraftAffaires([projectId]);
     if (!result.deletedIds.includes(projectId)) {

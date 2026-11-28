@@ -11,18 +11,15 @@ import { writeDriveFile } from "@/lib/affaires/google-drive/writing";
 import { DriveError } from "@/lib/affaires/google-drive/errors";
 import { toDriveApiError } from "@/lib/affaires/google-drive/server";
 import { ok, badRequest, toErrorResponse } from "@/lib/http/api-response";
+import { withPrivateNoStore } from "@/lib/http/response";
 import { isSameOriginRequest } from "@/lib/http/same-origin";
 
 export const runtime = "nodejs";
-function privateResponse(response: Response) {
-  response.headers.set("Cache-Control", "private, no-store");
-  return response;
-}
 export async function GET() {
   try {
     const member = await getAuthenticatedContext();
     const config = driveConfiguration();
-    return privateResponse(
+    return withPrivateNoStore(
       ok({
         enabled: config.enabled,
         writingAvailable: config.enabled && Boolean(config.picker),
@@ -30,7 +27,7 @@ export async function GET() {
       }),
     );
   } catch (error) {
-    return privateResponse(toErrorResponse(toDriveApiError(error)));
+    return withPrivateNoStore(toErrorResponse(toDriveApiError(error)));
   }
 }
 export async function POST(request: Request) {
@@ -64,7 +61,7 @@ export async function POST(request: Request) {
     const input = driveConnectionRequestSchema.parse(payload);
     // Removing a grant is available even when Google integration is disabled.
     if (input.action === "disconnect")
-      return privateResponse(
+      return withPrivateNoStore(
         ok(
           await disconnectDriveConnection(
             member,
@@ -75,7 +72,7 @@ export async function POST(request: Request) {
       );
     if (input.action === "disable_write") {
       await disableDriveWriting(member, input.connectionId, input.grantVersion);
-      return privateResponse(ok({ done: true }));
+      return withPrivateNoStore(ok({ done: true }));
     }
     const config = driveConfiguration();
     if (!config.enabled)
@@ -91,7 +88,7 @@ export async function POST(request: Request) {
           "DRIVE_PICKER_UNAVAILABLE",
           "Le sélecteur Google n’est pas configuré.",
         );
-      return privateResponse(
+      return withPrivateNoStore(
         ok({
           ...config.picker,
           accessToken: await driveWriteToken(
@@ -104,10 +101,10 @@ export async function POST(request: Request) {
         }),
       );
     }
-    return privateResponse(
+    return withPrivateNoStore(
       ok(await writeDriveFile(member, config, input, request.signal)),
     );
   } catch (error) {
-    return privateResponse(toErrorResponse(toDriveApiError(error)));
+    return withPrivateNoStore(toErrorResponse(toDriveApiError(error)));
   }
 }

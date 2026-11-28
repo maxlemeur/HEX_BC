@@ -8,6 +8,7 @@ import type {
 import { fetchApi } from "@/components/catalogue/api";
 
 import type { CreateImportResponse } from "@/components/catalogue/price-book-csv-import/types";
+import { COUNT_FORMAT } from "@/lib/format/fr";
 
 export const ACCEPTED_FILE_TYPES = ".csv,text/csv,application/csv,text/plain";
 export const ATOMIC_BULK_BATCH_SIZE = 5000;
@@ -23,7 +24,7 @@ export const TARGET_FIELDS = [
 export const GUIDE_STEPS = ["Charger", "Détection", "Associer", "Résoudre", "Importer"];
 
 export function formatNumber(value: number): string {
-  return new Intl.NumberFormat("fr-FR").format(value);
+  return COUNT_FORMAT.format(value);
 }
 
 export function getProgressLabel(progress: PriceBookValidationProgress | null): string {

@@ -15,6 +15,7 @@ import { KFO_HELP } from "@/lib/estimates/unified-kfo";
 import { parseKfoDraft } from "@/lib/estimates/editor-values";
 import { formatDecimalInput } from "@/lib/numeric-input/parsers";
 import { cn } from "@/lib/utils";
+import { plural } from "@/lib/text/plural";
 
 type Settings = Awaited<ReturnType<typeof readFoCoefficientSettings>>;
 type Row = Settings["rows"][number];
@@ -59,10 +60,6 @@ function readCell(
     invalid,
     changed: !invalid && parsed !== stored,
   };
-}
-
-function plural(count: number, word: string) {
-  return `${count} ${word}${count > 1 ? "s" : ""}`;
 }
 
 export function FoCoefficientSettings() {

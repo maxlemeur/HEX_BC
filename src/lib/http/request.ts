@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { notFound } from "@/lib/http/api-error";
+
 /**
  * Request parsing shared by the API routes. Each domain keeps its own error
  * class, so the caller passes the `badRequest` factory of its domain: the
@@ -94,6 +96,21 @@ export async function uuidRouteParams<Name extends string>(
     Object.fromEntries(names.map((name) => [name, z.string().uuid(`${name} invalide.`)]))
   );
   return schema.parse(await params) as Record<Name, string>;
+}
+
+/**
+ * UUID route parameters of a resource a malformed id cannot name: any value
+ * that is not a UUID is refused with the shared `notFound(message)`.
+ */
+export async function uuidRouteParamsOr404<Name extends string>(
+  params: Promise<Record<Name, string>>,
+  message: string,
+  ...names: Name[]
+): Promise<Record<Name, string>> {
+  const schema = z.object(Object.fromEntries(names.map((name) => [name, z.string().uuid()])));
+  const parsed = schema.safeParse(await params);
+  if (!parsed.success) throw notFound(message);
+  return parsed.data as Record<Name, string>;
 }
 
 export async function uuidRouteParam<Name extends string>(

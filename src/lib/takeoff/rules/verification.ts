@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { ACCEPTANCE_NOTE, noteText, validNote } from "@/lib/takeoff/rules/acceptance-note";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
+import { QUANTITY_FORMAT } from "@/lib/format/fr";
 
 // Coded reasons to accept (V) a failure that V alone does not settle (TI-685 for the network, TI-686 D9 for the scale
 // and the printed area). The justification is additive: the flat network part ({reason_code, system_reference}),
@@ -153,7 +154,7 @@ export function printedAreaToReach(results: readonly TakeoffRuleResult[] | undef
   return area.reason_code === MEASURED_OUTLINE_REASON ? null : comparison.printed_m2;
 }
 
-export const squareMetres = (value: number) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value)} m²`;
+export const squareMetres = (value: number) => `${QUANTITY_FORMAT.format(value)} m²`;
 
 export const ACCEPTANCE_MESSAGES = {
   stale: "Recalculez les règles avant d’accepter la ligne.",

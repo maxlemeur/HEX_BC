@@ -45,6 +45,8 @@ import {
 } from "@/lib/takeoff/count-marks-view";
 import { isItemDetailFieldTarget } from "@/lib/takeoff/item-detail-keys";
 import { cn } from "@/lib/utils";
+import { PARIS_DATE_TIME_FORMAT as dateFormat } from "@/lib/format/fr";
+import { plural } from "@/lib/text/plural";
 
 /**
  * The marks of the answer shown, beside its plan (lot 5): the count as the server derives it (the number proposed, the
@@ -56,9 +58,7 @@ import { cn } from "@/lib/utils";
 
 const LIST_PAGE = 50;
 const NOTE_MAX = 500;
-const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Paris" });
 
-const plural = (count: number, one: string, many: string) => `${count} ${count > 1 ? many : one}`;
 const reasonLabel = (code: string | null) => code && Object.hasOwn(TAKEOFF_COUNT_MARK_REASON_LABELS, code)
   ? TAKEOFF_COUNT_MARK_REASON_LABELS[code as keyof typeof TAKEOFF_COUNT_MARK_REASON_LABELS] : null;
 

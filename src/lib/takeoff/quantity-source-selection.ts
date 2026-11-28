@@ -1,18 +1,17 @@
 import { haveSameQuantityIdentity, quantityIdentity } from "@/lib/takeoff/quantity-compatibility";
 import { takeoffItemLocation } from "@/lib/takeoff/scope-location";
+import { asRecord } from "@/lib/value-guards";
 
 export type QuantitySourceItem = { id: string; designation: string; quantity: number; unit: string;
   source_file_name: string | null; source_page: number | null; is_excluded: boolean; metadata: Record<string, unknown> };
 export type QuantitySourceSelection = { id: string; group: string; origin: "vector" | "model"; excluded: boolean;
   comparison: { vector_quantity: number; model_quantity: number | null; delta: number | null; unit: string } };
 
-const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
-  ? value as Record<string, unknown> : {};
 const normalized = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 
 /** Whole alternative readings, compared only on a common document/page, identity and unit. */
 export function selectQuantitySources(items: readonly QuantitySourceItem[]): QuantitySourceSelection[] {
-  const vectors = items.filter(item => Boolean(item.metadata.vector) && record(item.metadata.quantity_source).exploitable === true);
+  const vectors = items.filter(item => Boolean(item.metadata.vector) && (asRecord(item.metadata.quantity_source) ?? {}).exploitable === true);
   const models = items.filter(item => !item.metadata.vector && !item.is_excluded);
   const identities = new Map(items.map(item => [item.id, quantityIdentity(item)]));
   const locations = new Map(items.map(item => [item.id, takeoffItemLocation(item)]));

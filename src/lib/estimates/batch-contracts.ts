@@ -5,6 +5,7 @@ import { batchOperationSchema, type BatchOperationInput } from "@/lib/estimates/
 import { ESTIMATE_STATUS_VALUES } from "@/lib/estimates/status";
 import { isOlderEstimateVersionToken, sameEstimateVersionToken } from "@/lib/estimates/version-token";
 import { ESTIMATE_LINE_PRICING_STATUSES } from "@/lib/units/normalize";
+import { isRecord } from "@/lib/value-guards";
 
 export const ESTIMATE_BATCH_MAX_OPERATIONS = 1000;
 export const ESTIMATE_BATCH_MAX_BODY_BYTES = 1024 * 1024;
@@ -114,17 +115,13 @@ function invalid(): never {
   throw new EstimateBatchContractError();
 }
 
-function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function validateCommittedOperations(result: EstimateBatchCommittedResult) {
   const { operations } = result.receipt;
   if (result.results.length !== operations.length) invalid();
   const createdIds = new Set<string>();
   result.results.forEach((entry, index) => {
     const operation = operations[index];
-    if (entry.index !== index || entry.op !== operation.op || entry.status !== "ok" || !record(entry.data)) invalid();
+    if (entry.index !== index || entry.op !== operation.op || entry.status !== "ok" || !isRecord(entry.data)) invalid();
     if (operation.op === "create" || operation.op === "update") {
       let itemId: string;
       if (entry.data.item === null && entry.data.deleted_in_batch === true) {
@@ -133,7 +130,7 @@ function validateCommittedOperations(result: EstimateBatchCommittedResult) {
         itemId = deletedId.data;
         const deletedLater = result.results.some((later, laterIndex) =>
           laterIndex > index && operations[laterIndex].op === "delete" &&
-          later.op === "delete" && later.status === "ok" && record(later.data) &&
+          later.op === "delete" && later.status === "ok" && isRecord(later.data) &&
           Array.isArray(later.data.deleted_ids) && later.data.deleted_ids.includes(itemId));
         if (!deletedLater) invalid();
       } else {
@@ -173,7 +170,7 @@ export function parseEstimateBatchResponse(value: unknown, context: EstimateBatc
       if (entry.index !== index || entry.op !== operations[index].op) invalid();
       if (entry.status === "error") {
         if (index !== result.results.length - 1) invalid();
-      } else if (!record(entry.data) || (entry.data.rolled_back !== true &&
+      } else if (!isRecord(entry.data) || (entry.data.rolled_back !== true &&
         !(context.dryRun && entry.data.dry_run === true))) invalid();
     });
     if (!result.results.some((entry) => entry.status === "error") &&

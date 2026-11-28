@@ -1,6 +1,7 @@
 import { compareQuantityPairs, surfaceBasis } from "@/lib/takeoff/quantity-policy";
 import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { round4 } from "@/lib/takeoff/dpgf-quantity-policy";
+import { asRecord } from "@/lib/value-guards";
 
 // TI-682 lot D4: a DPGF target sums the measures it keeps. Its composition is the list of what each takeoff line still
 // brings to it, stored on the target (`source_metadata.takeoff_quantity_policy`, version 2) by the application, which
@@ -42,20 +43,18 @@ export type StoredDpgfComposition =
   | { version: 1; reference: number | null; job_id: string; item_ids: string[]; measured: number; priced: number }
   | { version: 0 };
 
-const record = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const finite = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
 const ids = (value: unknown): string[] | null =>
   Array.isArray(value) && value.every((entry) => typeof entry === "string") ? value as string[] : null;
 
 /** The composition a target holds: version 2, a version 1 policy (one takeoff), or none (never fed by a policy). */
 export function readStoredDpgfComposition(sourceMetadata: unknown): StoredDpgfComposition {
-  const policy = record(record(sourceMetadata)?.takeoff_quantity_policy);
+  const policy = asRecord(asRecord(sourceMetadata)?.takeoff_quantity_policy);
   if (!policy) return { version: 0 };
   const reference = finite(policy.reference_quantity);
   if (policy.version === 2 && Array.isArray(policy.contributions)) {
     const contributions = policy.contributions.flatMap((entry) => {
-      const value = record(entry);
+      const value = asRecord(entry);
       const itemIds = ids(value?.item_ids);
       const quantity = finite(value?.quantity);
       return value && typeof value.job_id === "string" && itemIds && itemIds.length > 0 && quantity !== null

@@ -1,3 +1,4 @@
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import { toEstimateImportSourceClient, toEstimateImportSectionClient, toImportEstimateSectionsClient, toDuplicateSectionClient, type EstimateImportSourceVersion, type EstimateImportSectionPreview, type DuplicateEstimateSectionResult } from "@/lib/estimates/section-copy-contracts";
 import { parseImportSourcesResponse, parseImportSectionsPreviewResponse, parseImportSectionsResponse, parseDuplicateSectionResponse } from "@/lib/estimates/section-copy-response";
@@ -60,17 +61,11 @@ export async function importEstimateSections(
 ): Promise<ImportEstimateSectionsResult> {
   const payload = await requestJson(
     `/api/estimates/${targetVersionId}/import-sections`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sourceVersionId: input.sourceVersionId,
-        sectionIds: input.sectionIds,
-        mode: input.mode,
-      }),
-    },
+    jsonRequest("POST", {
+      sourceVersionId: input.sourceVersionId,
+      sectionIds: input.sectionIds,
+      mode: input.mode,
+    }),
     "Impossible d'importer les sections.",
     value => parseImportSectionsResponse(value, { sourceVersionId: input.sourceVersionId, targetVersionId, mode: input.mode }),
     { mutation: { versionId: targetVersionId, structural: true } }
@@ -86,15 +81,9 @@ export async function duplicateEstimateSection(
 ): Promise<DuplicateEstimateSectionResult> {
   const payload = await requestJson(
     `/api/estimates/${versionId}/sections/${sectionId}/duplicate`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        targetVersionId: options?.targetVersionId ?? null,
-      }),
-    },
+    jsonRequest("POST", {
+      targetVersionId: options?.targetVersionId ?? null,
+    }),
     "Impossible de dupliquer la section.",
     value => parseDuplicateSectionResponse(value, { sourceVersionId: versionId, targetVersionId: options?.targetVersionId ?? versionId }),
     { mutation: { versionId: options?.targetVersionId ?? versionId, structural: true } }

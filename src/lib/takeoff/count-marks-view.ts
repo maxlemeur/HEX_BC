@@ -10,6 +10,7 @@ import {
   type TakeoffCountPageGeometry,
 } from "@/lib/takeoff/count-marks";
 import type { CountMarkHistoryEvent } from "@/lib/takeoff/count-marks-contracts";
+import { plural } from "@/lib/text/plural";
 
 /**
  * The marks of an answer as the detail of an item shows and corrects them (lot 5): a pure model, so that the layer on
@@ -344,8 +345,6 @@ export function countMarksChange(before: readonly TakeoffCountMark[], after: rea
   for (const mark of before) if (!next.has(mark.markId)) removed += 1;
   return { added, removed, moved, decided };
 }
-
-const plural = (count: number, one: string, many: string) => `${count} ${count > 1 ? many : one}`;
 
 export function countMarksChangeSentence(change: ReturnType<typeof countMarksChange>, kept: number) {
   const parts = [change.added ? plural(change.added, "ajouté", "ajoutés") : null,

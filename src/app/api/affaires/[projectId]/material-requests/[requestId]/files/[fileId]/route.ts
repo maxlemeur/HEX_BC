@@ -1,4 +1,5 @@
 import { ok, toErrorResponse } from "@/lib/http/api-response";
+import { withPrivateNoStore } from "@/lib/http/response";
 import { MATERIAL_REQUEST_WORKBOOK_MIME_TYPE, updateMaterialRequestFileSchema } from "@/lib/material-requests/contracts";
 import {
   deleteMaterialRequestFile,
@@ -41,8 +42,7 @@ export async function GET(_request: Request, { params }: Context) {
     });
   } catch (error) {
     const response = toErrorResponse(error);
-    response.headers.set("Cache-Control", "private, no-store");
-    return response;
+    return withPrivateNoStore(response);
   }
 }
 

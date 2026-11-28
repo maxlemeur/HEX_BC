@@ -1,11 +1,11 @@
 import type { TakeoffDpgfComparisonRow } from "@/lib/takeoff/types";
+import { QUANTITY_FORMAT as quantityFormat } from "@/lib/format/fr";
 
 // TI-682 lot D4: what a DPGF line holds of the other takeoffs applied, by takeoff and page, and the total it will hold
 // with this one. Shown whatever the unit: a line two takeoffs feed (an overview and its enlarged plan, say) is visible as
 // such even where the zone rules see nothing. A line of this takeoff drawn again in a line it keeps is flagged, to check.
 
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 
 type Composition = NonNullable<TakeoffDpgfComparisonRow["composition"]>;
 

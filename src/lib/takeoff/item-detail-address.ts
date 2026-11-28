@@ -1,6 +1,7 @@
 import type { ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
 import { normalizePlanKey, itemTableAddressParams, readItemTableAddress, withItemTableParams } from "@/lib/takeoff/item-table-query";
 import { type TakeoffItemDetailHrefInput, TAKEOFF_ITEM_DETAIL_PARAMS as P, takeoffItemDetailHref, withoutTakeoffItemDetail } from "@/lib/takeoff/review-href";
+import { UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 /**
  * The address of the detail of an item on its plan (lot 5, second depth of the review), read the same way by the
@@ -14,7 +15,6 @@ import { type TakeoffItemDetailHrefInput, TAKEOFF_ITEM_DETAIL_PARAMS as P, takeo
  * invalid, shown as « not found », never guessed.
  */
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A plan's logical identity as the table of items names it (lot 4's contract: at most 200 characters). */
 const PLAN_KEY_MAX = 200;
 const OPAQUE_MAX = 200;

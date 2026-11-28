@@ -16,12 +16,12 @@ import { readTakeoffVisibleSources } from "@/lib/takeoff/source-visibility-serve
 import {
   describeTakeoffJobFailure, resolveTakeoffVisibleJobStatus, takeoffCompletionFailureReason,
 } from "@/lib/takeoff/visible-status";
+import { UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 const JOB_SELECT = "id, status, estimate_version_id, plan_set_id, launch_unit_key, source_file_name, source_file_path, processing_strategy, provider_batch_state, error_code, created_at, completed_at, analysis_finished_at";
 // The request's own jobs also read their stored message, under the member's rights, only for the note of its end: it
 // never leaves this server (toZoneJob copies none of it).
 const REQUEST_JOB_SELECT = `${JOB_SELECT}, error_message` as const;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type JobRow = {
   id: string; status: string; estimate_version_id: string | null; plan_set_id: string | null; launch_unit_key?: string | null;

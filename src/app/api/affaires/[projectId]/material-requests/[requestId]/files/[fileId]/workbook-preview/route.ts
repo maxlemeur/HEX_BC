@@ -1,6 +1,7 @@
 import type { z } from "zod";
 
 import { ApiError, badRequest, ok, toErrorResponse, unprocessableEntity } from "@/lib/http/api-response";
+import { withPrivateNoStore } from "@/lib/http/response";
 import { fileParamsSchema } from "@/lib/material-requests/http";
 import { previewMaterialRequestWorkbookImport } from "@/lib/material-requests/workbook-import-server";
 import { MaterialRequestWorkbookBusyError, MaterialRequestWorkbookError } from "@/lib/material-requests/workbook-preview";
@@ -42,6 +43,5 @@ export async function GET(request: Request, { params }: Context) {
       response = toErrorResponse(error instanceof MaterialRequestWorkbookError ? unprocessableEntity(error.message) : error);
     }
   }
-  response.headers.set("Cache-Control", "private, no-store");
-  return response;
+  return withPrivateNoStore(response);
 }

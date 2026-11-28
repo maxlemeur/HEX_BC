@@ -1,6 +1,7 @@
 import type { z } from "zod";
 
 import type { TakeoffApiError as TakeoffApiErrorShape, TakeoffLevel } from "@/lib/takeoff/types";
+import { isRecord } from "@/lib/value-guards";
 
 type TakeoffApiErrorMetadata = Pick<
   TakeoffApiErrorShape,
@@ -56,5 +57,29 @@ export async function readTakeoffEnvelope<T>(path: string, init: RequestInit, sc
   }
   const parsed = schema.safeParse(body.data);
   if (!parsed.success) throw new Error(failure);
+  return parsed.data;
+}
+
+/**
+ * Sends a request of the screen and reads its `{ ok, data }` envelope against `schema`. A refusal keeps the server's
+ * message, status, code and details; a network failure, a timeout or an answer off its contract gives `failure`.
+ */
+export async function callTakeoffApi<T>(path: string, init: RequestInit, schema: z.ZodType<T>, failure: string, timeoutMs: number): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, { credentials: "same-origin", signal: AbortSignal.timeout(timeoutMs), ...init,
+      headers: { accept: "application/json", ...(init.body ? { "content-type": "application/json" } : {}), ...(init.headers ?? {}) } });
+  } catch {
+    // A network failure carries the browser's own (English) message: never shown as is.
+    throw new TakeoffApiError(failure, 0, null, null);
+  }
+  const body = await response.json().catch(() => null) as unknown;
+  const error = isRecord(body) && isRecord(body.error) ? body.error : null;
+  if (!response.ok || !isRecord(body) || body.ok !== true) {
+    const message = typeof error?.message === "string" && error.message.trim() ? error.message : failure;
+    throw new TakeoffApiError(message, response.status, error?.details ?? null, typeof error?.code === "string" ? error.code : null);
+  }
+  const parsed = schema.safeParse(body.data);
+  if (!parsed.success) throw new TakeoffApiError(failure, response.status, null, null);
   return parsed.data;
 }

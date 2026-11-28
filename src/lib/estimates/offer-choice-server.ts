@@ -20,6 +20,7 @@ import {
 import { assertVersionConcurrencyToken, normalizeConcurrencyToken } from "@/lib/estimates/version-concurrency";
 import { getServiceRoleSupabaseClient } from "@/lib/estimates/version-workflow-client-server";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
+import { UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 // TI-682, lot C, PR 4 (D10, D28): the declaration of a written reserve. The route checks what TypeScript can (tenant
 // administrator, draft, engine 3, version token, draft lock of this page), then public.set_estimate_line_offer_choice
@@ -105,8 +106,6 @@ export async function setEstimateLineOfferChoice(input: {
   }
   return parsed.data;
 }
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** What the dialog of a provisional quantity starts from: the takeoff line's own note, when it has one. */
 export type EstimateOfferChoiceSuggestion = { established_on: string | null };

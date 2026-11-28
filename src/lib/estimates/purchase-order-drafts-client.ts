@@ -1,5 +1,6 @@
 import { hasOwnProperty } from "@/lib/estimates/client-json";
 import { EstimateApiError, toErrorMessage, extractErrorDetails, extractErrorCode } from "@/lib/estimates/client-errors";
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import type { EstimatePurchaseOrderDraftPreparation, CreateEstimatePurchaseOrderDraftsInput, EstimatePurchaseOrderDraftCreationResult } from "@/lib/estimates/purchase-order-draft-contracts";
 import { isRecord } from "@/lib/value-guards";
@@ -31,27 +32,21 @@ export async function createEstimatePurchaseOrderDrafts(
   const { parseEstimatePurchaseOrderDraftCreationResult } = await import("@/lib/estimates/purchase-order-draft-contracts");
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/purchase-order-drafts`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        idempotency_key: input.idempotencyKey,
-        reviewed_lines: input.reviewedLines.map((line) => ({
-          item_id: line.itemId,
-          review_fingerprint: line.reviewFingerprint,
-        })),
-        groups: input.groups.map((group) => ({
-          supplier_id: group.supplierId,
-          delivery_site_id: group.deliverySiteId,
-          delivery_site_updated_at: group.deliverySiteUpdatedAt,
-          item_ids: group.itemIds,
-          expected_delivery_date: group.expectedDeliveryDate ?? null,
-          notes: group.notes ?? null,
-        })),
-      }),
-    },
+    jsonRequest("POST", {
+      idempotency_key: input.idempotencyKey,
+      reviewed_lines: input.reviewedLines.map((line) => ({
+        item_id: line.itemId,
+        review_fingerprint: line.reviewFingerprint,
+      })),
+      groups: input.groups.map((group) => ({
+        supplier_id: group.supplierId,
+        delivery_site_id: group.deliverySiteId,
+        delivery_site_updated_at: group.deliverySiteUpdatedAt,
+        item_ids: group.itemIds,
+        expected_delivery_date: group.expectedDeliveryDate ?? null,
+        notes: group.notes ?? null,
+      })),
+    }),
     "Impossible de créer les brouillons de commandes."
   );
 

@@ -28,6 +28,7 @@ import {
 } from "@/lib/estimates/v3-paste";
 import { effectiveKfoValue } from "@/lib/estimates/unified-kfo";
 import type { Database } from "@/types/database";
+import { formatEUR } from "@/lib/money";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
@@ -216,8 +217,7 @@ export function useEstimateClipboard({
 
   const pasteLaborRoleField = useMemo<PasteLaborRoleField | null>(() => {
     if (!v3Paste || !pasteLaborRoleResolution || pasteLaborRoleResolution.status === "not_needed") return null;
-    const formatRate = (cents: number) =>
-      new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(cents / 100);
+    const formatRate = (cents: number) => formatEUR(cents);
     const options = [
       ...v3Paste.laborRoles.map((role) => ({ value: role.id, label: `${role.name} (${formatRate(role.hourlyRateCents)}/h)` })),
       { value: PASTE_NO_LABOR_ROLE, label: "Aucun rôle (MO à 0 €/h)" },

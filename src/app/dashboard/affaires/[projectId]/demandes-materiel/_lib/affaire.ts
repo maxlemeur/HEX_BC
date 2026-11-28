@@ -4,6 +4,8 @@ import { fetchAffaireProjectBasic } from "@/lib/affaires/server";
 import { getUserContext } from "@/lib/auth/server";
 import { canAddToCatalogue } from "@/lib/catalogue/access";
 
+import { notFoundOrRethrow } from "../../_lib/not-found";
+
 /**
  * The affaire a material request page belongs to, read on the server as the sibling sub-pages do:
  * an unknown affaire, or one of another tenant, is a 404 before anything is rendered.
@@ -27,14 +29,6 @@ export async function loadMaterialRequestAffaire(
       canCreateSupplyType: role === "admin",
     };
   } catch (error) {
-    if (
-      error !== null &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error as { code: string }).code === "NOT_FOUND"
-    ) {
-      notFound();
-    }
-    throw error;
+    notFoundOrRethrow(error);
   }
 }

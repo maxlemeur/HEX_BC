@@ -8,6 +8,7 @@ import { LoadingState } from "@/components/layout/loading-state";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { ImportListItem } from "@/hooks/useImportFlow";
+import { COUNT_FORMAT } from "@/lib/format/fr";
 
 type ImportHistoryTableProps = {
   copiedImportId: string | null;
@@ -32,7 +33,7 @@ function formatDate(value: string | null): string {
 
 function formatRowsCount(value: number | null): string {
   if (value === null) return "-";
-  return new Intl.NumberFormat("fr-FR").format(value);
+  return COUNT_FORMAT.format(value);
 }
 
 function statusLabel(status: string): string {

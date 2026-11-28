@@ -5,6 +5,7 @@ import {
   priceExplanationReadResponseSchema,
 } from "@/lib/estimates/explanation-schemas";
 import { badRequest, forbidden, ok, toErrorResponse } from "@/lib/http/api-response";
+import { withPrivateNoStore } from "@/lib/http/response";
 import { parseJsonBody, uuidRouteParams } from "@/lib/http/request";
 import { isSameOriginRequest } from "@/lib/http/same-origin";
 import { generateEstimateLineExplanation, getEstimateLineExplanation } from "@/lib/estimates/explanations";
@@ -32,8 +33,7 @@ export async function GET(
     });
 
     const response = ok(priceExplanationReadResponseSchema.parse(result));
-    response.headers.set("Cache-Control", "private, no-store");
-    return response;
+    return withPrivateNoStore(response);
   } catch (error) {
     return toErrorResponse(error);
   }

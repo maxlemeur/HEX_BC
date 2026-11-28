@@ -1,10 +1,9 @@
-import { TakeoffApiError, TAKEOFF_READ_REQUEST_TIMEOUT_MS } from "@/lib/takeoff/client-http";
+import { callTakeoffApi, TAKEOFF_READ_REQUEST_TIMEOUT_MS } from "@/lib/takeoff/client-http";
 import {
   takeoffRequestActivityResponseSchema,
   type TakeoffRequestActivityResponse,
   type TakeoffRequestActivityView,
 } from "@/lib/takeoff/request-activity-contracts";
-import { isRecord } from "@/lib/value-guards";
 
 const FAILURE = "Impossible de lire l’avancement du métré.";
 
@@ -22,23 +21,6 @@ export async function fetchTakeoffRequestActivity(projectId: string, query: {
   if (query.dossierSeen) params.set("dossierSeen", query.dossierSeen);
   if (query.actionSeen) params.set("actionSeen", query.actionSeen);
   if (query.actionSeenAt) params.set("actionSeenAt", query.actionSeenAt);
-  let response: Response;
-  try {
-    response = await fetch(`/api/takeoff/activity-center/requests?${params.toString()}`, {
-      method: "GET", credentials: "same-origin", headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(TAKEOFF_READ_REQUEST_TIMEOUT_MS),
-    });
-  } catch {
-    // A network failure carries the browser's own (English) message: never shown as is.
-    throw new TakeoffApiError(FAILURE, 0, null, null);
-  }
-  const body = await response.json().catch(() => null) as unknown;
-  const error = isRecord(body) && isRecord(body.error) ? body.error : null;
-  if (!response.ok || !isRecord(body) || body.ok !== true) {
-    const message = typeof error?.message === "string" && error.message.trim() ? error.message : FAILURE;
-    throw new TakeoffApiError(message, response.status, error?.details ?? null, typeof error?.code === "string" ? error.code : null);
-  }
-  const parsed = takeoffRequestActivityResponseSchema.safeParse(body.data);
-  if (!parsed.success) throw new TakeoffApiError(FAILURE, response.status, null, null);
-  return parsed.data;
+  return callTakeoffApi(`/api/takeoff/activity-center/requests?${params.toString()}`, { method: "GET" },
+    takeoffRequestActivityResponseSchema, FAILURE, TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }

@@ -4,6 +4,7 @@ import { PricesManager } from "@/components/catalogue/PricesManager";
 import { PageHeader } from "@/components/layout/page-header";
 import { getUserContext } from "@/lib/auth/server";
 import { fetchAffaireProjectBasic } from "@/lib/affaires/server";
+import { notFoundOrRethrow } from "../_lib/not-found";
 
 type Props = {
   params: Promise<{ projectId: string }>;
@@ -24,19 +25,7 @@ export default async function AffairePricesPage({ params }: Props) {
   ]);
   const [projectSettled] = projectResult;
 
-  if (projectSettled.status === "rejected") {
-    const error = projectSettled.reason as unknown;
-    if (
-      error !== null &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error as { code: string }).code === "NOT_FOUND"
-    ) {
-      notFound();
-    }
-
-    throw error;
-  }
+  if (projectSettled.status === "rejected") notFoundOrRethrow(projectSettled.reason);
 
   const project = projectSettled.value;
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { readAffaireDocumentTranscription } from "@/lib/affaires/intake-transcription-read";
 import { toErrorResponse } from "@/lib/http/api-response";
+import { withPrivateNoStore } from "@/lib/http/response";
 
 export const runtime = "nodejs";
 const paramsSchema = z.object({
@@ -18,7 +19,6 @@ export async function GET(
     return Response.json({ ok: true, data }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     const response = toErrorResponse(error);
-    response.headers.set("Cache-Control", "private, no-store");
-    return response;
+    return withPrivateNoStore(response);
   }
 }

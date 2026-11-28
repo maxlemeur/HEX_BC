@@ -7,6 +7,7 @@ import {
   type EstimateV3SummaryView,
 } from "@/lib/estimates/v3-editor";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
+import { QUANTITY_FORMAT } from "@/lib/format/fr";
 
 /**
  * Lot 2, sous-lot 2.6 - lecture d'une v3 sur sa fiche (conception §14 « 2.6 », D7, D8). Montants
@@ -17,7 +18,6 @@ import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
  */
 
 const STATUS_LABELS = new Map(ESTIMATE_V3_PRICING_STATUS_OPTIONS.map((option) => [option.value, option.label]));
-const QUANTITY_FORMAT = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 
 type Line = Pick<
   EstimateItem,

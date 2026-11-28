@@ -6,6 +6,7 @@ import { listTakeoffItemsByJobId } from "@/lib/takeoff/job-read-server";
 import { earlierAnalysisView, EARLIER_ANALYSIS_ROWS_SHOWN, keptWarnings, type EarlierAnalysisView } from "./earlier-analysis";
 import type { TakeoffLinkJobFacts } from "./review-link";
 import { readTakeoffRequestsReadingList, readTakeoffReviewLinkFacts } from "./review-link-server";
+import { UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 /**
  * The reads of « Analyse antérieure » (earlier-analysis.ts), with the member's session in the affaire the member reads
@@ -15,8 +16,6 @@ import { readTakeoffRequestsReadingList, readTakeoffReviewLinkFacts } from "./re
 /** The most recent jobs looked at for the list beside the table, and how many of them it names. */
 const JOBS_READ = 50;
 const LISTED = 10;
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function readFailure(error: { code?: string; message: string }): never {
   throw mapSupabaseError({ ...error, code: error.code ?? "UNKNOWN" }, "Impossible de lire les analyses antérieures de l’affaire.");

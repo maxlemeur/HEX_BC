@@ -8,6 +8,7 @@ import {
 } from "@/lib/estimates/provisional-quantity";
 import { noteLength, noteText } from "@/lib/takeoff/rules/acceptance-note";
 import { ESTIMATE_LINE_PRICING_STATUSES, type EstimateLinePricingStatus } from "@/lib/units/normalize";
+import { UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 // TI-682, lot C, PR 4 (D10, D25, D28, D29): the written reserve in the offer. A « Non chiffrée » line leaves unpriced,
 // and the offer says so in writing: an administrator declares the reserve on the line, with what it rests on. The tool
@@ -195,8 +196,6 @@ export const estimateOfferChoiceInputSchema = z.discriminatedUnion("kind", [rese
       + "une ligne chiffrée dont la quantité repose sur une hypothèse du métré part avec une quantité provisionnelle, "
       + "la phrase composée par l'outil doit figurer dans ce texte. Base, code et note restent internes.",
   });
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const storedProvisionalTextSchema = z.string().refine((value) => provisionalTextError(value) === null);
 

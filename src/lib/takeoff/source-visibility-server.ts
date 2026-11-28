@@ -4,8 +4,7 @@ import { selectInChunks } from "@/lib/supabase/in-chunks";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import type { TakeoffVisibleSources } from "@/lib/takeoff/request-activity";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 /**
  * The plan copies and dossier pieces among `ids` that this member may read, by their own policies evaluated for the

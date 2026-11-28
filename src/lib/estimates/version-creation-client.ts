@@ -1,3 +1,4 @@
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import { parseCreateEstimateResponse } from "@/lib/estimates/write-response-contracts";
 
@@ -87,13 +88,7 @@ export async function createEstimate(
 
   const payload = await requestJson(
     "/api/estimates",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    },
+    jsonRequest("POST", requestBody),
     "Impossible de créer le chiffrage.",
     value => parseCreateEstimateResponse(value, projectId ?? undefined)
   );

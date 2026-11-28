@@ -31,10 +31,10 @@ import { MaterialRequestWorkbookColumns } from "./MaterialRequestWorkbookColumns
 import { MaterialRequestWorkbookSuppliers, type WorkbookSupplierChoice } from "./MaterialRequestWorkbookSuppliers";
 import type { MaterialRequestEditorApi } from "./useMaterialRequestEditor";
 import { readRememberedWorkbookColumns, rememberWorkbookColumns } from "./workbook-columns-memory";
+import { QUANTITY_FORMAT as quantityFormat } from "@/lib/format/fr";
 
 type Step = "columns" | "suppliers" | "preview";
 
-const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 const HEADINGS = ["Ligne Excel", "Désignation", "Dimension", "Précision", "Quantité", "Unité", "Fournisseur", "Référence", "Matière", "Repère"];
 const STEP_TITLES: Record<Step, string> = {
   columns: "Onglet et colonnes",

@@ -10,6 +10,7 @@ import {
 } from "@/lib/takeoff/earlier-analysis";
 import { listEarlierTakeoffAnalyses } from "@/lib/takeoff/earlier-analysis-server";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
+import { QUANTITY_FORMAT as quantity } from "@/lib/format/fr";
 
 /**
  * « Analyse antérieure » on the affaire's takeoff page (lot 4, earlier-analysis.ts): beside the table of items, the
@@ -18,7 +19,6 @@ import { takeoffReviewHref } from "@/lib/takeoff/review-href";
  */
 
 const status = (value: string) => EARLIER_ANALYSIS_STATUS_LABELS[value] ?? "État inconnu";
-const quantity = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 
 /** The earlier analyses beside the table of items; nothing before the affaire has a list, or without any. */
 export async function TakeoffEarlierAnalysesPanel({ projectId, query }: { projectId: string; query: URLSearchParams }) {

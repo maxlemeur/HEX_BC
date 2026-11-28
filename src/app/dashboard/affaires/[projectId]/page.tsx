@@ -47,6 +47,7 @@ import { isTakeoffLaunchActive } from "@/lib/takeoff/launch-request-server";
 import { readAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
+import { notFoundOrRethrow } from "./_lib/not-found";
 
 // A document retry may download and parse a large PDF before proposing its category.
 export const maxDuration = 300;
@@ -81,7 +82,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       fetchAffaireIntakeWorkspace(projectId), requireAffaireAccess(projectId, "read"), isTakeoffEnabled(tenantId).catch(() => false),
       // The import's plans step launches on its own draft only before the automatic start is active (null: unknown).
       isTakeoffLaunchActive().catch(() => null),
-    ]).catch((error: unknown) => { if (error && typeof error === "object" && "code" in error && error.code === "NOT_FOUND") notFound(); throw error; });
+    ]).catch(notFoundOrRethrow);
     if (workspace.documents.length > 0) return <AffaireDocumentPage projectId={projectId} projectName={access.project.name} workspace={workspace}
       canManage={Boolean(workspace.canManageDocuments && profile?.tenant_role !== "director")} takeoffEnabled={takeoffEnabled}
       takeoffLaunchActive={takeoffLaunchActive} />;
@@ -189,18 +190,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       marginAnalysisPromise,
     ]);
 
-  if (initialDataResult.status === "rejected") {
-    const err = initialDataResult.reason as unknown;
-    if (
-      err !== null &&
-      typeof err === "object" &&
-      "code" in err &&
-      (err as { code: string }).code === "NOT_FOUND"
-    ) {
-      notFound();
-    }
-    throw err;
-  }
+  if (initialDataResult.status === "rejected") notFoundOrRethrow(initialDataResult.reason);
 
   const {
     summary: initialSummary,

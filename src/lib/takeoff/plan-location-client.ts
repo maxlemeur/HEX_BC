@@ -1,6 +1,9 @@
-import type { z } from "zod";
-
-import { TakeoffApiError, TAKEOFF_READ_REQUEST_TIMEOUT_MS, TAKEOFF_WRITE_REQUEST_TIMEOUT_MS } from "@/lib/takeoff/client-http";
+import {
+  callTakeoffApi as request,
+  TakeoffApiError,
+  TAKEOFF_READ_REQUEST_TIMEOUT_MS,
+  TAKEOFF_WRITE_REQUEST_TIMEOUT_MS,
+} from "@/lib/takeoff/client-http";
 import {
   planLocationReplacementSchema,
   takeoffJobPlanLocationsSchema,
@@ -11,26 +14,6 @@ import { isRecord } from "@/lib/value-guards";
 
 // Reading a plan revision includes its title blocks: a read can take a few seconds on a large PDF.
 const READ_TIMEOUT_MS = Math.max(TAKEOFF_READ_REQUEST_TIMEOUT_MS, 45_000);
-
-async function request<T>(path: string, init: RequestInit, schema: z.ZodType<T>, failure: string, timeoutMs: number): Promise<T> {
-  const signal = AbortSignal.timeout(timeoutMs);
-  let response: Response;
-  try {
-    response = await fetch(path, { credentials: "same-origin", ...init, signal, headers: { accept: "application/json", ...(init.headers ?? {}) } });
-  } catch {
-    // A network failure carries the browser's own (English) message: never shown as is.
-    throw new TakeoffApiError(failure, 0, null, null);
-  }
-  const body = await response.json().catch(() => null) as unknown;
-  const error = isRecord(body) && isRecord(body.error) ? body.error : null;
-  if (!response.ok || !isRecord(body) || body.ok !== true) {
-    const message = typeof error?.message === "string" && error.message.trim() ? error.message : failure;
-    throw new TakeoffApiError(message, response.status, error?.details ?? null, typeof error?.code === "string" ? error.code : null);
-  }
-  const parsed = schema.safeParse(body.data);
-  if (!parsed.success) throw new TakeoffApiError(failure, response.status, null, null);
-  return parsed.data;
-}
 
 const planPath = (setId: string, fileId: string) =>
   `/api/takeoff/plan-sets/${encodeURIComponent(setId)}/files/${encodeURIComponent(fileId)}/location`;

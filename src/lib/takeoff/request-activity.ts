@@ -27,6 +27,7 @@ import type {
   TakeoffRequestActivityResponse,
 } from "@/lib/takeoff/request-activity-contracts";
 import { storedTakeoffFailureMessage } from "@/lib/takeoff/visible-status";
+import { isRecord, UUID_PATTERN as UUID } from "@/lib/value-guards";
 
 /**
  * What the affaire's activity shows of its launch requests (migration 20261121170448_takeoff_launch_requests.sql): each
@@ -108,13 +109,10 @@ export type TakeoffRequestManifest = {
   omitted: Array<TakeoffRequestActivity["plansOmitted"][number] & { id: string | null }>;
 };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OMITTED_REASONS = new Set(["alternate", "identical_copy", "unsupported_format", "not_requested", "not_selected"]);
 const PUBLIC_CODES = new Set<string>(TAKEOFF_PUBLIC_FAILURE_CODES);
 const PLAN_PUBLIC_CODES = new Set<string>(TAKEOFF_PLAN_PUBLIC_FAILURE_CODES);
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 const toPages = (value: unknown) => Array.isArray(value)
   ? value.filter((page): page is number => Number.isSafeInteger(page) && (page as number) > 0).sort((left, right) => left - right)
   : [];

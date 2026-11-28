@@ -4,6 +4,7 @@ import { fetchAffaireHubPlansSummary } from "@/lib/affaires/server";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { ok, toErrorResponse } from "@/lib/http/api-response";
+import { withPrivateNoStore } from "@/lib/http/response";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 // The affaire page reads its dossier here while documents are added or analysed, instead of
@@ -26,8 +27,7 @@ export async function GET(
         : undefined,
     ]);
     const response = ok(plansSummary === undefined ? { workspace } : { workspace, plansSummary });
-    response.headers.set("Cache-Control", "private, no-store");
-    return response;
+    return withPrivateNoStore(response);
   } catch (error) {
     return toErrorResponse(error);
   }

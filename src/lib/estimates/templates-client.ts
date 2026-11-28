@@ -1,4 +1,13 @@
-import { type JsonRecord, toNumber, getRootPayload, extractEntity } from "@/lib/estimates/client-json";
+import {
+  type JsonRecord,
+  toNumber,
+  getRootPayload,
+  extractEntity,
+  libraryListPath,
+  parseLibraryList,
+  pickRecordArray,
+} from "@/lib/estimates/client-json";
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import { type EstimateItem, parseEstimateItems } from "@/lib/estimates/editor-read-client";
 import type { Database } from "@/types/database";
@@ -88,25 +97,6 @@ function parseEstimateTemplateSummaryEntity(
   };
 }
 
-function parseEstimateTemplateItems(value: unknown): EstimateTemplateItem[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((entry) => isRecord(entry)) as EstimateTemplateItem[];
-}
-
-function parseEstimateTemplateSummaryList(payload: unknown): EstimateTemplateSummary[] {
-  const root = getRootPayload(payload);
-  if (!isRecord(root)) return [];
-  const rawItems = Array.isArray(root.templates)
-    ? root.templates
-    : Array.isArray(root.items)
-      ? root.items
-      : [];
-
-  return rawItems
-    .map((item) => parseEstimateTemplateSummaryEntity(item))
-    .filter((item): item is EstimateTemplateSummary => Boolean(item));
-}
-
 function parseEstimateTemplateDetail(payload: unknown): EstimateTemplateDetail {
   const root = getRootPayload(payload);
   const templateEntity = extractEntity(root, ["template"]);
@@ -115,7 +105,7 @@ function parseEstimateTemplateDetail(payload: unknown): EstimateTemplateDetail {
     throw new Error("Impossible de récupérer le template.");
   }
 
-  const items = parseEstimateTemplateItems(
+  const items = pickRecordArray<EstimateTemplateItem>(
     (templateEntity as JsonRecord | null)?.items ?? (isRecord(root) ? root.items : null)
   );
 
@@ -181,31 +171,15 @@ export async function fetchEstimateTemplates(options?: {
   limit?: number;
   order?: "recent" | "oldest";
 }): Promise<EstimateTemplateSummary[]> {
-  const params = new URLSearchParams();
-  if (options?.search?.trim()) {
-    params.set("search", options.search.trim());
-  }
-  if (options?.limit && Number.isFinite(options.limit) && options.limit > 0) {
-    params.set("limit", String(Math.floor(options.limit)));
-  }
-  if (options?.order) {
-    params.set("order", options.order);
-  }
-
-  const query = params.toString();
-  const path = query.length > 0
-    ? `/api/estimates/templates?${query}`
-    : "/api/estimates/templates";
-
   const payload = await requestJson<unknown>(
-    path,
+    libraryListPath("/api/estimates/templates", options),
     {
       method: "GET",
     },
     "Impossible de charger les templates."
   );
 
-  return parseEstimateTemplateSummaryList(payload);
+  return parseLibraryList(payload, "templates", parseEstimateTemplateSummaryEntity);
 }
 
 export async function fetchEstimateTemplate(
@@ -227,17 +201,11 @@ export async function createEstimateTemplate(
 ): Promise<EstimateTemplateSummary> {
   const payload = await requestJson<unknown>(
     "/api/estimates/templates",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sourceVersionId: input.sourceVersionId,
-        name: input.name,
-        description: input.description ?? null,
-      }),
-    },
+    jsonRequest("POST", {
+      sourceVersionId: input.sourceVersionId,
+      name: input.name,
+      description: input.description ?? null,
+    }),
     "Impossible de créer le template."
   );
 
@@ -256,13 +224,7 @@ export async function updateEstimateTemplate(
 ): Promise<EstimateTemplateSummary> {
   const payload = await requestJson<unknown>(
     `/api/estimates/templates/${templateId}`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(updates),
-    },
+    jsonRequest("PATCH", updates),
     "Impossible de mettre à jour le template."
   );
 
@@ -296,13 +258,7 @@ export async function duplicateEstimateTemplate(
 
   const payload = await requestJson<unknown>(
     `/api/estimates/templates/${templateId}/duplicate`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    },
+    jsonRequest("POST", body),
     "Impossible de dupliquer le template."
   );
 
@@ -346,13 +302,7 @@ export async function instantiateEstimateFromTemplate(
 
   const payload = await requestJson<unknown>(
     `/api/estimates/templates/${templateId}/instantiate`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    },
+    jsonRequest("POST", requestBody),
     "Impossible d'instancier le template."
   );
 
@@ -371,13 +321,9 @@ export async function insertTemplateIntoVersion(
 
   const payload = await requestJson<unknown>(
     `/api/estimates/templates/${templateId}/insert?${params.toString()}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        afterItemId: input.afterItemId ?? null,
-      }),
-    },
+    jsonRequest("POST", {
+      afterItemId: input.afterItemId ?? null,
+    }),
     "Impossible d'insérer le template.",
     undefined,
     { mutation: { versionId: input.versionId, structural: true } }

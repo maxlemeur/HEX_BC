@@ -98,3 +98,48 @@ export function parseOptionalNullableStringProperty(
 
   return undefined;
 }
+
+/** The address of a library list (templates, ouvrages): a trimmed search, a whole positive limit and an order. */
+export function libraryListPath(
+  base: string,
+  options?: { search?: string; limit?: number; order?: "recent" | "oldest" }
+): string {
+  const params = new URLSearchParams();
+  if (options?.search?.trim()) {
+    params.set("search", options.search.trim());
+  }
+  if (options?.limit && Number.isFinite(options.limit) && options.limit > 0) {
+    params.set("limit", String(Math.floor(options.limit)));
+  }
+  if (options?.order) {
+    params.set("order", options.order);
+  }
+
+  const query = params.toString();
+  return query.length > 0 ? `${base}?${query}` : base;
+}
+
+/** The records of an array, anything else dropped; not an array gives none. */
+export function pickRecordArray<T>(value: unknown): T[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry) => isRecord(entry)) as T[];
+}
+
+/** The entities of a library list, read under `key` or else `items`; an entry its parser refuses is dropped. */
+export function parseLibraryList<T>(
+  payload: unknown,
+  key: string,
+  parseEntity: (value: unknown) => T | null
+): T[] {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return [];
+  const rawItems = Array.isArray(root[key])
+    ? root[key]
+    : Array.isArray(root.items)
+      ? root.items
+      : [];
+
+  return rawItems
+    .map((item) => parseEntity(item))
+    .filter((item): item is T => Boolean(item));
+}

@@ -4,7 +4,12 @@ import type { TakeoffPaymentChoice } from "./payment-choice";
 import { findReceiptSchema, findsViewSchema, type FindCommand } from "./unlisted-finds";
 import type { z } from "zod";
 
-import { TakeoffApiError, TAKEOFF_READ_REQUEST_TIMEOUT_MS, TAKEOFF_WRITE_REQUEST_TIMEOUT_MS } from "@/lib/takeoff/client-http";
+import {
+  callTakeoffApi as call,
+  TakeoffApiError,
+  TAKEOFF_READ_REQUEST_TIMEOUT_MS,
+  TAKEOFF_WRITE_REQUEST_TIMEOUT_MS,
+} from "@/lib/takeoff/client-http";
 import {
   ITEM_REVIEW_COMMAND_VERSION,
   itemRemeasurePreviewSchema,
@@ -22,32 +27,11 @@ import {
 } from "@/lib/takeoff/item-table-contracts";
 import type { ItemTableFilter, ItemTableScope } from "@/lib/takeoff/item-table";
 import { itemTableAddressParams, withItemTableParams, type ItemTableAddress } from "@/lib/takeoff/item-table-query";
-import { isRecord } from "@/lib/value-guards";
 
 /** The screen's calls to the table of items of an affaire, each answer checked against its contract. */
 
 const READ_FAILURE = "Impossible de lire les postes du métré.";
 const WRITE_FAILURE = "Impossible d’enregistrer la décision sur les postes.";
-
-async function call<T>(path: string, init: RequestInit, schema: z.ZodType<T>, failure: string, timeoutMs: number): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(path, { credentials: "same-origin", signal: AbortSignal.timeout(timeoutMs), ...init,
-      headers: { accept: "application/json", ...(init.body ? { "content-type": "application/json" } : {}) } });
-  } catch {
-    // A network failure carries the browser's own (English) message: never shown as is.
-    throw new TakeoffApiError(failure, 0, null, null);
-  }
-  const body = await response.json().catch(() => null) as unknown;
-  const error = isRecord(body) && isRecord(body.error) ? body.error : null;
-  if (!response.ok || !isRecord(body) || body.ok !== true) {
-    const message = typeof error?.message === "string" && error.message.trim() ? error.message : failure;
-    throw new TakeoffApiError(message, response.status, error?.details ?? null, typeof error?.code === "string" ? error.code : null);
-  }
-  const parsed = schema.safeParse(body.data);
-  if (!parsed.success) throw new TakeoffApiError(failure, response.status, null, null);
-  return parsed.data;
-}
 
 const base = (projectId: string) => `/api/affaires/${encodeURIComponent(projectId)}/takeoff/items`;
 

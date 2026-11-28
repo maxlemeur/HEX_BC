@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { getEstimateBatchReceipt } from "@/lib/estimates/batch";
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
+import { withPrivateNoStore } from "@/lib/http/response";
 
 const paramsSchema = z.object({ versionId: z.string().uuid(), operationKey: z.string().uuid() }).strict();
 
@@ -12,11 +13,9 @@ export async function GET(request: Request, { params }: {
     if (new URL(request.url).searchParams.size !== 0) throw badRequest("Paramètres de reçu invalides.");
     const { versionId, operationKey } = paramsSchema.parse(await params);
     const response = ok(await getEstimateBatchReceipt(versionId, operationKey));
-    response.headers.set("Cache-Control", "private, no-store");
-    return response;
+    return withPrivateNoStore(response);
   } catch (error) {
     const response = toErrorResponse(error);
-    response.headers.set("Cache-Control", "private, no-store");
-    return response;
+    return withPrivateNoStore(response);
   }
 }

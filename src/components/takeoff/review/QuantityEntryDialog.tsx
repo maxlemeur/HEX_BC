@@ -16,12 +16,13 @@ import {
   type QuantityEntry,
 } from "@/lib/takeoff/quantity-entry";
 import { noteLength, noteText } from "@/lib/takeoff/rules/verification";
+import { QUANTITY_FORMAT } from "@/lib/format/fr";
 
 // What a quantity the plan cannot show rests on (TI-686 D12), asked when it is entered in the targeted review (Enter
 // after F2 or a direct entry, or a guided reduction of such a line): one category, and a note an hypothesis requires.
 // Enter saves a complete entry, Escape cancels it: nothing is saved without its category.
 
-export const quantityText = (value: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value);
+export const quantityText = (value: number) => QUANTITY_FORMAT.format(value);
 
 export function QuantityEntryDialog({ quantity, unit, busy, onClose, onConfirm }: Readonly<{
   quantity: number; unit: string; busy: boolean; onClose: () => void; onConfirm: (entry: QuantityEntry) => void;

@@ -1,4 +1,5 @@
 import { extractEntity } from "@/lib/estimates/client-json";
+import { jsonRequest } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
 import type { Database } from "@/types/database";
 import type { LaborRole } from "@/lib/estimates/editor-items";
@@ -21,13 +22,7 @@ export async function createEstimateCategory(
 ): Promise<EstimateCategory> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/categories`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(category),
-    },
+    jsonRequest("POST", category),
     "Impossible de créer la catégorie."
   );
 
@@ -48,13 +43,7 @@ export async function createEstimateLaborRole(
 ): Promise<LaborRole> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/labor-roles`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(role),
-    },
+    jsonRequest("POST", role),
     "Impossible de créer le rôle."
   );
 
@@ -73,13 +62,7 @@ export async function updateEstimateLaborRole(
 ): Promise<void> {
   await requestJson<unknown>(
     `/api/estimates/${versionId}/labor-roles/${roleId}`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(updates),
-    },
+    jsonRequest("PATCH", updates),
     "Impossible de mettre à jour le rôle."
   );
 }
@@ -92,13 +75,7 @@ export async function createMarginTier(
 ): Promise<MarginTier> {
   const payload = await requestJson<unknown>(
     `/api/margin-tiers`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(tier),
-    },
+    jsonRequest("POST", tier),
     "Impossible de créer la tranche de marge."
   );
 
@@ -116,13 +93,7 @@ export async function updateMarginTier(
 ): Promise<MarginTier> {
   const payload = await requestJson<unknown>(
     `/api/margin-tiers/${tierId}`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(updates),
-    },
+    jsonRequest("PATCH", updates),
     "Impossible de mettre à jour la tranche de marge."
   );
 
@@ -162,13 +133,7 @@ export async function createEstimateSuggestionRule(
 ): Promise<SuggestionRule> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/suggestion-rules`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(rule),
-    },
+    jsonRequest("POST", rule),
     "Impossible de créer la règle."
   );
 
@@ -187,13 +152,7 @@ export async function updateEstimateSuggestionRule(
 ): Promise<SuggestionRule | null> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/suggestion-rules/${ruleId}`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(updates),
-    },
+    jsonRequest("PATCH", updates),
     "Impossible de mettre à jour la règle."
   );
 
@@ -219,13 +178,7 @@ export async function sendEstimateSuggestionRuleFeedback(
 
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/suggestion-rules/${ruleId}/feedback`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(feedbackPayload),
-    },
+    jsonRequest("POST", feedbackPayload),
     "Impossible d'enregistrer le feedback de la règle."
   );
 

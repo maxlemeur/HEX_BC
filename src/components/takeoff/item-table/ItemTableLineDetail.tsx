@@ -20,9 +20,9 @@ import { takeoffReviewHref, takeoffItemDetailHref } from "@/lib/takeoff/review-h
 import { describeItemUncertainty } from "@/lib/takeoff/item-uncertainty";
 import { Button } from "@/components/ui/button";
 import { ItemTableHistory } from "./ItemTableHistory";
+import { PARIS_DATE_TIME_FORMAT as dateFormat } from "@/lib/format/fr";
 
 const OUTCOME_LABELS = { measured: "Mesuré", uncertain: "Incertain", not_found: "Non trouvé" } as const;
-const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Paris" });
 const pages = (list: number[]) => list.length ? list.join(", ") : "—";
 
 type Entry = NonNullable<ItemTableResponseLine["entry"]>;

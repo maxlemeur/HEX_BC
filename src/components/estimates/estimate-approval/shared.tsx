@@ -8,6 +8,7 @@ import type {
   EstimateReviewCorrectionStatus,
   EstimateReviewDecision,
 } from "@/lib/estimates/approval-types";
+import { COUNT_FORMAT } from "@/lib/format/fr";
 
 export type DraftComment = EstimateApprovalDecisionCommentInput & {
   id: string;
@@ -167,7 +168,7 @@ export function formatCount(value: number | null) {
     return "Indisponible";
   }
 
-  return new Intl.NumberFormat("fr-FR").format(value);
+  return COUNT_FORMAT.format(value);
 }
 
 export function formatCurrencyDelta(value: number | null) {

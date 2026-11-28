@@ -28,6 +28,7 @@ import { isTakeoffPlanDispatchActive } from "@/lib/takeoff/local-dispatcher";
 import { fetchPlanSetsForProject } from "@/lib/takeoff/plans";
 import { TAKEOFF_ITEM_DETAIL_PARAMS } from "@/lib/takeoff/review-href";
 import { resolveTakeoffReviewLink } from "@/lib/takeoff/review-link";
+import { notFoundOrRethrow } from "../_lib/not-found";
 
 type Props = {
   params: Promise<{ projectId: string }>;
@@ -67,10 +68,7 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
   // The detail of an item opened from the table of items (`?poste=…`): the same page, its address and its reads
   // (the table's routes, which check the member's access to the affaire), the table one step back.
   if (query[TAKEOFF_ITEM_DETAIL_PARAMS.itemId] !== undefined) {
-    const project = await fetchAffaireProjectBasic(projectId).catch((err: unknown) => {
-      if (err !== null && typeof err === "object" && "code" in err && (err as { code: string }).code === "NOT_FOUND") notFound();
-      throw err;
-    });
+    const project = await fetchAffaireProjectBasic(projectId).catch(notFoundOrRethrow);
     return (
       <div className="space-y-3">
         <Breadcrumbs items={[
@@ -90,10 +88,7 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
   // step back. A job read against the list is not one: the table shows it, as its review's link does.
   const earlierJob = readEarlierAnalysisParam(search);
   if (earlierJob !== null) {
-    const project = await fetchAffaireProjectBasic(projectId).catch((err: unknown) => {
-      if (err !== null && typeof err === "object" && "code" in err && (err as { code: string }).code === "NOT_FOUND") notFound();
-      throw err;
-    });
+    const project = await fetchAffaireProjectBasic(projectId).catch(notFoundOrRethrow);
     const earlier = earlierJob === "invalid" ? null : await readEarlierTakeoffAnalysis(project.id, earlierJob).catch((err: unknown) => {
       if (err !== null && typeof err === "object" && "status" in err && [403, 404].includes((err as { status: number }).status)) return null;
       throw err;
@@ -120,18 +115,7 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
     launchRequestsActive && isTakeoffPlanDispatchActive(),
   ]);
 
-  if (projectResult.status === "rejected") {
-    const err = projectResult.reason as unknown;
-    if (
-      err !== null &&
-      typeof err === "object" &&
-      "code" in err &&
-      (err as { code: string }).code === "NOT_FOUND"
-    ) {
-      notFound();
-    }
-    throw err;
-  }
+  if (projectResult.status === "rejected") notFoundOrRethrow(projectResult.reason);
 
   const project = projectResult.value;
   const planDispatch = planDispatchResult.status === "fulfilled" && planDispatchResult.value;
